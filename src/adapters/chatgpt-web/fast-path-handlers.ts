@@ -75,17 +75,36 @@ export function resolveSafeWorkspacePath(requestedPath: string, cwd: string, roo
 }
 
 export const CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS = 16_000;
-const TOOL_OUTPUT_HEAD_CHARS = 7_000;
-const TOOL_OUTPUT_TAIL_CHARS = 7_000;
+
+export interface TruncateHeadTailOptions {
+  headRatio?: number;
+  tailRatio?: number;
+  headChars?: number;
+  tailChars?: number;
+}
 
 export function truncateToolOutputText(
   text: string,
   maxChars = CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS,
+  options?: TruncateHeadTailOptions,
 ): string {
   if (text.length <= maxChars) return text;
-  const omitted = text.length - TOOL_OUTPUT_HEAD_CHARS - TOOL_OUTPUT_TAIL_CHARS;
-  const head = text.slice(0, TOOL_OUTPUT_HEAD_CHARS);
-  const tail = text.slice(-TOOL_OUTPUT_TAIL_CHARS);
+
+  let headLimit: number;
+  let tailLimit: number;
+
+  if (options?.headChars !== undefined && options?.tailChars !== undefined) {
+    headLimit = options.headChars;
+    tailLimit = options.tailChars;
+  } else {
+    const effectiveBudget = Math.max(100, maxChars - 200);
+    headLimit = Math.floor(effectiveBudget * (options?.headRatio ?? 0.35));
+    tailLimit = Math.floor(effectiveBudget * (options?.tailRatio ?? 0.60));
+  }
+
+  const omitted = Math.max(0, text.length - headLimit - tailLimit);
+  const head = text.slice(0, headLimit);
+  const tail = text.slice(-tailLimit);
   const headCut = head.lastIndexOf("\n");
   const tailCut = tail.indexOf("\n");
   const cleanHead = headCut > 0 ? head.slice(0, headCut) : head;
@@ -95,6 +114,15 @@ export function truncateToolOutputText(
     `\n\n[... output truncated: ${omitted.toLocaleString("en-US")} characters omitted to prevent context overflow. To inspect more, use grep, head/tail, or redirect output to a file ...]\n`,
     cleanTail,
   ].join("\n");
+}
+
+export function preserveHeadTailOutput(
+  text: string,
+  maxChars = CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS,
+  headChars?: number,
+  tailChars?: number,
+): string {
+  return truncateToolOutputText(text, maxChars, { headChars, tailChars });
 }
 
 /** Hard ceiling for one codex_read_file call; larger files must be read in slices or via codex_exec. */
@@ -459,3 +487,155 @@ export function handleGrep(options: {
     truncated: lines.length >= max_results,
   });
 }
+
+export function isReadOnlyFastPathTool(toolName: string): boolean {
+  return (
+    toolName === "codex_read_file" ||
+    toolName === "codex_list_dir" ||
+    toolName === "codex_grep" ||
+    toolName === "read_file" ||
+    toolName === "list_dir" ||
+    toolName === "grep"
+  );
+}
+
+export function isMutatingFastPathTool(toolName: string): boolean {
+  return (
+    toolName === "codex_write_file" ||
+    toolName === "codex_patch_file" ||
+    toolName === "write_file" ||
+    toolName === "patch_file"
+  );
+}
+
+export type FastPathToolCall = {
+  tool: string;
+  arguments: Record<string, unknown>;
+  id?: string;
+};
+
+export type FastPathBatchResult = {
+  id?: string;
+  tool: string;
+  result: FastPathToolResult;
+};
+
+export function dispatchFastPathTool(
+  tool: string,
+  args: Record<string, unknown>,
+  context: {
+    cwd: string;
+    roots: string[];
+    cache?: FastPathWorkspaceCache;
+  },
+): FastPathToolResult {
+  const norm = tool.startsWith("codex_") ? tool : `codex_${tool}`;
+  switch (norm) {
+    case "codex_read_file":
+      return handleReadFile({
+        path: String(args.path ?? ""),
+        offset: typeof args.offset === "number" ? args.offset : undefined,
+        limit_lines: typeof args.limit_lines === "number" ? args.limit_lines : undefined,
+        cwd: context.cwd,
+        roots: context.roots,
+        cache: context.cache,
+      });
+    case "codex_write_file":
+      return handleWriteFile({
+        path: String(args.path ?? ""),
+        content: String(args.content ?? ""),
+        overwrite: Boolean(args.overwrite),
+        create_parents: Boolean(args.create_parents),
+        cwd: context.cwd,
+        roots: context.roots,
+        cache: context.cache,
+      });
+    case "codex_patch_file":
+      return handlePatchFile({
+        path: String(args.path ?? ""),
+        target_content: String(args.target_content ?? ""),
+        replacement_content: String(args.replacement_content ?? ""),
+        cwd: context.cwd,
+        roots: context.roots,
+        cache: context.cache,
+      });
+    case "codex_list_dir":
+      return handleListDir({
+        path: typeof args.path === "string" ? args.path : undefined,
+        depth: typeof args.depth === "number" ? args.depth : undefined,
+        limit: typeof args.limit === "number" ? args.limit : undefined,
+        cwd: context.cwd,
+        roots: context.roots,
+      });
+    case "codex_grep":
+      return handleGrep({
+        query: String(args.query ?? ""),
+        path: typeof args.path === "string" ? args.path : undefined,
+        max_results: typeof args.max_results === "number" ? args.max_results : undefined,
+        case_sensitive: typeof args.case_sensitive === "boolean" ? args.case_sensitive : undefined,
+        file_pattern: typeof args.file_pattern === "string" ? args.file_pattern : undefined,
+        cwd: context.cwd,
+        roots: context.roots,
+      });
+    default:
+      return result({ error: `Unsupported fast-path tool: ${tool}` }, true);
+  }
+}
+
+export async function executeFastPathBatch(
+  calls: FastPathToolCall[],
+  context: {
+    cwd: string;
+    roots: string[];
+    cache?: FastPathWorkspaceCache;
+  },
+): Promise<FastPathBatchResult[]> {
+  const results: FastPathBatchResult[] = new Array(calls.length);
+  let readSegment: Array<{ index: number; call: FastPathToolCall }> = [];
+
+  const flushReadSegment = async () => {
+    if (readSegment.length === 0) return;
+    const current = readSegment;
+    readSegment = [];
+    await Promise.all(
+      current.map(async ({ index, call }) => {
+        try {
+          const res = dispatchFastPathTool(call.tool, call.arguments, context);
+          results[index] = { id: call.id, tool: call.tool, result: res };
+        } catch (err) {
+          results[index] = {
+            id: call.id,
+            tool: call.tool,
+            result: result({ error: err instanceof Error ? err.message : String(err) }, true),
+          };
+        }
+      }),
+    );
+  };
+
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i];
+    if (isReadOnlyFastPathTool(call.tool)) {
+      readSegment.push({ index: i, call });
+    } else {
+      // Barrier: flush all preceding read operations concurrently before mutating
+      await flushReadSegment();
+      try {
+        const res = dispatchFastPathTool(call.tool, call.arguments, context);
+        results[i] = { id: call.id, tool: call.tool, result: res };
+      } catch (err) {
+        results[i] = {
+          id: call.id,
+          tool: call.tool,
+          result: result({ error: err instanceof Error ? err.message : String(err) }, true),
+        };
+      }
+    }
+  }
+
+  // Flush any trailing read operations
+  await flushReadSegment();
+
+  return results;
+}
+

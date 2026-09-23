@@ -118,23 +118,20 @@ codex-status() {
 codex-restart() {
     echo -e "${YELLOW}==> Reiniciando servicios Codex Web & Túnel...${NC}"
     local cgw_home="${CODEX_CHATGPT_WEB_HOME:-$HOME/.codex-chatgpt-web}"
+    mkdir -p "$cgw_home/logs"
 
-    local tunnel_pid
-    tunnel_pid=$(pgrep -f "tunnel-client run" 2>/dev/null)
-    if [ -n "$tunnel_pid" ]; then
-        kill $tunnel_pid 2>/dev/null
+    local pids
+    pids=$(pgrep -f "tunnel-client run|cli.js mcp|cli.js serve" 2>/dev/null)
+    if [ -n "$pids" ]; then
+        kill $pids 2>/dev/null
+        sleep 1
+        local lingering
+        lingering=$(pgrep -f "tunnel-client run|cli.js mcp|cli.js serve" 2>/dev/null)
+        if [ -n "$lingering" ]; then
+            kill -9 $lingering 2>/dev/null
+            sleep 1
+        fi
     fi
-    local mcp_pid
-    mcp_pid=$(pgrep -f "cli.js mcp" 2>/dev/null)
-    if [ -n "$mcp_pid" ]; then
-        kill $mcp_pid 2>/dev/null
-    fi
-    local serve_pid
-    serve_pid=$(pgrep -f "cli.js serve" 2>/dev/null)
-    if [ -n "$serve_pid" ]; then
-        kill $serve_pid 2>/dev/null
-    fi
-    sleep 2
 
     # Daemon HTTP local (debe levantarse primero: crea el socket del turn-broker que usa el MCP)
     local runtime_dir
@@ -144,19 +141,19 @@ codex-restart() {
         codex-status
         return 1
     fi
-    nohup "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" serve > /dev/null 2>&1 &
+    nohup "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" serve > "$cgw_home/logs/daemon.log" 2>&1 &
     sleep 2
 
     # Túnel OpenAI con el perfil real en vivo (mismo formato que usa el proceso del túnel)
     nohup "$cgw_home/bin/tunnel-client" run \
         --profile-dir "$cgw_home/tunnel/profiles" \
-        --profile codex-chatgpt-web > /dev/null 2>&1 &
+        --profile codex-chatgpt-web > "$cgw_home/logs/tunnel.log" 2>&1 &
     sleep 2
 
     # Servidor MCP local sobre el socket del turn-broker del daemon recién levantado
     nohup "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" mcp \
         --contract native \
-        --broker-socket "$cgw_home/runtime/turn-broker.sock" > /dev/null 2>&1 &
+        --broker-socket "$cgw_home/runtime/turn-broker.sock" > "$cgw_home/logs/mcp.log" 2>&1 &
     sleep 2
 
     codex-status

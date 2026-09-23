@@ -173,6 +173,13 @@ export class ChatGptMarkdownConsistencyError extends Error {
   }
 }
 
+export interface ChatGptMarkdownBufferOptions {
+  stabilityMs?: number;
+  proseStabilityMs?: number;
+  toolStabilityMs?: number;
+  adaptive?: boolean;
+}
+
 /**
  * Converts structurally completed ChatGPT DOM blocks into an append-only Markdown stream.
  *
@@ -190,14 +197,48 @@ export class ChatGptMarkdownBuffer {
   private markdown = "";
   private lastGroup: string | undefined;
   private consistencyError: ChatGptMarkdownConsistencyError | undefined;
+  private readonly defaultStabilityMs: number;
+  private readonly proseStabilityMs: number;
+  private readonly toolStabilityMs: number;
+  private readonly adaptive: boolean;
 
   constructor(
     private readonly transform: (markdown: string) => string = markdown => markdown,
-    private readonly stabilityMs = 750,
+    stabilityOption: number | ChatGptMarkdownBufferOptions = 750,
   ) {
-    if (!Number.isFinite(stabilityMs) || stabilityMs < 0) {
-      throw new Error("ChatGPT Markdown stability window must be a non-negative finite number");
+    if (typeof stabilityOption === "number") {
+      if (!Number.isFinite(stabilityOption) || stabilityOption < 0) {
+        throw new Error("ChatGPT Markdown stability window must be a non-negative finite number");
+      }
+      this.defaultStabilityMs = stabilityOption;
+      this.proseStabilityMs = stabilityOption;
+      this.toolStabilityMs = Math.min(stabilityOption, 100);
+      this.adaptive = false;
+    } else {
+      const opts = stabilityOption ?? {};
+      const def = opts.stabilityMs ?? 750;
+      if (!Number.isFinite(def) || def < 0) {
+        throw new Error("ChatGPT Markdown stability window must be a non-negative finite number");
+      }
+      this.defaultStabilityMs = def;
+      this.proseStabilityMs = opts.proseStabilityMs ?? 350;
+      this.toolStabilityMs = opts.toolStabilityMs ?? 0;
+      this.adaptive = opts.adaptive ?? true;
     }
+  }
+
+  private stabilityForCandidate(candidate: ChatGptMarkdownCandidate): number {
+    if (!this.adaptive) return this.defaultStabilityMs;
+    const isToolOrCode = candidate.tag === "PRE"
+      || candidate.tag === "CODE"
+      || (typeof candidate.text === "string" && (
+        candidate.text.startsWith("```")
+        || candidate.text.includes("codex_")
+        || candidate.text.includes("tool_call")
+        || candidate.text.includes("<subagent_result>")
+      ))
+      || (typeof candidate.html === "string" && candidate.html.includes("<pre"));
+    return isToolOrCode ? this.toolStabilityMs : this.proseStabilityMs;
   }
 
   observe(segments: ChatGptMarkdownSegment[], now = Date.now()): string {
@@ -243,7 +284,8 @@ export class ChatGptMarkdownBuffer {
       const candidateId = this.candidateId(segment);
       const candidate = this.candidates.get(candidateId);
       if (!candidate?.streamable || candidate.streamableAt === undefined) break;
-      if (now - Math.max(candidate.changedAt, candidate.streamableAt) < this.stabilityMs) break;
+      const requiredStability = this.stabilityForCandidate(candidate);
+      if (now - Math.max(candidate.changedAt, candidate.streamableAt) < requiredStability) break;
       delta += this.commit(candidate);
       this.committed.push(this.committedSegment(candidate));
       this.candidates.delete(candidateId);

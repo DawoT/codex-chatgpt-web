@@ -828,6 +828,9 @@ export function startServer(
   if (tunnelSupervisor) {
     tunnelSupervisor.start();
   }
+  if (config.mode === "full") {
+    sessionHealthGuard.startWatchdog(120_000);
+  }
   let draining = false;
   let shutdownPromise: Promise<void> | undefined;
   let successfulModelCatalogRequests = 0;

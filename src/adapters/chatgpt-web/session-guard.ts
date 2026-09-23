@@ -36,8 +36,12 @@ export class SessionHealthGuard {
   private refreshSuccessCount = 0;
   private refreshFailureCount = 0;
 
-  constructor(warningThresholdSeconds: number = 300) {
-    this.warningThresholdSeconds = warningThresholdSeconds;
+  constructor(warningThresholdSecondsOrOptions: number | { warningThresholdSeconds?: number } = 300) {
+    if (typeof warningThresholdSecondsOrOptions === "object" && warningThresholdSecondsOrOptions !== null) {
+      this.warningThresholdSeconds = warningThresholdSecondsOrOptions.warningThresholdSeconds ?? 300;
+    } else {
+      this.warningThresholdSeconds = warningThresholdSecondsOrOptions;
+    }
   }
 
   recordProbe(success: boolean, expiresAt?: number | null, error?: string | null): void {
@@ -134,6 +138,9 @@ export class SessionHealthGuard {
         }
       }
     }, intervalMs);
+    if (typeof this.watchdogTimer.unref === "function") {
+      this.watchdogTimer.unref();
+    }
   }
 
   stopWatchdog(): void {

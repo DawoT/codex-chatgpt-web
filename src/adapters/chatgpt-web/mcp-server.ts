@@ -22,7 +22,18 @@ import {
 } from "./fast-path-handlers";
 
 // Keep the fast-path tool contract importable from mcp-server for existing consumers.
-export { CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS, resolveSafeWorkspacePath, truncateToolOutputText } from "./fast-path-handlers";
+export {
+  CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS,
+  preserveHeadTailOutput,
+  resolveSafeWorkspacePath,
+  truncateToolOutputText,
+  isReadOnlyFastPathTool,
+  isMutatingFastPathTool,
+  dispatchFastPathTool,
+  executeFastPathBatch,
+  type FastPathToolCall,
+  type FastPathBatchResult,
+} from "./fast-path-handlers";
 
 interface ClaimedTurn {
   bindingId: string;
