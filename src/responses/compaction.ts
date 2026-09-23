@@ -17,16 +17,40 @@
 
 export const BRIDGE_COMPACTION_PREFIX = "ocx1:";
 
+export const COMPACTION_STATE_TAG_START = "<compaction_state>";
+export const COMPACTION_STATE_TAG_END = "</compaction_state>";
+
+export interface CompactionStateBlock {
+  modifiedFiles: string[];
+  activeHypothesis?: string;
+  blockersOrTestFailures: string[];
+  nextActions: string[];
+}
+
 /** Mirrors codex-rs core/templates/compact/prompt.md (the local-compaction instruction). */
 export const COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 
 Include:
-- Current progress and key decisions made
-- Important context, constraints, or user preferences
-- What remains to be done (clear next steps)
-- Any critical data, examples, or references needed to continue
+- Current progress, modified files, and key architectural decisions made
+- Important context, constraints, subagent results, or user preferences
+- What remains to be done (clear, prioritized next steps)
+- Any critical data, error diagnostics, failed tests, or references needed to continue
 
-Be concise, structured, and focused on helping the next LLM seamlessly continue the work.`;
+STRUCTURED HANDOFF REQUIREMENT:
+At the beginning or end of your summary, include a <compaction_state> XML block:
+<compaction_state>
+modified_files:
+- path/to/modified_file1
+- path/to/modified_file2
+active_hypothesis: One concise sentence describing the current working hypothesis or task goal.
+blockers_or_test_failures:
+- Specific failed test or blocker (or None)
+next_actions:
+- Concrete next step 1
+- Concrete next step 2
+</compaction_state>
+
+Be concise, structured, and focused on helping the next LLM seamlessly continue the work without losing file paths or test state.`;
 
 /** Mirrors codex-rs core/templates/compact/summary_prefix.md (framing for a replayed summary). */
 export const SUMMARY_PREFIX = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
@@ -50,6 +74,115 @@ export function decodeCompactionSummary(encryptedContent: string): string | null
   } catch {
     return null;
   }
+}
+
+/** Parses a <compaction_state> XML block from summary text, if present. */
+export function parseCompactionState(summary: string): CompactionStateBlock | null {
+  if (!summary.includes(COMPACTION_STATE_TAG_START) || !summary.includes(COMPACTION_STATE_TAG_END)) {
+    return null;
+  }
+  const startIndex = summary.indexOf(COMPACTION_STATE_TAG_START) + COMPACTION_STATE_TAG_START.length;
+  const endIndex = summary.indexOf(COMPACTION_STATE_TAG_END, startIndex);
+  if (endIndex === -1) return null;
+
+  const rawBlock = summary.slice(startIndex, endIndex).trim();
+  const lines = rawBlock.split(/\r?\n/).map(line => line.trim());
+
+  const modifiedFiles: string[] = [];
+  const blockersOrTestFailures: string[] = [];
+  const nextActions: string[] = [];
+  let activeHypothesis: string | undefined;
+
+  let currentSection: "modified_files" | "blockers" | "next_actions" | "none" = "none";
+
+  for (const line of lines) {
+    if (!line) continue;
+    if (line.startsWith("modified_files:")) {
+      currentSection = "modified_files";
+      continue;
+    }
+    if (line.startsWith("active_hypothesis:")) {
+      currentSection = "none";
+      const rest = line.slice("active_hypothesis:".length).trim();
+      if (rest) activeHypothesis = rest;
+      continue;
+    }
+    if (line.startsWith("blockers_or_test_failures:") || line.startsWith("blockers:")) {
+      currentSection = "blockers";
+      continue;
+    }
+    if (line.startsWith("next_actions:") || line.startsWith("next_steps:")) {
+      currentSection = "next_actions";
+      continue;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      const item = line.slice(2).trim();
+      if (!item || item.toLowerCase() === "none" || item.toLowerCase() === "none.") continue;
+      if (currentSection === "modified_files") {
+        modifiedFiles.push(item);
+      } else if (currentSection === "blockers") {
+        blockersOrTestFailures.push(item);
+      } else if (currentSection === "next_actions") {
+        nextActions.push(item);
+      }
+    }
+  }
+
+  return {
+    modifiedFiles,
+    ...(activeHypothesis ? { activeHypothesis } : {}),
+    blockersOrTestFailures,
+    nextActions,
+  };
+}
+
+/** Formats a structured state block into canonical XML. */
+export function formatCompactionStateBlock(block: CompactionStateBlock): string {
+  const parts: string[] = [COMPACTION_STATE_TAG_START];
+  parts.push("modified_files:");
+  if (block.modifiedFiles.length === 0) {
+    parts.push("- None");
+  } else {
+    for (const f of block.modifiedFiles) parts.push(`- ${f}`);
+  }
+
+  if (block.activeHypothesis) {
+    parts.push(`active_hypothesis: ${block.activeHypothesis}`);
+  }
+
+  parts.push("blockers_or_test_failures:");
+  if (block.blockersOrTestFailures.length === 0) {
+    parts.push("- None");
+  } else {
+    for (const b of block.blockersOrTestFailures) parts.push(`- ${b}`);
+  }
+
+  parts.push("next_actions:");
+  if (block.nextActions.length === 0) {
+    parts.push("- None");
+  } else {
+    for (const a of block.nextActions) parts.push(`- ${a}`);
+  }
+
+  parts.push(COMPACTION_STATE_TAG_END);
+  return parts.join("\n");
+}
+
+/** Separates narrative summary text from the structured state block. */
+export function extractStructuredCompactionHandoff(summary: string): {
+  narrative: string;
+  state: CompactionStateBlock | null;
+} {
+  const state = parseCompactionState(summary);
+  if (!state) return { narrative: summary.trim(), state: null };
+
+  const startTag = summary.indexOf(COMPACTION_STATE_TAG_START);
+  const endTag = summary.indexOf(COMPACTION_STATE_TAG_END) + COMPACTION_STATE_TAG_END.length;
+  const before = summary.slice(0, startTag).trim();
+  const after = summary.slice(endTag).trim();
+  const narrative = [before, after].filter(Boolean).join("\n\n");
+  return { narrative, state };
 }
 
 /** Render a replayed compaction item as plain user-visible text for a routed model. */

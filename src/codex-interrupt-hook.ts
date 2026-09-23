@@ -236,6 +236,9 @@ export function restoreCodexInterruptHook(
   // Explicit Setup can reinstall a fully removed hook. A stale journal alone does not mean
   // there is still a definition to remove; partial edits must retain the strict checks below.
   if (options.allowAbsent && managedMarkerCount(text) === 0 && !text.includes(MANAGED_INTERRUPT_HOOK_END)) {
+    if (/(?:^|\r\n|\n|\r)\s*\[[^\]\r\n]+(?:\r\n|\n|\r|$)/.test(text)) {
+      throw new Error("Invalid unclosed TOML table header in Codex config");
+    }
     const { hooks } = Bun.TOML.parse(text) as { hooks?: unknown };
     if (hooks === undefined) return text;
     if (hooks && typeof hooks === "object" && !Array.isArray(hooks) && !Object.hasOwn(hooks, "Interrupt")) {

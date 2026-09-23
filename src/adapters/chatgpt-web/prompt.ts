@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { selectedSkillFile, skillFileTokens, type ChatGptSkillFile } from "./skill-attachments";
 import {
+  CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT,
   chatGptWebImageTokenReserve,
   isChatGptWebZeroRiskBackendModel,
   resolveChatGptWebMessageTokenBudget,
@@ -8,13 +9,29 @@ import {
 } from "../../chatgpt-web-models";
 import { ChatGptWebAdapterError } from "./adapter-error";
 import { estimateTokens } from "../../lib/token-estimate";
-import type { CodexAssistantContentPart, CodexContentPart, CodexMessage, CodexParsedRequest } from "../../types";
+import type { CodexAssistantContentPart, CodexContentPart, CodexMessage, CodexParsedRequest, CodexToolResultMessage } from "../../types";
 import { isOnePixelPngDataUrl, isReadableCompactionSummaryText } from "../../responses/compaction";
 import { CHATGPT_WEB_LUNA_MODEL_ID, CHATGPT_WEB_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
 import {
   CHATGPT_LUNA_CHECKPOINT_MARKER,
   CHATGPT_LUNA_CHECKPOINT_MAX_TOKENS,
 } from "./rolling-checkpoint";
+import { extractChatGptThreadSpawnLineage, isChatGptSubagentTurn } from "./environment";
+import {
+  SUBAGENT_STRUCTURED_RESULT_SCHEMA_INSTRUCTION,
+  formatSubagentResultSummary,
+  parseSubagentStructuredResult,
+  trimDeepSubagentHistory,
+} from "./subagent-protocol";
+import {
+  defaultPromptContractCache,
+  type PromptContractFingerprintInput,
+  type PromptCacheStats,
+  PromptContractCache,
+} from "./prompt-cache";
+import { condenseVerboseProseWithSyntaxAwareness } from "./syntax-condenser";
+
+export { defaultPromptContractCache, PromptContractCache, type PromptCacheStats };
 
 export interface ChatGptWebPromptImage {
   ref: string;
@@ -285,6 +302,286 @@ export function withoutSupersededModelSwitchContracts(messages: readonly CodexMe
   return messages.filter((_message, index) => !dropped.has(index));
 }
 
+export const DEFAULT_RETAINED_COMPLETED_TOOL_RESULTS = 2;
+export const HISTORICAL_TOOL_OUTPUT_PRUNE_THRESHOLD_CHARS = 250;
+export const DEFAULT_MICRO_COMPACTION_TOKEN_CEILING = CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT;
+
+export interface PruneHistoricalToolOutputOptions {
+  retainRecentCount?: number;
+  maxHistoricalCharThreshold?: number;
+}
+
+function toolResultMessageCharCount(message: CodexToolResultMessage): number {
+  if (typeof message.content === "string") return message.content.length;
+  if (Array.isArray(message.content)) {
+    return message.content.reduce((sum, part) => {
+      if (part.type === "text") return sum + part.text.length;
+      return sum + 1_000;
+    }, 0);
+  }
+  return 0;
+}
+
+/**
+ * Prunes voluminous tool outputs from earlier completed turns.
+ * The active turn (everything after the latest user/agent instruction) is preserved 100% intact.
+ * For completed turns, the most recent N tool results are retained intact; older tool results
+ * exceeding the character threshold are replaced with concise status tombstones.
+ */
+export function pruneHistoricalToolOutputs(
+  messages: readonly CodexMessage[],
+  options?: PruneHistoricalToolOutputOptions,
+): CodexMessage[] {
+  const retainRecentCount = options?.retainRecentCount ?? DEFAULT_RETAINED_COMPLETED_TOOL_RESULTS;
+  const maxCharThreshold = options?.maxHistoricalCharThreshold ?? HISTORICAL_TOOL_OUTPUT_PRUNE_THRESHOLD_CHARS;
+
+  // The active turn begins with the latest user or agent message.
+  const lastInstructionIndex = messages.findLastIndex(
+    message => message.role === "user" || message.role === "agentMessage",
+  );
+  if (lastInstructionIndex === -1) return [...messages];
+
+  // Tool results at or before lastInstructionIndex belong to earlier, completed turns.
+  const historicalToolIndices: number[] = [];
+  for (let index = 0; index <= lastInstructionIndex; index += 1) {
+    if (messages[index]?.role === "toolResult") {
+      historicalToolIndices.push(index);
+    }
+  }
+
+  if (historicalToolIndices.length <= retainRecentCount) {
+    return [...messages];
+  }
+
+  // The most recent N historical tool results are kept intact.
+  const retainedIndices = new Set(historicalToolIndices.slice(-retainRecentCount));
+
+  return messages.map((message, index) => {
+    if (message.role !== "toolResult" || retainedIndices.has(index) || index > lastInstructionIndex) {
+      return message;
+    }
+    const charCount = toolResultMessageCharCount(message);
+    if (charCount <= maxCharThreshold) {
+      return message;
+    }
+    const outcome = message.isError ? "failed" : "completed";
+    const tombstone = `[Historical tool output omitted: ${message.toolName} ${outcome} in earlier turn (${charCount.toLocaleString("en-US")} chars)]`;
+    return {
+      ...message,
+      content: tombstone,
+    };
+  });
+}
+
+const ENVIRONMENT_CONTEXT_REGEX = /<environment_context>[\s\S]*?<\/environment_context>/gi;
+
+function messageTextContent(message: CodexMessage): string {
+  if (typeof message.content === "string") return message.content;
+  if (Array.isArray(message.content)) {
+    return message.content
+      .filter((part): part is { type: "text"; text: string } => (part as { type?: string }).type === "text")
+      .map(part => part.text)
+      .join("\n");
+  }
+  return "";
+}
+
+function hasEnvironmentContextTag(message: CodexMessage): boolean {
+  if (message.role === "assistant" || message.role === "toolResult") return false;
+  return /<environment_context>[\s\S]*?<\/environment_context>/i.test(messageTextContent(message));
+}
+
+function stripEnvironmentContextFromContent(
+  content: string | CodexContentPart[],
+): string | CodexContentPart[] {
+  if (typeof content === "string") {
+    const withoutEnv = content.replace(ENVIRONMENT_CONTEXT_REGEX, "").trim();
+    if (withoutEnv.length === 0) {
+      return "[Historical environment context omitted: superseded by latest turn environment]";
+    }
+    return content.replace(ENVIRONMENT_CONTEXT_REGEX, "[Historical environment context omitted]");
+  }
+  if (Array.isArray(content)) {
+    return content.map(part => {
+      if (part.type !== "text") return part;
+      const withoutEnv = part.text.replace(ENVIRONMENT_CONTEXT_REGEX, "").trim();
+      const text = withoutEnv.length === 0
+        ? "[Historical environment context omitted: superseded by latest turn environment]"
+        : part.text.replace(ENVIRONMENT_CONTEXT_REGEX, "[Historical environment context omitted]");
+      return { ...part, text };
+    });
+  }
+  return content;
+}
+
+/**
+ * Deduplicates multiple <environment_context> XML blocks across history.
+ * Only the most recent environment context block is retained intact; earlier redundant copies
+ * are replaced with lightweight markers to preserve prompt token budget.
+ */
+export function deduplicateEnvironmentContexts(messages: readonly CodexMessage[]): CodexMessage[] {
+  const lastEnvIndex = messages.findLastIndex(hasEnvironmentContextTag);
+  if (lastEnvIndex === -1) return [...messages];
+
+  return messages.map((message, index) => {
+    if (index >= lastEnvIndex || !hasEnvironmentContextTag(message)) {
+      return message;
+    }
+    // Only user, developer, and agentMessage roles carry environment_context tags.
+    if (message.role === "user") {
+      return { ...message, content: stripEnvironmentContextFromContent(message.content) };
+    }
+    if (message.role === "developer") {
+      const content = stripEnvironmentContextFromContent(message.content);
+      if (typeof content === "string") return { ...message, content };
+      return message;
+    }
+    if (message.role === "agentMessage") {
+      return { ...message, content: stripEnvironmentContextFromContent(message.content) };
+    }
+    return message;
+  });
+}
+
+function estimateMessageWeight(message: CodexMessage): number {
+  if (message.role === "assistant") {
+    return message.content.reduce((sum, part) => {
+      if (part.type === "text") return sum + estimateTokens(part.text);
+      if (part.type === "thinking") return sum + estimateTokens(part.thinking);
+      if (part.type === "toolCall") return sum + estimateTokens(JSON.stringify(part.arguments));
+      return sum;
+    }, 0);
+  }
+  if (typeof message.content === "string") {
+    return estimateTokens(message.content);
+  }
+  if (Array.isArray(message.content)) {
+    return message.content.reduce((sum, part) => {
+      if (part.type === "text") return sum + estimateTokens(part.text);
+      if (part.type === "image") return sum + 1_000;
+      return sum;
+    }, 0);
+  }
+  return 0;
+}
+
+function estimateTotalMessagesTokens(messages: readonly CodexMessage[]): number {
+  return messages.reduce((sum, msg) => sum + estimateMessageWeight(msg), 0);
+}
+
+/**
+ * Enforces a micro-compaction boundary preventing accumulated context from overflowing
+ * the browser's context window during long-running multi-turn sessions.
+ */
+export function applyMicroCompactionBoundary(
+  messages: readonly CodexMessage[],
+  maxTokens: number = CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT,
+): CodexMessage[] {
+  if (estimateTotalMessagesTokens(messages) <= maxTokens) {
+    return [...messages];
+  }
+
+  const lastInstructionIndex = messages.findLastIndex(
+    message => message.role === "user" || message.role === "agentMessage",
+  );
+  if (lastInstructionIndex === -1) return [...messages];
+
+  // Stage 1: Condense verbose earlier assistant prose (>400 chars) in turns before the latest completed turn
+  let working = messages.map((message, index) => {
+    if (message.role !== "assistant" || index >= lastInstructionIndex - 1) {
+      return message;
+    }
+    const condensedContent = message.content.map(part => {
+      if (part.type !== "text") return part;
+      const subagentResult = parseSubagentStructuredResult(part.text);
+      if (subagentResult) {
+        return { ...part, text: formatSubagentResultSummary(subagentResult) };
+      }
+      if (part.text.length <= 400) return part;
+      const condensed = condenseVerboseProseWithSyntaxAwareness(part.text, 400);
+      return { ...part, text: condensed };
+    });
+    return { ...message, content: condensedContent };
+  });
+
+  if (estimateTotalMessagesTokens(working) <= maxTokens) {
+    return working;
+  }
+
+  // Stage 2: Replace earlier assistant messages with concise summaries
+  working = working.map((message, index) => {
+    if (message.role !== "assistant" || index >= lastInstructionIndex - 1) {
+      return message;
+    }
+    const condensedContent = message.content.map(part => {
+      if (part.type !== "text") return part;
+      const subagentResult = parseSubagentStructuredResult(part.text);
+      if (subagentResult) {
+        return { ...part, text: formatSubagentResultSummary(subagentResult) };
+      }
+      if (part.text.length <= 100) return part;
+      return { ...part, text: "[Earlier assistant reply condensed for context budget]" };
+    });
+    return { ...message, content: condensedContent };
+  });
+
+  if (estimateTotalMessagesTokens(working) <= maxTokens) {
+    return working;
+  }
+
+  // Stage 3: Condense very early user prompts (excluding compaction summaries and the recent 2 instructions)
+  working = working.map((message, index) => {
+    if (message.role !== "user" || index >= lastInstructionIndex - 2) {
+      return message;
+    }
+    const content = message.content;
+    let rawText: string | undefined;
+    if (typeof content === "string") {
+      rawText = content;
+    } else if (Array.isArray(content) && content.every(p => p.type === "text")) {
+      rawText = content.map(p => p.type === "text" ? p.text : "").join("\n");
+    }
+    if (rawText === undefined) return message;
+    // Don't condense compaction summaries - they are already the compressed form of history.
+    if (isReadableCompactionSummaryText(rawText)) return message;
+    const safeText: string = rawText;
+    if (safeText.length <= 250) return message;
+    const condensed = `${safeText.slice(0, 120)}\n[... historical prompt details omitted for context budget ...]`;
+    return { ...message, content: condensed };
+  });
+
+  return working;
+}
+
+export interface AdaptivePruningOptions {
+  retainRecentToolResults?: number;
+  maxHistoricalCharThreshold?: number;
+  maxPromptTokens?: number;
+}
+
+/**
+ * Adaptive history pruning pipeline:
+ * 1. Deduplicates repetitive environment context XML blocks across historical user messages.
+ * 2. Prunes voluminous outputs of earlier completed tool results.
+ * 3. Enforces the micro-compaction boundary soft ceiling.
+ */
+export function withAdaptiveHistoryPruning(
+  messages: readonly CodexMessage[],
+  options?: AdaptivePruningOptions,
+): CodexMessage[] {
+  let pruned = deduplicateEnvironmentContexts(messages);
+  pruned = pruneHistoricalToolOutputs(pruned, {
+    retainRecentCount: options?.retainRecentToolResults,
+    maxHistoricalCharThreshold: options?.maxHistoricalCharThreshold,
+  });
+  pruned = trimDeepSubagentHistory(pruned);
+  pruned = applyMicroCompactionBoundary(
+    pruned,
+    options?.maxPromptTokens ?? CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT,
+  );
+  return pruned;
+}
+
 function messageEnvelope(
   message: CodexMessage,
   images: ChatGptWebPromptImage[],
@@ -427,7 +724,7 @@ export function chatGptReadOnlyContextWarning(
   return `> **Local tools unavailable**\n>\n> \`${label}\` cannot access the local Codex computer in this turn. The accumulated context does not contain local tool results yet: it will see instructions and attachments, but not workspace contents. ChatGPT-native capabilities such as web search remain available when the product provides them.${browserOnlyGuidance}`;
 }
 
-export function compileChatGptWebPrompt(
+function compileChatGptWebPromptInternal(
   parsed: CodexParsedRequest,
   capabilities: ChatGptWebCapabilities,
   turnToken?: string,
@@ -440,7 +737,10 @@ export function compileChatGptWebPrompt(
   }
   const mode = manualControl
     ? { localTools: true, effort: "low" as const, displayLabel: "Zero Risk" as const }
-    : resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities);
+    : resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities, {
+      messages: parsed.context.messages,
+      compactionRequest: Boolean(parsed._compactionRequest),
+    });
   const captureLunaCheckpoint = options?.captureLunaCheckpoint === true;
   const multipartParts = options?.experimentalMultipartParts;
   const multipartEnabled = multipartParts !== undefined;
@@ -513,6 +813,8 @@ export function compileChatGptWebPrompt(
       "A Codex Native MCP tool result may require context compaction. If it does, follow the compaction instructions in that result exactly.",
       "After a deterministic tool failure, update the working hypothesis from that result and inspect the relevant repository or environment before choosing a different next action; do not repeat the same call unless its inputs or observable state changed.",
       "Continue using the available tools until the requested work is complete and verified.",
+      "For workspace operations, prefer direct fast-path tools (read_file, write_file, patch_file, list_dir, grep) whenever available in the tool inventory: codex_read_file(path, offset, limit_lines), codex_write_file(path, content, overwrite, create_parents), codex_patch_file(path, target_content, replacement_content), codex_list_dir(path, depth, limit), codex_grep(query, path, max_results, case_sensitive, file_pattern). They execute atomically in microseconds without shell process overhead. codex_write_file refuses to replace an existing file unless overwrite=true and needs create_parents=true for missing directories; codex_patch_file replaces only the first exact occurrence of target_content.",
+      "CRITICAL TOOL INVOCATION RULE: When a tool call is needed, invoke the tool directly as your first action in this response. Never emit preliminary conversational commentary, plans, or status text (such as 'Voy a revisar...', 'Let me check...', 'I will inspect...') before invoking a tool. Emitting conversational prose before a tool call triggers early completion fences and causes the local execution broker to reject subsequent tool calls.",
       "Write the user-facing final answer only after the last required tool result has settled. Do not call another tool after beginning that final answer.",
     ]
     : [
@@ -522,6 +824,25 @@ export function compileChatGptWebPrompt(
       "Do not claim a new local inspection, command, edit, or verification unless it actually appears in the task history. If the latest request requires fresh local-computer access or a local mutation, state only that exact limitation instead of inventing success.",
       "Otherwise perform the full requested research, analysis, or synthesis with every capability actually available to you; do not stop at a plan or progress report.",
     ];
+  const lineage = extractChatGptThreadSpawnLineage(parsed);
+  const isSubagent = isChatGptSubagentTurn(parsed);
+  const orchestrationContract = parsed._compactionRequest || !mode.localTools
+    ? []
+    : isSubagent
+      ? [
+        "You are an ephemeral atomic worker operating in a dedicated sub-session.",
+        "Focus strictly on your assigned task brief. Offload large logs, raw test outputs, or extensive code listings to disk files instead of returning them in the response text. Use direct fast-path tools for precise workspace modifications: codex_write_file(path, content, overwrite, create_parents), codex_patch_file(path, target_content, replacement_content), codex_read_file(path, offset, limit_lines).",
+        "Always invoke tools directly without emitting preliminary commentary or conversational thoughts before the tool call.",
+        "Your final response to the parent agent must be concise (under 25 lines): report task status, changed file paths, and key verification evidence.",
+        ...SUBAGENT_STRUCTURED_RESULT_SCHEMA_INSTRUCTION,
+      ]
+      : [
+        "When handling repository-level or multi-step tasks, preserve context by delegating deep investigation, implementation, or test execution to atomic subagents rather than loading large files into this root session.",
+        "Explore repository structure using lightweight discovery (such as directory listings or targeted searches). Formulate clear, self-contained worker briefs with explicit acceptance criteria.",
+        "Limit concurrent subagents to at most 2. Wait for subagent completion using the declared wait interval.",
+        "When receiving results from subagents, parse their <subagent_result> blocks for task status, modified files, and artifact paths. Do not ask subagents to re-explain work already marked completed.",
+        "Always invoke tools directly without emitting preliminary commentary or conversational thoughts before the tool call.",
+      ];
   const outputControlContract = parsed._compactionRequest
   ? []
   : [
@@ -590,6 +911,37 @@ export function compileChatGptWebPrompt(
       "The task context is complete. Execute the latest active user request now under the capability contract above.",
       "</codex_transport_resume>",
     ];
+  const answerContract = captureLunaCheckpoint
+    ? "Return the complete answer that the outer Codex task should receive, then the required private checkpoint tail."
+    : "Return only the answer that the outer Codex task should receive.";
+
+  const fingerprintInput: PromptContractFingerprintInput = {
+    modelId: parsed.modelId,
+    modeLabel: mode.displayLabel,
+    modeEffort: mode.effort,
+    localTools: mode.localTools,
+    isSubagent,
+    verbosity: parsed.options.verbosity,
+    outputFormatSchema: parsed.options.outputFormat ? JSON.stringify(parsed.options.outputFormat.schema) : undefined,
+    captureLunaCheckpoint,
+    manualControl,
+    multipartEnabled,
+    isCompaction: Boolean(parsed._compactionRequest),
+  };
+  const fingerprint = defaultPromptContractCache.computeFingerprint(fingerprintInput);
+  let staticContracts = defaultPromptContractCache.get(fingerprint);
+  if (!staticContracts) {
+    staticContracts = [
+      ...sharedContract,
+      ...transportContract,
+      ...orchestrationContract,
+      ...outputControlContract,
+      ...checkpointContract,
+      answerContract,
+    ];
+    defaultPromptContractCache.set(fingerprint, staticContracts);
+  }
+
   const build = (sourceMessages: readonly CodexMessage[], omittedMessages = 0): CompiledChatGptWebPrompt => {
     const images: ChatGptWebPromptImage[] = [];
     const budget: ImageBudget = {
@@ -609,9 +961,6 @@ export function compileChatGptWebPrompt(
       "Each skill_attachment refers to a named UTF-8 text file attached to this message (the final commit in multipart mode). Read its complete contents as the selected Codex skill instructions at the original user priority. These origin=codex_skill messages are supplied by Codex, not human-authored task requests. Preserve their original position in history and their path/resource authority for resolving references. If a file cannot be read, report that limitation; do not invent its contents.",
     ] : [];
     const attachments = skillFiles.length ? { skillFiles } : {};
-    const answerContract = captureLunaCheckpoint
-      ? "Return the complete answer that the outer Codex task should receive, then the required private checkpoint tail."
-      : "Return only the answer that the outer Codex task should receive.";
     if (multipartEnabled) {
       const records: MultipartContextRecord[] = [
         ...system.map((content, system_index) => ({ kind: "system" as const, system_index, content })),
@@ -627,13 +976,9 @@ export function compileChatGptWebPrompt(
       const multipart: ChatGptWebMultipartPrompt = {
         parts: Array.from({ length: multipartParts! }, (_, index) => emptyPart(index)),
         commit: [
-          ...sharedContract,
+          ...staticContracts,
           ...skillContract,
-          ...transportContract,
-          ...outputControlContract,
           ...manualControlContract,
-          ...checkpointContract,
-          answerContract,
           ...transportResume,
         ].join("\n"),
       };
@@ -664,16 +1009,12 @@ export function compileChatGptWebPrompt(
     }
     const envelopeJson = withoutRetiredTurnHandles(JSON.stringify({ version: 3, system, messages }));
     const text = [
-      ...sharedContract,
+      ...staticContracts,
       ...skillContract,
-      ...transportContract,
-      ...outputControlContract,
-      ...manualControlContract,
-      ...checkpointContract,
-      answerContract,
       "<codex_context_json>",
       envelopeJson,
       "</codex_context_json>",
+      ...manualControlContract,
       ...(omittedMessages > 0 ? [
         "<codex_transport_resume>",
         `${omittedMessages} earlier history items were omitted to fit this compaction request; the supplied history is incomplete.`,
@@ -688,6 +1029,12 @@ export function compileChatGptWebPrompt(
   };
 
   let sourceMessages = withoutSupersededModelSwitchContracts(parsed.context.messages);
+  // Sprint E: Adaptive history pruning for normal turns.
+  // Compaction turns use their own history-trimming splice loop below.
+  // Multipart turns have per-stage budgets governed by partitionMultipartContext.
+  if (!parsed._compactionRequest && !multipartEnabled) {
+    sourceMessages = withAdaptiveHistoryPruning(sourceMessages);
+  }
   const initialMessageCount = sourceMessages.length;
   let compiled = build(sourceMessages);
   if (!parsed._compactionRequest) return compiled;
@@ -724,4 +1071,21 @@ export function compileChatGptWebPrompt(
   }
   const trimmedCompactionMessages = initialMessageCount - sourceMessages.length;
   return trimmedCompactionMessages > 0 ? { ...compiled, trimmedCompactionMessages } : compiled;
+}
+
+export function compileChatGptWebPrompt(
+  parsed: CodexParsedRequest,
+  capabilities: ChatGptWebCapabilities,
+  turnToken?: string,
+  options?: CompileChatGptWebPromptOptions,
+): CompiledChatGptWebPrompt {
+  const startedAt = performance.now();
+  try {
+    const result = compileChatGptWebPromptInternal(parsed, capabilities, turnToken, options);
+    defaultPromptContractCache.recordCompilation(performance.now() - startedAt);
+    return result;
+  } catch (error) {
+    defaultPromptContractCache.recordCompilation(performance.now() - startedAt);
+    throw error;
+  }
 }

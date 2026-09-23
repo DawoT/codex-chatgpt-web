@@ -199,7 +199,7 @@ export function bridgeToResponsesSSE(
         ...(endTurn !== undefined ? { end_turn: endTurn } : {}),
       });
 
-      const heartbeatFrame = encoder.encode('event: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n');
+      const heartbeatFrame = encoder.encode(': keep-alive\n\nevent: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n');
       let stallWarned = false;
       const now = options?.now ?? (() => performance.now());
       let lastAdapterEventAt = now();
@@ -432,9 +432,27 @@ export function bridgeToResponsesSSE(
           // its compaction UI renders nothing mid-turn, so nothing is lost visually.
           if (options?.compaction) {
             if (event.type === "text_delta") { compactionText += event.text; continue; }
+            if (event.type === "heartbeat") {
+              try {
+                controller.enqueue(heartbeatFrame);
+                emittedFrames++;
+              } catch {
+                closed = true;
+              }
+              continue;
+            }
             if (event.type !== "done" && event.type !== "incomplete" && event.type !== "error") continue;
           }
           switch (event.type) {
+            case "heartbeat": {
+              try {
+                controller.enqueue(heartbeatFrame);
+                emittedFrames++;
+              } catch {
+                closed = true;
+              }
+              break;
+            }
             case "assistant_boundary": {
               // A guarded continuation starts a fresh assistant output item while keeping the
               // intermediate, suspicious text in the same Responses turn.

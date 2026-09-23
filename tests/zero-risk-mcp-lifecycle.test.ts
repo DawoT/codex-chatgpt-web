@@ -296,11 +296,16 @@ describe("Zero Risk public MCP ABI", () => {
       expect(listed.tools.map(tool => tool.name).sort()).toEqual([
         "codex_apply_patch",
         "codex_exec",
+        "codex_grep",
+        "codex_list_dir",
+        "codex_patch_file",
+        "codex_read_file",
         "codex_tool_call",
         "codex_tool_inventory",
         "codex_turn_complete",
         "codex_turn_start",
         "codex_view_image",
+        "codex_write_file",
         "codex_write_stdin",
       ]);
       expect(listed.tools.find(tool => tool.name === "codex_turn_start")?.description)

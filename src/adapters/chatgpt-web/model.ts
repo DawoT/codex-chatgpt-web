@@ -22,16 +22,68 @@ export interface ChatGptWebModelMode {
   localTools: boolean;
 }
 
+export interface AdaptiveReasoningContext {
+  messages?: readonly { role: string; content: unknown }[];
+  compactionRequest?: boolean;
+  activeInputText?: string;
+}
+
+export function inferAdaptiveReasoningEffort(
+  context?: AdaptiveReasoningContext,
+  availableEfforts: Array<"low" | "medium" | "high" | "xhigh" | "max"> = ["low", "medium", "high"],
+): "low" | "medium" | "high" {
+  if (!context) return "high";
+  if (context.compactionRequest) return "medium";
+
+  const textToScan: string[] = [];
+  if (context.activeInputText) textToScan.push(context.activeInputText);
+  if (context.messages && context.messages.length > 0) {
+    const recent = context.messages.slice(-3);
+    for (const msg of recent) {
+      if (typeof msg.content === "string") textToScan.push(msg.content);
+      else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part) {
+            textToScan.push(String(part.text));
+          }
+        }
+      }
+    }
+  }
+
+  const combined = textToScan.join("\n");
+  if (combined.length === 0) return "high";
+
+  // Error patterns or deep complex tasks -> high effort
+  const hasErrorPattern = /(?:AssertionError|TypeError|SyntaxError|ReferenceError|panic!|tests? failed|FAILED|npm ERR!|exit status 1|code 1\b|failed with result|FAIL\s+tests)/i.test(combined);
+  const hasDeepRefactorPattern = /(?:refactor|architecture|redesign|race condition|deadlock|memory leak|concurrency)/i.test(combined);
+
+  if (hasErrorPattern || hasDeepRefactorPattern) {
+    return "high";
+  }
+
+  // Simple discovery or status inspection -> low effort if supported
+  const isSimpleDiscovery = /^(?:list|ls|dir|status|what files|where is|pwd|show files)\b/i.test(combined.trim())
+    || (combined.length < 80 && !/[?].*[?]/.test(combined) && !hasErrorPattern);
+
+  if (isSimpleDiscovery && availableEfforts.includes("low")) {
+    return "low";
+  }
+
+  return "medium";
+}
+
 export function resolveChatGptWebModelMode(
   modelId: string,
   reasoning: string | undefined,
   capabilities: ChatGptWebCapabilities,
+  adaptiveContext?: AdaptiveReasoningContext,
 ): ChatGptWebModelMode {
   if (modelId === CHATGPT_WEB_LUNA_MODEL_ID) {
     if (capabilities.solAvailable) {
       throw new Error("ChatGPT Luna is not available while the account exposes the Sol model selector");
     }
-    const effort = reasoning ?? "low";
+    const effort = reasoning ?? (adaptiveContext && inferAdaptiveReasoningEffort(adaptiveContext) === "low" ? "low" : "medium");
     if (effort !== "low" && effort !== "medium") {
       throw new Error(`ChatGPT Luna mode is not supported: ${effort}`);
     }
@@ -51,7 +103,7 @@ export function resolveChatGptWebModelMode(
   if (!capabilities.solAvailable) {
     throw new Error("ChatGPT Sol modes are not available for this Luna-only account");
   }
-  const effort = reasoning ?? "high";
+  const effort = reasoning ?? (adaptiveContext ? inferAdaptiveReasoningEffort(adaptiveContext) : "high");
   switch (effort) {
     case "low":
       return { modelId, effort, displayLabel: "Instant", uiEffortIndex: 0, thinkEnabled: false, localTools: capabilities.localToolsEnabled };

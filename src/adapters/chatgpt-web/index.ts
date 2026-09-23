@@ -22,7 +22,7 @@ import type { ProviderAdapter } from "../base";
 import { parseDataUrl } from "../image";
 import { ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
-import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity, priorChatGptAbortedTurnIds } from "./environment";
+import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity, isChatGptSubagentTurn, priorChatGptAbortedTurnIds } from "./environment";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
 import { chatGptReadOnlyContextWarning, compileChatGptWebPrompt } from "./prompt";
 import { createChatGptStructuredOutputValidator } from "./output-validation";
@@ -49,6 +49,11 @@ import {
   chatGptConversationKey,
   retainedConversationResumeRequest,
 } from "./conversation-key";
+import {
+  DEFAULT_MAX_CONCURRENT_SUBAGENTS,
+  defaultSubagentGovernor,
+  SubagentConcurrencyGovernor,
+} from "./concurrency";
 
 function brokerSocketPath(provider: CodexProviderConfig): string {
   const configured = provider.chatgptWeb?.brokerSocketPath?.trim();
@@ -335,17 +340,25 @@ function validateBatchTools(parsed: CodexParsedRequest, requests: BrokerToolRequ
 
 /** Keep the Responses bridge alive during every awaited phase of a browser turn. */
 export const CHATGPT_WEB_ADAPTER_HEARTBEAT_MS = 10_000;
+/** Accelerated heartbeat interval for compaction turns to prevent stall timeouts during deep summarization. */
+export const CHATGPT_WEB_COMPACTION_HEARTBEAT_MS = 3_000;
 
 export function createChatGptWebAdapter(
   provider: CodexProviderConfig,
   dependencies: {
     broker?: TurnBrokerOwner;
     zeroRiskManualControl?: ChatGptZeroRiskManualControl;
+    subagentGovernor?: SubagentConcurrencyGovernor;
   } = {},
 ): ProviderAdapter {
   const worker = ChatGptBrowserWorker.forProvider(provider);
   const broker = dependencies.broker ?? TurnBroker.forSocket(brokerSocketPath(provider));
   const zeroRiskManualControl = dependencies.zeroRiskManualControl ?? launcherZeroRiskManualControl;
+  const subagentGovernor = dependencies.subagentGovernor ?? (
+    provider.chatgptWeb?.maxConcurrentSubagents !== undefined
+      ? new SubagentConcurrencyGovernor(provider.chatgptWeb.maxConcurrentSubagents)
+      : defaultSubagentGovernor
+  );
   const structuredBroker = broker instanceof TurnBroker ? broker : undefined;
   const timeoutMs = provider.chatgptWeb?.turnTimeoutMs;
   const experimentalSkillAttachments = provider.chatgptWeb?.experimentalSkillAttachments;
@@ -420,10 +433,12 @@ export function createChatGptWebAdapter(
     const checkpointInput = captureLunaCheckpoint
       ? lunaCheckpointStore.apply(parsed)
       : { parsed, applied: false };
+    const isSubagent = isChatGptSubagentTurn(checkpointInput.parsed);
     const conversationKey = !parsed._compactionRequest
       && parsed.modelId !== CHATGPT_WEB_LUNA_MODEL_ID
       && mode.localTools
       && retainedLauncherDescriptor
+      && !isSubagent
       ? chatGptConversationKey(checkpointInput.parsed, executionNamespace)
       : undefined;
     const resumeInput = conversationKey
@@ -720,13 +735,19 @@ export function createChatGptWebAdapter(
     const externalProgress = new ChatGptExternalTurnProgress();
     let tokenSettled = false;
     let activeToken: string | undefined;
+    let lastRegisteredToken: string | undefined;
     const prepareWith = async (input: CodexParsedRequest) => {
+      const predecessor = activeToken ?? lastRegisteredToken;
       const turnToken = activeToken ?? await broker.register(
         environment,
         timeoutMs === undefined ? undefined : timeoutMs + 60_000,
         traceId,
+        false,
+        "turn",
+        predecessor,
       );
       activeToken = turnToken;
+      lastRegisteredToken = turnToken;
       try {
         const compiled = compileChatGptWebPrompt(
           input,
@@ -1432,11 +1453,17 @@ export function createChatGptWebAdapter(
         () => emit({ type: "heartbeat" }),
         CHATGPT_WEB_ADAPTER_HEARTBEAT_MS,
       );
+      const isSubagent = isChatGptSubagentTurn(parsed);
+      let releaseSubagentPermit: (() => void) | undefined;
       try {
+        if (isSubagent) {
+          releaseSubagentPermit = await subagentGovernor.acquire(incoming.abortSignal);
+        }
         emit({ type: "heartbeat" });
         await runChatGptWebTurn();
       } finally {
         clearInterval(heartbeat);
+        releaseSubagentPermit?.();
       }
     },
   };

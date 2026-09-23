@@ -126,6 +126,15 @@ export const CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS = 180_000;
 export const CHATGPT_EMPTY_RESPONSE_GRACE_MS = 10_000;
 export const CHATGPT_COMPLETION_ACTION_GRACE_MS = 60_000;
 export const CHATGPT_COMPLETION_SETTLE_MS = 2_000;
+/**
+ * How long completion may stay vetoed by tool-status evidence that nothing corroborates any more.
+ *
+ * A status container orphaned by its finished tool call leaves the turn otherwise complete: no
+ * stream output, no live generation, and no MCP activity, yet the evidence veto never lifts and the
+ * poll loop would spin until an external deadline. Past this grace the veto is treated as a
+ * rendering defect and fails the turn.
+ */
+export const CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS = 90_000;
 export const CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS = 60_000;
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
 const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
@@ -767,15 +776,165 @@ const chatGptTemporaryChatOnboardingDialog = (page: Page): Locator => page
   .last();
 
 export async function dismissChatGptTemporaryChatOnboarding(page: Page): Promise<boolean> {
-  const dialog = chatGptTemporaryChatOnboardingDialog(page);
-  if (!await dialog.isVisible().catch(() => false)) return false;
-  const continueButton = dialog.getByRole("button", { name: "Continue", exact: true }).last();
+  let dialog = chatGptTemporaryChatOnboardingDialog(page);
+  let visible = await dialog.isVisible().catch(() => false);
+  if (!visible) {
+    dialog = page
+      .locator('[role="dialog"]')
+      .filter({
+        hasText: /(Not in history|No se guarda|No está en el historial|Historial desactivado|Sin entrenamiento|Memoria desactivada|不在历史记录中|不在歷史記錄中|履歴に残りません|기록에 저장되지 않음|Chat temporal|Temporary Chat)/i,
+      })
+      .last();
+    visible = await dialog.isVisible().catch(() => false);
+  }
+  if (!visible) return false;
+
+  let continueButton = dialog.getByRole("button", { name: "Continue", exact: true }).last();
+  if (!await continueButton.isVisible().catch(() => false)) {
+    continueButton = dialog.getByRole("button", { name: /^(Continue|Continuar|Aceptar|Got it|Entendido|知道了|了解|계속|확인)$/i }).last();
+  }
+  if (!await continueButton.isVisible().catch(() => false)) {
+    continueButton = dialog.locator('button[type="button"], button').last();
+  }
   if (!await continueButton.isVisible().catch(() => false)) {
     throw new Error("ChatGPT Temporary Chat onboarding is visible without its Continue action");
   }
   await continueButton.click({ force: true });
   await dialog.waitFor({ state: "hidden", timeout: 10_000 });
   return true;
+}
+
+export const CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX =
+  /^(Dismiss|Continuar|Continue|Cerrar|Close|Entendido|Got it|Aceptar|Accept|OK|Skip|Omitir|Not now|Ahora no|Maybe later|Más tarde|Later|Done|Hecho|Cancel|Cancelar|No thanks|No, gracias|Decline|Rechazar|Stay logged out|Seguir desconectado|Confirmar|Confirm|知道了|了解|关闭|取消|稍后|閉じる|後で|キャンセル|확인|계속|닫기|나중에|취소)$/i;
+
+const CHATGPT_RATE_LIMIT_TEXT_REGEX =
+  /(Too many requests|making requests too quickly|太多要求|太多请求|過於頻繁|过于频繁|リクエストが多すぎます|リクエストの頻度が高すぎます|요청이 너무 많습니다|요청을 너무 빠르게|너무 많은 요청)/i;
+
+const CHATGPT_SESSION_EXPIRED_TEXT_REGEX =
+  /(Your session has expired|你的工作階段已過期|您的工作階段已過期|你的会话已过期|您的会话已过期)/i;
+
+export interface DismissOverlaysOptions {
+  maxPasses?: number;
+  captureDiagnostic?: (checkpoint: string) => Promise<void>;
+}
+
+const isVisibleSafe = async (loc: unknown): Promise<boolean> => {
+  if (!loc || typeof (loc as { isVisible?: unknown }).isVisible !== "function") return false;
+  return Boolean(await (loc as { isVisible: () => Promise<boolean> }).isVisible().catch(() => false));
+};
+
+const countSafe = async (loc: unknown): Promise<number> => {
+  if (!loc || typeof (loc as { count?: unknown }).count !== "function") return 0;
+  return Number(await (loc as { count: () => Promise<number> }).count().catch(() => 0));
+};
+
+export async function dismissAllChatGptOverlays(
+  page: Page,
+  options: DismissOverlaysOptions = {},
+): Promise<number> {
+  const maxPasses = options.maxPasses ?? 3;
+  let totalDismissed = 0;
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    const dialogsLocator = page.locator?.('[role="dialog"], [aria-modal="true"]')?.filter?.({ visible: true });
+    const count = await countSafe(dialogsLocator);
+    if (count === 0) break;
+
+    const dialogs = await dialogsLocator?.all?.().catch(() => []) ?? [];
+    let dismissedInPass = 0;
+
+    for (const dialog of dialogs) {
+      if (!await isVisibleSafe(dialog)) continue;
+
+      const textContent = (await dialog.allInnerTexts?.().catch(() => []))?.join(" ") ?? "";
+      if (CHATGPT_RATE_LIMIT_TEXT_REGEX.test(textContent) || CHATGPT_SESSION_EXPIRED_TEXT_REGEX.test(textContent)) {
+        continue;
+      }
+
+      const isToolApproval = textContent.includes("tool-approval")
+        || (await countSafe(dialog.locator?.('[data-testid="tool-approval-card"]'))) > 0;
+      if (isToolApproval) continue;
+
+      const isTemporaryChatOnboarding = /(Not in history|No se guarda|No está en el historial|Historial desactivado|Sin entrenamiento|Memoria desactivada|不在历史记录中|不在歷史記錄中|履歴に残りません|기록에 저장되지 않음|Chat temporal|Temporary Chat)/i.test(textContent);
+      if (isTemporaryChatOnboarding) {
+        if (await dismissChatGptTemporaryChatOnboarding(page).catch(() => false)) {
+          dismissedInPass += 1;
+          totalDismissed += 1;
+          continue;
+        }
+      }
+
+      let actionExecuted = false;
+
+      // Strategy A: Action button matching dismissal regex
+      const actionButton = dialog.getByRole?.("button", { name: CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX })?.last?.();
+      if (await isVisibleSafe(actionButton)) {
+        try {
+          await actionButton.click({ force: true, timeout: 2_000 });
+          actionExecuted = true;
+        } catch {
+          // Fall through
+        }
+      }
+
+      // Strategy B: Close button with aria-label
+      if (!actionExecuted) {
+        const closeByAria = dialog.locator?.(
+          'button[aria-label*="close" i], button[aria-label*="cerrar" i], button[aria-label*="dismiss" i], button[aria-label*="descartar" i], button[data-testid*="close"]'
+        )?.last?.();
+        if (await isVisibleSafe(closeByAria)) {
+          try {
+            await closeByAria.click({ force: true, timeout: 2_000 });
+            actionExecuted = true;
+          } catch {
+            // Fall through
+          }
+        }
+      }
+
+      // Strategy C: Generic button in header or containing svg
+      if (!actionExecuted && typeof dialog.locator === "function") {
+        const svgButton = dialog.locator('button')?.filter?.({ has: page.locator?.('svg') })?.last?.();
+        if (await isVisibleSafe(svgButton)) {
+          try {
+            await svgButton.click({ force: true, timeout: 1_000 });
+            actionExecuted = true;
+          } catch {
+            // Fall through
+          }
+        }
+      }
+
+      // Strategy D: Fallback to keyboard Escape
+      if (!actionExecuted && page.keyboard?.press) {
+        try {
+          await page.keyboard.press("Escape");
+          actionExecuted = true;
+        } catch {
+          // Escape failed
+        }
+      }
+
+      if (actionExecuted) {
+        if (typeof dialog.waitFor === "function") {
+          await dialog.waitFor({ state: "hidden", timeout: 1_500 }).catch(() => {});
+        }
+        if (!await isVisibleSafe(dialog)) {
+          dismissedInPass += 1;
+          totalDismissed += 1;
+        }
+      }
+    }
+
+    if (dismissedInPass === 0) {
+      if (count > 0) {
+        await options.captureDiagnostic?.("overlay-unresolved");
+      }
+      break;
+    }
+  }
+
+  return totalDismissed;
 }
 
 type ChatGptTextScope = Pick<Locator, "getByText" | "getByTestId">;
@@ -886,15 +1045,22 @@ export async function resolveChatGptToolConfirmation(
   const dialog = page.locator('[role="dialog"], [data-testid="tool-approval-card"]')
     .filter({ hasText: `Allow ChatGPT to use ${appName}?` })
     .last();
-  if (!await dialog.isVisible().catch(() => false)) return false;
+  let targetDialog = dialog;
+  if (!await targetDialog.isVisible().catch(() => false)) {
+    targetDialog = page.locator('[role="dialog"], [data-testid="tool-approval-card"]')
+      .filter({ hasText: appName })
+      .filter({ hasText: /(Allow|Permitir|許可|허용|允許|允许)/i })
+      .last();
+  }
+  if (!await targetDialog.isVisible().catch(() => false)) return false;
   await onVisible?.();
 
   if (autoApprove) {
     // ChatGPT exposes either "Allow once" or the shorter "Allow" for the
     // current one-shot approval. Keep the matcher anchored so persistent
     // actions such as "Always allow" cannot match.
-    const allowCurrentAction = dialog
-      .getByRole("button", { name: /^Allow(?: once)?$/ })
+    const allowCurrentAction = targetDialog
+      .getByRole("button", { name: /^(Allow(?: once)?|Permitir(?: una vez)?|1回のみ許可|一度だけ許可|한 번만 허용|僅允許一次|仅允许一次)$/i })
       .last();
     await allowCurrentAction.waitFor({ state: "visible", timeout: 10_000 });
     await allowCurrentAction.press("Enter");
@@ -904,15 +1070,15 @@ export async function resolveChatGptToolConfirmation(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
-    if (!await dialog.isVisible().catch(() => false)) return true;
+    if (!await targetDialog.isVisible().catch(() => false)) return true;
     await new Promise(resolveSleep => setTimeout(resolveSleep, Math.min(100, Math.max(1, deadline - Date.now()))));
   }
 
-  if (!await dialog.isVisible().catch(() => false)) return true;
-  const deny = dialog.getByRole("button", { name: "Deny", exact: true }).last();
+  if (!await targetDialog.isVisible().catch(() => false)) return true;
+  const deny = targetDialog.getByRole("button", { name: /^(Deny|Denegar|Rechazar|拒否|거부|拒絕|拒绝)$/i }).last();
   await deny.waitFor({ state: "visible", timeout: 5_000 });
   await deny.press("Enter");
-  await dialog.waitFor({ state: "hidden", timeout: 10_000 });
+  await targetDialog.waitFor({ state: "hidden", timeout: 10_000 });
   return true;
 }
 
@@ -1500,6 +1666,7 @@ export class ChatGptCompletionTracker {
   update(
     state: Parameters<typeof chatGptTurnIsComplete>[0] & {
       externalToolCallsInFlight?: boolean;
+      hasPendingToolEvidence?: boolean;
     },
     now = Date.now(),
   ): boolean {
@@ -1507,7 +1674,7 @@ export class ChatGptCompletionTracker {
     // An outstanding tool call proves the model has more to say, whatever the rendered message
     // currently looks like. Completing here would return a truncated answer and retire the turn
     // while its own tool calls were still in flight.
-    if (state.externalToolCallsInFlight) {
+    if (state.externalToolCallsInFlight || state.hasPendingToolEvidence) {
       this.candidate = undefined;
       this.missingPostToolAnswerSince = undefined;
       return false;
@@ -1613,6 +1780,43 @@ export class ChatGptTurnDomHealthTracker {
       return "ChatGPT stopped generating but did not expose its completed-turn action; the ChatGPT DOM may have changed";
     }
     return undefined;
+  }
+}
+
+/**
+ * Bounds the completion veto that pending tool evidence imposes.
+ *
+ * The veto is only load-bearing once the turn otherwise looks complete: a live generation or
+ * proven MCP activity explains the pending status, so neither may be charged against the stall
+ * window. Within a window where the evidence never lifts, a new answer delta restarts it — only
+ * evidence that outlives every corroborating signal is an orphan container worth failing over.
+ */
+export class ChatGptPendingToolEvidenceTracker {
+  private pendingSince?: number;
+  private lastStreamDeltaAt?: number;
+
+  constructor(private readonly stallMs = CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS) {}
+
+  update(state: {
+    pendingToolEvidence: boolean;
+    running: boolean;
+    streamDelta: boolean;
+    externalProgressLive: boolean;
+  }, now = Date.now()): string | undefined {
+    if (state.streamDelta) {
+      this.lastStreamDeltaAt = now;
+      this.pendingSince = undefined;
+    }
+    if (!state.pendingToolEvidence || state.running || state.externalProgressLive) {
+      this.pendingSince = undefined;
+      return undefined;
+    }
+    this.pendingSince ??= now;
+    if (now - this.pendingSince < this.stallMs) return undefined;
+    const quietMs = this.lastStreamDeltaAt === undefined
+      ? this.stallMs
+      : now - this.lastStreamDeltaAt;
+    return `ChatGPT kept pending tool evidence for ${Math.round(this.stallMs / 1000)}s after generation stopped, with no stream output for ${Math.round(quietMs / 1000)}s; an orphan status or tool container is likely vetoing completion. Capture a browser diagnostic for this turn or set a turn timeout to bound the wait.`;
   }
 }
 
@@ -2633,6 +2837,10 @@ export class ChatGptBrowserWorker {
         abortSignal,
       );
       if (count === 1) return composers.first();
+      // Periodically attempt overlay dismissal if composer is obscured
+      if (count === 0 && (deadline - Date.now()) % 1_500 < 60) {
+        await dismissAllChatGptOverlays(page).catch(() => 0);
+      }
       await withBrowserTurnAbort(
         new Promise(resolveSleep => setTimeout(resolveSleep, 50)),
         abortSignal,
@@ -2660,13 +2868,23 @@ export class ChatGptBrowserWorker {
       });
       await captureDiagnostic?.("temporary-chat-navigation-complete");
     }
+    const initialDismissed = await dismissAllChatGptOverlays(page, { captureDiagnostic }).catch(() => 0);
+    if (initialDismissed > 0) {
+      await captureDiagnostic?.("overlays-dismissed-before-composer");
+    }
     let composer: Locator;
     try {
       composer = await this.activeComposer(page);
     } catch {
-      throw new Error("ChatGPT web login is expired or the Temporary Chat surface is unavailable");
+      const recoveredOverlays = await dismissAllChatGptOverlays(page, { captureDiagnostic }).catch(() => 0);
+      if (recoveredOverlays > 0) {
+        composer = await this.activeComposer(page);
+      } else {
+        throw new Error("ChatGPT web login is expired or the Temporary Chat surface is unavailable");
+      }
     }
-    if (await dismissChatGptTemporaryChatOnboarding(page)) {
+    const postDismissed = await dismissAllChatGptOverlays(page, { captureDiagnostic }).catch(() => 0);
+    if (postDismissed > 0) {
       await captureDiagnostic?.("temporary-chat-onboarding-dismissed");
     }
     await captureDiagnostic?.("composer-ready");
@@ -4978,6 +5196,7 @@ export class ChatGptBrowserWorker {
         });
       };
       const domHealthTracker = new ChatGptTurnDomHealthTracker();
+      const pendingToolEvidenceTracker = new ChatGptPendingToolEvidenceTracker();
       const responseDomCache: ChatGptResponseDomCache = {};
       let consecutiveObservationRebinds = 0;
       let internalObservationFaults = 0;
@@ -5121,6 +5340,21 @@ export class ChatGptBrowserWorker {
             externalProgressLive,
           });
           if (domError) throw new Error(domError);
+          const hasPendingToolEvidence = Boolean(
+            snapshot.traceBlocks?.some(b => b.kind === "status" || (b.kind === "commentary" && !b.complete))
+            || (snapshot.fullHtml && (
+              snapshot.fullHtml.includes("data-streaming-response-status")
+              || snapshot.fullHtml.includes("data-testid=\"tool-call")
+              || snapshot.fullHtml.includes("data-testid=\"tool-status")
+            ))
+          );
+          const evidenceStall = pendingToolEvidenceTracker.update({
+            pendingToolEvidence: hasPendingToolEvidence,
+            running,
+            streamDelta: Boolean(textDelta),
+            externalProgressLive,
+          });
+          if (evidenceStall) throw new Error(evidenceStall);
           const completionReady = completionTracker.update({
             responsePresent: snapshot.responsePresent,
             running,
@@ -5128,6 +5362,7 @@ export class ChatGptBrowserWorker {
             currentHtml: snapshot.fullHtml,
             completionActionVisible: snapshot.completionActionVisible,
             externalToolCallsInFlight,
+            hasPendingToolEvidence,
           });
           if (!completionReady) completionFenceRevision = undefined;
           if (completionReady) {
@@ -5199,6 +5434,14 @@ export class ChatGptBrowserWorker {
             externalProgressLive,
           });
           if (domError) throw new Error(domError);
+          // Evidence that is not observable counts as gone, so a stretch with no response DOM
+          // cannot be charged against a later orphan-container window.
+          pendingToolEvidenceTracker.update({
+            pendingToolEvidence: false,
+            running,
+            streamDelta: false,
+            externalProgressLive,
+          });
         }
         await new Promise(resolveSleep => setTimeout(resolveSleep, 250));
        } catch (error) {

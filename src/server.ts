@@ -3,6 +3,11 @@ import { closeChatGptBrowserWorkers } from "./adapters/chatgpt-web/browser-worke
 import { closeTurnBrokers, TurnBroker } from "./adapters/chatgpt-web/turn-broker";
 import { timingSafeEqual } from "node:crypto";
 import { chatGptTurnSessions } from "./adapters/chatgpt-web/turn-execution";
+import { defaultSubagentGovernor } from "./adapters/chatgpt-web/concurrency";
+import { defaultPromptContractCache } from "./adapters/chatgpt-web/prompt";
+import { workspaceFileCache } from "./adapters/chatgpt-web/fast-path-cache";
+import { sessionHealthGuard } from "./adapters/chatgpt-web/session-guard";
+import { TunnelSupervisor } from "./tunnel-supervisor";
 import {
   cancelAllStructuredCompactions,
   cancelStructuredCompactionNativeTurn,
@@ -531,6 +536,16 @@ export async function responseRequest(
     );
   }
 
+  try {
+    sessionHealthGuard.assertCanRunTurn();
+  } catch (guardErr) {
+    return formatErrorResponse(
+      401,
+      "invalid_request_error",
+      guardErr instanceof Error ? guardErr.message : "ChatGPT session expired",
+    );
+  }
+
   const compaction = parsed._compactionRequest === true;
   const rememberCompletedResponse = (response: Record<string, unknown>): void => {
     if (!compaction) {
@@ -790,7 +805,11 @@ export async function compactRequest(
 
 export function startServer(
   config: AppConfig,
-  dependencies: { fetchUpstream?: NativeFetch; adapterFactory?: ChatGptWebAdapterFactory } = {},
+  dependencies: {
+    fetchUpstream?: NativeFetch;
+    adapterFactory?: ChatGptWebAdapterFactory;
+    tunnelSupervisor?: TunnelSupervisor;
+  } = {},
 ): ReturnType<typeof Bun.serve> {
   if (config.purpose === "dev-harness") {
     throw new Error("DEV harness configuration cannot start a Responses listener");
@@ -804,6 +823,11 @@ export function startServer(
       );
     });
   }
+  const tunnelSupervisor = dependencies.tunnelSupervisor
+    ?? (config.mode === "full" && config.tunnel ? new TunnelSupervisor({ config }) : undefined);
+  if (tunnelSupervisor) {
+    tunnelSupervisor.start();
+  }
   let draining = false;
   let shutdownPromise: Promise<void> | undefined;
   let successfulModelCatalogRequests = 0;
@@ -816,6 +840,9 @@ export function startServer(
   const activity = () => ({
     active_http_turns: httpTurns.count(),
     active_browser_turns: chatGptTurnSessions.activeCount() + (turnBroker?.externalOwnerActiveCount() ?? 0),
+    active_subagents: defaultSubagentGovernor.active,
+    queued_subagents: defaultSubagentGovernor.queued,
+    prompt_cache: defaultPromptContractCache.getStats(),
   });
   const controlAuthorized = (req: Request): boolean => {
     const header = req.headers.get("authorization") ?? "";
@@ -843,6 +870,21 @@ export function startServer(
           last_successful_model_catalog_request_at: lastSuccessfulModelCatalogRequestAt,
           model_catalog_requests: modelCatalogRequests,
           last_model_catalog_result: lastModelCatalogResult,
+          tunnel_auto_restarts: tunnelSupervisor?.getStats().auto_restarts ?? 0,
+          last_tunnel_auto_restart_at: tunnelSupervisor?.getStats().last_auto_restart_at ?? null,
+          tunnel_supervisor: tunnelSupervisor?.getStats() ?? {
+            enabled: false,
+            status: "disabled",
+            auto_restarts: 0,
+            last_auto_restart_at: null,
+            consecutive_failures: 0,
+            last_probe_at: null,
+            last_probe_ok: null,
+            last_probe_detail: null,
+            last_error: null,
+          },
+          fast_path_cache: workspaceFileCache.getStats(),
+          auth_session: sessionHealthGuard.getStats(),
           ...activity(),
         });
       }
@@ -956,6 +998,7 @@ export function startServer(
         // registry.
         const compactionCancellation = cancelAllStructuredCompactions(reason);
         const cancelledBrowserTurns = chatGptTurnSessions.clear() + (turnBroker?.revokeExternalOwners() ?? 0);
+        defaultSubagentGovernor.clear(reason);
         const [cancelledHttpTurns, cancelledCompactionRuns] = await Promise.all([
           httpTurns.cancelAll(reason),
           compactionCancellation,
@@ -983,6 +1026,21 @@ export function startServer(
         }
         setTimeout(shutdown, 0);
         return Response.json({ status: "ok", accepting_turns: false, ...current });
+      }
+      if (req.method === "POST" && url.pathname === "/admin/tunnel/restart") {
+        if (!controlAuthorized(req)) return new Response("Unauthorized", { status: 401 });
+        if (!tunnelSupervisor || !tunnelSupervisor.getStats().enabled) {
+          return Response.json(
+            { status: "disabled", error: "Tunnel supervisor is not enabled on this server" },
+            { status: 400 },
+          );
+        }
+        const recovered = await tunnelSupervisor.recover(true);
+        return Response.json({
+          status: "ok",
+          recovered,
+          supervisor: tunnelSupervisor.getStats(),
+        });
       }
       if (req.method === "GET" && url.pathname === "/v1/models") {
         if (draining) {
@@ -1096,7 +1154,10 @@ export function startServer(
   function shutdown(): void {
     if (shutdownPromise) return;
     draining = true;
+    tunnelSupervisor?.stop();
+    sessionHealthGuard.stopWatchdog();
     chatGptTurnSessions.clear();
+    defaultSubagentGovernor.clear(new Error("Server is shutting down"));
     flushResponseState();
     shutdownPromise = (async () => {
       const results = await Promise.allSettled([

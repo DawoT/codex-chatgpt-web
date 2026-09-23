@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import type { Page } from "playwright-core";
-import { CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS, CHATGPT_COMPLETION_SETTLE_MS, CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS, CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS, ChatGptCompletionTracker, chatGptExternalProgressSuppressesDomHealth, CHATGPT_RESPONSE_DOM_GRACE_MS, MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS, CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_COMPOSER_SELECT_ALL_KEY, ChatGptBrowserObservationTimeoutError, ChatGptBrowserWorker, ChatGptSubmissionRejectionObserver, ChatGptPromptAttachmentIntegrityError, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_PAGE_REBINDS, MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS, assertChatGptWebInputWithinLimits, assertChatGptWebMultipartInputWithinLimits, browserDiagnosticCheckpoint, chatGptConnectorAttachmentMode, chatGptNewTurnIdentity, chatGptReboundTurnIdentity, chatGptSubmissionEvidence, connectAfterClosingBrowserConnection, dismissChatGptTemporaryChatOnboarding, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, resolveChatGptWebMultipartStagingMode, sanitizeChatGptBrowserDiagnosticState, setChatGptThinkMode, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert, withChatGptBrowserObservationTimeout, CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS, browserStageTimeouts, ChatGptSuspensionClock, remainingStageBudgetMs } from "../src/adapters/chatgpt-web/browser-worker";
+import { CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS, CHATGPT_COMPLETION_SETTLE_MS, CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS, CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS, ChatGptCompletionTracker, chatGptExternalProgressSuppressesDomHealth, CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS, ChatGptPendingToolEvidenceTracker, CHATGPT_RESPONSE_DOM_GRACE_MS, MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS, CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_COMPOSER_SELECT_ALL_KEY, ChatGptBrowserObservationTimeoutError, ChatGptBrowserWorker, ChatGptSubmissionRejectionObserver, ChatGptPromptAttachmentIntegrityError, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_PAGE_REBINDS, MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS, assertChatGptWebInputWithinLimits, assertChatGptWebMultipartInputWithinLimits, browserDiagnosticCheckpoint, chatGptConnectorAttachmentMode, chatGptNewTurnIdentity, chatGptReboundTurnIdentity, chatGptSubmissionEvidence, connectAfterClosingBrowserConnection, dismissChatGptTemporaryChatOnboarding, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, resolveChatGptWebMultipartStagingMode, sanitizeChatGptBrowserDiagnosticState, setChatGptThinkMode, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert, withChatGptBrowserObservationTimeout, CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS, browserStageTimeouts, ChatGptSuspensionClock, remainingStageBudgetMs } from "../src/adapters/chatgpt-web/browser-worker";
 import { ensureChatGptPersonalizedConnectorAccess, chatGptUnavailableProDetail } from "../src/adapters/chatgpt-web/browser-worker";
 import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter-error";
 import { CHATGPT_STOPPED_THINKING_LABELS } from "../src/adapters/chatgpt-web/ui-labels";
@@ -4094,6 +4094,102 @@ test("Full mode fails closed when ChatGPT exposes completion without a post-tool
   expect(tracker.update({ ...partialLookingFinal, currentHtml: '<p data-hydrated="true">partial answer</p>' }, 1_999)).toBeFalse();
   expect(() => tracker.update(partialLookingFinal, 2_000))
     .toThrow("completed without producing a final answer after its last Codex tool call");
+});
+
+test("orphan pending tool evidence fails the turn instead of spinning the completion fence", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
+  const orphaned = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+  };
+
+  // A status container that outlives its tool call vetoes completion forever, so past the grace
+  // the veto must become a verdict instead of an unbounded 250 ms poll loop.
+  expect(tracker.update(orphaned, 1_000)).toBeUndefined();
+  expect(tracker.update(orphaned, 1_999)).toBeUndefined();
+  expect(tracker.update(orphaned, 2_000)).toContain("pending tool evidence");
+  expect(tracker.update(orphaned, 2_000)).toContain("browser diagnostic");
+});
+
+test("proven MCP activity within the stall ceiling never orphans pending tool evidence", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
+  const evidence = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+  };
+  const now = 3_600_000;
+  const progress = {
+    revision: 2,
+    lastToolBatchRevision: 2,
+    activeToolCalls: 1,
+    lastProgressAt: now - 1_000,
+  };
+
+  // The loop feeds liveness through the same helper as DOM health, so the external-progress stall
+  // ceiling is respected: an in-flight call keeps the turn alive well past the evidence grace.
+  const live = chatGptExternalProgressSuppressesDomHealth(progress, now);
+  expect(live).toBeTrue();
+  expect(tracker.update({ ...evidence, externalProgressLive: live }, now)).toBeUndefined();
+  expect(tracker.update({ ...evidence, externalProgressLive: live }, now + CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS)).toBeUndefined();
+
+  // Once liveness lapses the stall window starts from that observation, not from when the
+  // evidence first appeared behind the protected stretch.
+  expect(tracker.update({ ...evidence, externalProgressLive: false }, now + CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS + 999)).toBeUndefined();
+  expect(tracker.update({ ...evidence, externalProgressLive: false }, now + CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS + 2_000))
+    .toContain("pending tool evidence");
+});
+
+test("a new answer delta restarts the orphaned-evidence stall window", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
+  const orphaned = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+  };
+
+  expect(tracker.update(orphaned, 1_000)).toBeUndefined();
+  // Streaming proves the turn is still producing its answer, so the delta — not the evidence
+  // start — owns the window.
+  expect(tracker.update({ ...orphaned, streamDelta: true }, 1_200)).toBeUndefined();
+  expect(tracker.update(orphaned, 2_199)).toBeUndefined();
+  expect(tracker.update(orphaned, 2_200)).toContain("pending tool evidence");
+});
+
+test("pending tool evidence that disappears starts a fresh stall window when it returns", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
+  const orphaned = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+  };
+
+  expect(tracker.update(orphaned, 1_000)).toBeUndefined();
+  expect(tracker.update({ ...orphaned, pendingToolEvidence: false }, 1_400)).toBeUndefined();
+  expect(tracker.update(orphaned, 1_800)).toBeUndefined();
+  expect(tracker.update(orphaned, 2_799)).toBeUndefined();
+  expect(tracker.update(orphaned, 2_800)).toContain("pending tool evidence");
+});
+
+test("a live generation with pending tool evidence is never treated as orphaned", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
+  const generating = {
+    pendingToolEvidence: true,
+    running: true,
+    streamDelta: false,
+    externalProgressLive: false,
+  };
+
+  // ChatGPT updates its status containers without streaming answer Markdown, so a live
+  // generation must not be charged against the window the completion veto uses.
+  expect(tracker.update(generating, 1_000)).toBeUndefined();
+  expect(tracker.update(generating, 60_000)).toBeUndefined();
+  expect(tracker.update({ ...generating, running: false }, 60_100)).toBeUndefined();
+  expect(tracker.update({ ...generating, running: false }, 61_100)).toContain("pending tool evidence");
 });
 
 test("a future progress timestamp is not treated as liveness", () => {

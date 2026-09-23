@@ -1,4 +1,15 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
+try {
+  createRequire(import.meta.url).resolve("electron");
+} catch {
+  mock.module("electron", () => ({
+    clipboard: { writeText() {}, readText() { return ""; } },
+    WebContentsView: class WebContentsView {},
+    powerMonitor: { on() {}, removeListener() {} },
+    powerSaveBlocker: { start() { return 1; }, stop() {} },
+    shell: { openExternal: async () => {} },
+  }));
+}
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";

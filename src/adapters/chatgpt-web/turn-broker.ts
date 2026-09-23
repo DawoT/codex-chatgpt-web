@@ -74,8 +74,8 @@ interface TurnChannel {
   compactionResult?: BrokerToolResult;
   compactionDeliveryCount: number;
   safe?: SafeTurnControl;
-  /** Every MCP request owns a lease from token claim until its handler has settled. */
-  activities: Set<string>;
+  /** Every MCP request owns a lease from token claim until its handler has settled (claimedAt). */
+  activities: Map<string, number>;
   /** Prevents a lost/retried or delayed claim from resurrecting activity after cleanup. */
   completedActivities: Set<string>;
   /** Monotonic across activity start/end so a completed request cannot disappear across a fence. */
@@ -96,6 +96,7 @@ interface BrokerRequest {
     | "owner_status"
     | "owner_register"
     | "owner_register_safe"
+    | "owner_register_alias"
     | "owner_update"
     | "owner_safe_sent"
     | "owner_next"
@@ -113,6 +114,8 @@ interface BrokerRequest {
     | "activity_complete"
     | "submit_compaction_handoff";
   token?: string;
+  previousToken?: string;
+  newToken?: string;
   bindingId?: string;
   wireName?: string;
   freeform?: boolean;
@@ -141,6 +144,16 @@ interface BrokerResponse {
 const brokers = new Map<string, TurnBroker>();
 const MAX_BROKER_LINE_CHARS = 67_108_864;
 const MAX_RETIRED_TURN_HANDLES = 64;
+/**
+ * How long an unsettled MCP activity lease may keep its channel's completion fence vetoed.
+ *
+ * A claim resolved through an alias or trace lineage registers its activity on the successor
+ * channel, so a claimant that dies before `activity_complete` would veto every later fence on
+ * that channel forever. Past this bound the lease is treated as abandoned and swept.
+ */
+const MAX_ACTIVITY_LIVENESS_MS = 120_000;
+/** Alias chains are bounded like retired-handle history; the broker is a process singleton. */
+const MAX_TOKEN_ALIASES = 256;
 
 export async function closeTurnBrokers(): Promise<void> {
   const active = [...brokers.values()];
@@ -207,13 +220,23 @@ function assertSurfaceNonce(value: unknown): asserts value is string {
 }
 
 export interface TurnBrokerOwner {
-  register(environment: ChatGptTurnEnvironment, ttlMs?: number, traceId?: string): Promise<string>;
+  register(
+    environment: ChatGptTurnEnvironment,
+    ttlMs?: number,
+    traceId?: string,
+    externalOwner?: boolean,
+    handlePrefix?: string,
+    predecessorToken?: string,
+  ): Promise<string>;
   registerSafe(
     environment: ChatGptTurnEnvironment,
     surfaceNonce: string,
     ttlMs?: number,
     traceId?: string,
+    externalOwner?: boolean,
+    predecessorToken?: string,
   ): Promise<string>;
+  registerAlias?(oldToken: string, newToken: string): void | Promise<void>;
   updateEnvironment(token: string, environment: ChatGptTurnEnvironment): void | Promise<void>;
   confirmSafeTurnSent(
     token: string,
@@ -239,10 +262,10 @@ export interface TurnBrokerOwner {
 const MAX_UNIX_SOCKET_PATH_BYTES = 103;
 
 export class TurnBroker implements TurnBrokerOwner {
-  static forSocket(path: string): TurnBroker {
+  static forSocket(path: string, activityLivenessMs = MAX_ACTIVITY_LIVENESS_MS): TurnBroker {
     let broker = brokers.get(path);
     if (!broker) {
-      broker = new TurnBroker(path);
+      broker = new TurnBroker(path, activityLivenessMs);
       brokers.set(path, broker);
     }
     return broker;
@@ -257,11 +280,17 @@ export class TurnBroker implements TurnBrokerOwner {
   // previous turn's handle" from "this handle never existed".
   private readonly retiredBindings = new Map<string, string>();
   private readonly retiredTokens = new Map<string, string>();
+  private readonly tokenAliases = new Map<string, string>();
+  private readonly traceActiveTokens = new Map<string, string>();
+  private readonly traceTokens = new Map<string, string[]>();
   private acceptingExternalOwners = true;
   private server?: Server;
   private startPromise?: Promise<void>;
 
-  private constructor(readonly socketPath: string) {}
+  private constructor(
+    readonly socketPath: string,
+    private readonly activityLivenessMs = MAX_ACTIVITY_LIVENESS_MS,
+  ) {}
 
   /**
    * A ChatGPT turn outlives the request that started it, and its Codex Native calls arrive from a
@@ -273,12 +302,62 @@ export class TurnBroker implements TurnBrokerOwner {
     await this.start();
   }
 
+  registerAlias(oldToken: string, newToken: string): void {
+    this.tokenAliases.set(oldToken, newToken);
+    this.trimOldest(this.tokenAliases, MAX_TOKEN_ALIASES);
+    console.info(
+      `[chatgpt-web] broker registered alias ${handleFingerprint(oldToken)} -> ${handleFingerprint(newToken)}`,
+    );
+  }
+
+  resolveActiveToken(token: string): { resolvedToken: string; channel: TurnChannel } | undefined {
+    const directChannel = this.channels.get(token);
+    if (directChannel && !directChannel.completionCommitted) {
+      return { resolvedToken: token, channel: directChannel };
+    }
+    // 1. Follow explicit alias chain
+    let curr = token;
+    const visited = new Set<string>([curr]);
+    while (this.tokenAliases.has(curr)) {
+      curr = this.tokenAliases.get(curr)!;
+      if (visited.has(curr)) break;
+      visited.add(curr);
+      const target = this.channels.get(curr);
+      if (target && !target.completionCommitted) {
+        return { resolvedToken: curr, channel: target };
+      }
+    }
+    // 2. Trace lineage lookup: if this token was associated with a trace, check active token
+    const traceId = directChannel?.traceId ?? this.retiredTokens.get(token);
+    if (traceId && traceId !== "unknown") {
+      const activeToken = this.traceActiveTokens.get(traceId);
+      if (activeToken) {
+        const activeChannel = this.channels.get(activeToken);
+        if (activeChannel && !activeChannel.completionCommitted) {
+          return { resolvedToken: activeToken, channel: activeChannel };
+        }
+      }
+      const allForTrace = this.traceTokens.get(traceId);
+      if (allForTrace) {
+        for (let i = allForTrace.length - 1; i >= 0; i--) {
+          const cand = allForTrace[i];
+          const candChannel = this.channels.get(cand);
+          if (candChannel && !candChannel.completionCommitted) {
+            return { resolvedToken: cand, channel: candChannel };
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
   async register(
     environment: ChatGptTurnEnvironment,
     ttlMs?: number,
     traceId = "unknown",
     externalOwner = false,
     handlePrefix = "turn",
+    predecessorToken?: string,
   ): Promise<string> {
     await this.start();
     this.prune();
@@ -302,7 +381,7 @@ export class TurnBroker implements TurnBrokerOwner {
       waiters: new Set(),
       compactionRequested: false,
       compactionDeliveryCount: 0,
-      activities: new Set(),
+      activities: new Map(),
       completedActivities: new Set(),
       activityRevision: 0,
       completionCommitted: false,
@@ -310,7 +389,19 @@ export class TurnBroker implements TurnBrokerOwner {
     };
     this.channels.set(token, channel);
     this.pending.set(token, channel);
-    console.info(`[chatgpt-web] broker trace=${traceId} registered tokenHash=${handleFingerprint(token)}`);
+    if (predecessorToken) {
+      this.tokenAliases.set(predecessorToken, token);
+      this.trimOldest(this.tokenAliases, MAX_TOKEN_ALIASES);
+    }
+    if (traceId && traceId !== "unknown") {
+      this.traceActiveTokens.set(traceId, token);
+      const list = this.traceTokens.get(traceId) ?? [];
+      list.push(token);
+      this.traceTokens.set(traceId, list);
+    }
+    console.info(
+      `[chatgpt-web] broker trace=${traceId} registered tokenHash=${handleFingerprint(token)}${predecessorToken ? ` predecessor=${handleFingerprint(predecessorToken)}` : ""}`,
+    );
     return token;
   }
 
@@ -320,9 +411,10 @@ export class TurnBroker implements TurnBrokerOwner {
     ttlMs?: number,
     traceId = "unknown",
     externalOwner = false,
+    predecessorToken?: string,
   ): Promise<string> {
     assertSurfaceNonce(surfaceNonce);
-    const token = await this.register(environment, ttlMs, traceId, externalOwner, "request");
+    const token = await this.register(environment, ttlMs, traceId, externalOwner, "request", predecessorToken);
     const channel = this.channels.get(token);
     if (!channel) throw new Error("Zero Risk turn registration was revoked before initialization");
     channel.safe = {
@@ -614,6 +706,9 @@ export class TurnBroker implements TurnBrokerOwner {
     if (!channel) return;
     this.channels.delete(token);
     this.pending.delete(token);
+    if (this.traceActiveTokens.get(channel.traceId) === token) {
+      this.traceActiveTokens.delete(channel.traceId);
+    }
     if (channel.bindingId) {
       this.bindings.delete(channel.bindingId);
       this.retire(this.retiredBindings, channel.bindingId, channel.traceId);
@@ -625,6 +720,18 @@ export class TurnBroker implements TurnBrokerOwner {
       this.rejectSafeWaiters(channel.safe.completionWaiters, reason);
     }
     this.retire(this.retiredTokens, token, channel.traceId);
+    // Lineage that routes into this token would fail closed anyway (its channel is gone), but
+    // leaving it behind keeps the singleton's maps growing for the process lifetime and lets a
+    // stale alias chain hop through the revoked handle instead of failing closed here.
+    for (const [alias, target] of this.tokenAliases) {
+      if (target === token) this.tokenAliases.delete(alias);
+    }
+    const traceLineage = this.traceTokens.get(channel.traceId);
+    if (traceLineage) {
+      const index = traceLineage.indexOf(token);
+      if (index >= 0) traceLineage.splice(index, 1);
+      if (traceLineage.length === 0) this.traceTokens.delete(channel.traceId);
+    }
     this.resolveSafeWaiters(channel.retirementWaiters, undefined);
     this.rejectChannel(channel, reason);
   }
@@ -657,7 +764,12 @@ export class TurnBroker implements TurnBrokerOwner {
   private retire(history: Map<string, string>, handle: string, traceId: string): void {
     history.delete(handle);
     history.set(handle, traceId);
-    while (history.size > MAX_RETIRED_TURN_HANDLES) {
+    this.trimOldest(history, MAX_RETIRED_TURN_HANDLES);
+  }
+
+  /** Evicts by insertion order (oldest out), the same bound style as the retired-handle history. */
+  private trimOldest(history: Map<string, string>, limit: number): void {
+    while (history.size > limit) {
       const oldest = history.keys().next();
       if (oldest.done) return;
       history.delete(oldest.value);
@@ -728,6 +840,9 @@ export class TurnBroker implements TurnBrokerOwner {
   async close(): Promise<void> {
     this.compactionTransactions.close();
     for (const token of [...this.channels.keys()]) this.revoke(token);
+    this.tokenAliases.clear();
+    this.traceActiveTokens.clear();
+    this.traceTokens.clear();
     const server = this.server;
     this.server = undefined;
     this.startPromise = undefined;
@@ -884,7 +999,7 @@ export class TurnBroker implements TurnBrokerOwner {
     if (!request || typeof request !== "object" || typeof request.id !== "string" || request.id.length === 0 || request.id.length > 256) {
       throw new Error("turn broker request id is invalid");
     }
-    if (!["claim", "resolve", "release", "invoke", "owner_status", "owner_register", "owner_register_safe", "owner_update", "owner_safe_sent", "owner_next", "owner_complete", "owner_completion_fence_begin", "owner_completion_fence_commit", "owner_wait_retirement", "owner_revoke", "owner_safe_wait_start", "owner_safe_wait_completion", "owner_request_compaction", "owner_compaction_delivery_count", "safe_start", "safe_complete", "activity_complete", "submit_compaction_handoff"].includes(request.method)) {
+    if (!["claim", "resolve", "release", "invoke", "owner_status", "owner_register", "owner_register_safe", "owner_register_alias", "owner_update", "owner_safe_sent", "owner_next", "owner_complete", "owner_completion_fence_begin", "owner_completion_fence_commit", "owner_wait_retirement", "owner_revoke", "owner_safe_wait_start", "owner_safe_wait_completion", "owner_request_compaction", "owner_compaction_delivery_count", "safe_start", "safe_complete", "activity_complete", "submit_compaction_handoff"].includes(request.method)) {
       throw new Error("turn broker method is invalid");
     }
   }
@@ -922,12 +1037,18 @@ export class TurnBroker implements TurnBrokerOwner {
     if (request.method === "owner_status") {
       return { protocolVersion: 5, acceptingExternalOwners: this.acceptingExternalOwners };
     }
+    if (request.method === "owner_register_alias") {
+      if (!request.token) throw new Error("old token is required");
+      if (!request.newToken) throw new Error("new token is required");
+      this.registerAlias(request.token, request.newToken);
+      return { registered: true };
+    }
     if (request.method === "owner_register") {
       const environment = ownerEnvironment(request.environment);
       if (request.traceId !== undefined && !/^[A-Za-z0-9_-]{6,128}$/.test(request.traceId)) {
         throw new Error("turn owner trace id is invalid");
       }
-      return this.register(environment, request.ttlMs, request.traceId, true).then(token => ({ token }));
+      return this.register(environment, request.ttlMs, request.traceId, true, "turn", request.previousToken).then(token => ({ token }));
     }
     if (request.method === "owner_register_safe") {
       const environment = ownerEnvironment(request.environment);
@@ -941,6 +1062,7 @@ export class TurnBroker implements TurnBrokerOwner {
         request.ttlMs,
         request.traceId,
         true,
+        request.previousToken,
       ).then(token => ({ token }));
     }
     if (request.method === "owner_update") {
@@ -1011,9 +1133,16 @@ export class TurnBroker implements TurnBrokerOwner {
       if (typeof token !== "string" || token.length === 0) {
         throw new Error(contract === "safe" ? "request id is required" : "turn token is required");
       }
+      const resolved = this.resolveActiveToken(token);
+      let activeChannel = resolved?.channel;
+      const effectiveToken = resolved?.resolvedToken ?? token;
+      if (resolved && resolved.resolvedToken !== token) {
+        console.info(
+          `[chatgpt-web] broker aliasing token ${handleFingerprint(token)} -> active token ${handleFingerprint(effectiveToken)} (trace=${activeChannel?.traceId})`,
+        );
+      }
       const channel = this.channels.get(token);
-      let activeChannel = channel && !channel.completionCommitted ? channel : undefined;
-      const retiredTurn = channel?.completionCommitted ? channel.traceId : this.retiredTokens.get(token);
+      const retiredTurn = activeChannel ? undefined : (channel?.completionCommitted ? channel.traceId : this.retiredTokens.get(token));
       console.error(
         `[chatgpt-web] broker claim received (tokenChars=${token.length}, tokenHash=${handleFingerprint(token)}, valid=${Boolean(activeChannel)}`
         + `${activeChannel ? "" : `, retiredTurn=${retiredTurn ?? "unknown"}`})`,
@@ -1030,9 +1159,10 @@ export class TurnBroker implements TurnBrokerOwner {
           // ChatGPT can issue its first Harness call in the brief interval between the user sending
           // the copied prompt and confirming Sent in the Launcher. Hold that call behind the local
           // authorization boundary, but still require codex_turn_start before it can run.
-          await this.waitForSafeSent(token, socketSignal);
+          await this.waitForSafeSent(effectiveToken, socketSignal);
           this.prune();
-          activeChannel = this.channels.get(token);
+          const refreshed = this.resolveActiveToken(effectiveToken);
+          activeChannel = refreshed?.channel;
           if (!activeChannel || activeChannel.completionCommitted) {
             throw new Error("turn token is invalid, expired, or revoked");
           }
@@ -1049,20 +1179,20 @@ export class TurnBroker implements TurnBrokerOwner {
         throw new Error("turn activity was already completed before this claim settled");
       }
       if (!activeChannel.activities.has(activityId)) {
-        activeChannel.activities.add(activityId);
+        activeChannel.activities.set(activityId, Date.now());
         activeChannel.activityRevision += 1;
       }
       if (activeChannel.bindingId) {
         const existing = this.bindings.get(activeChannel.bindingId);
-        if (!existing || existing.token !== token || existing.channel !== activeChannel) {
+        if (!existing || existing.token !== effectiveToken || existing.channel !== activeChannel) {
           throw new Error("turn token binding state is inconsistent");
         }
         return { bindingId: activeChannel.bindingId, activityId, environment: activeChannel.environment };
       }
-      this.pending.delete(token);
+      this.pending.delete(effectiveToken);
       const bindingId = opaqueId("binding");
       activeChannel.bindingId = bindingId;
-      this.bindings.set(bindingId, { token, channel: activeChannel });
+      this.bindings.set(bindingId, { token: effectiveToken, channel: activeChannel });
       return { bindingId, activityId, environment: activeChannel.environment };
     }
 
@@ -1073,7 +1203,8 @@ export class TurnBroker implements TurnBrokerOwner {
       if (typeof request.activityId !== "string" || !/^activity_[A-Za-z0-9_-]{16,128}$/.test(request.activityId)) {
         throw new Error("turn activity id is invalid");
       }
-      const channel = this.channels.get(token);
+      const resolved = this.resolveActiveToken(token);
+      const channel = resolved?.channel ?? this.channels.get(token);
       if (!channel) {
         return { completed: false, retired: this.retiredTokens.has(token) };
       }
@@ -1200,6 +1331,23 @@ export class TurnBroker implements TurnBrokerOwner {
       if (channel.environment.expiresAt === undefined || channel.environment.expiresAt > now) continue;
       this.revoke(token);
     }
+    this.pruneAbandonedActivities(now);
+  }
+
+  /**
+   * A claim that reached its channel through an alias or trace lineage may never be settled by its
+   * claimant, which would veto the channel's completion fence forever. Sweeping an abandoned lease
+   * is a causal event exactly like an `activity_complete` tombstone, so the fence revision moves
+   * and a fence captured against the vetoed state fails its commit instead of silently widening.
+   */
+  private pruneAbandonedActivities(now: number): void {
+    for (const channel of this.channels.values()) {
+      for (const [activityId, claimedAt] of channel.activities) {
+        if (now - claimedAt < this.activityLivenessMs) continue;
+        channel.activities.delete(activityId);
+        channel.activityRevision += 1;
+      }
+    }
   }
 }
 
@@ -1215,6 +1363,8 @@ export class TurnBrokerTimeoutError extends Error {
     this.name = "TurnBrokerTimeoutError";
   }
 }
+
+const activeBrokerClientSockets = new Set<Socket>();
 
 export async function callTurnBroker<T>(
   socketPath: string,
@@ -1232,11 +1382,15 @@ export async function callTurnBroker<T>(
     : request;
   return new Promise<T>((resolveCall, rejectCall) => {
     const socket = createConnection(socketPath);
+    activeBrokerClientSockets.add(socket);
     let buffered = "";
     let settled = false;
     let response: BrokerResponse | undefined;
     const onAbort = () => finishError(new DOMException("ChatGPT web turn broker call aborted", "AbortError"));
-    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const cleanup = () => {
+      activeBrokerClientSockets.delete(socket);
+      signal?.removeEventListener("abort", onAbort);
+    };
     const finishError = (error: Error) => {
       if (settled) return;
       settled = true;
@@ -1328,12 +1482,28 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     }
   }
 
-  async register(environment: ChatGptTurnEnvironment, ttlMs?: number, traceId = "unknown"): Promise<string> {
+  async registerAlias(oldToken: string, newToken: string): Promise<void> {
+    await callTurnBroker(this.socketPath, {
+      method: "owner_register_alias",
+      token: oldToken,
+      newToken,
+    });
+  }
+
+  async register(
+    environment: ChatGptTurnEnvironment,
+    ttlMs?: number,
+    traceId = "unknown",
+    externalOwner?: boolean,
+    handlePrefix?: string,
+    predecessorToken?: string,
+  ): Promise<string> {
     const response = await callTurnBroker<{ token?: unknown }>(this.socketPath, {
       method: "owner_register",
       environment,
       ...(ttlMs !== undefined ? { ttlMs } : {}),
       ...(traceId !== "unknown" ? { traceId } : {}),
+      ...(predecessorToken ? { previousToken: predecessorToken } : {}),
     });
     if (typeof response.token !== "string" || !response.token.startsWith("turn_")) {
       throw new Error("DEV turn owner received an invalid broker token");
@@ -1346,6 +1516,8 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     surfaceNonce: string,
     ttlMs?: number,
     traceId = "unknown",
+    externalOwner?: boolean,
+    predecessorToken?: string,
   ): Promise<string> {
     assertSurfaceNonce(surfaceNonce);
     const response = await callTurnBroker<{ token?: unknown }>(this.socketPath, {
@@ -1354,6 +1526,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       surfaceNonce,
       ...(ttlMs !== undefined ? { ttlMs } : {}),
       ...(traceId !== "unknown" ? { traceId } : {}),
+      ...(predecessorToken ? { previousToken: predecessorToken } : {}),
     });
     if (typeof response.token !== "string" || !response.token.startsWith("request_")) {
       throw new Error("DEV Zero Risk turn owner received an invalid broker request id");

@@ -2647,9 +2647,14 @@ describe("ChatGPT outer-native harness v4", () => {
       expect(listed.tools.map(tool => tool.name).sort()).toEqual([
         "codex_apply_patch",
         "codex_exec",
+        "codex_grep",
+        "codex_list_dir",
+        "codex_patch_file",
+        "codex_read_file",
         "codex_tool_call",
         "codex_tool_inventory",
         "codex_view_image",
+        "codex_write_file",
         "codex_write_stdin",
       ]);
       const publicConnectorAbi = listed.tools.map(tool => ({
@@ -2663,7 +2668,7 @@ describe("ChatGPT outer-native harness v4", () => {
       // ChatGPT caches the complete tools/list contract under a connector identity.
       // An intentional hash change therefore requires an explicit connector refresh or identity migration.
       expect(createHash("sha256").update(canonicalJson(publicConnectorAbi)).digest("hex"))
-        .toBe("9bb14902149337b52ce8598889497b1aba5a3265f28291df950bb38b5700a421");
+        .toBe("bcc3e217fd3a929b41a9297426deda8a382378d9214f8332b8c750c5444fe73b");
       for (const tool of listed.tools) {
         const properties = tool.inputSchema.properties as Record<string, unknown>;
         expect(properties.turn_token).toEqual({ type: "string", minLength: 20, maxLength: 256 });

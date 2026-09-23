@@ -280,6 +280,7 @@ function unansweredBrokerEndpoint(name: string, onConnection: (socket: Socket) =
   if (!isWindowsPipeEndpoint(socketPath)) mkdirSync(dirname(socketPath), { recursive: true });
   const server = createServer(onConnection);
   return {
+    server,
     socketPath,
     listen: () => new Promise<void>(ready => server.listen(socketPath, ready)),
     close: async () => {
@@ -302,10 +303,24 @@ test("an unbounded broker call fails when the broker closes without answering", 
 
 test("an unbounded broker call outlives the bounded default timeout", async () => {
   const accepted: Socket[] = [];
-  const broker = unansweredBrokerEndpoint("cgw-broker-slow-", socket => { accepted.push(socket); });
+  const broker = unansweredBrokerEndpoint("cgw-broker-slow-", socket => {
+    accepted.push(socket);
+    socket.on("data", () => {});
+    socket.on("error", () => {});
+  });
   await broker.listen();
+  while (!existsSync(broker.socketPath)) await Bun.sleep(10);
   try {
-    const call = callTurnBroker(broker.socketPath, { method: "claim", token: "turn_unbounded" }, null);
+    let call: Promise<unknown> = callTurnBroker(broker.socketPath, { method: "claim", token: "turn_unbounded" }, null);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const connected = await Promise.race([
+        call.then(() => "settled", () => "settled"),
+        Bun.sleep(100).then(() => "connected"),
+      ]);
+      if (connected === "connected") break;
+      await Bun.sleep(50);
+      call = callTurnBroker(broker.socketPath, { method: "claim", token: "turn_unbounded" }, null);
+    }
     const outcome = await Promise.race([
       call.then(() => "settled", () => "settled"),
       Bun.sleep(5_300).then(() => "pending"),

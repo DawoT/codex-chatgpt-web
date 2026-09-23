@@ -646,3 +646,35 @@ test("keeps large contexts intact in the inline text envelope", () => {
   expect(compiled.text).not.toContain("sha256");
   expect(compiled.text).not.toContain("SHA-256");
 });
+
+test("root turn receives atomic orchestrator contract and subagent receives atomic worker contract", () => {
+  const token = "turn_12345678901234567890123456789012";
+  const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
+
+  // 1. Root turn (no subagent lineage)
+  const rootReq = request("high");
+  const rootCompiled = compileChatGptWebPrompt(rootReq, caps, token);
+  expect(rootCompiled.text).toContain("When handling repository-level or multi-step tasks, preserve context by delegating deep investigation");
+  expect(rootCompiled.text).toContain("Limit concurrent subagents to at most 2.");
+  expect(rootCompiled.text).not.toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
+
+  // 2. Subagent turn (with thread_spawn lineage)
+  const subagentReq = request("high");
+  subagentReq._rawBody = {
+    client_metadata: {
+      "x-codex-turn-metadata": {
+        request_kind: "turn",
+        subagent_kind: "thread_spawn",
+        thread_id: "thread_child_12345678",
+        parent_thread_id: "thread_parent_12345678",
+        agent_name: "/root/researcher",
+        sandbox_mode: "danger-full-access",
+        workspaces: { "/home/deuz/Proyectos/codex-chatgpt-web": {} },
+      },
+    },
+  };
+  const subCompiled = compileChatGptWebPrompt(subagentReq, caps, token);
+  expect(subCompiled.text).toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
+  expect(subCompiled.text).toContain("Your final response to the parent agent must be concise (under 25 lines)");
+  expect(subCompiled.text).not.toContain("When handling repository-level or multi-step tasks, preserve context by delegating");
+});

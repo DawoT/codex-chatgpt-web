@@ -307,5 +307,7 @@ export interface CodexProviderConfig {
     /** DEV-only experimental transport: adapt one context across one, two, or three ChatGPT messages. */
     experimentalBiggerContext?: boolean;
     experimentalSkillAttachments?: boolean;
+    /** Maximum concurrent subagent browser turns permitted simultaneously. Defaults to 2. */
+    maxConcurrentSubagents?: number;
   };
 }

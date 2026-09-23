@@ -17,3 +17,6 @@ launcher/artifacts/
 .playwright-cli/
 output/
 notes.md
+.zcode/
+*.AppImage
+pnpm-lock.yaml

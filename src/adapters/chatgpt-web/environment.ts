@@ -840,3 +840,18 @@ function isEnvironmentRequest(metadata: Record<string, unknown>, parsed: CodexPa
   return metadata.request_kind === "turn"
     || (parsed._compactionRequest === true && metadata.request_kind === "compaction");
 }
+
+/**
+ * Detect whether a parsed Codex request represents an atomic subagent turn.
+ * Subagents have a parentThreadId, a subagent_kind (e.g. thread_spawn),
+ * an agentName other than /root, or valid thread-spawn lineage.
+ */
+export function isChatGptSubagentTurn(parsed: CodexParsedRequest): boolean {
+  const identity = extractChatGptTurnIdentity(parsed);
+  return Boolean(
+    identity.parentThreadId
+    || identity.subagentKind
+    || (identity.agentName && identity.agentName !== "/root")
+    || extractChatGptThreadSpawnLineage(parsed)
+  );
+}

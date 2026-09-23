@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { mock } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1285,19 +1284,18 @@ test("fresh multipart compaction gives each acknowledged phase its own handoff b
     expect(turn.onMultipartStageAcknowledged).toBeDefined();
     expect(turn.onSubmitted).toBeDefined();
     for (let part = 1; part <= 5; part++) {
-      mock.timers.tick(25);
+      await Bun.sleep(15);
       expect(turn.abortSignal?.aborted).toBeFalse();
       await turn.onMultipartStageAcknowledged!(part);
     }
-    mock.timers.tick(25);
+    await Bun.sleep(15);
     expect(turn.abortSignal?.aborted).toBeFalse();
     turn.onSubmitted!();
-    mock.timers.tick(25);
+    await Bun.sleep(15);
     expect(turn.abortSignal?.aborted).toBeFalse();
     return "Fallback checkpoint after separately bounded phases";
   };
   const events: AdapterEvent[] = [];
-  mock.timers.enable({ apis: ["setTimeout"] });
   try {
     await createChatGptWebAdapter(provider).runTurn!(
       request(true),
@@ -1308,7 +1306,6 @@ test("fresh multipart compaction gives each acknowledged phase its own handoff b
       && event.text.includes("Fallback checkpoint after separately bounded phases"))).toBeTrue();
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
   } finally {
-    mock.timers.reset();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
@@ -1408,12 +1405,10 @@ test("a timed-out fresh compaction retains its owner until helper cleanup comple
     runs.push(run);
     return run;
   };
-  mock.timers.enable({ apis: ["setTimeout"] });
   try {
     void observe();
     await ready;
-    mock.timers.tick(41);
-    await Bun.sleep(5);
+    await Bun.sleep(45);
     expect(cancelled).toBeTrue();
     expect(events.filter(event => event.type === "error")).toHaveLength(1);
     await observe();
@@ -1434,7 +1429,6 @@ test("a timed-out fresh compaction retains its owner until helper cleanup comple
   } finally {
     releasePhysical();
     await Promise.allSettled(runs);
-    mock.timers.reset();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
