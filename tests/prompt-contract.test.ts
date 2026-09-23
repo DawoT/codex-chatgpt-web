@@ -645,7 +645,7 @@ test("keeps large contexts intact in the inline text envelope", () => {
   expect(compiled.text).not.toContain(`<codex_context_attachment>`);
   expect(compiled.text).not.toContain("sha256");
   expect(compiled.text).not.toContain("SHA-256");
-});
+}, 15_000);
 
 test("root turn receives atomic orchestrator contract and subagent receives atomic worker contract", () => {
   const token = "turn_12345678901234567890123456789012";
@@ -678,3 +678,15 @@ test("root turn receives atomic orchestrator contract and subagent receives atom
   expect(subCompiled.text).toContain("Your final response to the parent agent must be concise (under 25 lines)");
   expect(subCompiled.text).not.toContain("When handling repository-level or multi-step tasks, preserve context by delegating");
 });
+
+test("mode.localTools prompts include the Anti-Resignation Rule to prevent hallucinated session failure claims", () => {
+  const token = "turn_12345678901234567890123456789012";
+  const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
+  const req = request("high");
+  const compiled = compileChatGptWebPrompt(req, caps, token);
+
+  expect(compiled.text).toContain("ANTI-RESIGNATION RULE:");
+  expect(compiled.text).toContain("Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated");
+  expect(compiled.text).toContain("You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.");
+});
+

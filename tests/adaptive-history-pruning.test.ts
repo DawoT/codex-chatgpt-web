@@ -5,7 +5,10 @@ import {
   HISTORICAL_TOOL_OUTPUT_PRUNE_THRESHOLD_CHARS,
   applyMicroCompactionBoundary,
   deduplicateEnvironmentContexts,
+  hasParalysisClaim,
   pruneHistoricalToolOutputs,
+  sanitizeHistoricalParalysisClaims,
+  sanitizeParalysisProse,
   withAdaptiveHistoryPruning,
 } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT } from "../src/chatgpt-web-models";
@@ -418,4 +421,104 @@ describe("Sprint E: Adaptive History Pruning", () => {
       expect(result).toHaveLength(messages.length);
     });
   });
+
+  describe("sanitizeHistoricalParalysisClaims", () => {
+    test("detects known paralysis claim patterns in Spanish and English", () => {
+      expect(hasParalysisClaim("la sesión local de Codex sigue terminada: incluso `pwd` falla antes de ejecutar.")).toBe(true);
+      expect(hasParalysisClaim("El entorno local quedó inaccesible durante esta continuación: la sesión de ejecución terminó")).toBe(true);
+      expect(hasParalysisClaim("la sesión local de ejecución terminó antes de poder acceder al workspace")).toBe(true);
+      expect(hasParalysisClaim("operaciones nativas mínimas (`pwd`, lectura de archivo) fallan con Codex Native claim failed and its broker activity could not be retired")).toBe(true);
+      expect(hasParalysisClaim("El broker volvió a fallar antes de ejecutar la primera operación")).toBe(true);
+      expect(hasParalysisClaim("local Codex session is terminated")).toBe(true);
+      expect(hasParalysisClaim("even `pwd` fails before executing")).toBe(true);
+      expect(hasParalysisClaim("local environment became inaccessible")).toBe(true);
+
+      // Normal technical statements should NOT match
+      expect(hasParalysisClaim("En astro.config.mjs debemos agregar astro/content/runtime a optimizeDeps.")).toBe(false);
+      expect(hasParalysisClaim("Build complete with 0 errors, 0 warnings.")).toBe(false);
+      expect(hasParalysisClaim("Ran pnpm dev successfully on port 4321.")).toBe(false);
+    });
+
+    test("strips paralysis excuse paragraph while preserving code blocks and technical solutions", () => {
+      const realAssistantText = `No pude aplicar la corrección porque la sesión local de Codex sigue terminada: incluso \`pwd\` falla antes de ejecutar.
+
+El cambio que debe aplicarse es en \`astro.config.mjs\`:
+
+\`\`\`javascript
+vite: {
+  optimizeDeps: {
+    include: ['astro/content/runtime'],
+  },
+},
+\`\`\`
+
+y luego limpiar solo el caché de Vite y reiniciar:
+
+\`\`\`bash
+rm -rf node_modules/.vite
+pnpm astro sync
+pnpm dev
+\`\`\`
+
+No ejecuté ni modifiqué archivos, así que el repositorio quedó intacto.`;
+
+      const sanitized = sanitizeParalysisProse(realAssistantText);
+
+      // Must NOT contain the false paralysis claims
+      expect(sanitized).not.toContain("sesión local de Codex sigue terminada");
+      expect(sanitized).not.toContain("incluso `pwd` falla");
+      expect(hasParalysisClaim(sanitized)).toBe(false);
+
+      // Must preserve the technical guidance and code blocks!
+      expect(sanitized).toContain("El cambio que debe aplicarse es en `astro.config.mjs`:");
+      expect(sanitized).toContain("include: ['astro/content/runtime']");
+      expect(sanitized).toContain("rm -rf node_modules/.vite");
+    });
+
+    test("replaces entirely paralyzed assistant response with neutral omitted notice", () => {
+      const pureExcuse = "El entorno local quedó inaccesible durante esta continuación: la sesión de ejecución terminó antes de poder volver a leer el skill o inspeccionar/modificar el workspace, así que no hice cambios adicionales sin verificación.";
+      const sanitized = sanitizeParalysisProse(pureExcuse);
+      expect(sanitized).toBe("[Historical assistant response omitted: prior turn ended without local workspace mutations.]");
+      expect(hasParalysisClaim(sanitized)).toBe(false);
+    });
+
+    test("never alters user, developer, or toolResult messages even if they discuss paralysis", () => {
+      const messages: CodexMessage[] = [
+        userMsg("por que dices que la sesión local sigue terminada y que incluso pwd falla?", 1),
+        devMsg("Investiga por que la sesión de ejecución terminó", 2),
+        toolResultMsg("codex_exec", "la sesión local sigue terminada error output", true, 3),
+        assistantMsg("No pude aplicar porque la sesión local sigue terminada: incluso pwd falla.", 4),
+      ];
+
+      const sanitized = sanitizeHistoricalParalysisClaims(messages);
+
+      // User, dev, toolResult are completely untouched
+      expect(sanitized[0]).toEqual(messages[0]);
+      expect(sanitized[1]).toEqual(messages[1]);
+      expect(sanitized[2]).toEqual(messages[2]);
+
+      // Only assistant message is sanitized
+      const sanitizedAssistant = sanitized[3] as { role: "assistant"; content: Array<{ type: "text"; text: string }> };
+      expect(sanitizedAssistant.role).toBe("assistant");
+      expect(sanitizedAssistant.content[0]!.text).not.toContain("sesión local sigue terminada");
+      expect(hasParalysisClaim(sanitizedAssistant.content[0]!.text)).toBe(false);
+    });
+
+    test("integrated seamlessly into withAdaptiveHistoryPruning", () => {
+      const messages: CodexMessage[] = [
+        userMsg("como lo solucionarías", 1),
+        assistantMsg("Yo lo resolvería agregando astro/content/runtime a optimizeDeps.", 2),
+        userMsg("solucionalo", 3),
+        assistantMsg("No pude aplicar la corrección porque la sesión local de Codex sigue terminada: incluso `pwd` falla antes de ejecutar.\n\nEl cambio es en astro.config.mjs.", 4),
+        userMsg("intenta de nuevo", 5),
+      ];
+
+      const result = withAdaptiveHistoryPruning(messages);
+
+      const assistantMsgAfterPrune = result[3] as { role: "assistant"; content: Array<{ type: "text"; text: string }> };
+      expect(assistantMsgAfterPrune.content[0]!.text).not.toContain("sesión local de Codex sigue terminada");
+      expect(assistantMsgAfterPrune.content[0]!.text).toContain("El cambio es en astro.config.mjs.");
+    });
+  });
 });
+

@@ -2916,7 +2916,18 @@ export class ChatGptBrowserWorker {
     // document and made the first verification race a second SPA bootstrap. A leased turn starts on
     // about:blank and therefore still performs exactly one navigation through this same method.
     const targetUrl = chatGptNewChatUrl(useSavedChats);
-    if (page.url() !== targetUrl) {
+    const existingTurnsPresent = page.url() === targetUrl && await (async () => {
+      try {
+        const u = page.locator(CHATGPT_USER_TURN_SELECTOR);
+        const a = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
+        const userCount = typeof u?.count === "function" ? await u.count().catch(() => 0) : 0;
+        const assistantCount = typeof a?.count === "function" ? await a.count().catch(() => 0) : 0;
+        return userCount > 0 || assistantCount > 0;
+      } catch {
+        return false;
+      }
+    })();
+    if (page.url() !== targetUrl || existingTurnsPresent) {
       await page.goto(targetUrl, {
         waitUntil: "domcontentloaded",
         timeout: 60_000,
