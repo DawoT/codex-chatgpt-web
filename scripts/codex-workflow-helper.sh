@@ -55,7 +55,7 @@ codex-api() {
 
     local cmd=("/home/deuz/.local/bin/codex")
     if [ "$has_model" = false ]; then
-        cmd+=("-m" "gpt-5.6-sol")
+        cmd+=("-m" "gpt-6-sol")
     fi
 
     "${cmd[@]}" "${args[@]}"
