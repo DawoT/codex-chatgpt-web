@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AppConfig, TunnelConfig } from "../src/config";
-import { defaultConfig } from "../src/config";
+import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
 import { TunnelSupervisor } from "../src/tunnel-supervisor";
 import type { TunnelRuntimeStatus } from "../src/tunnel";
 import { startServer } from "../src/server";
@@ -18,9 +21,11 @@ function createMockTunnelConfig(): TunnelConfig {
 
 function createMockAppConfig(mode: "full" | "browser-only" = "full"): AppConfig {
   const base = defaultConfig(mode);
+  const root = mkdtempSync(join(tmpdir(), "cgw-mock-tunnel-"));
   return {
     ...base,
     port: 0,
+    brokerSocketPath: defaultBrokerEndpoint(root),
     controlToken: "test-control-token",
     tunnel: mode === "full" ? createMockTunnelConfig() : undefined,
   };

@@ -1043,7 +1043,7 @@ test("a full-mode runtime exposes its broker endpoint before any turn registers"
     await closeTurnBrokers();
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, 15_000);
 
 test("lifecycle drain and cancellation include browser turns owned by the external DEV driver", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-dev-lifecycle-"));

@@ -147,7 +147,10 @@ describe("Sprint W: Background Session Proactive Refresher & Watchdog Auto-Start
         expect(shutdown.status).toBe(200);
 
         // Allow asynchronous shutdown to execute
-        await Bun.sleep(20);
+        const deadline = Date.now() + 2_000;
+        while (Date.now() < deadline && sessionHealthGuard.isWatchdogActive()) {
+          await Bun.sleep(20);
+        }
         expect(sessionHealthGuard.isWatchdogActive()).toBe(false);
       } finally {
         server.stop(true);
