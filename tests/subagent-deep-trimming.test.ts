@@ -4,7 +4,8 @@ import {
   SUBAGENT_RESULT_TAG_OPEN,
   SUBAGENT_RESULT_TAG_CLOSE,
 } from "../src/adapters/chatgpt-web/subagent-protocol";
-import { withAdaptiveHistoryPruning } from "../src/adapters/chatgpt-web/prompt";
+import { withAdaptiveHistoryPruning, compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
+import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import type { CodexMessage } from "../src/types";
 
 describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () => {
@@ -117,4 +118,125 @@ describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () 
     expect(pruned[5]).toEqual(messages[5]);
     expect(pruned[6]).toEqual(messages[6]);
   });
+
+  test("subagent turn applies differentiated pruning with tighter thresholds", () => {
+    // 3 historical completed tool results
+    const messages: CodexMessage[] = [
+      { role: "user", timestamp: 1000, content: "Initial command" },
+      {
+        role: "toolResult",
+        toolCallId: "call_1",
+        toolName: "codex_read_file",
+        content: "A".repeat(180), // > 150 chars, but < 250 chars
+        isError: false,
+        timestamp: 1001,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_2",
+        toolName: "codex_list_dir",
+        content: "B".repeat(180), // > 150 chars
+        isError: false,
+        timestamp: 1002,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_3",
+        toolName: "codex_grep",
+        content: "C".repeat(180), // most recent completed tool result
+        isError: false,
+        timestamp: 1003,
+      },
+      { role: "user", timestamp: 1004, content: "Perform next step" },
+    ];
+
+    // For root (default): retainRecentToolResults = 2, maxHistoricalCharThreshold = 250
+    // The 2 most recent (tools 2 and 3) are retained intact. Tool 1 (180 chars) is <= 250 chars, so none are tombstoned.
+    const rootPruned = withAdaptiveHistoryPruning(messages);
+    expect(rootPruned[1]!.content).toBe("A".repeat(180));
+    expect(rootPruned[2]!.content).toBe("B".repeat(180));
+    expect(rootPruned[3]!.content).toBe("C".repeat(180));
+
+    // For subagent: retainRecentToolResults = 1, maxHistoricalCharThreshold = 150
+    // Retains only tool 3. Tools 1 and 2 exceed 150 chars, so they are tombstoned!
+    const subagentPruned = withAdaptiveHistoryPruning(messages, {
+      retainRecentToolResults: 1,
+      maxHistoricalCharThreshold: 150,
+      retainRecentSubagents: 1,
+      maxPromptTokens: 16_000,
+    });
+    expect(subagentPruned[1]!.content).toContain("[Historical tool output omitted: codex_read_file completed in earlier turn");
+    expect(subagentPruned[2]!.content).toContain("[Historical tool output omitted: codex_list_dir completed in earlier turn");
+    expect(subagentPruned[3]!.content).toBe("C".repeat(180)); // most recent is retained
+  });
+
+  test("compileChatGptWebPrompt automatically applies subagent pruning thresholds for subagent turns", () => {
+    const historicalMessages: CodexMessage[] = [
+      { role: "user", timestamp: 1000, content: "Start" },
+      {
+        role: "toolResult",
+        toolCallId: "call_sub_1",
+        toolName: "codex_read_file",
+        content: "Long historical tool output exceeding 150 chars ".repeat(5),
+        isError: false,
+        timestamp: 1001,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_sub_2",
+        toolName: "codex_list_dir",
+        content: "Recent tool result ".repeat(10),
+        isError: false,
+        timestamp: 1002,
+      },
+      { role: "user", timestamp: 1003, content: "Do subagent brief" },
+    ];
+
+    const subagentReq = {
+      modelId: CHATGPT_WEB_MODEL_ID,
+      stream: true,
+      options: { reasoning: "high" as const },
+      context: {
+        systemPrompt: ["system"],
+        messages: historicalMessages,
+      },
+      _rawBody: {
+        client_metadata: {
+          "x-codex-turn-metadata": {
+            subagent_kind: "thread_spawn",
+            parent_thread_id: "thread_root_123",
+          },
+        },
+      },
+    };
+
+    const compiledSubagent = compileChatGptWebPrompt(
+      subagentReq,
+      { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: false },
+      "turn_subagent_00000000000000000000000",
+    );
+
+    // The subagent prompt should contain tombstone for older tool result exceeding 150 chars
+    expect(compiledSubagent.text).toContain("[Historical tool output omitted: codex_read_file completed in earlier turn");
+
+    const rootReq = {
+      modelId: CHATGPT_WEB_MODEL_ID,
+      stream: true,
+      options: { reasoning: "high" as const },
+      context: {
+        systemPrompt: ["system"],
+        messages: historicalMessages,
+      },
+    };
+
+    const compiledRoot = compileChatGptWebPrompt(
+      rootReq,
+      { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: false },
+      "turn_root_000000000000000000000000000",
+    );
+
+    // The root prompt retains 2 recent tool results, so neither is tombstoned
+    expect(compiledRoot.text).not.toContain("[Historical tool output omitted: codex_read_file completed in earlier turn");
+  });
 });
+

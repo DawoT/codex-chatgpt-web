@@ -141,19 +141,22 @@ codex-restart() {
         codex-status
         return 1
     fi
-    nohup "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" serve > "$cgw_home/logs/daemon.log" 2>&1 &
+    setsid "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" serve > "$cgw_home/logs/daemon.log" 2>&1 < /dev/null &
+    disown $! 2>/dev/null
     sleep 2
 
     # Túnel OpenAI con el perfil real en vivo (mismo formato que usa el proceso del túnel)
-    nohup "$cgw_home/bin/tunnel-client" run \
+    setsid "$cgw_home/bin/tunnel-client" run \
         --profile-dir "$cgw_home/tunnel/profiles" \
-        --profile codex-chatgpt-web > "$cgw_home/logs/tunnel.log" 2>&1 &
+        --profile codex-chatgpt-web > "$cgw_home/logs/tunnel.log" 2>&1 < /dev/null &
+    disown $! 2>/dev/null
     sleep 2
 
     # Servidor MCP local sobre el socket del turn-broker del daemon recién levantado
-    nohup "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" mcp \
+    setsid "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" mcp \
         --contract native \
-        --broker-socket "$cgw_home/runtime/turn-broker.sock" > "$cgw_home/logs/mcp.log" 2>&1 &
+        --broker-socket "$cgw_home/runtime/turn-broker.sock" > "$cgw_home/logs/mcp.log" 2>&1 < /dev/null &
+    disown $! 2>/dev/null
     sleep 2
 
     codex-status

@@ -627,6 +627,7 @@ export function sanitizeHistoricalParalysisClaims(
 export interface AdaptivePruningOptions {
   retainRecentToolResults?: number;
   maxHistoricalCharThreshold?: number;
+  retainRecentSubagents?: number;
   maxPromptTokens?: number;
 }
 
@@ -635,7 +636,8 @@ export interface AdaptivePruningOptions {
  * 1. Sanitizes unverified paralysis claims from historical assistant messages to prevent toxic hallucination feedback loops.
  * 2. Deduplicates repetitive environment context XML blocks across historical user messages.
  * 3. Prunes voluminous outputs of earlier completed tool results.
- * 4. Enforces the micro-compaction boundary soft ceiling.
+ * 4. Enforces deep subagent history compression.
+ * 5. Enforces the micro-compaction boundary soft ceiling.
  */
 export function withAdaptiveHistoryPruning(
   messages: readonly CodexMessage[],
@@ -647,7 +649,9 @@ export function withAdaptiveHistoryPruning(
     retainRecentCount: options?.retainRecentToolResults,
     maxHistoricalCharThreshold: options?.maxHistoricalCharThreshold,
   });
-  pruned = trimDeepSubagentHistory(pruned);
+  pruned = trimDeepSubagentHistory(pruned, {
+    retainRecentCount: options?.retainRecentSubagents,
+  });
   pruned = applyMicroCompactionBoundary(
     pruned,
     options?.maxPromptTokens ?? CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT,
@@ -1107,7 +1111,15 @@ function compileChatGptWebPromptInternal(
   // Compaction turns use their own history-trimming splice loop below.
   // Multipart turns have per-stage budgets governed by partitionMultipartContext.
   if (!parsed._compactionRequest && !multipartEnabled) {
-    sourceMessages = withAdaptiveHistoryPruning(sourceMessages);
+    const pruningOptions: AdaptivePruningOptions | undefined = isSubagent
+      ? {
+          retainRecentToolResults: 1,
+          maxHistoricalCharThreshold: 150,
+          retainRecentSubagents: 1,
+          maxPromptTokens: 16_000,
+        }
+      : undefined;
+    sourceMessages = withAdaptiveHistoryPruning(sourceMessages, pruningOptions);
   }
   const initialMessageCount = sourceMessages.length;
   let compiled = build(sourceMessages);
