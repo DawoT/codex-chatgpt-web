@@ -1284,6 +1284,33 @@ test("prompt insertion stops before touching the composer when its stage is alre
   expect(resolvedComposer).toBeFalse();
 });
 
+test("selected connector identity does not depend on its visible pill text", async () => {
+  const { createDocument } = require("@mixmark-io/domino");
+  const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+  worker.config = { appName: "Codex Native2" };
+  const selected = async (html: string) => {
+    const document = createDocument(`<div id="composer">${html}</div>`);
+    const composer = {
+      locator: (selector: string) => ({
+        filter: (options: { hasText?: string; visible?: boolean }) => ({
+          evaluateAll: async (read: (elements: Element[]) => unknown) => read(
+            Array.from(document.querySelectorAll(selector) as NodeListOf<Element>)
+              .filter(element => !options.visible || !element.hasAttribute("hidden"))
+              .filter(element => !options.hasText || element.textContent?.includes(options.hasText)),
+          ),
+        }),
+      }),
+    };
+    return worker.connectorIsSelected(composer);
+  };
+  const pill = '<span data-id="plugin:configured" data-keyword="Codex Native2">表示名</span>';
+  expect(await selected(pill)).toBeTrue();
+  expect(await selected('<span data-id="plugin:other" data-keyword="Other">Codex Native2</span>')).toBeFalse();
+  expect(await selected('<span data-id="unrelated" data-keyword="Codex Native2">Codex Native2</span>')).toBeFalse();
+  expect(await selected(pill.replace('<span ', '<span hidden '))).toBeFalse();
+  await expect(selected(pill + pill)).rejects.toThrow("duplicate");
+});
+
 test("connector selection re-resolves the active composer after ChatGPT replaces it", async () => {
   const calls: Array<[string, string?]> = [];
   let connectorSelected = false;
