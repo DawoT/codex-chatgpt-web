@@ -30,6 +30,7 @@ codex-web() {
     done
 
     local cmd=("/home/deuz/.local/bin/codex")
+    cmd+=("-c" "openai_base_url=\"http://127.0.0.1:17841/v1\"")
     if [ "$has_model" = false ]; then
         cmd+=("-m" "chatgpt-web/high")
     fi
