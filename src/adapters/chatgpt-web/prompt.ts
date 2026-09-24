@@ -567,6 +567,11 @@ export const HISTORICAL_PARALYSIS_PATTERNS: readonly RegExp[] = [
   /local environment became inaccessible/i,
   /execution session ended before/i,
   /local computer (?:bridge|runner) (?:is|remains) disconnected/i,
+  /(?:conector\s+)?Codex Native devolvi[oó]\s+(?:expl[ií]citamente\s+)?`?Session terminated`?/i,
+  /`?Session terminated`?\s+(?:tanto al intentar|al consultar|al ejecutar|en el workspace)/i,
+  /(?:al intentar ejecutar en el workspace como al consultar su inventario)/i,
+  /conector Codex Native devolvi[oó]/i,
+  /`?Session terminated`?/i,
 ];
 
 export function hasParalysisClaim(text: string): boolean {
@@ -892,7 +897,7 @@ function compileChatGptWebPromptInternal(
       "Continue using the available tools until the requested work is complete and verified.",
       "For workspace operations, prefer direct fast-path tools (read_file, write_file, patch_file, list_dir, grep) whenever available in the tool inventory: codex_read_file(path, offset, limit_lines), codex_write_file(path, content, overwrite, create_parents), codex_patch_file(path, target_content, replacement_content), codex_list_dir(path, depth, limit), codex_grep(query, path, max_results, case_sensitive, file_pattern). They execute atomically in microseconds without shell process overhead. codex_write_file refuses to replace an existing file unless overwrite=true and needs create_parents=true for missing directories; codex_patch_file replaces only the first exact occurrence of target_content.",
       "CRITICAL TOOL INVOCATION RULE: When a tool call is needed, invoke the tool directly as your first action in this response. Never emit preliminary conversational commentary, plans, or status text (such as 'Voy a revisar...', 'Let me check...', 'I will inspect...') before invoking a tool. Emitting conversational prose before a tool call triggers early completion fences and causes the local execution broker to reject subsequent tool calls.",
-      "ANTI-RESIGNATION RULE: Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated, unavailable, or failing (such as claiming 'la sesión local sigue terminada', 'incluso pwd falla antes de ejecutar', or 'el entorno local quedó inaccesible') based on past conversational messages, assumptions, or previous turns. The local harness is alive and active. If the user request or task requires workspace inspection, modification, or verification, you MUST call the appropriate tool. You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.",
+      "ANTI-RESIGNATION RULE: Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated, unavailable, or failing (such as claiming 'la sesión local sigue terminada', 'incluso pwd falla antes de ejecutar', 'el conector Codex Native devolvió Session terminated', or 'el entorno local quedó inaccesible') based on past conversational messages, assumptions, or previous turns. Never hallucinate or synthesize tool errors without calling the tool. The local harness is alive and active. If the user request or task requires workspace inspection, modification, or verification, you MUST call the appropriate tool. You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.",
       "Write the user-facing final answer only after the last required tool result has settled. Do not call another tool after beginning that final answer.",
     ]
     : [

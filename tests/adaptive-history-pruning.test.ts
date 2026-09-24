@@ -432,6 +432,8 @@ describe("Sprint E: Adaptive History Pruning", () => {
       expect(hasParalysisClaim("local Codex session is terminated")).toBe(true);
       expect(hasParalysisClaim("even `pwd` fails before executing")).toBe(true);
       expect(hasParalysisClaim("local environment became inaccessible")).toBe(true);
+      expect(hasParalysisClaim("el conector Codex Native devolvió explícitamente `Session terminated` tanto al intentar ejecutar en el workspace como al consultar su inventario de herramientas.")).toBe(true);
+      expect(hasParalysisClaim("Session terminated")).toBe(true);
 
       // Normal technical statements should NOT match
       expect(hasParalysisClaim("En astro.config.mjs debemos agregar astro/content/runtime a optimizeDeps.")).toBe(false);
@@ -473,6 +475,20 @@ No ejecuté ni modifiqué archivos, así que el repositorio quedó intacto.`;
       expect(sanitized).toContain("El cambio que debe aplicarse es en `astro.config.mjs`:");
       expect(sanitized).toContain("include: ['astro/content/runtime']");
       expect(sanitized).toContain("rm -rf node_modules/.vite");
+    });
+
+    test("strips Session terminated connector excuse while preserving roadmap status and git commit", () => {
+      const realAssistantText = `No pude continuar la implementación en este turno porque el conector Codex Native devolvió explícitamente \`Session terminated\` tanto al intentar ejecutar en el workspace como al consultar su inventario de herramientas.
+
+No hice cambios adicionales al repositorio en este turno. El último estado confirmado sigue siendo el cierre de 7.5B en el commit \`31d7a00c997456afebc460816b5286b2236e2517\`, con el siguiente frente previsto: continuar 7.5C item-level, luego G03/G04.`;
+
+      const sanitized = sanitizeParalysisProse(realAssistantText);
+
+      expect(hasParalysisClaim(sanitized)).toBe(false);
+      expect(sanitized).not.toContain("Session terminated");
+      expect(sanitized).not.toContain("conector Codex Native devolvió");
+      expect(sanitized).toContain("El último estado confirmado sigue siendo el cierre de 7.5B en el commit `31d7a00c997456afebc460816b5286b2236e2517`");
+      expect(sanitized).toContain("continuar 7.5C item-level, luego G03/G04.");
     });
 
     test("replaces entirely paralyzed assistant response with neutral omitted notice", () => {
