@@ -2278,16 +2278,49 @@ test("retained tool turns insert into the connector-bound composer without selec
 
   const calls: string[] = [];
   const composer = {
-    fill: async (value: string) => { expect(value).toBe(""); calls.push("fill"); },
     focus: async () => { calls.push("focus"); },
+    press: async (key: string) => { calls.push(`press:${key}`); },
   };
   await attachPrompt.call({
     activeComposer: async () => composer,
+    connectorIsSelected: async () => true,
     selectConnector: async () => { throw new Error("retained connector must not be selected again"); },
-    insertPromptText: async (_page: unknown, text: string) => { expect(text).toBe("retained context"); calls.push("insert"); },
+    insertPromptText: async (_page: unknown, text: string) => { expect(text).toBe(" retained context"); calls.push("insert"); },
     assertPromptAttached: async () => { calls.push("assert"); },
   }, dialogPage("").page, "retained context", true, undefined, undefined, false, undefined, true);
-  expect(calls).toEqual(["fill", "focus", "insert", "assert"]);
+  expect(calls).toEqual(["focus", `press:${CHATGPT_COMPOSER_DOCUMENT_END_KEY}`, "insert", "assert"]);
+});
+
+test("retained tool turns re-select the connector if the composer lost its binding", async () => {
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(
+      page: unknown,
+      prompt: string,
+      localTools: boolean,
+      captureDiagnostic?: (checkpoint: string) => Promise<void>,
+      abortSignal?: AbortSignal,
+      catalogRefreshAvailable?: boolean,
+      connectorAttemptBudget?: unknown,
+      reuseConnector?: boolean,
+    ): Promise<void>;
+  }).attachPrompt;
+
+  const calls: string[] = [];
+  const initialComposer = {
+    focus: async () => { calls.push("initialFocus"); },
+  };
+  const selectedComposer = {
+    focus: async () => { calls.push("selectedFocus"); },
+    press: async (key: string) => { calls.push(`press:${key}`); },
+  };
+  await attachPrompt.call({
+    activeComposer: async () => initialComposer,
+    connectorIsSelected: async () => false,
+    selectConnector: async () => { calls.push("selectConnector"); return selectedComposer; },
+    insertPromptText: async (_page: unknown, text: string) => { expect(text).toBe(" retained context"); calls.push("insert"); },
+    assertPromptAttached: async () => { calls.push("assert"); },
+  }, dialogPage("").page, "retained context", true, undefined, undefined, false, undefined, true);
+  expect(calls).toEqual(["selectConnector", "selectedFocus", `press:${CHATGPT_COMPOSER_DOCUMENT_END_KEY}`, "insert", "assert"]);
 });
 
 test("image attachment readiness uses exact file tiles and not localized remove-button text", async () => {
@@ -2473,10 +2506,12 @@ test("Think attachment runs after fresh connector selection and rechecks retaine
   const attach = (ChatGptBrowserWorker.prototype as unknown as { attachPrompt: (...args: unknown[]) => Promise<void> }).attachPrompt;
   for (const [localTools, retained] of [[true, false], [true, true], [false, false]]) {
     const ui = thinkSlashFixture();
+    if (retained && localTools) ui.state.connectors = ["Codex Native2"];
     let connectorSelections = 0;
     const submitted: boolean[] = [];
     const worker = {
       activeComposer: async () => ui.composer,
+      connectorIsSelected: async () => ui.state.connectors.includes("Codex Native2"),
       selectConnector: async () => { connectorSelections += 1; ui.state.connectors = ["Codex Native2"]; return ui.composer; },
       insertPromptText: async () => { submitted.push(ui.state.pressed); },
       assertPromptAttached: async () => {}, clearChatGptComposerState: async () => { ui.state.draft = ""; ui.state.connectors = []; },

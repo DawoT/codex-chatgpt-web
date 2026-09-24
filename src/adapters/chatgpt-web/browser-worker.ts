@@ -3703,7 +3703,7 @@ export class ChatGptBrowserWorker {
     const connectorMode = chatGptConnectorAttachmentMode(localTools, reuseConnector);
     let composerMutationStarted = false;
     try {
-      if (connectorMode !== "mention") {
+      if (connectorMode === "none") {
         const composer = await this.activeComposer(page, 30_000, abortSignal);
         // Playwright's multiline fill maps through an input action that ChatGPT's Lexical editor can
         // collapse to the first paragraph on the launcher-owned Electron surface. Clear separately,
@@ -3718,13 +3718,29 @@ export class ChatGptBrowserWorker {
         await this.assertPromptAttached(page, prompt, abortSignal);
         return;
       }
-      const selectedComposer = await this.selectConnector(
-        page,
-        captureDiagnostic,
-        catalogRefreshAvailable,
-        connectorAttemptBudget,
-        abortSignal,
-      );
+      let selectedComposer: Locator;
+      if (connectorMode === "retained") {
+        const composer = await this.activeComposer(page, 30_000, abortSignal);
+        const alreadyBound = this.connectorIsSelected !== undefined
+          && await this.connectorIsSelected(composer, abortSignal);
+        selectedComposer = alreadyBound
+          ? composer
+          : await this.selectConnector(
+              page,
+              captureDiagnostic,
+              catalogRefreshAvailable,
+              connectorAttemptBudget,
+              abortSignal,
+            );
+      } else {
+        selectedComposer = await this.selectConnector(
+          page,
+          captureDiagnostic,
+          catalogRefreshAvailable,
+          connectorAttemptBudget,
+          abortSignal,
+        );
+      }
       // selectConnector owns and rolls back every mutation until it returns. From this point the
       // attachment owns the selected pill and prompt text as one transaction.
       composerMutationStarted = true;
