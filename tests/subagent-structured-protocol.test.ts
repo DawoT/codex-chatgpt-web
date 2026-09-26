@@ -205,7 +205,7 @@ End of report.
   });
 
   describe("Integration with Prompt Compilation and Micro-Compaction", () => {
-    test("subagent turn compiles prompt containing structured result schema contract", async () => {
+    test("subagent turn compiles clean prompt without bloat", async () => {
       const { compileChatGptWebPrompt } = await import("../src/adapters/chatgpt-web/prompt");
       const { CHATGPT_WEB_MODEL_ID } = await import("../src/adapters/chatgpt-web/model");
 
@@ -235,12 +235,12 @@ End of report.
         "turn_12345678901234567890123456789012",
       );
 
-      expect(compiled.text).toContain(SUBAGENT_RESULT_TAG_OPEN);
-      expect(compiled.text).toContain(SUBAGENT_RESULT_TAG_CLOSE);
-      expect(compiled.text).toContain("STRUCTURED RESULT CONTRACT");
+      expect(compiled.text).not.toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
+      expect(compiled.text).not.toContain("Limit concurrent subagents to at most 2.");
+      expect(compiled.text).toContain("Execute the latest active user request now.");
     });
 
-    test("root turn compiles prompt instructing to parse subagent result blocks", async () => {
+    test("root turn compiles prompt cleanly without artificial subagent restrictions", async () => {
       const { compileChatGptWebPrompt } = await import("../src/adapters/chatgpt-web/prompt");
       const { CHATGPT_WEB_MODEL_ID } = await import("../src/adapters/chatgpt-web/model");
 
@@ -262,8 +262,9 @@ End of report.
         "turn_12345678901234567890123456789012",
       );
 
-      expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("parse their <subagent_result> blocks for task status");
       expect(compiled.text).not.toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
+      expect(compiled.text).not.toContain("Limit concurrent subagents to at most 2.");
+      expect(compiled.text).toContain("Execute the latest active user request now.");
     });
 
     test("applyMicroCompactionBoundary preserves subagent result summary across compaction stages", async () => {

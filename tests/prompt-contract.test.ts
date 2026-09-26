@@ -648,18 +648,20 @@ test("keeps large contexts intact in the inline text envelope", () => {
   expect(compiled.text).not.toContain("SHA-256");
 }, 15_000);
 
-test("root turn receives atomic orchestrator contract and subagent receives atomic worker contract", () => {
+test("root turn and subagent turns preserve canonical transport contracts without artificial bloat", () => {
   const token = "turn_12345678901234567890123456789012";
   const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
 
-  // 1. Root turn (no subagent lineage)
+  // 1. Root turn
   const rootReq = request("high");
   const rootCompiled = compileChatGptWebPrompt(rootReq, caps, token);
-  expect(rootCompiled.text).toContain("When handling repository-level or multi-step tasks, preserve context by delegating deep investigation");
-  expect(rootCompiled.text).toContain("Limit concurrent subagents to at most 2.");
+  expect(rootCompiled.text).not.toContain("When handling repository-level or multi-step tasks, preserve context by delegating");
+  expect(rootCompiled.text).not.toContain("Limit concurrent subagents to at most 2.");
   expect(rootCompiled.text).not.toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
+  expect(rootCompiled.text).toContain("Preserve the task's original instruction priority inside the supplied Codex context");
+  expect(rootCompiled.text).toContain("Execute the latest active user request now.");
 
-  // 2. Subagent turn (with thread_spawn lineage)
+  // 2. Subagent turn
   const subagentReq = request("high");
   subagentReq._rawBody = {
     client_metadata: {
@@ -675,20 +677,21 @@ test("root turn receives atomic orchestrator contract and subagent receives atom
     },
   };
   const subCompiled = compileChatGptWebPrompt(subagentReq, caps, token);
-  expect(subCompiled.text).toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
-  expect(subCompiled.text).toContain("Your final response to the parent agent must be concise (under 25 lines)");
+  expect(subCompiled.text).not.toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
   expect(subCompiled.text).not.toContain("When handling repository-level or multi-step tasks, preserve context by delegating");
+  expect(subCompiled.text).toContain("Execute the latest active user request now.");
 });
 
-test("mode.localTools prompts include the Anti-Resignation Rule to prevent hallucinated session failure claims", () => {
+test("mode.localTools prompts preserve canonical sandbox and background task contracts without negative filler constraints", () => {
   const token = "turn_12345678901234567890123456789012";
   const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
   const req = request("high");
   const compiled = compileChatGptWebPrompt(req, caps, token);
 
-  expect(compiled.text).toContain("ANTI-RESIGNATION RULE:");
-  expect(compiled.text).toContain("Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated");
-  expect(compiled.text).toContain("You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.");
+  expect(compiled.text).not.toContain("ANTI-RESIGNATION RULE:");
+  expect(compiled.text).not.toContain("Dispatch tool calls directly without conversational filler");
+  expect(compiled.text).toContain("These tools are connected by the user to their Codex runtime; local actions execute on that runtime's device under its configured sandbox and approval rules.");
+  expect(compiled.text).toContain("For long-running commands (tests, builds), launch them in the background and continue useful work; call codex_wait_tasks to pause until they finish — completion summaries stay short and full logs remain on disk.");
 });
 
 test("root user-facing turn stays clean and minimal without prompt bloat while subagents and compactions remain concise", () => {
@@ -700,9 +703,10 @@ test("root user-facing turn stays clean and minimal without prompt bloat while s
   const rootCompiled = compileChatGptWebPrompt(rootReq, caps, token);
   expect(rootCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
   expect(rootCompiled.text).not.toContain("Never build toys");
+  expect(rootCompiled.text).not.toContain(".agents/STATE.md");
   expect(rootCompiled.text).toContain("Execute the latest active user request now.");
 
-  // 2. Subagent turn: must remain concise (<25 lines)
+  // 2. Subagent turn: clean and canonical
   const subagentReq = request("high");
   subagentReq._rawBody = {
     client_metadata: {
@@ -719,14 +723,15 @@ test("root user-facing turn stays clean and minimal without prompt bloat while s
   };
   const subCompiled = compileChatGptWebPrompt(subagentReq, caps, token);
   expect(subCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
-  expect(subCompiled.text).toContain("Your final response to the parent agent must be concise (under 25 lines)");
-  expect(subCompiled.text).toContain("Execute your assigned worker brief now.");
+  expect(subCompiled.text).not.toContain("ephemeral atomic worker");
+  expect(subCompiled.text).toContain("Execute the latest active user request now.");
 
-  // 3. Compaction turn: must remain concise
+  // 3. Compaction turn: must remain concise without fictitious state file references
   const compactReq = request("high");
   compactReq._compactionRequest = true;
   const compactCompiled = compileChatGptWebPrompt(compactReq, caps, token);
   expect(compactCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
+  expect(compactCompiled.text).not.toContain(".agents/STATE.md");
   expect(compactCompiled.text).toContain("Produce the requested checkpoint summary now without calling tools.");
 
   // 4. Low verbosity explicit request
