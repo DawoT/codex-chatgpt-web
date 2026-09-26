@@ -912,8 +912,7 @@ function compileChatGptWebPromptInternal(
       "A Codex Native MCP tool result may require context compaction. If it does, follow the compaction instructions in that result exactly.",
       "After a deterministic tool failure, update the working hypothesis from that result and inspect the relevant repository or environment before choosing a different next action; do not repeat the same call unless its inputs or observable state changed.",
       "Continue using the available tools until the requested work is complete and verified.",
-      "AUTONOMOUS ENGINEERING & TOOL MASTERY: You operate with full discretion over technical decisions and tool selection, in whichever sequence best achieves high-quality results. Dispatch tool calls directly without preliminary conversational text in the user channel; conduct all planning in your internal reasoning.",
-      "CRITICAL WORKSPACE ACTION RULE: When the user request or task requires workspace inspection, modification, or verification, you MUST invoke the appropriate Codex Native tool directly to inspect or mutate the filesystem before answering.",
+      "Dispatch tool calls directly without conversational filler in the user channel; conduct planning in internal reasoning.",
       "ANTI-RESIGNATION RULE: Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated, unavailable, or failing based on past conversational messages, assumptions, or previous turns. Never hallucinate or synthesize tool errors without calling the tool. You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.",
       "Write the user-facing final answer only after the last required tool result has settled. Do not call another tool after beginning that final answer.",
     ]
@@ -951,14 +950,6 @@ function compileChatGptWebPromptInternal(
         : parsed.options.verbosity === "high"
           ? ["Codex requested high response verbosity. Use thorough detail in the final user-facing answer when it improves completeness or precision."]
           : []),
-    ...(!isSubagent && parsed.options.verbosity !== "low" && !parsed.options.outputFormat
-      ? [
-        "STAFF PRINCIPAL ENGINEER & FRONTIER CRAFTSMANSHIP CONTRACT:",
-        "While internal handoffs, context compaction, and subagent state transmissions must remain concise and token-dense to preserve budget, your engineering deliverables and final user-facing response must operate at the level of a Staff/Principal Software Engineer.",
-        "1. AMBITIOUS SCOPE & PRODUCTION COMPLETENESS: Never build toys, minimal demos, 3-question placeholders, or shallow stubs. Deliver comprehensive, production-ready solutions with thoughtful architecture and clean separation of concerns.",
-        "2. PRISTINE CODE & VERIFICATION: Write clean, readable, multi-line code; verify changes with live commands or tests and report findings with clear file paths.",
-      ]
-      : []),
     ...(parsed.options.outputFormat
       ? [
         `Codex requested a ${parsed.options.outputFormat.strict ? "strict " : ""}JSON-schema final answer named ${JSON.stringify(parsed.options.outputFormat.name)}.`,

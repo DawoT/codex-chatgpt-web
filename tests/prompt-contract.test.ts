@@ -691,19 +691,18 @@ test("mode.localTools prompts include the Anti-Resignation Rule to prevent hallu
   expect(compiled.text).toContain("You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.");
 });
 
-test("root user-facing turn receives quality and depth contract while subagents and compactions remain concise", () => {
+test("root user-facing turn stays clean and minimal without prompt bloat while subagents and compactions remain concise", () => {
   const token = "turn_12345678901234567890123456789012";
   const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
 
-  // 1. Root turn: has FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY contract
+  // 1. Root turn: clean and minimal, without artificial bloat contracts
   const rootReq = request("high");
   const rootCompiled = compileChatGptWebPrompt(rootReq, caps, token);
-  expect(rootCompiled.text).toContain("STAFF PRINCIPAL ENGINEER & FRONTIER CRAFTSMANSHIP CONTRACT:");
-  expect(rootCompiled.text).toContain("While internal handoffs, context compaction, and subagent state transmissions must remain concise");
-  expect(rootCompiled.text).toContain("1. AMBITIOUS SCOPE & PRODUCTION COMPLETENESS: Never build toys, minimal demos, 3-question placeholders, or shallow stubs");
+  expect(rootCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
+  expect(rootCompiled.text).not.toContain("Never build toys");
   expect(rootCompiled.text).toContain("Execute the latest active user request now.");
 
-  // 2. Subagent turn: does NOT receive root craftsmanship contract, must remain concise (<25 lines)
+  // 2. Subagent turn: must remain concise (<25 lines)
   const subagentReq = request("high");
   subagentReq._rawBody = {
     client_metadata: {
@@ -719,22 +718,21 @@ test("root user-facing turn receives quality and depth contract while subagents 
     },
   };
   const subCompiled = compileChatGptWebPrompt(subagentReq, caps, token);
-  expect(subCompiled.text).not.toContain("FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY CONTRACT:");
+  expect(subCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
   expect(subCompiled.text).toContain("Your final response to the parent agent must be concise (under 25 lines)");
   expect(subCompiled.text).toContain("Execute your assigned worker brief now.");
 
-  // 3. Compaction turn: does NOT receive root craftsmanship contract, must remain concise
+  // 3. Compaction turn: must remain concise
   const compactReq = request("high");
   compactReq._compactionRequest = true;
   const compactCompiled = compileChatGptWebPrompt(compactReq, caps, token);
-  expect(compactCompiled.text).not.toContain("FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY CONTRACT:");
+  expect(compactCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
   expect(compactCompiled.text).toContain("Produce the requested checkpoint summary now without calling tools.");
 
-  // 4. Low verbosity explicit request: does NOT receive comprehensive craftsmanship contract
+  // 4. Low verbosity explicit request
   const lowVerbosityReq = request("high");
   lowVerbosityReq.options = { ...lowVerbosityReq.options, verbosity: "low" };
   const lowCompiled = compileChatGptWebPrompt(lowVerbosityReq, caps, token);
-  expect(lowCompiled.text).not.toContain("FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY CONTRACT:");
   expect(lowCompiled.text).toContain("Codex requested low response verbosity. Keep the final user-facing answer concise and direct");
 });
 

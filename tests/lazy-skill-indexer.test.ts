@@ -221,7 +221,7 @@ A skill is a set of local instructions to follow that is stored in a \`SKILL.md\
     expect(transformed).not.toContain("file: r0/");
   });
 
-  test("transformSkillsInstructionsBlock auto-expands relevant skills based on query intent", () => {
+  test("transformSkillsInstructionsBlock keeps skills lazy in catalog and expands when explicitly requested", () => {
     const markdownSkills = `<skills_instructions>
 ## Skills
 ### Skill roots
@@ -231,11 +231,17 @@ A skill is a set of local instructions to follow that is stored in a \`SKILL.md\
 - cloudflare: Workers and Pages platform (file: r1/cloudflare/SKILL.md)
 </skills_instructions>`;
 
-    // Query triggers "frontend-design" relevance pattern
-    const transformed = transformSkillsInstructionsBlock(markdownSkills, "crea una landing de test de programacion");
-    expect(transformed).toContain("Active Skill: frontend-design");
-    expect(transformed).toContain("/home/deuz/.agents/skills/frontend-design/SKILL.md");
-    expect(transformed).toContain("| cloudflare |");
+    // General query with "landing" does NOT auto-expand, keeping context clean
+    const generalTransformed = transformSkillsInstructionsBlock(markdownSkills, "crea una landing de test de programacion");
+    expect(generalTransformed).not.toContain("Active Skill: frontend-design");
+    expect(generalTransformed).toContain("| frontend-design |");
+    expect(generalTransformed).toContain("| cloudflare |");
+
+    // Explicit request with $frontend-design DOES expand
+    const explicitTransformed = transformSkillsInstructionsBlock(markdownSkills, "crea una landing usando $frontend-design");
+    expect(explicitTransformed).toContain("Active Skill: frontend-design");
+    expect(explicitTransformed).toContain("/home/deuz/.agents/skills/frontend-design/SKILL.md");
+    expect(explicitTransformed).toContain("| cloudflare |");
   });
 });
 

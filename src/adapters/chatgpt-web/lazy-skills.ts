@@ -183,26 +183,10 @@ function isSkillExplicitlyRequested(skillName: string, query?: string): boolean 
   );
 }
 
-const SKILL_RELEVANCE_PATTERNS: Record<string, RegExp> = {
-  "frontend-design": /\b(landing|web|frontend|ui|ux|css|html|diseñ|página|pagina|sitio|dashboard|layout|visual|interfaz)\b/i,
-  "ui-ux-pro-max": /\b(landing|web|frontend|ui|ux|css|html|diseñ|página|pagina|sitio|dashboard|component|interfaz|responsive|estilo)\b/i,
-  "cloudflare": /\b(cloudflare|worker|pages|kv|r2|d1)\b/i,
-  "agents-sdk": /\b(agent|agents|agents-sdk|workflow)\b/i,
-  "durable-objects": /\b(durable[-_ ]object|stateful)\b/i,
-  "workers-best-practices": /\b(worker|workers|cloudflare worker)\b/i,
-  "playwright-best-practices": /\b(playwright|e2e|browser test|automatiz)\b/i,
-  "playwright-cli": /\b(playwright|browser test)\b/i,
-  "tdd": /\b(tdd|unit test|red[- ]green|test-driven)\b/i,
-  "test-driven-development": /\b(tdd|unit test|test-driven)\b/i,
-  "turnstile-spin": /\b(turnstile|captcha|bot verification)\b/i,
-  "web-perf": /\b(lighthouse|web-perf|core web vitals|performance|speed)\b/i,
-};
-
-function isSkillRelevant(skillName: string, query?: string): boolean {
-  if (!query) return false;
-  const pattern = SKILL_RELEVANCE_PATTERNS[skillName];
-  if (!pattern) return false;
-  return pattern.test(query);
+function isSkillRelevant(_skillName: string, _query?: string): boolean {
+  // Automatic keyword hijacking disabled to eliminate prompt bloat.
+  // Skills remain in the compact catalog unless explicitly requested ($skill, use skill, etc.).
+  return false;
 }
 
 export function transformSkillsInstructionsBlock(
