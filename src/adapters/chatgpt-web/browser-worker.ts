@@ -3127,7 +3127,7 @@ export class ChatGptBrowserWorker {
     return composer;
   }
 
-  private async waitForTurnDomMutation(page: Page, timeoutMs = 50): Promise<void> {
+  private async waitForTurnDomMutation(page: Page, timeoutMs = 250): Promise<void> {
     await page.evaluate(({ timeout, attributeFilter }) => new Promise<void>(resolveMutation => {
       let settled = false;
       let settleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -3142,7 +3142,7 @@ export class ChatGptBrowserWorker {
       const observer = new MutationObserver(() => {
         if (settleTimer) return;
         // Let one React mutation batch finish before the next compact state read.
-        settleTimer = setTimeout(finish, 16);
+        settleTimer = setTimeout(finish, 150);
       });
       observer.observe(document.documentElement, {
         subtree: true,
@@ -3212,11 +3212,25 @@ export class ChatGptBrowserWorker {
           : progressWaitAbort.signal;
         try {
           const observed = await withBrowserTurnAbort(Promise.race([
-            this.currentSubmissionEvidence(page, baseline, signal).then(value => ({ kind: "dom" as const, value })),
+            this.currentSubmissionEvidence(page, baseline, signal)
+              .then(value => ({ kind: "dom" as const, value }))
+              .catch(error => {
+                if (error instanceof ChatGptBrowserObservationTimeoutError) {
+                  return { kind: "dom_timeout" as const, error };
+                }
+                throw error;
+              }),
             externalProgress.waitForChange(progress?.revision ?? 0, progressSignal)
               .then(() => ({ kind: "external" as const })),
           ]), signal);
           if (observed.kind === "external") continue;
+          if (observed.kind === "dom_timeout") {
+            const latestProgress = externalProgress.snapshot();
+            if (chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
+              continue;
+            }
+            throw observed.error;
+          }
           evidence = observed.value;
         } finally {
           progressWaitAbort.abort();
@@ -3278,10 +3292,13 @@ export class ChatGptBrowserWorker {
       };
       const visible = (element: Element): boolean => {
         const candidate = element as HTMLElement;
+        if (!candidate.isConnected) return false;
+        if (typeof candidate.checkVisibility === "function") {
+          return candidate.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+        }
         const style = getComputedStyle(candidate);
         const bounds = candidate.getBoundingClientRect();
-        return candidate.isConnected
-          && style.visibility !== "hidden"
+        return style.visibility !== "hidden"
           && (bounds.width > 0 || bounds.height > 0);
       };
       // data-testid contains a display index: ChatGPT can renumber it while the same turn lives.
@@ -3382,7 +3399,10 @@ export class ChatGptBrowserWorker {
       );
       if (!identity) return "";
       const locator = page.locator(chatGptAssistantTurnSelector(identity));
-      return (await this.responseDomSnapshot(locator, {})).visibleText;
+      return (await withChatGptBrowserObservationTimeout(
+        this.responseDomSnapshot(locator, {}),
+        3_000,
+      )).visibleText;
     } catch {
       return "";
     }
@@ -3494,9 +3514,12 @@ export class ChatGptBrowserWorker {
         let boundaryText = "";
         try {
           boundaryText = identity
-            ? (await this.responseDomSnapshot(
-              observationPage.locator(chatGptAssistantTurnSelector(identity)),
-              {},
+            ? (await withChatGptBrowserObservationTimeout(
+              this.responseDomSnapshot(
+                observationPage.locator(chatGptAssistantTurnSelector(identity)),
+                {},
+              ),
+              3_000,
             )).visibleText
             : "";
         } catch {
@@ -4609,6 +4632,9 @@ export class ChatGptBrowserWorker {
       // completed Markdown can have width=0 while remaining connected, rendered and readable.
       const isRendered = (candidate: HTMLElement): boolean => {
         if (!candidate.isConnected) return false;
+        if (typeof candidate.checkVisibility === "function") {
+          return candidate.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+        }
         for (let node: HTMLElement | null = candidate; node; node = node.parentElement) {
           const style = getComputedStyle(node);
           if (node.hidden || style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
