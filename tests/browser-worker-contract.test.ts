@@ -101,6 +101,7 @@ test("submission DOM tracks logical identities and retains virtualized history i
   ];
   const observers: (() => void)[] = [];
   const element = (turn: Turn, container: boolean) => ({
+    closest: () => null,
     getAttribute: (name: string) => ({
       "data-turn-id": container ? null : turn.id,
       "data-turn-id-container": turn.id,

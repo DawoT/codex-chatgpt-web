@@ -50,6 +50,7 @@ import { estimateCompiledChatGptWebInputTokens } from "./input-tokens";
 import {
   assertAuthenticatedChatGptPage,
   assertNewChatPage,
+  chatGptAssistantTurnSelector,
   chatGptNewChatUrl,
   CHATGPT_ASSISTANT_TURN_SELECTOR,
   CHATGPT_COMPLETION_ACTION_SELECTOR,
@@ -57,6 +58,7 @@ import {
   CHATGPT_EFFORT_CONTROL_SELECTOR,
   CHATGPT_EFFORT_ITEM_SELECTOR,
   CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR,
+  CHATGPT_SEND_BUTTON_SELECTOR,
   CHATGPT_STOP_BUTTON_SELECTOR,
   CHATGPT_USER_TURN_SELECTOR,
   activateChatGptEffortMenu,
@@ -3271,44 +3273,30 @@ export class ChatGptBrowserWorker {
       // It uses data-chatgpt-search-unit-key (ending in ":user"/":assistant") for individual turns,
       // and data-chatgpt-selection-message-id for the stable UUID identity of assistant messages.
 
-      const legacyContainers = [...document.querySelectorAll("[data-turn-id-container]")].filter(element =>
-        element.parentElement?.closest("[data-turn-id-container]")?.getAttribute("data-turn-id-container")
+      const containers = [...document.querySelectorAll("[data-turn-id-container]")].filter(element =>
+        !element.closest?.("[data-turn-key]")
+        && element.parentElement?.closest("[data-turn-id-container]")?.getAttribute("data-turn-id-container")
           !== element.getAttribute("data-turn-id-container"));
-      const newUiContainers = [...document.querySelectorAll("[data-turn-key]")];
-
-      let turnIdentities: string[];
-      let userIdentities: string[];
-      let responseIdentities: string[];
-
-      if (legacyContainers.length > 0) {
-        // Legacy ChatGPT UI: use data-turn-id-container / data-turn-id
-        turnIdentities = identities(legacyContainers, "data-turn-id-container");
-        userIdentities = identities([...document.querySelectorAll(options.userTurnSelector)], "data-turn-id");
-        responseIdentities = identities([...document.querySelectorAll(options.assistantTurnSelector)], "data-turn-id");
-        const knownTurns = new Set(turnIdentities);
-        if ([...userIdentities, ...responseIdentities].some(identity => !knownTurns.has(identity))) {
-          throw new Error("ChatGPT conversation turn has no matching identity container");
-        }
-      } else {
-        // New ChatGPT UI (2025+): use data-turn-key as the unified turn identity.
-        // Each turn container ([data-turn-key]) encloses both the user prompt and the assistant response.
-        turnIdentities = identities(newUiContainers, "data-turn-key");
-
-        const userTurnEls = [...document.querySelectorAll(options.userTurnSelector)];
-        userIdentities = userTurnEls
-          .map(el => el.closest("[data-turn-key]")?.getAttribute("data-turn-key"))
-          .filter((k): k is string => typeof k === "string" && k.trim().length > 0);
-
-        const assistantTurnEls = [...document.querySelectorAll(options.assistantTurnSelector)];
-        responseIdentities = assistantTurnEls
-          .map(el => el.closest("[data-turn-key]")?.getAttribute("data-turn-key"))
-          .filter((k): k is string => typeof k === "string" && k.trim().length > 0);
-
-        const knownTurns = new Set(turnIdentities);
-        if ([...userIdentities, ...responseIdentities].some(identity => !knownTurns.has(identity))) {
-          throw new Error("ChatGPT conversation turn has no matching identity container");
-        }
+      const turnIdentities = identities(containers, "data-turn-id-container");
+      const legacyTurns = (selector: string) => [...document.querySelectorAll(selector)]
+        .filter(element => element.getAttribute("data-turn-key") == null);
+      const userIdentities = identities(legacyTurns(options.userTurnSelector), "data-turn-id");
+      const responseIdentities = identities(legacyTurns(options.assistantTurnSelector), "data-turn-id");
+      const knownTurns = new Set(turnIdentities);
+      if ([...userIdentities, ...responseIdentities].some(identity => !knownTurns.has(identity))) {
+        throw new Error("ChatGPT conversation turn has no matching identity container");
       }
+      const groups = [...document.querySelectorAll("[data-turn-key]")];
+      const groupKeys = identities(groups, "data-turn-key");
+      groups.forEach((group, index) => {
+        const user = `group:user:${groupKeys[index]}`;
+        const assistant = `group:assistant:${groupKeys[index]}`;
+        // Keep both logical roles in the baseline even when virtualization unmounts their
+        // contents. Remounting an old answer must never acknowledge a new submission.
+        turnIdentities.push(user, assistant);
+        if (group.querySelector("[data-user-message-bubble]")) userIdentities.push(user);
+        if (group.querySelector('[data-conversation-role="assistant"]')) responseIdentities.push(assistant);
+      });
 
       return {
         key: observerKey,
@@ -3365,7 +3353,7 @@ export class ChatGptBrowserWorker {
       state.responseIdentities,
     );
     if (!identity) return "";
-    const locator = page.locator(chatGptTurnIdentityLocatorSelector(identity));
+    const locator = page.locator(chatGptAssistantTurnSelector(identity));
     return (await this.responseDomSnapshot(locator, {})).visibleText;
   }
 
@@ -3464,7 +3452,7 @@ export class ChatGptBrowserWorker {
         && completionTracker?.needsToolBatchObservation(progress.lastToolBatchRevision)) {
         const boundaryText = identity
           ? (await this.responseDomSnapshot(
-            observationPage.locator(chatGptTurnIdentityLocatorSelector(identity)),
+            observationPage.locator(chatGptAssistantTurnSelector(identity)),
             {},
           )).visibleText
           : "";
@@ -3473,10 +3461,14 @@ export class ChatGptBrowserWorker {
       }
       if (identity) return {
         identity,
-        locator: observationPage.locator(chatGptTurnIdentityLocatorSelector(identity)),
+        locator: observationPage.locator(chatGptAssistantTurnSelector(identity)),
         acceptedTurnIdentities: state.turnIdentities,
-        acceptedUserIdentities: state.userIdentities,
       };
+      // The power UI can expose Stop for a long reasoning phase before mounting any assistant
+      // node. Fresh generation evidence extends only DOM grace, never the caller's deadline.
+      if (state.visibleStopButtonCount > 0) {
+        responseDeadline = Math.min(deadline ?? Number.POSITIVE_INFINITY, Date.now() + graceMs);
+      }
       // A delayed renderer wake can cross the grace while the assistant appears. Only a fresh
       // observation can prove it is still missing; the explicit turn deadline remains above.
       if (Date.now() >= responseDeadline
@@ -3506,17 +3498,8 @@ export class ChatGptBrowserWorker {
       throw new Error(`ChatGPT exposed ${boundCount} DOM nodes for the bound assistant turn`);
     }
     const state = await this.submissionDomState(page, baseline.domCache, signal);
-    // binding.acceptedTurnIdentities contains turn container IDs (data-turn-key or data-turn-id-container).
-    // state.userIdentities contains user-turn IDs (data-chatgpt-search-unit-key or data-turn-id).
-    // In the new UI, these use different ID formats (UUIDs vs "fallback-turn-*") and can never match.
-    // Use acceptedUserIdentities (which tracks user turn IDs directly) when available.
-    const acceptedUserSet = new Set([
-      ...binding.acceptedTurnIdentities,
-      ...(binding.acceptedUserIdentities ?? []),
-      ...baseline.initialTurnIdentities,
-    ]);
-    const userTurnCountIncreased = state.userIdentities.length > (baseline.initialTurnIdentities.length + 1);
-    if (userTurnCountIncreased && state.userIdentities.some(identity => !acceptedUserSet.has(identity))) {
+    const acceptedTurns = new Set(binding.acceptedTurnIdentities);
+    if (state.userIdentities.some(identity => !acceptedTurns.has(identity))) {
       throw new Error("ChatGPT opened another user turn while the bound assistant response was detached");
     }
     const identity = chatGptReboundTurnIdentity(
@@ -3527,7 +3510,7 @@ export class ChatGptBrowserWorker {
     if (!identity || identity === binding.identity) return binding;
     return {
       identity,
-      locator: page.locator(chatGptTurnIdentityLocatorSelector(identity)),
+      locator: page.locator(chatGptAssistantTurnSelector(identity)),
       acceptedTurnIdentities: state.turnIdentities,
     };
   }
@@ -5756,7 +5739,7 @@ export class ChatGptBrowserWorker {
             };
             responseTurn = {
               ...responseTurn,
-              locator: page.locator(chatGptTurnIdentityLocatorSelector(responseTurn.identity)),
+              locator: page.locator(chatGptAssistantTurnSelector(responseTurn.identity)),
             };
             responseDomCache.key = undefined;
             responseDomCache.snapshot = undefined;
