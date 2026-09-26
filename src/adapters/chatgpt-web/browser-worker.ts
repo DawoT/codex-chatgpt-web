@@ -1441,7 +1441,7 @@ export function remainingStageBudgetMs(
   return Math.max(250, timeoutMs - awakeMs);
 }
 
-export const CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS = 5_000;
+export const CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS = 15_000;
 export const MAX_CHATGPT_BROWSER_PAGE_REBINDS = 2;
 
 export class ChatGptBrowserObservationTimeoutError extends Error {
@@ -3245,7 +3245,7 @@ export class ChatGptBrowserWorker {
         completionTracker.observeToolBatch(progress.lastToolBatchRevision, boundaryText);
         await externalProgress.acknowledgeToolBatch(progress.lastToolBatchRevision);
       }
-      if (progress && progress.lastToolBatchRevision > initialToolBatchRevision) return "mcp_tool_call";
+      if (progress && (progress.claimed || progress.lastToolBatchRevision > initialToolBatchRevision)) return "mcp_tool_call";
       await throwIfChatGptSessionFailureAlert(page);
       await throwIfChatGptRateLimitDialog(page);
       // Until the new response is bound, last() can still be a historical failed answer.
@@ -3272,7 +3272,7 @@ export class ChatGptBrowserWorker {
           if (observed.kind === "external") continue;
           if (observed.kind === "dom_timeout") {
             const latestProgress = externalProgress.snapshot();
-            if (chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
+            if (latestProgress.claimed || chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
               continue;
             }
             throw observed.error;
@@ -4215,7 +4215,7 @@ export class ChatGptBrowserWorker {
       } catch (error) {
         if (!(error instanceof ChatGptBrowserObservationTimeoutError) || !recoverObservation) throw error;
         const latestProgress = externalProgress?.snapshot();
-        if (chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
+        if (latestProgress?.claimed || chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
           await new Promise(resolveSleep => setTimeout(resolveSleep, 1_000));
           continue;
         }

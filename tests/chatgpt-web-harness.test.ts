@@ -3706,6 +3706,24 @@ test("mirrored turn progress carries daemon MCP activity into the browser helper
   expect(chatGptExternalProgressIsLive(mirror.snapshot(), 62_000, 60_000)).toBeFalse();
 });
 
+test("mirrored turn progress carries broker claim status and maintains liveness", async () => {
+  const daemon = new ChatGptExternalTurnProgress();
+  const mirror = new ChatGptMirroredTurnProgress();
+
+  expect(chatGptExternalProgressIsLive(mirror.snapshot(), 1_000, 60_000)).toBeFalse();
+
+  daemon.recordClaim(1_000);
+  expect(mirror.apply(daemon.snapshot())).toBeTrue();
+  expect(mirror.snapshot()).toEqual({
+    revision: 1,
+    lastToolBatchRevision: 0,
+    activeToolCalls: 0,
+    claimed: true,
+    lastProgressAt: 1_000,
+  });
+  expect(chatGptExternalProgressIsLive(mirror.snapshot(), 100_000, 60_000)).toBeTrue();
+});
+
 test("mirrored turn progress ignores replayed frames and rejects malformed ones", async () => {
   const mirror = new ChatGptMirroredTurnProgress();
   const first = {

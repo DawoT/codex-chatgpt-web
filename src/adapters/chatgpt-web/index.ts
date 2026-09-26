@@ -578,6 +578,11 @@ export function createChatGptWebAdapter(
         try {
           activeToken = await broker.registerSafe(environment, surfaceNonce, undefined, traceId);
           observeCapabilityRetirement(activeToken, externalProgress);
+          if (typeof broker.waitForClaim === "function") {
+            void broker.waitForClaim(activeToken, browserAbort.signal).then(() => {
+              externalProgress.recordClaim();
+            }).catch(() => {});
+          }
           const compiled = compileChatGptWebPrompt(
             checkpointInput.parsed,
             turnCapabilities,
@@ -793,6 +798,7 @@ export function createChatGptWebAdapter(
         observeCapabilityRetirement(turnToken, externalProgress);
         if (typeof broker.waitForClaim === "function") {
           void broker.waitForClaim(turnToken, browserAbort.signal).then(() => {
+            externalProgress.recordClaim();
             if (submission && !parsed._compactionRequest) {
               submission.phase = "accepted";
             }
@@ -1381,6 +1387,7 @@ export function createChatGptWebAdapter(
                     throw new Error("ChatGPT broker returned tools for a read-only browser turn");
                   }
                   if (requests.length > 0) {
+                    externalProgress.recordClaim();
                     if (session.runtime.submission && !parsed._compactionRequest) {
                       session.runtime.submission.phase = "accepted";
                     }
