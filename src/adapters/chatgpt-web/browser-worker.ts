@@ -4537,6 +4537,12 @@ export class ChatGptBrowserWorker {
       // Final-answer Markdown follows the live status instead, so DOM order remains the semantic
       // boundary without relying on localized labels such as "Pro thinking".
       const allMarkdownRoots = [...root.querySelectorAll<HTMLElement>(answerRootSelector)]
+        .filter(candidate => {
+          if (!root.hasAttribute("data-turn-key") && !candidate.hasAttribute("data-markdown-text-style")) return true;
+          const unit = candidate.closest("[data-content-search-unit-key]");
+          return Boolean(unit) && Array.from(unit!.children)
+            .some(child => child.getAttribute("data-conversation-role") === "assistant");
+        })
         .filter(candidate => !candidate.parentElement?.closest(answerRootSelector))
         .filter(renderedInDom);
       const streamingStatusContainers = [...root.querySelectorAll<HTMLElement>("[data-streaming-response-status]")]
