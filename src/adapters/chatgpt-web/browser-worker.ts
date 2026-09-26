@@ -3279,7 +3279,7 @@ export class ChatGptBrowserWorker {
           !== element.getAttribute("data-turn-id-container"));
       const turnIdentities = identities(containers, "data-turn-id-container");
       const legacyTurns = (selector: string) => [...document.querySelectorAll(selector)]
-        .filter(element => element.getAttribute("data-turn-key") == null);
+        .filter(element => element.getAttribute("data-turn-key") == null && !element.closest?.("[data-turn-key]"));
       const userIdentities = identities(legacyTurns(options.userTurnSelector), "data-turn-id");
       const responseIdentities = identities(legacyTurns(options.assistantTurnSelector), "data-turn-id");
       const knownTurns = new Set(turnIdentities);

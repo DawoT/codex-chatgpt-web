@@ -50,16 +50,12 @@ export const CHATGPT_ASSISTANT_TURN_SELECTOR = [
   '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]):not([data-turn-key] *)',
   '[data-turn-key]:has([data-conversation-role="assistant"])',
-  // New ChatGPT UI search unit key fallback
-  '[data-chatgpt-search-unit-key$=":assistant"]',
 ].join(", ");
 export const CHATGPT_USER_TURN_SELECTOR = [
   '[data-testid^="conversation-turn-"][data-turn="user"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"][data-message-author-role="user"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="user"]):not([data-turn-key] *)',
   '[data-turn-key]:has([data-user-message-bubble])',
-  // New ChatGPT UI search unit key fallback
-  '[data-chatgpt-search-unit-key$=":user"]',
 ].join(", ");
 
 /** The new renderer groups both roles under the user's stable turn key. */
