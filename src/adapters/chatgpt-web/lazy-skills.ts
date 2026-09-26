@@ -163,9 +163,35 @@ export function parseSkillsFromMarkdown(content: string): ParsedSkillBlock[] {
   return blocks;
 }
 
+export function parseSkillsFromTable(content: string): ParsedSkillBlock[] {
+  const blocks: ParsedSkillBlock[] = [];
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) continue;
+    const rawCells = trimmed.slice(1, -1).split(/(?<!\\)\|/);
+    if (rawCells.length < 3) continue;
+    const name = rawCells[0]!.trim();
+    if (!name || name === "Skill Name" || name.startsWith("---") || name.startsWith(":---")) {
+      continue;
+    }
+    const description = rawCells[1]!.trim().replace(/\\\|/g, "|");
+    const location = rawCells[2]!.trim();
+    blocks.push({
+      name,
+      description,
+      location,
+      rawText: line,
+    });
+  }
+  return blocks;
+}
+
 export function parseSkills(content: string): ParsedSkillBlock[] {
   const xmlBlocks = parseSkillsFromXml(content);
   if (xmlBlocks.length > 0) return xmlBlocks;
+  const tableBlocks = parseSkillsFromTable(content);
+  if (tableBlocks.length > 0) return tableBlocks;
   return parseSkillsFromMarkdown(content);
 }
 
@@ -192,6 +218,7 @@ function isSkillRelevant(_skillName: string, _query?: string): boolean {
 export function transformSkillsInstructionsBlock(
   content: string,
   userInstruction?: string,
+  options?: { isContinuation?: boolean },
 ): string {
   if (!content.includes("<skills_instructions>")) {
     return content;
@@ -199,6 +226,19 @@ export function transformSkillsInstructionsBlock(
 
   const skills = parseSkills(content);
   if (skills.length === 0) return content;
+
+  // In continuation turns within a retained conversation, the full catalog was already established.
+  // Unless a skill was explicitly requested, omit the redundant 70+ row table to eliminate prompt bloat.
+  if (options?.isContinuation) {
+    const requested = skills.filter(skill => isSkillExplicitlyRequested(skill.name, userInstruction));
+    if (requested.length === 0) {
+      return [
+        "<skills_instructions>",
+        "<!-- Skills catalog established in turn 1. Invoke codex_read_file on demand if a skill is needed. -->",
+        "</skills_instructions>",
+      ].join("\n");
+    }
+  }
 
   const expanded: string[] = [];
   const indexed: SkillMetadata[] = [];

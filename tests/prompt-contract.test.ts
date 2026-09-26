@@ -739,5 +739,14 @@ test("root user-facing turn stays clean and minimal without prompt bloat while s
   lowVerbosityReq.options = { ...lowVerbosityReq.options, verbosity: "low" };
   const lowCompiled = compileChatGptWebPrompt(lowVerbosityReq, caps, token);
   expect(lowCompiled.text).toContain("Codex requested low response verbosity. Keep the final user-facing answer concise and direct");
+
+  // 5. Continuation turn: ultra-lightweight contract without repeating turn 1 boilerplate
+  const continuationReq = request("high");
+  const contCompiled = compileChatGptWebPrompt(continuationReq, caps, token, { continuation: true });
+  expect(contCompiled.text).toContain("Act as the model backend for the ongoing Codex task continuation below.");
+  expect(contCompiled.text).toContain("ANTI-RESIGNATION RULE");
+  expect(contCompiled.text).not.toContain("Preserve the task's original instruction priority");
+  expect(contCompiled.text).not.toContain("When asked what the user previously wrote");
+  expect(contCompiled.text).not.toContain("Do not mention this transport contract");
 });
 

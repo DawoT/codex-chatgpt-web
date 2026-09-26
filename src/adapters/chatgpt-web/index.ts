@@ -24,7 +24,7 @@ import { ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
 import { extractChatGptThreadSpawnLineage, extractChatGptTurnEnvironment, extractChatGptTurnIdentity, isChatGptSubagentTurn, priorChatGptAbortedTurnIds } from "./environment";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
-import { chatGptReadOnlyContextWarning, compileChatGptWebPrompt } from "./prompt";
+import { chatGptReadOnlyContextWarning, compileChatGptWebPrompt, type CompileChatGptWebPromptOptions } from "./prompt";
 import { createChatGptStructuredOutputValidator } from "./output-validation";
 import { chatGptWebTurnRetryPolicy } from "./retry-policy";
 import { TurnBroker, type BrokerToolRequest, type BrokerToolResult, type TurnBrokerOwner } from "./turn-broker";
@@ -469,8 +469,8 @@ export function createChatGptWebAdapter(
         await releaseLauncherRetainedConversation(retainedLauncherDescriptor, conversationKey);
       }
       : undefined;
-    const compileOptionsFor = (input: CodexParsedRequest) => {
-      if (manualRequest) return {};
+    const compileOptionsFor = (input: CodexParsedRequest, overrides?: Partial<CompileChatGptWebPromptOptions>) => {
+      if (manualRequest) return { ...overrides };
       const { input: preflightInput, verdict } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
       const shouldPromoteMultipart = experimentalBiggerContext || verdict.actionRequired === "promote_multipart";
       const experimentalMultipartParts = shouldPromoteMultipart
@@ -482,6 +482,7 @@ export function createChatGptWebAdapter(
         ...(experimentalMultipartParts !== undefined
           ? { experimentalMultipartParts }
           : {}),
+        ...overrides,
       };
     };
     if (captureLunaCheckpoint) {
@@ -583,7 +584,7 @@ export function createChatGptWebAdapter(
               resumeInput,
               turnCapabilities,
               activeToken,
-              { manualControl: true },
+              { manualControl: true, continuation: true },
             )
             : undefined;
           for (const candidate of [compiled, resumeCompiled]) {
@@ -762,7 +763,7 @@ export function createChatGptWebAdapter(
     let tokenSettled = false;
     let activeToken: string | undefined;
     let lastRegisteredToken: string | undefined;
-    const prepareWith = async (input: CodexParsedRequest) => {
+    const prepareWith = async (input: CodexParsedRequest, optionsOverrides?: Partial<CompileChatGptWebPromptOptions>) => {
       const predecessor = activeToken ?? lastRegisteredToken;
       const turnToken = activeToken ?? await broker.register(
         environment,
@@ -780,7 +781,7 @@ export function createChatGptWebAdapter(
           preflightInput,
           turnCapabilities,
           turnToken,
-          compileOptionsFor(preflightInput),
+          compileOptionsFor(preflightInput, optionsOverrides),
         );
         // Publish only after preparation succeeds: otherwise its failure revokes the token
         // before the response observer uses it and masks the cause as an expired capability.
@@ -803,7 +804,7 @@ export function createChatGptWebAdapter(
       ...(parsed._chatgptModelFamily ? { modelFamily: parsed._chatgptModelFamily } : {}),
       capabilities: turnCapabilities,
       prepare: () => prepareWith(checkpointInput.parsed),
-      ...(resumeInput ? { prepareResume: () => prepareWith(resumeInput) } : {}),
+      ...(resumeInput ? { prepareResume: () => prepareWith(resumeInput, { continuation: true }) } : {}),
       ...(retainConversation ? { retainConversation: true, conversationKey } : {}),
       abortSignal: browserAbort.signal,
       ...(parsed._compactionRequest ? { compaction: true } : {}),

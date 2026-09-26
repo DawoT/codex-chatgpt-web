@@ -12,6 +12,7 @@ export interface PromptContractFingerprintInput {
   manualControl?: boolean;
   multipartEnabled?: boolean;
   isCompaction?: boolean;
+  isContinuation?: boolean;
 }
 
 export interface PromptCacheStats {
@@ -57,6 +58,7 @@ export class PromptContractCache {
       Boolean(input.manualControl),
       Boolean(input.multipartEnabled),
       Boolean(input.isCompaction),
+      Boolean(input.isContinuation),
     ]);
     return createHash("sha256").update(raw).digest("hex").slice(0, 16);
   }

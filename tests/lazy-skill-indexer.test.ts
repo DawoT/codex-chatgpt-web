@@ -243,6 +243,43 @@ A skill is a set of local instructions to follow that is stored in a \`SKILL.md\
     expect(explicitTransformed).toContain("/home/deuz/.agents/skills/frontend-design/SKILL.md");
     expect(explicitTransformed).toContain("| cloudflare |");
   });
+
+  test("transformSkillsInstructionsBlock parses Markdown table format and indexes it", () => {
+    const tableSkills = `<skills_instructions>
+## Available skills
+| Skill Name | Purpose | Location |
+| :--- | :--- | :--- |
+| agents-sdk | Build AI agents on Cloudflare Workers | /home/user/.agents/skills/agents-sdk/SKILL.md |
+| playwright-cli | Automate browser interactions | /home/user/.agents/skills/playwright-cli/SKILL.md |
+| tdd | Test-driven development | /home/user/.agents/skills/tdd/SKILL.md |
+</skills_instructions>`;
+
+    const transformed = transformSkillsInstructionsBlock(tableSkills, "check code");
+    expect(transformed).toContain("Available Skills (Load on Demand)");
+    expect(transformed).toContain("| agents-sdk | Build AI agents on Cloudflare Workers | /home/user/.agents/skills/agents-sdk/SKILL.md |");
+    expect(transformed).toContain("| playwright-cli | Automate browser interactions | /home/user/.agents/skills/playwright-cli/SKILL.md |");
+  });
+
+  test("transformSkillsInstructionsBlock omits redundant skills table on continuation turns unless requested", () => {
+    const tableSkills = `<skills_instructions>
+## Available skills
+| Skill Name | Purpose | Location |
+| :--- | :--- | :--- |
+| agents-sdk | Build AI agents on Cloudflare Workers | /home/user/.agents/skills/agents-sdk/SKILL.md |
+| playwright-cli | Automate browser interactions | /home/user/.agents/skills/playwright-cli/SKILL.md |
+| tdd | Test-driven development | /home/user/.agents/skills/tdd/SKILL.md |
+</skills_instructions>`;
+
+    // On continuation without explicit skill request, omit the 70+ skill table
+    const continuationOmitted = transformSkillsInstructionsBlock(tableSkills, "continue with next task", { isContinuation: true });
+    expect(continuationOmitted).toContain("Skills catalog established in turn 1.");
+    expect(continuationOmitted).not.toContain("playwright-cli");
+    expect(continuationOmitted).not.toContain("agents-sdk");
+
+    // On continuation WITH explicit skill request ($tdd), expands the requested skill
+    const continuationWithRequest = transformSkillsInstructionsBlock(tableSkills, "apply $tdd to this suite", { isContinuation: true });
+    expect(continuationWithRequest).toContain("tdd");
+  });
 });
 
 

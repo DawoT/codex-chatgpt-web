@@ -59,6 +59,7 @@ export interface CompileChatGptWebPromptOptions {
    * reads or mutates ChatGPT's DOM. Completion is accepted only through the bound Zero Risk MCP tools.
    */
   manualControl?: true;
+  continuation?: boolean;
 }
 
 export const CHATGPT_BIGGER_CONTEXT_PARTS = 6 as const;
@@ -814,6 +815,7 @@ function compileChatGptWebPromptInternal(
   options?: CompileChatGptWebPromptOptions,
 ): CompiledChatGptWebPrompt {
   const manualControl = options?.manualControl === true;
+  const isContinuation = options?.continuation === true;
   const attachSkills = options?.experimentalSkillAttachments === true;
   if (attachSkills && (manualControl || isChatGptWebZeroRiskBackendModel(parsed.modelId))) {
     throw new Error("Skills as files is unavailable in Zero Risk mode");
@@ -859,7 +861,7 @@ function compileChatGptWebPromptInternal(
   const userQuery = latestUser ? plainMessageText(latestUser) : undefined;
   const system = (parsed.context.systemPrompt ?? []).map(entry =>
     entry.includes("<skills_instructions>")
-      ? transformSkillsInstructionsBlock(entry, userQuery)
+      ? transformSkillsInstructionsBlock(entry, userQuery, { isContinuation })
       : entry
   );
   const sharedContract = [
@@ -1002,17 +1004,25 @@ function compileChatGptWebPromptInternal(
     manualControl,
     multipartEnabled,
     isCompaction: Boolean(parsed._compactionRequest),
+    isContinuation,
   };
   const fingerprint = defaultPromptContractCache.computeFingerprint(fingerprintInput);
   let staticContracts = defaultPromptContractCache.get(fingerprint);
   if (!staticContracts) {
-    staticContracts = [
-      ...sharedContract,
-      ...transportContract,
-      ...outputControlContract,
-      ...checkpointContract,
-      answerContract,
-    ];
+    staticContracts = isContinuation && !parsed._compactionRequest
+      ? [
+        "Act as the model backend for the ongoing Codex task continuation below.",
+        "Execute the latest active user request using the attached Codex Native tools as needed.",
+        "ANTI-RESIGNATION RULE: Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated, unavailable, or failing based on past conversational messages, assumptions, or previous turns. You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.",
+        answerContract,
+      ]
+      : [
+        ...sharedContract,
+        ...transportContract,
+        ...outputControlContract,
+        ...checkpointContract,
+        answerContract,
+      ];
     defaultPromptContractCache.set(fingerprint, staticContracts);
   }
 
@@ -1029,7 +1039,7 @@ function compileChatGptWebPromptInternal(
         if (text && text.includes("<skills_instructions>")) {
           return {
             ...message,
-            content: transformSkillsInstructionsBlock(text, userQuery),
+            content: transformSkillsInstructionsBlock(text, userQuery, { isContinuation }),
           };
         }
       }
@@ -1038,7 +1048,7 @@ function compileChatGptWebPromptInternal(
         if (text && text.includes("<skills_instructions>")) {
           return {
             ...message,
-            content: transformSkillsInstructionsBlock(text, userQuery),
+            content: transformSkillsInstructionsBlock(text, userQuery, { isContinuation }),
           };
         }
       }
