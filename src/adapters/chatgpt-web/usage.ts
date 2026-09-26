@@ -20,6 +20,7 @@ import {
 import { extractChatGptTurnIdentity } from "./environment";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
 import type { BrokerToolRequest } from "./turn-broker";
+import { PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "./preflight-budget";
 
 // The real capability has the same length. Keeping it out of usage accounting would make
 // estimates differ slightly between the prepared browser prompt and later Codex tool rounds.
@@ -69,6 +70,7 @@ export function resolveBiggerContextMultipartParts(
   parsed: CodexParsedRequest,
   capabilities: ChatGptWebCapabilities,
   experimentalSkillAttachments = false,
+  forceMultipart = false,
 ): ChatGptWebMultipartPartCount | undefined {
   if (isChatGptWebZeroRiskBackendModel(parsed.modelId)) {
     throw new Error("Bigger Context is unavailable for ChatGPT Zero Risk");
@@ -94,6 +96,9 @@ export function resolveBiggerContextMultipartParts(
 
   const fits = (compiled: CompiledChatGptWebPrompt): boolean => {
     const messages = compiledChatGptWebMessages(compiled);
+    if (messages.length === 1 && compiled.text.length > PREFLIGHT_SAFE_INLINE_CHAR_LIMIT) {
+      return false;
+    }
     // Inert stages may use any explicitly available staging effort; execution keeps the chosen
     // effort. These are the widest stage modes used by the browser's existing selector.
     const stagingEffort = capabilities.proAvailable ? "max" : "medium";
@@ -110,7 +115,7 @@ export function resolveBiggerContextMultipartParts(
     return estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId)
       < contextWindow * Math.min(messages.length, CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER);
   };
-  if (initialParts === undefined && fits(inline)) return undefined;
+  if (!forceMultipart && initialParts === undefined && fits(inline)) return undefined;
   return fits(compile(2)) ? 2 : CHATGPT_BIGGER_CONTEXT_PARTS;
 }
 

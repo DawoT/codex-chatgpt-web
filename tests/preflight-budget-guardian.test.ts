@@ -19,7 +19,7 @@ describe("Sprint X: Adaptive Pre-flight Token Budgeting & Predictive Pruning", (
 
   function createMockRequest(messages: CodexMessage[]): CodexParsedRequest {
     return {
-      modelId: "chatgpt-web",
+      modelId: "gpt-5.6-sol",
       options: { reasoning: "high" },
       context: {
         messages,
@@ -145,6 +145,46 @@ describe("Sprint X: Adaptive Pre-flight Token Budgeting & Predictive Pruning", (
     expect(verdict.actionRequired).toBe("apply_pruning");
     expect(input.context.messages[1].content).toContain("[Historical tool output pruned by Preflight Guardian");
     expect(input.context.messages[5].content).toBe("recent");
+  });
+
+  test("preparePreflightInput prioritizes pruning before promoting to multipart when historical tool results exist", () => {
+    const { preparePreflightInput } = require("../src/adapters/chatgpt-web/preflight-budget");
+    const heavyToolOutput = "output-data-line\n".repeat(3000); // ~50,000 chars each
+    const messages: CodexMessage[] = [
+      { role: "user", content: "Step 1", timestamp: 1 },
+      { role: "toolResult", toolCallId: "t1", toolName: "exec", isError: false, content: heavyToolOutput, timestamp: 2 },
+      { role: "user", content: "Step 2", timestamp: 3 },
+      { role: "toolResult", toolCallId: "t2", toolName: "exec", isError: false, content: heavyToolOutput, timestamp: 4 },
+      { role: "user", content: "Step 3", timestamp: 5 },
+      { role: "toolResult", toolCallId: "t3", toolName: "exec", isError: false, content: "recent short result 1", timestamp: 6 },
+      { role: "user", content: "Step 4", timestamp: 7 },
+      { role: "toolResult", toolCallId: "t4", toolName: "exec", isError: false, content: "recent short result 2", timestamp: 8 },
+      { role: "user", content: "Step 5", timestamp: 9 },
+    ];
+    const request = createMockRequest(messages);
+
+    // With multipart enabled, it should still prune historical heavy outputs so it fits inline!
+    const { input, verdict } = preparePreflightInput(request, baseCapabilities, { experimentalBiggerContext: true });
+    expect(verdict.actionRequired).toBe("apply_pruning");
+    expect(input.context.messages[1].content).toContain("[Historical tool output pruned by Preflight Guardian");
+    expect(input.context.messages[3].content).toContain("[Historical tool output pruned by Preflight Guardian");
+    expect(input.context.messages[5].content).toBe("recent short result 1");
+    expect(input.context.messages[7].content).toBe("recent short result 2");
+  });
+
+  test("resolveBiggerContextMultipartParts enforces safe boundary when forceMultipart is true", () => {
+    const { resolveBiggerContextMultipartParts } = require("../src/adapters/chatgpt-web/usage");
+    // Message > 65k chars
+    const largeMessage = "x".repeat(80_000);
+    const messages: CodexMessage[] = [
+      { role: "user", content: largeMessage, timestamp: 1 },
+    ];
+    const request = createMockRequest(messages);
+
+    // With forceMultipart = true, it must return a multipart count (2 or 6), NEVER undefined
+    const parts = resolveBiggerContextMultipartParts(request, baseCapabilities, false, true);
+    expect(parts).toBeDefined();
+    expect(parts === 2 || parts === 6).toBe(true);
   });
 });
 

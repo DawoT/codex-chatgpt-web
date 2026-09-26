@@ -146,6 +146,18 @@ export function evaluatePreflightBudget(
 
   // Case 2: Exceeds safe inline budget, multipart is supported
   if (multipartSupported) {
+    if (prunableToolResultsCount > 0) {
+      return {
+        safe: false,
+        estimatedChars,
+        estimatedTokens,
+        recommendedTransport: "inline",
+        actionRequired: "apply_pruning",
+        prunableToolResultsCount,
+        reason: `Context (${estimatedChars.toLocaleString("en-US")} chars) exceeds inline safety limit (${safeLimit.toLocaleString("en-US")}). Found ${prunableToolResultsCount} historical tool results eligible for pre-flight pruning.`,
+      };
+    }
+
     if (estimatedChars <= maxTotalLimit) {
       return {
         safe: false,
@@ -153,21 +165,8 @@ export function evaluatePreflightBudget(
         estimatedTokens,
         recommendedTransport: "multipart-6",
         actionRequired: "promote_multipart",
-        prunableToolResultsCount,
+        prunableToolResultsCount: 0,
         reason: `Inline character payload (${estimatedChars.toLocaleString("en-US")}) exceeds safety limit (${safeLimit.toLocaleString("en-US")}). Promoting to multipart-6.`,
-      };
-    }
-
-    // Exceeds even multipart total limit: check if pruning can help
-    if (prunableToolResultsCount > 0) {
-      return {
-        safe: false,
-        estimatedChars,
-        estimatedTokens,
-        recommendedTransport: "multipart-6",
-        actionRequired: "apply_pruning",
-        prunableToolResultsCount,
-        reason: `Total characters exceed multipart limit. Found ${prunableToolResultsCount} historical tool results eligible for pre-flight pruning.`,
       };
     }
 
@@ -215,14 +214,27 @@ export function preparePreflightInput(
   const verdict = evaluatePreflightBudget(input, capabilities, options);
   if (verdict.actionRequired === "apply_pruning") {
     const prunedMessages = applyPreflightPredictivePruning(input.context.messages, options);
-    return {
-      input: {
-        ...input,
-        context: {
-          ...input.context,
-          messages: prunedMessages,
-        },
+    const prunedInput: CodexParsedRequest = {
+      ...input,
+      context: {
+        ...input.context,
+        messages: prunedMessages,
       },
+    };
+    const safeLimit = options?.safeCharLimit ?? PREFLIGHT_SAFE_INLINE_CHAR_LIMIT;
+    const prunedChars = estimateRequestCharacters(prunedInput);
+    if (prunedChars >= safeLimit) {
+      const postPruningVerdict = evaluatePreflightBudget(prunedInput, capabilities, options);
+      return {
+        input: prunedInput,
+        verdict: {
+          ...postPruningVerdict,
+          actionRequired: postPruningVerdict.actionRequired === "none" ? "promote_multipart" : postPruningVerdict.actionRequired,
+        },
+      };
+    }
+    return {
+      input: prunedInput,
       verdict,
     };
   }

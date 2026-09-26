@@ -474,7 +474,12 @@ export function createChatGptWebAdapter(
       const { input: preflightInput, verdict } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
       const shouldPromoteMultipart = experimentalBiggerContext || verdict.actionRequired === "promote_multipart";
       const experimentalMultipartParts = shouldPromoteMultipart
-        ? resolveBiggerContextMultipartParts(preflightInput, turnCapabilities, experimentalSkillAttachments)
+        ? resolveBiggerContextMultipartParts(
+            preflightInput,
+            turnCapabilities,
+            experimentalSkillAttachments,
+            verdict.actionRequired === "promote_multipart",
+          )
         : undefined;
       return {
         captureLunaCheckpoint,
