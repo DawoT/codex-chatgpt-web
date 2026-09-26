@@ -4400,6 +4400,24 @@ test("Full mode fails closed when ChatGPT exposes completion without a post-tool
     .toThrow("completed without producing a final answer after its last Codex tool call");
 });
 
+test("ChatGptCompletionTracker completes cleanly when tools finish even if HTML retains historical tool-call cards", () => {
+  const tracker = new ChatGptCompletionTracker(500);
+  const finalState = {
+    responsePresent: true,
+    running: false,
+    currentText: "Completed all 54 tool calls and finished final report.",
+    currentHtml: '<div data-testid="tool-call">historical tool 1</div><p>Completed all 54 tool calls and finished final report.</p>',
+    completionActionVisible: true,
+    externalToolCallsInFlight: false,
+    hasPendingToolEvidence: true, // historical tool call card presence in DOM
+  };
+
+  // Must not be vetoed by historical tool call cards once generation is complete and no tools in flight
+  expect(tracker.update(finalState, 1_000)).toBeFalse();
+  expect(tracker.update(finalState, 1_499)).toBeFalse();
+  expect(tracker.update(finalState, 1_500)).toBeTrue();
+});
+
 test("orphan pending tool evidence fails the turn instead of spinning the completion fence", () => {
   const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
   const orphaned = {

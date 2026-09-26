@@ -1814,7 +1814,7 @@ export class ChatGptCompletionTracker {
     // An outstanding tool call proves the model has more to say, whatever the rendered message
     // currently looks like. Completing here would return a truncated answer and retire the turn
     // while its own tool calls were still in flight.
-    if (state.externalToolCallsInFlight || state.hasPendingToolEvidence) {
+    if (state.externalToolCallsInFlight) {
       this.candidate = undefined;
       this.missingPostToolAnswerSince = undefined;
       return false;
@@ -5788,7 +5788,6 @@ export class ChatGptBrowserWorker {
         });
       };
       const domHealthTracker = new ChatGptTurnDomHealthTracker();
-      const pendingToolEvidenceTracker = new ChatGptPendingToolEvidenceTracker();
       const responseDomCache: ChatGptResponseDomCache = {};
       let consecutiveObservationRebinds = 0;
       let internalObservationFaults = 0;
@@ -5932,24 +5931,6 @@ export class ChatGptBrowserWorker {
             externalProgressLive,
           });
           if (domError) throw new Error(domError);
-          const hasPendingToolEvidence = Boolean(
-            snapshot.traceBlocks?.some(b => b.kind === "status" || (b.kind === "commentary" && !b.complete))
-            || (snapshot.fullHtml && (
-              snapshot.fullHtml.includes("data-streaming-response-status")
-              || snapshot.fullHtml.includes("data-testid=\"tool-call")
-              || snapshot.fullHtml.includes("data-testid=\"tool-status")
-            ))
-          );
-          const evidenceStall = pendingToolEvidenceTracker.update({
-            pendingToolEvidence: hasPendingToolEvidence,
-            running,
-            streamDelta: Boolean(textDelta),
-            externalProgressLive,
-            toolCallsInFlight: externalToolCallsInFlight,
-            activeToolCalls: externalProgressSnapshot?.activeToolCalls ?? 0,
-            lastProgressAt: externalProgressSnapshot?.lastProgressAt,
-          });
-          if (evidenceStall) throw new Error(evidenceStall);
           const completionReady = completionTracker.update({
             responsePresent: snapshot.responsePresent,
             running,
@@ -5957,7 +5938,6 @@ export class ChatGptBrowserWorker {
             currentHtml: snapshot.fullHtml,
             completionActionVisible: snapshot.completionActionVisible,
             externalToolCallsInFlight,
-            hasPendingToolEvidence,
           });
           if (!completionReady) completionFenceRevision = undefined;
           if (completionReady) {
@@ -6029,18 +6009,6 @@ export class ChatGptBrowserWorker {
             externalProgressLive,
           });
           if (domError) throw new Error(domError);
-          // Evidence that is not observable counts as gone, so a stretch with no response DOM
-          // cannot be charged against a later orphan-container window. The in-flight ceiling
-          // still accrues here: a hung tool call is exactly the case where the DOM goes away.
-          pendingToolEvidenceTracker.update({
-            pendingToolEvidence: false,
-            running,
-            streamDelta: false,
-            externalProgressLive,
-            toolCallsInFlight: externalToolCallsInFlight,
-            activeToolCalls: externalProgressSnapshot?.activeToolCalls ?? 0,
-            lastProgressAt: externalProgressSnapshot?.lastProgressAt,
-          });
         }
         await new Promise(resolveSleep => setTimeout(resolveSleep, 250));
        } catch (error) {
