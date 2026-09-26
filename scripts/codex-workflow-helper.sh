@@ -149,6 +149,7 @@ codex-restart() {
         "$cgw_home/bin/tunnel-client run"
         "$runtime_dir/app/cli.js serve"
         "$runtime_dir/app/cli.js mcp"
+        "$runtime_dir/app/browser-helper.cjs"
     )
     local kill_ERE
     kill_ERE="$(IFS='|'; echo "${kill_patterns[*]}")"
