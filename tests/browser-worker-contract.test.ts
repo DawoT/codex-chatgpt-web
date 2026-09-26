@@ -3189,7 +3189,65 @@ test("proven current-turn MCP activity is conclusive submission evidence", async
     progress,
     0,
   )).resolves.toBe("mcp_tool_call");
+});
 
+test("currentSubmissionAnswerText falls back to empty text when DOM probe times out", async () => {
+  const currentSubmissionAnswerText = (ChatGptBrowserWorker.prototype as unknown as {
+    currentSubmissionAnswerText(page: Page, baseline: unknown, signal?: AbortSignal): Promise<string>;
+  }).currentSubmissionAnswerText;
+
+  const fakeWorker = {
+    submissionDomState: async () => {
+      throw new ChatGptBrowserObservationTimeoutError(5_000);
+    },
+  };
+
+  await expect(currentSubmissionAnswerText.call(
+    fakeWorker,
+    {} as Page,
+    { initialTurnIdentities: [], domCache: {} },
+  )).resolves.toBe("");
+});
+
+test("submission acceptance observes and acknowledges tool batch even if DOM probe times out", async () => {
+  const waitForSubmissionAccepted = (ChatGptBrowserWorker.prototype as unknown as {
+    waitForSubmissionAccepted(
+      page: Page,
+      baseline: unknown,
+      signal?: AbortSignal,
+      externalProgress?: ChatGptExternalTurnProgress,
+      initialToolBatchRevision?: number,
+      completionTracker?: ChatGptCompletionTracker,
+    ): Promise<unknown>;
+  }).waitForSubmissionAccepted;
+  const progress = new ChatGptExternalTurnProgress();
+  progress.recordToolBatch(1);
+  const completionTracker = new ChatGptCompletionTracker();
+
+  let acknowledgedRevision: number | undefined;
+  const originalAcknowledge = progress.acknowledgeToolBatch.bind(progress);
+  progress.acknowledgeToolBatch = async (revision: number) => {
+    acknowledgedRevision = revision;
+    return originalAcknowledge(revision);
+  };
+
+  const fakeWorker = {
+    currentSubmissionAnswerText: async () => "",
+  };
+
+  const result = await waitForSubmissionAccepted.call(
+    fakeWorker,
+    {} as Page,
+    {},
+    undefined,
+    progress,
+    0,
+    completionTracker,
+  );
+
+  expect(result).toBe("mcp_tool_call");
+  expect(acknowledgedRevision).toBe(1);
+  expect(completionTracker.needsToolBatchObservation(1)).toBeFalse();
 });
 
 test("unrelated ChatGPT alerts are not terminal", async () => {

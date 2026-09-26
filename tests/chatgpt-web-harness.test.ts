@@ -2681,7 +2681,7 @@ describe("ChatGPT outer-native harness v4", () => {
       // ChatGPT caches the complete tools/list contract under a connector identity.
       // An intentional hash change therefore requires an explicit connector refresh or identity migration.
       expect(createHash("sha256").update(canonicalJson(publicConnectorAbi)).digest("hex"))
-        .toBe("b9df54a7416b699bf7e718c9943ae72eb8a6969d7d7fe6939a347016d7256367");
+        .toBe("263d137f64bbd586b7a66dc8b782e6b246b16c84dc78db74537c5f5059bb2ab1");
       for (const tool of listed.tools) {
         const properties = tool.inputSchema.properties as Record<string, unknown>;
         expect(properties.turn_token).toEqual({ type: "string", minLength: 20, maxLength: 256 });

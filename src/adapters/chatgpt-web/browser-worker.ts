@@ -3374,14 +3374,18 @@ export class ChatGptBrowserWorker {
     baseline: ChatGptSubmissionBaseline,
     signal?: AbortSignal,
   ): Promise<string> {
-    const state = await this.submissionDomState(page, baseline.domCache, signal);
-    const identity = chatGptNewTurnIdentity(
-      baseline.initialTurnIdentities,
-      state.responseIdentities,
-    );
-    if (!identity) return "";
-    const locator = page.locator(chatGptAssistantTurnSelector(identity));
-    return (await this.responseDomSnapshot(locator, {})).visibleText;
+    try {
+      const state = await this.submissionDomState(page, baseline.domCache, signal);
+      const identity = chatGptNewTurnIdentity(
+        baseline.initialTurnIdentities,
+        state.responseIdentities,
+      );
+      if (!identity) return "";
+      const locator = page.locator(chatGptAssistantTurnSelector(identity));
+      return (await this.responseDomSnapshot(locator, {})).visibleText;
+    } catch {
+      return "";
+    }
   }
 
   private async captureSubmissionBaseline(page: Page, submittedText?: string): Promise<ChatGptSubmissionBaseline> {
@@ -3487,12 +3491,17 @@ export class ChatGptBrowserWorker {
       if (progress
         && externalProgress
         && completionTracker?.needsToolBatchObservation(progress.lastToolBatchRevision)) {
-        const boundaryText = identity
-          ? (await this.responseDomSnapshot(
-            observationPage.locator(chatGptAssistantTurnSelector(identity)),
-            {},
-          )).visibleText
-          : "";
+        let boundaryText = "";
+        try {
+          boundaryText = identity
+            ? (await this.responseDomSnapshot(
+              observationPage.locator(chatGptAssistantTurnSelector(identity)),
+              {},
+            )).visibleText
+            : "";
+        } catch {
+          boundaryText = "";
+        }
         completionTracker.observeToolBatch(progress.lastToolBatchRevision, boundaryText);
         await externalProgress.acknowledgeToolBatch(progress.lastToolBatchRevision);
       }
@@ -4138,7 +4147,7 @@ export class ChatGptBrowserWorker {
         if (!(error instanceof ChatGptBrowserObservationTimeoutError) || !recoverObservation) throw error;
         const latestProgress = externalProgress?.snapshot();
         if (chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
-          await new Promise(resolveSleep => setTimeout(resolveSleep, 250));
+          await new Promise(resolveSleep => setTimeout(resolveSleep, 1_000));
           continue;
         }
         recoveryAttempts += 1;
@@ -5870,7 +5879,7 @@ export class ChatGptBrowserWorker {
               console.warn(
                 `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation/tools are active; continuing observation without rebind`,
               );
-              await new Promise(resolveSleep => setTimeout(resolveSleep, 250));
+              await new Promise(resolveSleep => setTimeout(resolveSleep, 1_000));
               continue;
             }
             consecutiveObservationRebinds += 1;
