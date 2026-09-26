@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { mock } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -385,6 +386,60 @@ test("completed retained compaction never treats ordinary assistant text as a ha
     { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
     "trace_no_text_fallback",
   )).rejects.toThrow("structured handoff missing");
+});
+
+test("a settled browser response without a checkpoint reports the missing handoff immediately", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-missing-handoff-"));
+  const broker = TurnBroker.forSocket(defaultBrokerEndpoint(root));
+  const sourceRequest = request(false);
+  const source = new ChatGptTurnSession({
+    mode: "read-only", browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(), trace: new ChatGptTraceFeed(), text: new ChatGptTextFeed(),
+    usageInput: sourceRequest, conversationKey: chatGptConversationKey(sourceRequest, "provider")!, cancel() {},
+  });
+  const abort = new AbortController();
+  const guard = setTimeout(() => abort.abort(new Error("test observation guard")), 1000);
+  try {
+    await expect(requestRetainedCompactionHandoff(
+      { run: async () => "The requested tool call did not run." } as never,
+      request(true), source, broker,
+      { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      "trace_missing_handoff", abort.signal,
+    )).rejects.toMatchObject({ code: "compaction_handoff_missing", retryable: false });
+  } finally {
+    clearTimeout(guard);
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a checkpoint submitted before browser completion wins the terminal response race", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-handoff-race-"));
+  const broker = TurnBroker.forSocket(defaultBrokerEndpoint(root));
+  const sourceRequest = request(false);
+  const source = new ChatGptTurnSession({
+    mode: "read-only", browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(), trace: new ChatGptTraceFeed(), text: new ChatGptTextFeed(),
+    usageInput: sourceRequest, conversationKey: chatGptConversationKey(sourceRequest, "provider")!, cancel() {},
+  });
+  try {
+    await expect(requestRetainedCompactionHandoff(
+      { run: async (turn: BrowserTurn) => {
+        const prepared = await turn.prepare();
+        const token = prepared.text.match(/turn_token (control_\w+)/)![1]!;
+        const handoffId = prepared.text.match(/handoff_id (handoff_\w+)/)![1]!;
+        await callTurnBroker(broker.socketPath, { method: "submit_compaction_handoff", token, handoffId, summary: "Exact summary" });
+        prepared.release();
+        return "Checkpoint submitted.";
+      } } as never,
+      request(true), source, broker,
+      { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      "trace_handoff_race",
+    )).resolves.toBe("Exact summary");
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("retained compaction deadline bounds browser settlement after the control handoff succeeds", async () => {
@@ -1336,18 +1391,19 @@ test.each([false, true])("fresh multipart compaction preserves phase budgets wit
     expect(turn.onMultipartStageAcknowledged).toBeDefined();
     expect(turn.onSubmitted).toBeDefined();
     for (let part = 1; part <= 5; part++) {
-      await Bun.sleep(15);
+      mock?.timers?.tick?.(25);
       expect(turn.abortSignal?.aborted).toBeFalse();
       await turn.onMultipartStageAcknowledged!(part);
     }
-    await Bun.sleep(15);
+    mock?.timers?.tick?.(25);
     expect(turn.abortSignal?.aborted).toBeFalse();
     turn.onSubmitted!();
-    await Bun.sleep(15);
+    mock?.timers?.tick?.(25);
     expect(turn.abortSignal?.aborted).toBeFalse();
     return "Fallback checkpoint after separately bounded phases";
   };
   const events: AdapterEvent[] = [];
+  mock?.timers?.enable?.({ apis: ["setTimeout"] });
   try {
     await createChatGptWebAdapter(provider).runTurn!(
       request(true),
@@ -1358,6 +1414,7 @@ test.each([false, true])("fresh multipart compaction preserves phase budgets wit
       && event.text.includes("Fallback checkpoint after separately bounded phases"))).toBeTrue();
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
   } finally {
+    mock?.timers?.reset?.();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
@@ -1457,10 +1514,12 @@ test("a timed-out fresh compaction retains its owner until helper cleanup comple
     runs.push(run);
     return run;
   };
+  mock?.timers?.enable?.({ apis: ["setTimeout"] });
   try {
     void observe();
     await ready;
-    await Bun.sleep(45);
+    mock?.timers?.tick?.(41);
+    await Bun.sleep(50);
     expect(cancelled).toBeTrue();
     expect(events.filter(event => event.type === "error")).toHaveLength(1);
     await observe();
@@ -1481,6 +1540,7 @@ test("a timed-out fresh compaction retains its owner until helper cleanup comple
   } finally {
     releasePhysical();
     await Promise.allSettled(runs);
+    mock?.timers?.reset?.();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
