@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import type { Page } from "playwright-core";
 import { CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS, CHATGPT_COMPLETION_SETTLE_MS, CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS, CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS, ChatGptCompletionTracker, chatGptExternalProgressSuppressesDomHealth, CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS, ChatGptPendingToolEvidenceTracker, CHATGPT_RESPONSE_DOM_GRACE_MS, MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS, CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_COMPOSER_SELECT_ALL_KEY, ChatGptBrowserObservationTimeoutError, ChatGptBrowserWorker, ChatGptSubmissionRejectionObserver, ChatGptPromptAttachmentIntegrityError, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_PAGE_REBINDS, MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS, assertChatGptWebInputWithinLimits, assertChatGptWebMultipartInputWithinLimits, browserDiagnosticCheckpoint, chatGptConnectorAttachmentMode, chatGptNewTurnIdentity, chatGptReboundTurnIdentity, chatGptSubmissionEvidence, connectAfterClosingBrowserConnection, dismissChatGptTemporaryChatOnboarding, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, resolveChatGptWebMultipartStagingMode, sanitizeChatGptBrowserDiagnosticState, setChatGptThinkMode, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert, withChatGptBrowserObservationTimeout, CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS, browserStageTimeouts, ChatGptSuspensionClock, remainingStageBudgetMs } from "../src/adapters/chatgpt-web/browser-worker";
-import { ensureChatGptPersonalizedConnectorAccess, chatGptUnavailableProDetail } from "../src/adapters/chatgpt-web/browser-worker";
+import { ensureChatGptPersonalizedConnectorAccess, chatGptUnavailableProDetail, normalizePromptForComparison } from "../src/adapters/chatgpt-web/browser-worker";
 import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter-error";
 import { CHATGPT_STOPPED_THINKING_LABELS } from "../src/adapters/chatgpt-web/ui-labels";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
@@ -1150,6 +1150,110 @@ test("prompt verification accepts Lexical NBSP preservation without weakening ot
   await expect(
     assertPromptAttached.call(worker, {} as Page, expected),
   ).resolves.toBeUndefined();
+});
+
+test("normalizePromptForComparison normalizes CRLF and trailing whitespace while preserving indentation and syntax", () => {
+  expect(normalizePromptForComparison("hello\r\nworld\r\n")).toBe("hello\nworld\n");
+  expect(normalizePromptForComparison("hello\rworld\r")).toBe("hello\nworld\n");
+  expect(normalizePromptForComparison("line 1   \nline 2\t\t\nline 3")).toBe("line 1\nline 2\nline 3");
+  // Leading whitespace / indentation must be preserved
+  expect(normalizePromptForComparison("    def foo():\n        return True\n")).toBe("    def foo():\n        return True\n");
+  // Mid-line spaces preserved
+  expect(normalizePromptForComparison("a   b   c")).toBe("a   b   c");
+});
+
+test("prompt verification accepts CRLF normalization and trailing line whitespace trimmed by editor", async () => {
+  const worker = Object.create(ChatGptBrowserWorker.prototype) as ChatGptBrowserWorker;
+  const promptTextEquivalent = (ChatGptBrowserWorker.prototype as unknown as {
+    promptTextEquivalent(expected: string, observed: string): boolean;
+  }).promptTextEquivalent;
+
+  // Exact scenario: prompt with CRLFs converted to LFs by contenteditable
+  const linesWithCrlf = Array.from({ length: 24 }, (_, i) => `line ${i}: some content here`).join("\r\n");
+  const linesWithLf = Array.from({ length: 24 }, (_, i) => `line ${i}: some content here`).join("\n");
+  expect(linesWithCrlf.length - linesWithLf.length).toBe(23); // Exactly 23 characters difference
+  expect(promptTextEquivalent.call(worker, linesWithCrlf, linesWithLf)).toBeTrue();
+
+  // Trailing whitespace stripped on paragraphs by contenteditable
+  expect(promptTextEquivalent.call(worker, "hello   \nworld  ", "hello\nworld")).toBeTrue();
+
+  // Combined CRLF + trailing space + Lexical NBSP in multi-space run
+  expect(promptTextEquivalent.call(worker, "hello   \r\nworld  foo  bar", "hello\nworld  foo\u00A0 bar")).toBeTrue();
+
+  // Genuine content difference or truncation still fails closed
+  expect(promptTextEquivalent.call(worker, "hello\r\nworld!", "hello\nworld?")).toBeFalse();
+  expect(promptTextEquivalent.call(worker, "hello\r\nworld and more", "hello\nworld")).toBeFalse();
+});
+
+test("attached prompt DOM extraction preserves soft breaks and scopes connector pill removal", () => {
+  const { createWindow } = require("@mixmark-io/domino");
+  const appName = "Codex Web";
+
+  // DOM containing:
+  // 1. A connector pill matching appName
+  // 2. A paragraph with a soft break <br> between two words
+  // 3. An empty paragraph <p><br></p> (standard Lexical empty line)
+  // 4. A paragraph containing legitimate user @mention that should NOT be removed
+  const html = [
+    '<div data-lexical-editor="true">',
+    '  <span data-id="plugin:123" data-keyword="Codex Web" app-mention-display-name="Codex Web">@Codex Web</span>',
+    '  <span data-inline-selection-pill-cursor-target></span>',
+    '  <p><span>Hello</span><br><span>world</span></p>',
+    '  <p><br></p>',
+    '  <p><span>Inspect @cloudflare/workers dependency</span></p>',
+    '</div>',
+  ].join("");
+
+  const window = createWindow(html);
+  const element = window.document.querySelector('[data-lexical-editor="true"]') as HTMLElement;
+
+  // Run the exact evaluation function from attachedPromptText
+  const extractAttachedPromptText = (el: HTMLElement, name?: string) => {
+    const clone = el.cloneNode(true) as HTMLElement;
+    for (const br of Array.from(clone.querySelectorAll("br"))) {
+      if (br.previousSibling || br.nextSibling) {
+        if (typeof br.replaceWith === "function") {
+          br.replaceWith("\n");
+        } else if (br.parentNode) {
+          br.parentNode.replaceChild(clone.ownerDocument?.createTextNode("\n") ?? window.document.createTextNode("\n"), br);
+        }
+      }
+    }
+    for (const part of Array.from(clone.querySelectorAll('[data-inline-selection-pill-cursor-target]'))) {
+      if (typeof part.remove === "function") part.remove();
+      else part.parentNode?.removeChild(part);
+    }
+    const s = (name ?? "").toLowerCase().replace(/\s+/g, "-");
+    for (const part of Array.from(clone.querySelectorAll(
+      '[data-id^="plugin:"], [app-mention-display-name], [data-prompt-link-label], [class*="Mention-"]',
+    ))) {
+      const text = (part.textContent ?? "").trim();
+      const kw = part.getAttribute("data-keyword")
+        ?? part.getAttribute("app-mention-display-name")
+        ?? part.getAttribute("data-prompt-link-label")
+        ?? "";
+      if (
+        !name
+        || kw === name
+        || kw === `$${s}`
+        || text === `@${name}`
+        || text === `$${name}`
+        || (s && (text.toLowerCase() === `@${s}` || text.toLowerCase() === `$${s}`))
+      ) {
+        if (typeof part.remove === "function") part.remove();
+        else part.parentNode?.removeChild(part);
+      }
+    }
+    return [...clone.childNodes]
+      .map(child => child.textContent ?? "")
+      .join("\n")
+      .trimStart();
+  };
+
+  const extracted = extractAttachedPromptText(element, appName);
+  expect(extracted).toContain("Hello\nworld");
+  expect(extracted).toContain("@cloudflare/workers");
+  expect(extracted).not.toContain("@Codex Web");
 });
 
 test("large Markdown-rich context uses one plain-text editing command before exact verification", async () => {

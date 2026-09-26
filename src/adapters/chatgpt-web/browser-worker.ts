@@ -2548,6 +2548,18 @@ export function insertPlainTextIntoComposer(element: HTMLElement, value: string)
   return document.execCommand("insertText", false, value);
 }
 
+/**
+ * Normalizes user prompts for comparison against ChatGPT contenteditable DOM text.
+ * Line endings (CRLF / CR) are normalized to LF, and trailing horizontal whitespace
+ * (spaces and tabs) at the end of each line is trimmed to match browser contenteditable
+ * rendering semantics without altering indentation or syntax.
+ */
+export function normalizePromptForComparison(text: string): string {
+  return text
+    .replace(/\r\n|\r/g, "\n")
+    .replace(/[ \t]+(?=\n|$)/g, "");
+}
+
 export class ChatGptBrowserWorker {
   static forProvider(provider: CodexProviderConfig): ChatGptBrowserWorker {
     const config = resolveBrowserConfig(provider);
@@ -2590,7 +2602,7 @@ export class ChatGptBrowserWorker {
     return expected[index - 1] === " " || expected[index + 1] === " ";
   }
 
-  private promptTextEquivalent(
+  private promptUnitsEquivalent(
     expected: string,
     observed: string,
   ): boolean {
@@ -2605,16 +2617,32 @@ export class ChatGptBrowserWorker {
     return true;
   }
 
+  private promptTextEquivalent(
+    expected: string,
+    observed: string,
+  ): boolean {
+    if (expected === observed) return true;
+    if (this.promptUnitsEquivalent(expected, observed)) return true;
+
+    const normExpected = normalizePromptForComparison(expected);
+    const normObserved = normalizePromptForComparison(observed);
+
+    if (normExpected === normObserved) return true;
+    return this.promptUnitsEquivalent(normExpected, normObserved);
+  }
+
   private promptEquivalentPrefixLength(
     expected: string,
     observed: string,
   ): number {
-    const length = Math.min(expected.length, observed.length);
+    const normExpected = normalizePromptForComparison(expected);
+    const normObserved = normalizePromptForComparison(observed);
+    const length = Math.min(normExpected.length, normObserved.length);
 
     let index = 0;
     while (
       index < length
-      && this.promptCodeUnitEquivalent(expected, observed, index)
+      && this.promptCodeUnitEquivalent(normExpected, normObserved, index)
     ) {
       index += 1;
     }
@@ -3554,17 +3582,47 @@ export class ChatGptBrowserWorker {
 
   private async attachedPromptText(page: Page, abortSignal?: AbortSignal): Promise<string> {
     const composer = await this.activeComposer(page, 30_000, abortSignal);
-    return composer.evaluate(element => {
+    return composer.evaluate((element, appName) => {
       const clone = element.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll(
-        '[data-id^="plugin:"][data-keyword], [data-inline-selection-pill-cursor-target], [app-mention-display-name], [class*="Mention-"]',
-      )
-        .forEach(part => part.remove());
+      for (const br of Array.from(clone.querySelectorAll("br"))) {
+        if (br.previousSibling || br.nextSibling) {
+          if (typeof br.replaceWith === "function") {
+            br.replaceWith("\n");
+          } else if (br.parentNode) {
+            br.parentNode.replaceChild(clone.ownerDocument?.createTextNode("\n") ?? document.createTextNode("\n"), br);
+          }
+        }
+      }
+      for (const part of Array.from(clone.querySelectorAll('[data-inline-selection-pill-cursor-target]'))) {
+        if (typeof part.remove === "function") part.remove();
+        else part.parentNode?.removeChild(part);
+      }
+      const slug = (appName ?? "").toLowerCase().replace(/\s+/g, "-");
+      for (const part of Array.from(clone.querySelectorAll(
+        '[data-id^="plugin:"], [app-mention-display-name], [data-prompt-link-label], [class*="Mention-"]',
+      ))) {
+        const text = (part.textContent ?? "").trim();
+        const kw = part.getAttribute("data-keyword")
+          ?? part.getAttribute("app-mention-display-name")
+          ?? part.getAttribute("data-prompt-link-label")
+          ?? "";
+        if (
+          !appName
+          || kw === appName
+          || kw === `$${slug}`
+          || text === `@${appName}`
+          || text === `$${appName}`
+          || (slug && (text.toLowerCase() === `@${slug}` || text.toLowerCase() === `$${slug}`))
+        ) {
+          if (typeof part.remove === "function") part.remove();
+          else part.parentNode?.removeChild(part);
+        }
+      }
       return [...clone.childNodes]
         .map(child => child.textContent ?? "")
         .join("\n")
         .trimStart();
-    }, undefined, { timeout: 20_000, signal: abortSignal });
+    }, this.config?.appName, { timeout: 20_000, signal: abortSignal });
   }
 
   private async assertPromptAttached(
@@ -3958,6 +4016,7 @@ export class ChatGptBrowserWorker {
     reuseConnector = false,
     requireThink = false,
   ): Promise<void> {
+    prompt = prompt.replace(/\r\n|\r/g, "\n");
     throwIfPromptAttachmentAborted(abortSignal);
     await throwIfChatGptRateLimitDialog(page);
     throwIfPromptAttachmentAborted(abortSignal);
@@ -4453,11 +4512,13 @@ export class ChatGptBrowserWorker {
     await input.waitFor({ state: "attached", timeout: 20_000 });
     await input.setInputFiles(files);
     try {
-      await Promise.all(files.map(file => (
-        composerForm.getByRole("group", { name: file.name, exact: true })
-          .or(composerForm.locator(`.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(file.name)}]`))
-          .waitFor({ state: "visible", timeout: 60_000 })
-      )));
+      await Promise.all(files.map(file => {
+        const byRole = composerForm.getByRole("group", { name: file.name, exact: true });
+        const target = typeof byRole?.or === "function" && typeof composerForm.locator === "function"
+          ? byRole.or(composerForm.locator(`.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(file.name)}]`))
+          : byRole;
+        return target.waitFor({ state: "visible", timeout: 60_000 });
+      }));
     } catch {
       const alerts = (await page.locator('[role="alert"]').allInnerTexts().catch(() => []))
         .map(text => text.replace(/\s+/g, " ").trim())
