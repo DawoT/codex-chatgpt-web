@@ -682,14 +682,14 @@ test("root turn and subagent turns preserve canonical transport contracts withou
   expect(subCompiled.text).toContain("Execute the latest active user request now.");
 });
 
-test("mode.localTools prompts preserve canonical sandbox and background task contracts without negative filler constraints", () => {
+test("mode.localTools prompts preserve canonical sandbox and background task contracts", () => {
   const token = "turn_12345678901234567890123456789012";
   const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
   const req = request("high");
   const compiled = compileChatGptWebPrompt(req, caps, token);
 
-  expect(compiled.text).not.toContain("ANTI-RESIGNATION RULE:");
-  expect(compiled.text).not.toContain("Dispatch tool calls directly without conversational filler");
+  expect(compiled.text).toContain("ANTI-RESIGNATION RULE:");
+  expect(compiled.text).toContain("CRITICAL WORKSPACE ACTION RULE:");
   expect(compiled.text).toContain("These tools are connected by the user to their Codex runtime; local actions execute on that runtime's device under its configured sandbox and approval rules.");
   expect(compiled.text).toContain("For long-running commands (tests, builds), launch them in the background and continue useful work; call codex_wait_tasks to pause until they finish — completion summaries stay short and full logs remain on disk.");
 });
@@ -726,12 +726,12 @@ test("root user-facing turn stays clean and minimal without prompt bloat while s
   expect(subCompiled.text).not.toContain("ephemeral atomic worker");
   expect(subCompiled.text).toContain("Execute the latest active user request now.");
 
-  // 3. Compaction turn: must remain concise without fictitious state file references
+  // 3. Compaction turn: must remain concise without persona bloat
   const compactReq = request("high");
   compactReq._compactionRequest = true;
   const compactCompiled = compileChatGptWebPrompt(compactReq, caps, token);
   expect(compactCompiled.text).not.toContain("STAFF PRINCIPAL ENGINEER");
-  expect(compactCompiled.text).not.toContain(".agents/STATE.md");
+  expect(compactCompiled.text).toContain("CRITICAL WORKSPACE STATE RETENTION");
   expect(compactCompiled.text).toContain("Produce the requested checkpoint summary now without calling tools.");
 
   // 4. Low verbosity explicit request

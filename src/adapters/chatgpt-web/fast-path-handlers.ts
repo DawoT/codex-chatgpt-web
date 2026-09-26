@@ -9,8 +9,16 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { workspaceFileCache, type FastPathWorkspaceCache } from "./fast-path-cache";
+
+export const GLOBAL_SKILL_READ_ROOTS: readonly string[] = [
+  join(homedir(), ".agents", "skills"),
+  join(homedir(), ".gemini", "config", "skills"),
+  join(homedir(), ".dsh", "skills"),
+  join(homedir(), ".config", "codex", "skills"),
+];
 
 /**
  * Pure handlers behind the ChatGPT Web fast-path MCP tools (codex_read_file, codex_write_file,
@@ -190,7 +198,11 @@ export function handleReadFile(options: {
 }): FastPathToolResult {
   const { path, offset = 1, limit_lines = 500 } = options;
   const cache = options.cache ?? workspaceFileCache;
-  const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
+  const allowedRoots = [
+    ...options.roots,
+    ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),
+  ];
+  const resolved = resolveSafeWorkspacePath(path, options.cwd, allowedRoots);
   if (!existsSync(resolved)) {
     return result({ error: `File does not exist: ${path}` }, true);
   }
@@ -395,7 +407,11 @@ export function handleListDir(options: {
   roots: string[];
 }): FastPathToolResult {
   const { path = ".", depth = 1, limit = 100 } = options;
-  const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
+  const allowedRoots = [
+    ...options.roots,
+    ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),
+  ];
+  const resolved = resolveSafeWorkspacePath(path, options.cwd, allowedRoots);
   if (!existsSync(resolved)) {
     return result({ error: `Directory does not exist: ${path}` }, true);
   }
@@ -547,7 +563,11 @@ export function handleGrep(options: {
       error: "ripgrep (rg) is not installed or not on PATH. Install it (e.g. 'apt install ripgrep' or 'brew install ripgrep') to use codex_grep.",
     }, true);
   }
-  const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
+  const allowedRoots = [
+    ...options.roots,
+    ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),
+  ];
+  const resolved = resolveSafeWorkspacePath(path, options.cwd, allowedRoots);
   if (!existsSync(resolved)) {
     return result({ error: `Search target does not exist: ${path}` }, true);
   }

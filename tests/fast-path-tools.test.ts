@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CHATGPT_WEB_MAX_READ_FILE_BYTES,
+  GLOBAL_SKILL_READ_ROOTS,
   handleGrep,
   handleListDir,
   handleReadFile,
@@ -165,6 +166,36 @@ describe("handleReadFile", () => {
       expect(out.error).toContain("too large to read");
       expect(out.suggestion).toContain("offset/limit_lines");
       expect(out.suggestion).toContain("codex_exec");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("allows reading files from global skill directories outside workspace roots", () => {
+    const existingSkillRoot = GLOBAL_SKILL_READ_ROOTS.find(r => existsSync(r));
+    if (!existingSkillRoot) return;
+
+    // Create a temporary workspace root that has NO access to skill roots
+    const root = mkdtempSync(join(tmpdir(), "cgw-isolated-root-"));
+    try {
+      // Find a readable file inside the skill root or create a temporary file inside existingSkillRoot
+      const testSkillDir = join(existingSkillRoot, "test-sandbox-read-skill");
+      mkdirSync(testSkillDir, { recursive: true });
+      const testSkillFile = join(testSkillDir, "SKILL.md");
+      writeFileSync(testSkillFile, "# Test Skill\nContent here");
+
+      try {
+        const res = handleReadFile({
+          path: testSkillFile,
+          cwd: root,
+          roots: [root], // Isolated root only!
+        });
+        expect(res.isError).toBeUndefined();
+        const out = payload(res);
+        expect(out.content).toContain("# Test Skill");
+      } finally {
+        rmSync(testSkillDir, { recursive: true, force: true });
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

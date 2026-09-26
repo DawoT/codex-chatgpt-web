@@ -893,17 +893,21 @@ function compileChatGptWebPromptInternal(
       "This is a Codex history-compaction checkpoint, not a normal task turn.",
       "Do not call local or ChatGPT-native tools. Summarize only the supplied task context according to the final compaction instruction.",
       "Return only the checkpoint summary that the next model needs to resume the task.",
+      "CRITICAL WORKSPACE STATE RETENTION: If persistent workspace state (.agents/STATE.md) or state checkpoint information is present in the context, faithfully preserve its goal, completed milestones, key decisions/invariants, and next immediate action in the compaction summary.",
       ]
     : mode.localTools
     ? [
       "For local work required by the task, use the attached Codex Native tools directly according to their declared descriptions and schemas.",
+      "For workspace operations, prefer direct fast-path tools (read_file, write_file, patch_file, list_dir, grep) whenever available in the tool inventory: codex_read_file(path, offset, limit_lines), codex_write_file(path, content, overwrite, create_parents), codex_patch_file(path, target_content, replacement_content), codex_list_dir(path, depth, limit), codex_grep(query, path, max_results, case_sensitive, file_pattern). They execute atomically in microseconds without shell process overhead. codex_write_file refuses to replace an existing file unless overwrite=true and needs create_parents=true for missing directories; codex_patch_file replaces only the first exact occurrence of target_content.",
       "These tools are connected by the user to their Codex runtime; local actions execute on that runtime's device under its configured sandbox and approval rules. Assess each action by its actual effects and the user's authorization; an authenticated connection does not make every action low risk.",
       "For long-running commands (tests, builds), launch them in the background and continue useful work; call codex_wait_tasks to pause until they finish — completion summaries stay short and full logs remain on disk.",
       "Call a Codex Native tool only when the latest active request requires a local effect or fresh local evidence that is not already present in the supplied context; otherwise answer the request directly without a tool call.",
+      "CRITICAL WORKSPACE ACTION RULE: When the user request or task requires workspace inspection, modification, or verification, you MUST invoke the appropriate Codex Native tool directly to inspect or mutate the filesystem before answering.",
       "Use actual Codex Native results as evidence for local observations and effects.",
       "A Codex Native MCP tool result may require context compaction. If it does, follow the compaction instructions in that result exactly.",
       "After a deterministic tool failure, update the working hypothesis from that result and inspect the relevant repository or environment before choosing a different next action; do not repeat the same call unless its inputs or observable state changed.",
       "Continue using the available tools until the requested work is complete and verified.",
+      "ANTI-RESIGNATION RULE: Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated, unavailable, or failing based on past conversational messages, assumptions, or previous turns. Never hallucinate or synthesize tool errors without calling the tool. You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.",
       "Write the user-facing final answer only after the last required tool result has settled. Do not call another tool after beginning that final answer.",
     ]
     : [
