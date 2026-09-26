@@ -2524,6 +2524,11 @@ export function chatGptPromptFilePayloads(
  * position inside this composer, so an insert can never land in another element.
  */
 export function insertPlainTextIntoComposer(element: HTMLElement, value: string): boolean {
+  try {
+    element.setAttribute("spellcheck", "false");
+    element.setAttribute("autocorrect", "off");
+    element.setAttribute("autocapitalize", "off");
+  } catch {}
   if (document.activeElement !== element) element.focus();
   if (document.activeElement !== element) return false;
   const selection = window.getSelection();
@@ -3124,6 +3129,31 @@ export class ChatGptBrowserWorker {
     await assertAuthenticatedChatGptPage(page);
     await assertNewChatPage(page, useSavedChats);
     await captureDiagnostic?.("session-verified");
+    await page.evaluate(() => {
+      try {
+        const desc = Object.getOwnPropertyDescriptor(Document.prototype, "title");
+        if (desc && desc.set && !(desc.set as { __clamped?: boolean }).__clamped) {
+          const originalSet = desc.set;
+          const clampedSet = function (this: Document, value: string) {
+            const clamped = typeof value === "string" && value.length > 200
+              ? `${value.slice(0, 197)}...`
+              : value;
+            return originalSet.call(this, clamped);
+          };
+          (clampedSet as { __clamped?: boolean }).__clamped = true;
+          Object.defineProperty(document, "title", {
+            get: desc.get,
+            set: clampedSet,
+            configurable: true,
+          });
+        }
+        for (const el of document.querySelectorAll('[contenteditable="true"], textarea')) {
+          el.setAttribute("spellcheck", "false");
+          el.setAttribute("autocorrect", "off");
+          el.setAttribute("autocapitalize", "off");
+        }
+      } catch {}
+    }).catch(() => {});
     return composer;
   }
 
@@ -3679,7 +3709,7 @@ export class ChatGptBrowserWorker {
       throwIfPromptAttachmentAborted(abortSignal);
       if (this.promptTextEquivalent(prompt, observed)) return;
       await withBrowserTurnAbort(
-        new Promise(resolveSleep => setTimeout(resolveSleep, 50)),
+        new Promise(resolveSleep => setTimeout(resolveSleep, 200)),
         abortSignal,
       );
     }

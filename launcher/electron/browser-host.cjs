@@ -123,6 +123,13 @@ function normalizeBounds(bounds) {
   };
 }
 
+function sanitizePageTitle(title) {
+  if (typeof title !== "string") return "ChatGPT";
+  const trimmed = title.trim();
+  if (!trimmed) return "ChatGPT";
+  return trimmed.length > 200 ? `${trimmed.slice(0, 197)}...` : trimmed;
+}
+
 function allowedAuthUrl(value) {
   let parsed;
   try {
@@ -409,7 +416,7 @@ class BrowserHost {
         nodeIntegration: false,
         sandbox: true,
         spellcheck: true,
-        backgroundThrottling: true,
+        backgroundThrottling: false,
       },
     });
     window.contentView.addChildView(this.view);
@@ -856,7 +863,7 @@ class BrowserHost {
     });
     contents.on("page-title-updated", (_event, title) => {
       if (browserInteractionModeFor(this) !== "automatic") return;
-      if (typeof title === "string" && title.trim()) tab.pageTitle = title.trim();
+      tab.pageTitle = sanitizePageTitle(title);
       this.publishState?.(this.snapshot());
     });
     contents.on("did-navigate-in-page", (_event, url, mainFrame) => {
@@ -1099,7 +1106,7 @@ class BrowserHost {
     });
     contents.on("page-title-updated", (_event, title) => {
       if (browserInteractionModeFor(this) === "manual") return;
-      this.setState({ title: typeof title === "string" && title.trim() ? title.trim() : "ChatGPT" });
+      this.setState({ title: sanitizePageTitle(title) });
     });
     contents.on("did-navigate-in-page", (_event, url, mainFrame) => {
       if (mainFrame) {
@@ -1821,7 +1828,7 @@ class BrowserHost {
     });
     contents.on("page-title-updated", (_event, title) => {
       if (browserInteractionModeFor(this) === "manual") return;
-      this.setState({ title: typeof title === "string" && title.trim() ? title.trim() : "ChatGPT" });
+      this.setState({ title: sanitizePageTitle(title) });
     });
     contents.on("close", () => this.closeAuthView(authView, true));
     contents.on("destroyed", () => this.closeAuthView(authView, false));
