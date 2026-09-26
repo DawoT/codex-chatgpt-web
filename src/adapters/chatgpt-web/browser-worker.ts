@@ -3439,6 +3439,15 @@ export class ChatGptBrowserWorker {
         );
       } catch (error) {
         const latestProgress = externalProgress?.snapshot();
+        if (chatGptExternalProgressIsLive(latestProgress, Date.now(), graceMs)) {
+          await this.waitForTurnDomOrExternalProgress(
+            observationPage,
+            latestProgress?.revision ?? 0,
+            externalProgress,
+            signal,
+          );
+          continue;
+        }
         if (error instanceof ChatGptBrowserObservationTimeoutError && recoverObservation) {
           recoveryAttempts += 1;
           if (recoveryAttempts > MAX_CHATGPT_BROWSER_PAGE_REBINDS) {
@@ -4127,6 +4136,11 @@ export class ChatGptBrowserWorker {
         return evidence;
       } catch (error) {
         if (!(error instanceof ChatGptBrowserObservationTimeoutError) || !recoverObservation) throw error;
+        const latestProgress = externalProgress?.snapshot();
+        if (chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)) {
+          await new Promise(resolveSleep => setTimeout(resolveSleep, 250));
+          continue;
+        }
         recoveryAttempts += 1;
         if (recoveryAttempts > MAX_CHATGPT_BROWSER_PAGE_REBINDS) {
           throw new Error(
@@ -5830,7 +5844,7 @@ export class ChatGptBrowserWorker {
         }
 
         let snapshot = await this.responseDomSnapshot(responseTurn.locator, responseDomCache);
-        if (!snapshot.responsePresent) {
+        if (!snapshot.responsePresent && await responseTurn.locator.count() !== 1) {
           try {
             const rebound = await withChatGptBrowserObservationTimeout(
               this.reconcileAssistantTurnBinding(
@@ -5848,6 +5862,17 @@ export class ChatGptBrowserWorker {
             }
           } catch (error) {
             if (!(error instanceof ChatGptBrowserObservationTimeoutError) || !launcherSurfaceId) throw error;
+            const currentProgress = turn.externalProgress?.snapshot();
+            const currentProgressLive = chatGptExternalProgressSuppressesDomHealth(currentProgress, Date.now());
+            const currentCallsInFlight = chatGptExternalToolCallsAreInFlight(currentProgress);
+            const isRunning = await page.locator(CHATGPT_STOP_BUTTON_SELECTOR).last().isVisible().catch(() => false);
+            if (currentProgressLive || isRunning || currentCallsInFlight) {
+              console.warn(
+                `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation/tools are active; continuing observation without rebind`,
+              );
+              await new Promise(resolveSleep => setTimeout(resolveSleep, 250));
+              continue;
+            }
             consecutiveObservationRebinds += 1;
             if (consecutiveObservationRebinds > MAX_CHATGPT_BROWSER_PAGE_REBINDS) {
               throw new Error(
