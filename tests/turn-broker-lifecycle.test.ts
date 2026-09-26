@@ -511,3 +511,39 @@ test("re-registered aliases refresh their recency instead of aging out FIFO", as
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("turn broker waitForClaim resolves immediately upon token claim", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-broker-claim-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const token = await broker.register({
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      sandboxPolicy: { type: "dangerFullAccess" },
+      tools: [],
+    });
+
+    let claimed = false;
+    const claimPromise = broker.waitForClaim(token).then(() => {
+      claimed = true;
+    });
+
+    expect(claimed).toBe(false);
+
+    await callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_claim_wait_test_01",
+    });
+
+    await claimPromise;
+    expect(claimed).toBe(true);
+
+    await expect(broker.waitForClaim(token)).resolves.toBeUndefined();
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

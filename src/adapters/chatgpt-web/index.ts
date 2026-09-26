@@ -791,6 +791,13 @@ export function createChatGptWebAdapter(
         // Publish only after preparation succeeds: otherwise its failure revokes the token
         // before the response observer uses it and masks the cause as an expired capability.
         observeCapabilityRetirement(turnToken, externalProgress);
+        if (typeof broker.waitForClaim === "function") {
+          void broker.waitForClaim(turnToken, browserAbort.signal).then(() => {
+            if (submission && !parsed._compactionRequest) {
+              submission.phase = "accepted";
+            }
+          }).catch(() => {});
+        }
         if (!tokenSettled) {
           tokenSettled = true;
           token.resolve(turnToken);
@@ -1374,6 +1381,9 @@ export function createChatGptWebAdapter(
                     throw new Error("ChatGPT broker returned tools for a read-only browser turn");
                   }
                   if (requests.length > 0) {
+                    if (session.runtime.submission && !parsed._compactionRequest) {
+                      session.runtime.submission.phase = "accepted";
+                    }
                     const revision = externalProgress.recordToolBatch(requests.length);
                     if (!session.runtime.manualControl) {
                       // The browser outcome is in the same race below and owns the semantic DOM and

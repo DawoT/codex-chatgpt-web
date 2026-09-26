@@ -3147,6 +3147,22 @@ export class ChatGptBrowserWorker {
             configurable: true,
           });
         }
+        const clampTitleElement = () => {
+          const titleEl = document.querySelector("title");
+          if (titleEl && (titleEl.textContent?.length ?? 0) > 200) {
+            titleEl.textContent = `${titleEl.textContent!.slice(0, 197)}...`;
+          }
+        };
+        clampTitleElement();
+        const globalAny = globalThis as unknown as { __TITLE_OBSERVER_ATTACHED__?: boolean };
+        if (!globalAny.__TITLE_OBSERVER_ATTACHED__) {
+          globalAny.__TITLE_OBSERVER_ATTACHED__ = true;
+          const titleObserver = new MutationObserver(() => clampTitleElement());
+          const target = document.querySelector("title") || document.head;
+          if (target) {
+            titleObserver.observe(target, { childList: true, characterData: true, subtree: true });
+          }
+        }
         for (const el of document.querySelectorAll('[contenteditable="true"], textarea')) {
           el.setAttribute("spellcheck", "false");
           el.setAttribute("autocorrect", "off");

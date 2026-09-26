@@ -83,6 +83,7 @@ interface TurnChannel {
   completionCommitted: boolean;
   completionRevision?: number;
   retirementWaiters: Set<SafeWaiter<void>>;
+  claimWaiters: Set<SafeWaiter<void>>;
   batchTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -260,6 +261,7 @@ export interface TurnBrokerOwner {
   beginCompletionFence(token: string): number | undefined | Promise<number | undefined>;
   commitCompletionFence(token: string, revision: number): boolean | Promise<boolean>;
   waitForRetirement(token: string, signal?: AbortSignal): Promise<void>;
+  waitForClaim?(token: string, signal?: AbortSignal): Promise<void>;
   revoke(token: string, reason?: Error): void | Promise<void>;
 }
 
@@ -397,6 +399,7 @@ export class TurnBroker implements TurnBrokerOwner {
       activityRevision: 0,
       completionCommitted: false,
       retirementWaiters: new Set(),
+      claimWaiters: new Set(),
     };
     this.channels.set(token, channel);
     this.pending.set(token, channel);
@@ -594,6 +597,14 @@ export class TurnBroker implements TurnBrokerOwner {
     const channel = this.channels.get(token);
     if (!channel) return Promise.resolve();
     return this.waitForSafeState(channel.retirementWaiters, signal, "turn retirement wait aborted");
+  }
+
+  waitForClaim(token: string, signal?: AbortSignal): Promise<void> {
+    this.prune();
+    const resolved = this.resolveActiveToken(token);
+    const channel = resolved?.channel ?? this.channels.get(token);
+    if (!channel || channel.bindingId) return Promise.resolve();
+    return this.waitForSafeState(channel.claimWaiters, signal, "turn claim wait aborted");
   }
 
   requestCompaction(token: string, queuedResult: BrokerToolResult): number {
@@ -1232,12 +1243,14 @@ export class TurnBroker implements TurnBrokerOwner {
         if (!existing || existing.token !== effectiveToken || existing.channel !== activeChannel) {
           throw new Error("turn token binding state is inconsistent");
         }
+        this.resolveSafeWaiters(activeChannel.claimWaiters, undefined);
         return { bindingId: activeChannel.bindingId, activityId, environment: activeChannel.environment, traceId: activeChannel.traceId };
       }
       this.pending.delete(effectiveToken);
       const bindingId = opaqueId("binding");
       activeChannel.bindingId = bindingId;
       this.bindings.set(bindingId, { token: effectiveToken, channel: activeChannel });
+      this.resolveSafeWaiters(activeChannel.claimWaiters, undefined);
       return { bindingId, activityId, environment: activeChannel.environment, traceId: activeChannel.traceId };
     }
 
@@ -1365,6 +1378,7 @@ export class TurnBroker implements TurnBrokerOwner {
       waiter.reject(error);
     }
     channel.waiters.clear();
+    this.rejectSafeWaiters(channel.claimWaiters, error);
     for (const invocation of channel.invocations.values()) invocation.reject(error);
     channel.invocations.clear();
     channel.queuedCallIds = [];
