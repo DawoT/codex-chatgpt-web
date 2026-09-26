@@ -3498,8 +3498,9 @@ export class ChatGptBrowserWorker {
       throw new Error(`ChatGPT exposed ${boundCount} DOM nodes for the bound assistant turn`);
     }
     const state = await this.submissionDomState(page, baseline.domCache, signal);
-    const acceptedTurns = new Set(binding.acceptedTurnIdentities);
-    if (state.userIdentities.some(identity => !acceptedTurns.has(identity))) {
+    const initialTurns = new Set(baseline.initialTurnIdentities);
+    const newUserIdentities = state.userIdentities.filter(identity => !initialTurns.has(identity));
+    if (newUserIdentities.length > 1) {
       throw new Error("ChatGPT opened another user turn while the bound assistant response was detached");
     }
     const identity = chatGptReboundTurnIdentity(
@@ -3507,7 +3508,12 @@ export class ChatGptBrowserWorker {
       binding.identity,
       state.responseIdentities,
     );
-    if (!identity || identity === binding.identity) return binding;
+    if (!identity || identity === binding.identity) {
+      return {
+        ...binding,
+        acceptedTurnIdentities: state.turnIdentities,
+      };
+    }
     return {
       identity,
       locator: page.locator(chatGptAssistantTurnSelector(identity)),
@@ -4907,7 +4913,7 @@ export class ChatGptBrowserWorker {
       stoppedThinkingLabels: [...CHATGPT_STOPPED_THINKING_LABELS],
       knownKey: cache?.key,
       attributeFilter: [...CHATGPT_DOM_REVISION_ATTRIBUTES],
-    }, { timeout: 2_000 }).catch(() => undefined);
+    }, { timeout: 10_000 }).catch(() => undefined);
     if (!observed) {
       if (responseTurn.page().isClosed()) {
         throw chatGptBrowserTabClosedError();
