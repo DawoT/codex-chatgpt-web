@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Page } from "playwright-core";
 import {
+  CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX,
+  CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX,
   CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX,
+  CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX,
   dismissAllChatGptOverlays,
 } from "../src/adapters/chatgpt-web/browser-worker";
 
@@ -13,6 +16,8 @@ interface MockDialogOptions {
   hasAriaClose?: boolean;
   isEscapeDismissable?: boolean;
   isToolApproval?: boolean;
+  /** Own label of the action button, as a real button element would report via allInnerTexts. */
+  buttonLabel?: string;
 }
 
 function createMockDialog(options: MockDialogOptions) {
@@ -24,6 +29,9 @@ function createMockDialog(options: MockDialogOptions) {
       visible = false;
       options.onDismiss?.();
     },
+    ...(options.buttonLabel !== undefined
+      ? { allInnerTexts: async () => [options.buttonLabel] }
+      : {}),
   };
 
   const emptyLoc = {
@@ -265,5 +273,109 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
 
     expect(count).toBe(0);
     expect(diagnosticCaptured).toBeTrue();
+  });
+
+  test("does NOT force-click Confirm on a destructive dialog", async () => {
+    let dismissed = false;
+    const dialog = createMockDialog({
+      text: "Delete conversation? This action cannot be undone.",
+      hasRoleButton: true,
+      onDismiss: () => { dismissed = true; },
+    });
+
+    const page = createMockPage(() => [dialog]);
+    const count = await dismissAllChatGptOverlays(page);
+
+    expect(count).toBe(0);
+    expect(dismissed).toBeFalse();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Delete conversation? This action cannot be undone.")).toBeTrue();
+  });
+
+  test("does NOT force-click Confirmar on a Spanish destructive dialog", async () => {
+    let dismissed = false;
+    const dialog = createMockDialog({
+      text: "¿Eliminar chat? Esta acción no se puede deshacer.",
+      hasRoleButton: true,
+      onDismiss: () => { dismissed = true; },
+    });
+
+    const page = createMockPage(() => [dialog]);
+    const count = await dismissAllChatGptOverlays(page);
+
+    expect(count).toBe(0);
+    expect(dismissed).toBeFalse();
+  });
+
+  test("skips an action button whose own label matches destructive patterns", async () => {
+    let dismissed = false;
+    const dialog = createMockDialog({
+      text: "Manage your storage and retention preferences.",
+      hasRoleButton: true,
+      buttonLabel: "Eliminar",
+      onDismiss: () => { dismissed = true; },
+    });
+
+    const page = createMockPage(() => [dialog]);
+    const count = await dismissAllChatGptOverlays(page);
+
+    expect(count).toBe(0);
+    expect(dismissed).toBeFalse();
+  });
+
+  test("tool approval dialogs with a Confirm button stay untouched for their own approval flow", async () => {
+    let dismissed = false;
+    const dialog = createMockDialog({
+      text: "Codex wants to run bash tool-approval. Confirm to allow.",
+      isToolApproval: true,
+      hasRoleButton: true,
+      onDismiss: () => { dismissed = true; },
+    });
+
+    const page = createMockPage(() => [dialog]);
+    const count = await dismissAllChatGptOverlays(page);
+
+    expect(count).toBe(0);
+    expect(dismissed).toBeFalse();
+    // The confirm verbs stay recognized for the dialog's own flow; the janitor's safe set
+    // excludes them, so nothing this janitor clicks can consent on an unrecognized surface.
+    expect(CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX.test("Confirm")).toBeTrue();
+    expect(CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX.test("Confirmar")).toBeTrue();
+    expect(CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX.test("Confirm")).toBeFalse();
+    expect(CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX.test("Confirmar")).toBeFalse();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Codex wants to run bash tool-approval. Confirm to allow.")).toBeFalse();
+  });
+
+  test("refuses a recognized onboarding dialog when its container matches destructive patterns", async () => {
+    let dismissed = false;
+    const dialog = createMockDialog({
+      text: "Temporary Chat: Not in history. ¿Eliminar la conversación?",
+      hasRoleButton: true,
+      onDismiss: () => { dismissed = true; },
+    });
+
+    const page = createMockPage(() => [dialog]);
+    const count = await dismissAllChatGptOverlays(page);
+
+    expect(count).toBe(0);
+    expect(dismissed).toBeFalse();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Temporary Chat: Not in history. ¿Eliminar la conversación?")).toBeTrue();
+  });
+
+  test("still dismisses benign dialogs that only offer a confirm-shaped acknowledgement", async () => {
+    let dismissed = false;
+    const dialog = createMockDialog({
+      text: "What's new in GPT-5. Got it",
+      hasRoleButton: true,
+      buttonLabel: "Got it",
+      onDismiss: () => { dismissed = true; },
+    });
+
+    const page = createMockPage(() => [dialog]);
+    const count = await dismissAllChatGptOverlays(page);
+
+    expect(count).toBe(1);
+    expect(dismissed).toBeTrue();
+    expect(CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX.test("Got it")).toBeTrue();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("What's new in GPT-5. Got it")).toBeFalse();
   });
 });

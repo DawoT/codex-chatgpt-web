@@ -1,8 +1,16 @@
-import { chatGptWebTraceId, createChatGptWebAdapter } from "./adapters/chatgpt-web";
-import { closeChatGptBrowserWorkers } from "./adapters/chatgpt-web/browser-worker";
+import { chatGptWebExecutionNamespace, chatGptWebTraceId, createChatGptWebAdapter } from "./adapters/chatgpt-web";
+import { closeChatGptBrowserWorkers, ChatGptBrowserWorker } from "./adapters/chatgpt-web/browser-worker";
 import { closeTurnBrokers, TurnBroker } from "./adapters/chatgpt-web/turn-broker";
 import { timingSafeEqual } from "node:crypto";
 import { chatGptTurnSessions } from "./adapters/chatgpt-web/turn-execution";
+import { chatGptConversationKey } from "./adapters/chatgpt-web/conversation-key";
+import {
+  findTaskResumeConversation,
+  parseTaskCompletionPayload,
+  rememberTaskResumeConversation,
+  TaskResumeOrchestrator,
+} from "./adapters/chatgpt-web/task-resume-orchestrator";
+import type { ChatGptWebCapabilities } from "./adapters/chatgpt-web/model";
 import { defaultSubagentGovernor } from "./adapters/chatgpt-web/concurrency";
 import { defaultPromptContractCache } from "./adapters/chatgpt-web/prompt";
 import { workspaceFileCache } from "./adapters/chatgpt-web/fast-path-cache";
@@ -53,6 +61,11 @@ import { expandPreviousResponseInput, flushResponseState, rememberResponseState 
 import { namespacedToolName, type AdapterEvent, type CodexParsedRequest } from "./types";
 import type { CodexProviderConfig } from "./types";
 import type { ProviderAdapter } from "./adapters/base";
+import { SessionStoreJanitor } from "./adapters/chatgpt-web/session-store-pruner";
+import { runtimeMetrics } from "./adapters/chatgpt-web/runtime-metrics";
+import { dispatchAlertWebhook, getDefaultAlertWebhookUrl } from "./adapters/chatgpt-web/alert-webhook";
+import { SlidingWindowRateLimiter } from "./adapters/chatgpt-web/rate-limiter";
+import { CircuitBreaker } from "./adapters/chatgpt-web/circuit-breaker";
 import { VERSION } from "./version";
 
 type HttpTrackedEndpoint = "models" | "responses" | "compact" | "search" | "unspecified" | NativeImageEndpoint;
@@ -471,6 +484,16 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
   return { toolNsMap, freeformToolNames, toolSearchToolNames };
 }
 
+export function isLongReasoningTurn(parsed: CodexParsedRequest): boolean {
+  const effort = parsed.options?.reasoning?.toLowerCase();
+  if (effort === "high" || effort === "max") return true;
+  const model = parsed.modelId?.toLowerCase() ?? "";
+  if (model.includes("/high") || model.includes("/max") || model.endsWith("-high") || model.endsWith("-max")) {
+    return true;
+  }
+  return false;
+}
+
 export async function responseRequest(
   req: Request,
   config: AppConfig,
@@ -548,6 +571,20 @@ export async function responseRequest(
     );
   }
 
+  const rawBodyForCheck = parsed._rawBody as { client_metadata?: Record<string, unknown> } | undefined;
+  const isCompactionOrContinuation = Boolean(
+    parsed._compactionRequest
+    || rawBodyForCheck?.client_metadata?.["x-codex-turn-metadata"]
+  );
+
+  if (!parsed.stream && !isCompactionOrContinuation && isLongReasoningTurn(parsed)) {
+    return formatErrorResponse(
+      400,
+      "invalid_request_error",
+      "ChatGPT Web adapter requires stream: true for long-reasoning turns (reasoning effort 'high' or 'max') to maintain connection keep-alive.",
+    );
+  }
+
   const compaction = parsed._compactionRequest === true;
   const compactionItem = compaction && parsed._compactionResponseFormat !== "message";
   const rememberCompletedResponse = (response: Record<string, unknown>): void => {
@@ -613,6 +650,19 @@ export async function responseRequest(
     }
     if (!message.includes("requires native Codex turn_id metadata")
       && !message.includes("requires a current-turn user message")) throw error;
+  }
+  // Sprint H3 (background-task resume): pin the trace → retained-conversation binding so the
+  // TaskResumeOrchestrator can resolve a conversation head from a later MCP daemon push
+  // (POST /internal/tasks/completed) that only knows traceId/turnToken. The session registry
+  // stays authoritative: turns without a retained conversation never register a head, so stale
+  // or non-retained bindings resolve to nothing and the push is counted as skipped_no_session.
+  if (traceId && !parsed._compactionRequest) {
+    try {
+      const boundConversationKey = chatGptConversationKey(parsed, chatGptWebExecutionNamespace(provider));
+      if (boundConversationKey) rememberTaskResumeConversation(traceId, boundConversationKey);
+    } catch {
+      // Observation-only bookkeeping: never disturb the turn pipeline.
+    }
   }
   const cancelledError = traceId ? chatGptTurnSessions.cancelledError(traceId) : undefined;
   if (cancelledError) {
@@ -812,6 +862,61 @@ export async function compactRequest(
   return Response.json({ output: buildCompactV1Output(extractCompactUserMessages(input), summary) });
 }
 
+let taskResumeNoteSequence = 0;
+
+function taskResumeCapabilities(provider: CodexProviderConfig): ChatGptWebCapabilities {
+  return {
+    localToolsEnabled: provider.chatgptWeb?.localToolsEnabled === true,
+    solAvailable: provider.chatgptWeb?.solAvailable !== false,
+    extraHighAvailable: provider.chatgptWeb?.extraHighAvailable === true,
+    proAvailable: provider.chatgptWeb?.proAvailable === true,
+  };
+}
+
+/**
+ * Sprint H3: deliver ONE background-task resume note to a retained ChatGPT conversation.
+ *
+ * The note is observation-only: it replicates the requestRetainedCompactionHandoff turn shape
+ * (compaction-handoff.ts) — a one-shot native-connector submission on the retained conversation
+ * with the ordinary tool environment disabled — because only the CLI may start requests that
+ * carry the full Codex history. The conversation head supplies the model identity the retained
+ * conversation was created with; a retired head means the note can no longer be attributed
+ * safely and fails without browser side effects.
+ */
+async function runTaskResumeNote(
+  provider: CodexProviderConfig,
+  conversationKey: string,
+  noteText: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const head = chatGptTurnSessions.findConversationHead(conversationKey);
+  const source = head?.runtime.usageInput;
+  if (!source) {
+    throw new Error(`Background task resume note has no retained conversation head (${conversationKey.slice(0, 8)}…)`);
+  }
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const prepare = async () => ({ text: noteText, images: [], release: () => {} });
+  taskResumeNoteSequence += 1;
+  const traceId = `task-resume-${createHash("sha256")
+    .update(`${conversationKey}:${Date.now()}:${taskResumeNoteSequence}`)
+    .digest("hex")
+    .slice(0, 16)}`;
+  await worker.run({
+    traceId,
+    modelId: source.modelId,
+    reasoning: source.options.reasoning,
+    ...(source._chatgptModelFamily ? { modelFamily: source._chatgptModelFamily } : {}),
+    capabilities: { ...taskResumeCapabilities(provider), localToolsEnabled: false },
+    nativeConnector: true,
+    prepare,
+    prepareResume: prepare,
+    conversationKey,
+    requireRetainedConversation: true,
+    abortSignal: signal,
+    onTextDelta: () => {},
+  });
+}
+
 export function startServer(
   config: AppConfig,
   dependencies: {
@@ -840,6 +945,55 @@ export function startServer(
   if (config.mode === "full") {
     sessionHealthGuard.startWatchdog(120_000);
   }
+  const sessionJanitor = config.mode === "full" ? new SessionStoreJanitor() : undefined;
+  if (sessionJanitor) {
+    sessionJanitor.start();
+  }
+  // Sprint H3: background-task resume orchestrator. The MCP daemon pushes finished background
+  // tasks to POST /internal/tasks/completed; events are coalesced per retained ChatGPT
+  // conversation and exactly one observation-only note turn is submitted after the owning
+  // browser turn settles. Browser-only mode has no turn broker/worker pairing to resume into,
+  // and manual interaction mode must never fight the human driving the browser surface.
+  // config.backgroundTasks may not exist yet (Sprint H2 owns it); undefined means defaults.
+  const backgroundTasksConfig = (config as AppConfig & {
+    backgroundTasks?: { resumeNotes?: boolean };
+  }).backgroundTasks;
+  const resolveTaskResumeConversationKey = (traceId?: string, turnToken?: string): string | undefined => {
+    if (traceId) {
+      const bound = findTaskResumeConversation(traceId);
+      if (bound) return bound;
+    }
+    if (turnToken) {
+      // A live capability token pins its owning trace through the broker's alias and trace
+      // lineage; a completed turn's channel is gone, so this is best-effort by design.
+      const resolved = turnBroker?.resolveActiveToken(turnToken);
+      const tracedId = resolved?.channel.traceId;
+      if (tracedId && tracedId !== "unknown") return findTaskResumeConversation(tracedId);
+    }
+    return undefined;
+  };
+  let taskResumeOrchestrator: TaskResumeOrchestrator | undefined;
+  taskResumeOrchestrator = config.mode === "full" && config.browserInteractionMode === "automatic"
+    ? new TaskResumeOrchestrator({
+      findConversationHead: (traceId, turnToken) => {
+        const conversationKey = resolveTaskResumeConversationKey(traceId, turnToken);
+        return conversationKey ? chatGptTurnSessions.findConversationHead(conversationKey) : undefined;
+      },
+      runResumeTurn: (conversationKey, noteText) => {
+        // Safe: runResumeTurn only fires after construction, when the orchestrator exists.
+        return runTaskResumeNote(
+          providerConfig(config),
+          conversationKey,
+          noteText,
+          taskResumeOrchestrator!.abortSignal,
+        );
+      },
+      resumeNotes: backgroundTasksConfig?.resumeNotes ?? true,
+    })
+    : undefined;
+  if (taskResumeOrchestrator) {
+    taskResumeOrchestrator.start();
+  }
   let draining = false;
   let shutdownPromise: Promise<void> | undefined;
   let successfulModelCatalogRequests = 0;
@@ -849,6 +1003,22 @@ export function startServer(
     request: number; at: string; status: number; failure?: ModelCatalogFailure;
   } | null = null;
   const httpTurns = new HttpTurnCounter();
+
+  // Sprint AG: Rate limiter — per API-key sliding window (60 req/min default)
+  const rateLimitRpm = config.rateLimitRpm
+    ?? (process.env["CODEX_RATE_LIMIT_RPM"] ? parseInt(process.env["CODEX_RATE_LIMIT_RPM"]!, 10) : 60);
+  const responsesRateLimiter = new SlidingWindowRateLimiter({
+    limitPerWindow: rateLimitRpm,
+    windowMs: 60_000,
+    disabled: rateLimitRpm <= 0,
+  });
+
+  // Sprint AG: Circuit breaker for upstream ChatGPT calls
+  const upstreamCircuitBreaker = new CircuitBreaker({
+    name: "chatgpt-upstream",
+    errorThreshold: parseInt(process.env["CODEX_CB_ERROR_THRESHOLD"] ?? "3", 10),
+    recoveryMs: parseInt(process.env["CODEX_CB_RECOVERY_MS"] ?? "30000", 10),
+  });
   const activity = () => ({
     active_http_turns: httpTurns.count(),
     active_browser_turns: chatGptTurnSessions.activeCount() + (turnBroker?.externalOwnerActiveCount() ?? 0),
@@ -897,8 +1067,21 @@ export function startServer(
           },
           fast_path_cache: workspaceFileCache.getStats(),
           auth_session: sessionHealthGuard.getStats(),
+          session_janitor: sessionJanitor?.getStats(),
+          background_tasks: taskResumeOrchestrator?.getStats() ?? null,
+          alerts: runtimeMetrics.getAlerts(),
           ...activity(),
         });
+        // Fire-and-forget auto-alert dispatch when alerts are present
+        const healthzAlerts = runtimeMetrics.getAlerts();
+        const alertWebhookUrl = getDefaultAlertWebhookUrl();
+        if (healthzAlerts.length > 0 && alertWebhookUrl != null) {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          void dispatchAlertWebhook(alertWebhookUrl!, healthzAlerts, {
+            daemonPid: process.pid,
+            version: VERSION,
+          }).catch(() => { /* silently swallow */ });
+        }
       }
       if (req.method === "POST" && (url.pathname === "/admin/drain" || url.pathname === "/admin/resume")) {
         if (!controlAuthorized(req)) return new Response("Unauthorized", { status: 401 });
@@ -1056,6 +1239,69 @@ export function startServer(
           supervisor: tunnelSupervisor.getStats(),
         });
       }
+      if (req.method === "POST" && url.pathname === "/admin/session-janitor/run") {
+        if (!controlAuthorized(req)) return new Response("Unauthorized", { status: 401 });
+        if (!sessionJanitor) {
+          return Response.json(
+            { status: "disabled", error: "Session janitor is not active on this server" },
+            { status: 400 },
+          );
+        }
+        const result = sessionJanitor.runNow();
+        return Response.json({
+          status: "ok",
+          result,
+          stats: sessionJanitor.getStats(),
+        });
+      }
+      if (req.method === "POST" && url.pathname === "/internal/tasks/completed") {
+        // Sprint H3: MCP daemon push for finished background tasks. The listener binds loopback
+        // only and the payload carries no turn state, so this trusts like /v1/responses (no
+        // control token); payload validation failures translate to 400.
+        if (!taskResumeOrchestrator) {
+          return formatErrorResponse(503, "server_error", "Background task resume notes are not active on this server");
+        }
+        try {
+          const payload = parseTaskCompletionPayload(await readJsonRequestBody(req));
+          taskResumeOrchestrator.recordCompletion(payload);
+          return Response.json({ accepted: true }, { status: 202 });
+        } catch (error) {
+          return Response.json(
+            { accepted: false, error: error instanceof Error ? error.message : String(error) },
+            { status: 400 },
+          );
+        }
+      }
+      if (req.method === "GET" && url.pathname === "/admin/tasks") {
+        if (!controlAuthorized(req)) return new Response("Unauthorized", { status: 401 });
+        return Response.json({
+          status: "ok",
+          stats: taskResumeOrchestrator?.getStats() ?? null,
+          recent: taskResumeOrchestrator?.getRecent() ?? [],
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/metrics") {
+        // Prometheus text format — no auth required (same as /healthz)
+        const body = runtimeMetrics.serializePrometheusMetrics();
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/admin/status") {
+        if (!controlAuthorized(req)) return new Response("Unauthorized", { status: 401 });
+        const janitorStats = sessionJanitor?.getStats() as Record<string, unknown> | undefined;
+        const tunnelStats = tunnelSupervisor?.getStats() as Record<string, unknown> | undefined;
+        const body = runtimeMetrics.buildAdminStatus({
+          daemonPid: process.pid,
+          version: VERSION,
+          mode: config.mode,
+          uptimeMs: Date.now() - startedAt,
+          janitorStats,
+          tunnelStats,
+        });
+        return Response.json(body);
+      }
       if (req.method === "GET" && url.pathname === "/v1/models") {
         if (draining) {
           return formatErrorResponse(
@@ -1106,14 +1352,57 @@ export function startServer(
           return recordResult(response, failure);
         }, req.signal, process.platform, "models");
       }
+      if (req.method === "HEAD" && url.pathname === "/v1/responses") {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "connection": "keep-alive",
+            "allow": "GET, POST, HEAD",
+          },
+        });
+      }
       if (req.method === "GET" && url.pathname === "/v1/responses") {
         return new Response("Responses WebSocket transport is not enabled on this local route", {
           status: 426,
-          headers: { "content-type": "text/plain; charset=utf-8" },
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "upgrade": "HTTP/1.1",
+            "connection": "Upgrade",
+            "sec-websocket-version": "13",
+            "x-responses-transport": "sse-required",
+          },
         });
       }
       if (req.method === "POST" && url.pathname === "/v1/responses") {
         if (draining) return formatErrorResponse(503, "server_error", "codex-chatgpt-web is draining for a requested service operation");
+
+        // Sprint AG: Rate limiting (per API key, sliding window)
+        const rateLimitKey = req.headers.get("authorization") ?? "anonymous";
+        const rlResult = responsesRateLimiter.check(rateLimitKey);
+        if (!rlResult.allowed) {
+          runtimeMetrics.recordRateLimitRejection();
+          const retryAfterSec = Math.ceil(rlResult.retryAfterMs / 1000);
+          return new Response(
+            JSON.stringify({ error: { type: "rate_limit_error", code: "rate_limit_exceeded", message: "Too many requests. Please slow down." } }),
+            {
+              status: 429,
+              headers: {
+                "content-type": "application/json",
+                "retry-after": String(retryAfterSec),
+                "x-ratelimit-limit-requests": String(rlResult.limit),
+                "x-ratelimit-remaining-requests": "0",
+              },
+            },
+          );
+        }
+
+        // Sprint AG: Circuit breaker (upstream ChatGPT health)
+        runtimeMetrics.setCircuitBreakerState(upstreamCircuitBreaker.getStateNumeric() as 0 | 1 | 2);
+        if (!upstreamCircuitBreaker.isAllowed()) {
+          return formatErrorResponse(503, "server_error", "Upstream service is temporarily unavailable (circuit open). Please retry later.");
+        }
+
         return httpTurns.track(
           (signal, bindIdentity) => responseRequest(
             new Request(req, { signal }),
@@ -1165,11 +1454,22 @@ export function startServer(
       return new Response("Not found", { status: 404 });
     },
   });
+  const originalStop = server.stop.bind(server);
+  server.stop = (closeActiveConnections?: boolean) => {
+    sessionJanitor?.stop();
+    taskResumeOrchestrator?.stop();
+    sessionHealthGuard.stopWatchdog();
+    tunnelSupervisor?.stop();
+    return originalStop(closeActiveConnections);
+  };
   function shutdown(): void {
     if (shutdownPromise) return;
     draining = true;
     tunnelSupervisor?.stop();
     sessionHealthGuard.stopWatchdog();
+    sessionJanitor?.stop();
+    // Aborts any in-flight resume-note browser turn before the sessions are torn down.
+    taskResumeOrchestrator?.stop();
     chatGptTurnSessions.clear();
     defaultSubagentGovernor.clear(new Error("Server is shutting down"));
     flushResponseState();

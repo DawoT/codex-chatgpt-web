@@ -11,28 +11,59 @@ export const CHATGPT_COMPOSER_SELECTOR = [
   '[data-testid="prompt-textarea"]',
   "#prompt-textarea",
   '[contenteditable="true"][data-lexical-editor="true"]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"].ProseMirror',
+  '[contenteditable="true"][data-composer-markdown]',
 ].join(", ");
 export const CHATGPT_EFFORT_CONTROL_SELECTOR = [
   'button[aria-haspopup="menu"][data-tone="neutral"]',
   'button[data-testid="model-switcher-dropdown-button"][aria-haspopup="menu"]',
+  'button[aria-haspopup="menu"][aria-label*="model" i]',
+  'button[aria-haspopup="menu"][aria-label*="modelo" i]',
+  'button[aria-haspopup="menu"][aria-label*="ChatGPT" i]',
 ].join(", ");
 export const CHATGPT_EFFORT_MENU_SELECTOR = [
-  '[data-testid="composer-intelligence-picker-content"]:has([role="menuitemradio"], [data-model-reasoning-effort-slider])',
-  '[role="menu"]:has([role="menuitemradio"], [data-model-reasoning-effort-slider])',
-  '[role="group"]:has([role="menuitemradio"], [data-model-reasoning-effort-slider])',
+  '[data-testid="composer-intelligence-picker-content"]:has([role="menuitemradio"], [data-model-reasoning-effort-slider], [data-model-picker-power-slider], [data-reasoning-slider], [role="slider"])',
+  '[role="menu"]:has([role="menuitemradio"], [data-model-reasoning-effort-slider], [data-model-picker-power-slider], [data-reasoning-slider], [role="slider"])',
+  '[role="group"]:has([role="menuitemradio"], [data-model-reasoning-effort-slider], [data-model-picker-power-slider], [data-reasoning-slider], [role="slider"])',
+  '[role="menu"][data-radix-menu-content]',
 ].join(", ");
 export const CHATGPT_EFFORT_ITEM_SELECTOR = '[role="menuitemradio"]';
-export const CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR = '[data-model-reasoning-effort-slider]';
-export const CHATGPT_EFFORT_SLIDER_SELECTOR = '[data-model-reasoning-effort-slider] [role="slider"]';
+export const CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR = [
+  '[data-model-reasoning-effort-slider]',
+  '[data-model-picker-power-slider]',
+  '[data-reasoning-slider]',
+].join(", ");
+export const CHATGPT_EFFORT_SLIDER_SELECTOR = [
+  '[data-model-reasoning-effort-slider] [role="slider"]',
+  '[data-model-picker-power-slider] [role="slider"]',
+  '[data-reasoning-slider] [role="slider"]',
+  '[role="slider"]',
+].join(", ");
 export const CHATGPT_EFFORT_SLIDER_MAX_OPTIONS = 5;
-export const CHATGPT_STOP_BUTTON_SELECTOR = '[data-testid="stop-button"]';
-export const CHATGPT_COMPLETION_ACTION_SELECTOR = 'button[data-testid="copy-turn-action-button"]';
+export const CHATGPT_STOP_BUTTON_SELECTOR = [
+  '[data-testid="stop-button"]',
+  'button[aria-label*="Stop" i]',
+  'button[aria-label*="Detener" i]',
+  'button[aria-label*="Interrumpir" i]',
+].join(", ");
+export const CHATGPT_COMPLETION_ACTION_SELECTOR = [
+  'button[data-testid="copy-turn-action-button"]',
+  'button[aria-label*="Copy" i]',
+  'button[aria-label*="Copiar" i]',
+].join(", ");
 export const CHATGPT_ASSISTANT_TURN_SELECTOR = [
+  // New ChatGPT UI (2025+): uses data-chatgpt-search-unit-key with ":assistant" suffix
+  '[data-chatgpt-search-unit-key$=":assistant"]',
+  // Legacy UI fallbacks
   '[data-testid^="conversation-turn-"][data-turn="assistant"]',
   '[data-testid^="conversation-turn-"][data-message-author-role="assistant"]',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])',
 ].join(", ");
 export const CHATGPT_USER_TURN_SELECTOR = [
+  // New ChatGPT UI (2025+): uses data-chatgpt-search-unit-key with ":user" suffix
+  '[data-chatgpt-search-unit-key$=":user"]',
+  // Legacy UI fallbacks
   '[data-testid^="conversation-turn-"][data-turn="user"]',
   '[data-testid^="conversation-turn-"][data-message-author-role="user"]',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="user"])',
@@ -162,15 +193,30 @@ export async function readChatGptEffortAvailability(
 ): Promise<boolean[]> {
   // Plus exposes a fourth ARIA position for a locked Pro upsell. Only the ticks
   // carry both attributes; the slider root also has data-locked and is not a choice.
+  const expectedCount = state.max - state.min + 1;
   const locks = await sliderContainer.evaluate(container => Array.from(
     container.querySelectorAll("[data-locked][data-selected]"),
     tick => tick.getAttribute("data-locked"),
   ));
-  if (locks.length !== state.max - state.min + 1
-    || locks.some(lock => lock !== "true" && lock !== "false")) {
-    throw new Error("ChatGPT effort availability could not be verified from its slider ticks");
+  if (locks.length === expectedCount
+    && locks.every(lock => lock === "true" || lock === "false")) {
+    return locks.map(lock => lock === "false");
   }
-  return locks.map(lock => lock === "false");
+  const isNewSlider = await sliderContainer.evaluate(container => Boolean(
+    container.matches?.("[data-model-picker-power-slider], [data-reasoning-slider]")
+    || container.querySelector?.("[data-model-picker-power-slider], [data-reasoning-slider]"),
+  )).catch(() => false);
+  if (isNewSlider) {
+    const ticks = await sliderContainer.evaluate(container => Array.from(
+      container.querySelectorAll("[data-selected], [class*='Tick'][data-selected]"),
+      tick => tick.getAttribute("data-locked"),
+    ));
+    if (ticks.length === expectedCount && ticks.every(lock => lock === null || lock === "false" || lock === "true")) {
+      return ticks.map(lock => lock !== "true");
+    }
+    return new Array(expectedCount).fill(true);
+  }
+  throw new Error("ChatGPT effort availability could not be verified from its slider ticks");
 }
 
 async function anyVisible(locator: Locator): Promise<boolean> {

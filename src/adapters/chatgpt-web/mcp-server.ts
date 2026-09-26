@@ -4,11 +4,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 import { namespacedToolName, type CodexTool } from "../../types";
 import { VERSION } from "../../version";
+import { loadConfig } from "../../config";
 import type { ChatGptTurnEnvironment } from "./environment";
+import { appendChatFirstAuditEntry } from "./chat-first-audit";
+import { resolveChatFirstWorkspace } from "./chat-first-environment";
 import { CODEX_COMPACTION_CONTROL_WIRE_NAME } from "./native-compaction-control";
 import { callTurnBroker, TurnBrokerTimeoutError, type BrokerToolResult } from "./turn-broker";
 import { observeMcpToolCalls } from "./mcp-observation";
 import { workspaceFileCache } from "./fast-path-cache";
+import { globalBackgroundTaskManager } from "./background-task-manager";
+import { summarizeTask } from "./task-summaries";
+import type { TaskCompletionPayload } from "./task-resume-orchestrator";
 import {
   CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS,
   handleGrep,
@@ -16,10 +22,22 @@ import {
   handlePatchFile,
   handleReadFile,
   handleWriteFile,
+  handleExecCommand,
+  DEFAULT_EXEC_TIMEOUT_MS,
+  MAX_EXEC_TIMEOUT_MS,
+  MIN_EXEC_TIMEOUT_MS,
   resolveSafeWorkspacePath,
   result,
   truncateToolOutputText,
+  type FastPathToolResult,
 } from "./fast-path-handlers";
+
+import {
+  DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
+  sanitizeToolOutputWithSpooler,
+  spoolToolOutput,
+  type ToolSpoolerOptions,
+} from "./tool-spooler";
 
 // Keep the fast-path tool contract importable from mcp-server for existing consumers.
 export {
@@ -31,17 +49,28 @@ export {
   isMutatingFastPathTool,
   dispatchFastPathTool,
   executeFastPathBatch,
+  handleExecCommand,
+  DEFAULT_EXEC_TIMEOUT_MS,
+  MAX_EXEC_TIMEOUT_MS,
+  MIN_EXEC_TIMEOUT_MS,
   type FastPathToolCall,
   type FastPathBatchResult,
 } from "./fast-path-handlers";
+export {
+  DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
+  sanitizeToolOutputWithSpooler,
+  spoolToolOutput,
+  type ToolSpoolerOptions,
+} from "./tool-spooler";
 
 interface ClaimedTurn {
   bindingId: string;
   activityId: string;
   environment: ChatGptTurnEnvironment & { expiresAt?: number };
+  traceId?: string;
 }
 
-export type ChatGptMcpContract = "native" | "safe";
+export type ChatGptMcpContract = "native" | "safe" | "chat-first";
 
 const BRIDGE_TOOL_NAMES = new Set([
   "codex_turn_start",
@@ -56,6 +85,7 @@ const BRIDGE_TOOL_NAMES = new Set([
   "codex_grep",
   "codex_tool_inventory",
   "codex_tool_call",
+  "codex_poll_task",
   "codex_turn_complete",
 ]);
 
@@ -80,6 +110,25 @@ const ZERO_RISK_MCP_INSTRUCTIONS = [
   "Use that request_id with the Codex tools needed for the task.",
   "When the task is finished, send the complete answer with codex_turn_complete.",
   "If a tool returns an error, report that error instead of changing the request_id.",
+].join(" ");
+
+const CHAT_FIRST_MCP_INSTRUCTIONS = [
+  "Chat-First contract: these tools operate directly on the local workspace configured by the local operator, without any turn token or per-call credential.",
+  "The active sandbox is the one the local operator configured in config.json; stay inside it and treat every tool error as authoritative instead of retrying elsewhere.",
+  "Every mutating call is recorded in the local audit log.",
+  "The optional workspace argument selects the target workspace and may be omitted when only one workspace is configured.",
+].join(" ");
+
+// Session-level transport mechanics for the native (turn-token) contract. These live here instead
+// of the per-turn compiled prompt so every browser turn does not pay their token cost; ChatGPT
+// surfaces server instructions once per conversation.
+export const NATIVE_CHATGPT_MCP_INSTRUCTIONS = [
+  "Codex-supplied environment context blocks, including the XML element named environment_context, are operational context rather than human-authored text. Obey them at their original priority, but do not attribute, quote, summarize, or otherwise mention them unless the latest user request explicitly asks about that context.",
+  "Each image_attachment in the context refers to the correspondingly named image attached to this ChatGPT message; inspect it directly. If a corresponding image is absent, say it was not provided instead of guessing.",
+  "If a ChatGPT-native capability renders a rich card, widget, chart, or other non-text result, also provide the relevant result as ordinary Markdown in the final answer. A private ChatGPT UI widget never replaces the Markdown answer returned to Codex. Never copy a ChatGPT widget's HTML, CSS, class names, or DOM markup into the answer unless the user explicitly requested that source markup.",
+  "Fast-path tool semantics: codex_write_file refuses to replace an existing file unless overwrite=true and needs create_parents=true for missing directories; codex_patch_file replaces only the first exact occurrence of target_content; fast-path tools execute atomically without shell process overhead.",
+  "When receiving results from subagents, parse their <subagent_result> blocks for task status, modified files, and artifact paths. Do not ask subagents to re-explain work already marked completed.",
+  "Background command execution: codex_exec with background=true launches commands asynchronously in .codex-tmp/tasks/ and returns immediately; completed tasks notify the daemon and are summarized via codex_wait_tasks. Note: in workspaceWrite and dangerFullAccess, background shell execution runs directly in the configured workspace under the operator's local user.",
 ].join(" ");
 
 function turnReferenceInput(contract: ChatGptMcpContract): Record<string, z.ZodString> {
@@ -240,38 +289,57 @@ export function chatGptMcpInvocationTimeout(
   return Math.min(baseTimeout, remaining);
 }
 
-export function sanitizeToolOutputContent(content: unknown[]): unknown[] {
-  if (!Array.isArray(content)) return content;
-  return content.map(part => {
-    if (
-      part !== null
-      && typeof part === "object"
-      && !Array.isArray(part)
-      && "type" in part
-      && (part as { type: unknown }).type === "text"
-      && typeof (part as { text?: unknown }).text === "string"
-    ) {
-      const textPart = part as { type: "text"; text: string };
-      if (textPart.text.length > CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS) {
-        return {
-          ...textPart,
-          text: truncateToolOutputText(textPart.text),
-        };
-      }
-    }
-    return part;
-  });
+export function sanitizeToolOutputContent(
+  content: unknown[],
+  options: ToolSpoolerOptions = {},
+): unknown[] {
+  return sanitizeToolOutputWithSpooler(content, options);
 }
 
-function asMcpResult(value: BrokerToolResult) {
+export type McpContentPart = {
+  type: "text";
+  text: string;
+  offloadedPath?: string;
+  [key: string]: unknown;
+};
+
+export type McpCallResult = {
+  content: McpContentPart[];
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
+};
+
+export function asMcpResult(
+  value: BrokerToolResult | import("./fast-path-handlers").FastPathToolResult,
+  options: ToolSpoolerOptions = {},
+): McpCallResult {
+  const sanitizedContent = sanitizeToolOutputContent(value.content, options) as McpContentPart[];
+  const spooledPart = Array.isArray(sanitizedContent)
+    ? sanitizedContent.find(p => p && typeof p === "object" && typeof p.offloadedPath === "string")
+    : undefined;
+
+  let structuredContent = value.structuredContent;
+  if (spooledPart && structuredContent && typeof structuredContent === "object") {
+    structuredContent = {
+      ...structuredContent,
+      spooled: true,
+      offloadedPath: spooledPart.offloadedPath,
+      ...(typeof (structuredContent as { content?: unknown }).content === "string"
+      && ((structuredContent as { content: string }).content.length > (options.maxChars ?? DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS))
+        ? { content: spooledPart.text }
+        : {}),
+    };
+  }
+
   return {
-    content: sanitizeToolOutputContent(value.content) as never,
-    ...(value.structuredContent !== undefined && value.structuredContent !== null && typeof value.structuredContent === "object"
-      ? { structuredContent: value.structuredContent as Record<string, unknown> }
+    content: sanitizedContent,
+    ...(structuredContent !== undefined && structuredContent !== null && typeof structuredContent === "object"
+      ? { structuredContent: structuredContent as Record<string, unknown> }
       : {}),
     ...(value.isError ? { isError: true } : {}),
-    ...(value._meta !== undefined && value._meta !== null && typeof value._meta === "object"
-      ? { _meta: value._meta as Record<string, unknown> }
+    ...("_meta" in value && value._meta !== undefined && value._meta !== null && typeof value._meta === "object"
+      ? { _meta: (value as { _meta?: Record<string, unknown> })._meta as Record<string, unknown> }
       : {}),
   };
 }
@@ -490,14 +558,85 @@ function execCommandGatewayProgram(
   ]);
 }
 
+async function waitOnTasks(taskIds: string[], waitMs: number, lines = 30): Promise<{
+  tasks: Array<{
+    task_id: string;
+    status: string;
+    exit_code: number | null;
+    summary: string;
+    log_path: string;
+  }>;
+  pending: number;
+}> {
+  const deadline = Date.now() + Math.max(0, waitMs);
+  while (Date.now() < deadline) {
+    const running = taskIds
+      .map(id => globalBackgroundTaskManager.getTask(id))
+      .filter((t): t is NonNullable<typeof t> => t !== undefined && t.status === "running");
+    if (running.length === 0) break;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const slice = Math.min(remaining, 5_000);
+    await globalBackgroundTaskManager.pollTask(running[0]!.id, slice, lines);
+  }
+
+  const results = taskIds.map(id => {
+    const task = globalBackgroundTaskManager.getTask(id);
+    if (!task) {
+      return {
+        task_id: id,
+        status: "not_found",
+        exit_code: null,
+        summary: `Task not found: ${id}`,
+        log_path: "",
+      };
+    }
+    const logInfo = globalBackgroundTaskManager.getTaskLog(task.id, lines);
+    const summary = summarizeTask(task, logInfo?.logTail ?? "");
+    return {
+      task_id: task.id,
+      status: task.status,
+      exit_code: task.exitCode,
+      summary,
+      log_path: task.fullLogPath,
+    };
+  });
+
+  const pending = results.filter(r => r.status === "running").length;
+  return { tasks: results, pending };
+}
+
 export async function runChatGptMcpServer(options: {
   brokerSocketPath: string;
   contract?: ChatGptMcpContract;
 }): Promise<void> {
   const contract = options.contract ?? "native";
+  // Chat-First derives its authority from the local operator's config.json instead of a per-turn
+  // envelope, so it fails closed before any transport is opened. Native/safe keep deriving their
+  // authority from Codex envelopes and never read this configuration.
+  const chatFirstConfig = contract === "chat-first"
+    ? (() => {
+      const config = loadConfig();
+      if (!config.chatFirst?.enabled) {
+        throw new Error("chat-first is not enabled in config.json");
+      }
+      return config;
+    })()
+    : undefined;
   const server = new McpServer(
-    { name: contract === "safe" ? "codex-safe" : "codex-native", version: VERSION },
-    contract === "safe" ? { instructions: ZERO_RISK_MCP_INSTRUCTIONS } : undefined,
+    {
+      name: contract === "safe"
+        ? "codex-safe"
+        : contract === "chat-first"
+          ? "codex-chat-first"
+          : "codex-native",
+      version: VERSION,
+    },
+    contract === "safe"
+      ? { instructions: ZERO_RISK_MCP_INSTRUCTIONS }
+      : contract === "chat-first"
+        ? { instructions: CHAT_FIRST_MCP_INSTRUCTIONS }
+        : { instructions: NATIVE_CHATGPT_MCP_INSTRUCTIONS },
   );
 
   const claimTurn = async (
@@ -508,9 +647,11 @@ export async function runChatGptMcpServer(options: {
     console.error(`[chatgpt-web-mcp] ${toolName} scope=${requestScopeSummary(extra)}`);
     const activityId = `activity_${randomBytes(18).toString("base64url")}`;
     try {
+      // Chat-First never claims turns (its tools take no turn reference), so the broker contract
+      // value only ever observes native/safe here; the mapping keeps the wire type narrow.
       const claimed = await callTurnBroker<Omit<ClaimedTurn, "activityId">>(
         options.brokerSocketPath,
-        { method: "claim", token: turnToken, activityId, contract },
+        { method: "claim", token: turnToken, activityId, contract: contract === "chat-first" ? "native" : contract },
         contract === "safe" ? null : 5_000,
         extra.signal,
       );
@@ -548,6 +689,24 @@ export async function runChatGptMcpServer(options: {
     );
   };
 
+  // A handler may chain multiple broker invokes with long waits (nested agent polls), and a
+  // quiet gap longer than the broker's activity liveness lets the completion fence commit
+  // mid-handler, killing the next invoke. The lease is refreshed while the handler runs.
+  const CHATGPT_MCP_ACTIVITY_KEEP_ALIVE_MS = 45_000;
+
+  const touchTurnActivity = async (turnToken: string, activityId: string): Promise<boolean> => {
+    try {
+      const response = await callTurnBroker<{ touched: boolean }>(
+        options.brokerSocketPath,
+        { method: "owner_touch_activity", token: turnToken, activityId },
+        5_000,
+      );
+      return response.touched === true;
+    } catch {
+      return false;
+    }
+  };
+
   const withClaimedTurn = async <T>(
     toolName: string,
     turnToken: string,
@@ -555,9 +714,14 @@ export async function runChatGptMcpServer(options: {
     action: (claimed: ClaimedTurn) => Promise<T> | T,
   ): Promise<T> => {
     const claimed = await claimTurn(toolName, turnToken, extra);
+    const keepAlive = setInterval(() => {
+      void touchTurnActivity(turnToken, claimed.activityId);
+    }, CHATGPT_MCP_ACTIVITY_KEEP_ALIVE_MS);
+    keepAlive.unref?.();
     try {
       return await action(claimed);
     } finally {
+      clearInterval(keepAlive);
       // The broker's terminal fence treats even a fully local inventory lookup as live MCP work.
       // Settle the lease without the request AbortSignal: cancellation must not strand activity
       // and silently prevent every later completion candidate from committing.
@@ -608,7 +772,10 @@ export async function runChatGptMcpServer(options: {
         freeform: tool.freeform === true,
         ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: payload.arguments ?? {} }),
       }, timeoutMs, signal);
-      return asMcpResult(response);
+      return asMcpResult(response, {
+        toolName: wireName(tool),
+        workspaceRoot: bound.cwd,
+      });
     } catch (error) {
       // A cancelled/timed-out MCP request no longer has a consumer for the native result. Revoke
       // the whole turn capability so the broker drops the pending invocation and every later call
@@ -659,6 +826,10 @@ export async function runChatGptMcpServer(options: {
     }, signal, requestedTimeoutMs);
   };
 
+  // Chat-First registers its own token-free versions of the filesystem, inventory, and mutation
+  // tools at the end of this function; the turn-bound native registrations below must not run
+  // for it, both to avoid duplicate names and to keep turn_token out of its public ABI.
+  if (contract !== "chat-first") {
   server.registerTool(
     "codex_exec",
     {
@@ -668,6 +839,8 @@ export async function runChatGptMcpServer(options: {
         ...turnReferenceInput(contract),
         cmd: z.string().min(1).max(100_000),
         workdir: z.string().max(16_384).optional(),
+        background: z.boolean().default(false).optional()
+          .describe("If true, runs command asynchronously in background and returns task_id immediately. Use codex_wait_tasks to pause until finished."),
         yield_time_ms: z.number().int().min(250).max(30_000).optional(),
         max_output_tokens: z.number().int().min(1).max(1_000_000).optional(),
         tty: z.boolean().optional(),
@@ -685,8 +858,76 @@ export async function runChatGptMcpServer(options: {
       turnReference(contract, input),
       extra,
       async claimed => {
-        const { cmd, workdir, yield_time_ms, max_output_tokens, tty, sandbox_permissions, justification, prefix_rule } = input;
+        const { cmd, workdir, background, yield_time_ms, max_output_tokens, tty, sandbox_permissions, justification, prefix_rule } = input;
         const bound = claimed.environment;
+
+        if (background) {
+          const policyType = bound.sandboxPolicy.type;
+          if (policyType !== "dangerFullAccess" && policyType !== "workspaceWrite") {
+            throw new Error("background requires write-capable sandbox");
+          }
+          const targetCwd = workdir ? resolveSafeWorkspacePath(workdir, bound.cwd, bound.roots) : bound.cwd;
+          const task = globalBackgroundTaskManager.startTask({
+            cmd,
+            cwd: targetCwd,
+            roots: bound.roots,
+            writableRoots: bound.writableRoots,
+          });
+
+          const traceId = claimed.traceId;
+          const turnToken = turnReference(contract, input);
+          const unsubscribe = globalBackgroundTaskManager.onCompletion(async completedTask => {
+            if (completedTask.id !== task.id) return;
+            unsubscribe();
+            try {
+              const logInfo = globalBackgroundTaskManager.getTaskLog(task.id, 50);
+              const summary = summarizeTask(completedTask, logInfo?.logTail ?? "");
+              const envPort = Number(process.env.CODEX_CHATGPT_WEB_PORT);
+              let daemonPort = Number.isInteger(envPort) && envPort > 0 ? envPort : undefined;
+              if (!daemonPort) {
+                try {
+                  daemonPort = loadConfig().port;
+                } catch {}
+              }
+              daemonPort ??= 17841;
+              const payload: TaskCompletionPayload = {
+                source: "chatgpt-web-mcp",
+                task: {
+                  id: completedTask.id,
+                  cmd: completedTask.cmd,
+                  cwd: completedTask.cwd,
+                  status: completedTask.status === "running" ? "completed" : completedTask.status,
+                  exitCode: completedTask.exitCode,
+                  startedAt: completedTask.startedAt,
+                  completedAt: completedTask.completedAt ?? new Date().toISOString(),
+                  logPath: completedTask.fullLogPath,
+                },
+                summary,
+                ...(traceId ? { traceId } : {}),
+                turnToken,
+              };
+              await fetch(`http://127.0.0.1:${daemonPort}/internal/tasks/completed`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+            } catch {
+              // fire-and-forget: notification failure never throws
+            }
+          });
+
+          const ack = {
+            task_id: task.id,
+            status: task.status,
+            cmd: task.cmd,
+            pid: task.pid,
+            log_path: task.fullLogPath,
+            message: "Command started in background. Use codex_wait_tasks to wait for completion or codex_read_file to view the log.",
+          };
+          workspaceFileCache.clear();
+          return result(ack);
+        }
+
         const requestedTimeoutMs = yield_time_ms !== undefined ? yield_time_ms + 15_000 : undefined;
         const permissions = {
           ...(sandbox_permissions !== undefined ? { sandbox_permissions } : {}),
@@ -717,15 +958,49 @@ export async function runChatGptMcpServer(options: {
             }
           }
           const args = tool.name === "exec_command" ? execCommandArguments : shellCommandArguments;
-          return invoke(claimed.bindingId, bound, tool, { arguments: args }, extra.signal, requestedTimeoutMs);
+          const res = await invoke(claimed.bindingId, bound, tool, { arguments: args }, extra.signal, requestedTimeoutMs);
+          workspaceFileCache.clear();
+          return res;
         }
         const gateway = execGateway(bound);
         if (!gateway) {
           throw new Error("This Codex turn did not advertise a native command tool or the native exec gateway");
         }
-        return invoke(claimed.bindingId, bound, gateway, {
+        const res = await invoke(claimed.bindingId, bound, gateway, {
           input: execCommandGatewayProgram(execCommandArguments, shellCommandArguments),
         }, extra.signal, requestedTimeoutMs);
+        workspaceFileCache.clear();
+        return res;
+      },
+    ),
+  );
+
+  server.registerTool(
+    "codex_wait_tasks",
+    {
+      title: "Wait for background tasks and return compact summaries",
+      description: afterSafeStart(contract, "Wait for background command tasks to finish or until wait_ms expires. Returns a compact single-line summary for each task and the count of pending tasks."),
+      inputSchema: {
+        ...turnReferenceInput(contract),
+        task_ids: z.array(z.string().min(1)).min(1).max(10).describe("List of 1 to 10 background task IDs to wait for."),
+        wait_ms: z.number().int().min(0).max(90_000).default(60_000).optional().describe("Milliseconds to wait for completion (clamped <= 90000, default 60000)."),
+        lines: z.number().int().min(1).max(500).default(30).optional().describe("Trailing log lines to inspect for summarizing (default 30)."),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input, extra) => withClaimedTurn(
+      "codex_wait_tasks",
+      turnReference(contract, input),
+      extra,
+      async claimed => {
+        const rawWait = input.wait_ms ?? 60_000;
+        const clampedWait = Math.min(Math.max(rawWait, 0), 90_000);
+        const effectiveWaitMs = Math.min(
+          clampedWait,
+          chatGptMcpInvocationTimeout(claimed.environment, Date.now(), clampedWait),
+        );
+        const res = await waitOnTasks(input.task_ids, effectiveWaitMs, input.lines ?? 30);
+        return result(res);
       },
     ),
   );
@@ -759,9 +1034,13 @@ export async function runChatGptMcpServer(options: {
           ...(yield_time_ms !== undefined ? { yield_time_ms } : {}),
           ...(max_output_tokens !== undefined ? { max_output_tokens } : {}),
         } };
-        return tool
+        const res = await (tool
           ? invoke(claimed.bindingId, bound, tool, payload, extra.signal, requestedTimeoutMs)
-          : invokeNestedNative(claimed.bindingId, bound, "write_stdin", false, payload, extra.signal, requestedTimeoutMs);
+          : invokeNestedNative(claimed.bindingId, bound, "write_stdin", false, payload, extra.signal, requestedTimeoutMs));
+        if (chars !== undefined) {
+          workspaceFileCache.clear();
+        }
+        return res;
       },
     ),
   );
@@ -847,7 +1126,8 @@ export async function runChatGptMcpServer(options: {
       claimed => {
         const { path, offset, limit_lines } = input;
         const bound = claimed.environment;
-        return handleReadFile({ path, offset, limit_lines, cwd: bound.cwd, roots: bound.roots, cache: workspaceFileCache });
+        const res = handleReadFile({ path, offset, limit_lines, cwd: bound.cwd, roots: bound.roots, cache: workspaceFileCache });
+        return asMcpResult(res, { toolName: "codex_read_file", workspaceRoot: bound.cwd });
       },
     ),
   );
@@ -876,7 +1156,8 @@ export async function runChatGptMcpServer(options: {
       claimed => {
         const { path, content, overwrite, create_parents } = input;
         const bound = claimed.environment;
-        return handleWriteFile({ path, content, overwrite, create_parents, cwd: bound.cwd, roots: bound.roots, cache: workspaceFileCache });
+        const res = handleWriteFile({ path, content, overwrite, create_parents, cwd: bound.cwd, roots: bound.roots, writableRoots: bound.writableRoots ?? bound.roots, cache: workspaceFileCache });
+        return asMcpResult(res, { toolName: "codex_write_file", workspaceRoot: bound.cwd });
       },
     ),
   );
@@ -904,7 +1185,8 @@ export async function runChatGptMcpServer(options: {
       claimed => {
         const { path, target_content, replacement_content } = input;
         const bound = claimed.environment;
-        return handlePatchFile({ path, target_content, replacement_content, cwd: bound.cwd, roots: bound.roots, cache: workspaceFileCache });
+        const res = handlePatchFile({ path, target_content, replacement_content, cwd: bound.cwd, roots: bound.roots, writableRoots: bound.writableRoots ?? bound.roots, cache: workspaceFileCache });
+        return asMcpResult(res, { toolName: "codex_patch_file", workspaceRoot: bound.cwd });
       },
     ),
   );
@@ -932,7 +1214,8 @@ export async function runChatGptMcpServer(options: {
       claimed => {
         const { path, depth, limit } = input;
         const bound = claimed.environment;
-        return handleListDir({ path, depth, limit, cwd: bound.cwd, roots: bound.roots });
+        const res = handleListDir({ path, depth, limit, cwd: bound.cwd, roots: bound.roots });
+        return asMcpResult(res, { toolName: "codex_list_dir", workspaceRoot: bound.cwd });
       },
     ),
   );
@@ -962,7 +1245,8 @@ export async function runChatGptMcpServer(options: {
       claimed => {
         const { query, path, max_results, case_sensitive, file_pattern } = input;
         const bound = claimed.environment;
-        return handleGrep({ query, path, max_results, case_sensitive, file_pattern, cwd: bound.cwd, roots: bound.roots });
+        const res = handleGrep({ query, path, max_results, case_sensitive, file_pattern, cwd: bound.cwd, roots: bound.roots });
+        return asMcpResult(res, { toolName: "codex_grep", workspaceRoot: bound.cwd });
       },
     ),
   );
@@ -1147,6 +1431,7 @@ export async function runChatGptMcpServer(options: {
       });
     },
   );
+  }
 
   if (contract === "safe") {
     server.registerTool(
@@ -1174,6 +1459,328 @@ export async function runChatGptMcpServer(options: {
         return result(response);
       },
     );
+  }
+
+  if (contract === "chat-first" && chatFirstConfig?.chatFirst?.enabled) {
+    const chatFirstSandboxMode = chatFirstConfig.chatFirst.sandboxMode;
+    const chatFirstWritable = chatFirstSandboxMode !== "readOnly";
+    const scopeFor = (requested?: string) => resolveChatFirstWorkspace(chatFirstConfig, requested);
+    const chatFirstToolResult = (toolName: string, cwd: string, res: FastPathToolResult) =>
+      asMcpResult(res, { toolName, workspaceRoot: cwd });
+    // Only a completed mutation reaches the audit log; a failed call changed nothing on disk.
+    const auditSuccessfulMutation = (tool: string, res: FastPathToolResult, requestedPath: string): void => {
+      if (res.isError) return;
+      const structured = res.structuredContent;
+      appendChatFirstAuditEntry({
+        tool,
+        path: typeof structured.path === "string" ? structured.path : requestedPath,
+        ...(typeof structured.bytes_written === "number" ? { bytes: structured.bytes_written } : {}),
+      });
+    };
+
+    server.registerTool(
+      "codex_read_file",
+      {
+        title: "Read a chat-first workspace file",
+        description: "Read file content directly from the local workspace the operator configured, with no turn to connect. Supports a 1-indexed line offset and a line limit.",
+        inputSchema: {
+          path: z.string().min(1).max(16_384).describe("Path to the file (relative to the workspace or absolute)."),
+          workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+          offset: z.number().int().min(1).default(1).describe("1-indexed line number to start reading from (default: 1)."),
+          limit_lines: z.number().int().min(1).max(2_000).default(500).describe("Maximum number of lines to read (default: 500, max: 2000)."),
+        },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      async input => {
+        const scope = scopeFor(input.workspace);
+        const res = handleReadFile({
+          path: input.path,
+          offset: input.offset,
+          limit_lines: input.limit_lines,
+          cwd: scope.cwd,
+          roots: scope.roots,
+          cache: workspaceFileCache,
+        });
+        return chatFirstToolResult("codex_read_file", scope.cwd, res);
+      },
+    );
+
+    server.registerTool(
+      "codex_list_dir",
+      {
+        title: "List a chat-first workspace directory",
+        description: "List directory contents directly from the configured local workspace, with no turn to connect. Supports traversal depth and entry limits.",
+        inputSchema: {
+          path: z.string().max(16_384).default(".").describe("Directory path to list (default: the workspace root)."),
+          workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+          depth: z.number().int().min(1).max(4).default(1).describe("Maximum directory depth to traverse (default: 1 = immediate children)."),
+          limit: z.number().int().min(1).max(500).default(100).describe("Maximum number of entries to return (default: 100, max: 500)."),
+        },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      async input => {
+        const scope = scopeFor(input.workspace);
+        const res = handleListDir({
+          path: input.path,
+          depth: input.depth,
+          limit: input.limit,
+          cwd: scope.cwd,
+          roots: scope.roots,
+        });
+        return chatFirstToolResult("codex_list_dir", scope.cwd, res);
+      },
+    );
+
+    server.registerTool(
+      "codex_grep",
+      {
+        title: "Search a chat-first workspace",
+        description: "Fast text search over the configured local workspace using ripgrep, with no turn to connect. Returns matched lines with line numbers.",
+        inputSchema: {
+          query: z.string().min(1).max(1_000).describe("Search string or regular expression pattern."),
+          path: z.string().max(16_384).default(".").describe("Directory or file to search in (default: the workspace root)."),
+          workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+          max_results: z.number().int().min(1).max(200).default(50).describe("Maximum matching lines to return (default: 50, max: 200)."),
+          case_sensitive: z.boolean().default(false).describe("Whether search is case-sensitive (default: false)."),
+          file_pattern: z.string().max(256).optional().describe("Optional glob pattern to filter files (e.g. '*.ts', 'src/**')."),
+        },
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      async input => {
+        const scope = scopeFor(input.workspace);
+        const res = handleGrep({
+          query: input.query,
+          path: input.path,
+          max_results: input.max_results,
+          case_sensitive: input.case_sensitive,
+          file_pattern: input.file_pattern,
+          cwd: scope.cwd,
+          roots: scope.roots,
+        });
+        return chatFirstToolResult("codex_grep", scope.cwd, res);
+      },
+    );
+
+    server.registerTool(
+      "codex_tool_inventory",
+      {
+        title: "List chat-first workspace tools",
+        description: "Return the static chat-first inventory: the active sandbox mode and the tools this connector exposes. No turn connection is involved.",
+        inputSchema: {},
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      },
+      async () => result({
+        contract: "chat-first",
+        sandboxMode: chatFirstSandboxMode,
+        tools: [
+          { name: "codex_read_file", description: "Read a workspace file with line offset and limit." },
+          { name: "codex_list_dir", description: "List directory contents with depth and entry limits." },
+          { name: "codex_grep", description: "Search workspace file contents with ripgrep." },
+          { name: "codex_tool_inventory", description: "Return this inventory with the active sandbox mode." },
+          ...(chatFirstWritable ? [
+            { name: "codex_write_file", description: "Write a complete file; recorded in the local audit log." },
+            { name: "codex_patch_file", description: "Replace an exact text occurrence in a file; recorded in the local audit log." },
+            { name: "codex_exec", description: "Run a shell command (tests, builds, git) in the workspace. Supports background=true for async execution." },
+            { name: "codex_poll_task", description: "Check status, retrieve output logs, wait, or kill a background task launched with codex_exec(background=true)." },
+            { name: "codex_wait_tasks", description: "Wait for background tasks to complete and return compact single-line summaries." },
+          ] : []),
+        ],
+      }),
+    );
+
+    if (chatFirstWritable) {
+      server.registerTool(
+        "codex_write_file",
+        {
+          title: "Write a chat-first workspace file",
+          description: "Write complete text content directly to a file in the configured local workspace; the mutation is recorded in the local audit log. Refuses to clobber an existing file unless overwrite is true.",
+          inputSchema: {
+            path: z.string().min(1).max(16_384).describe("Path to the file (relative to the workspace or absolute)."),
+            content: z.string().min(1).max(5_000_000).describe("Complete text content to write to the file."),
+            workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+            overwrite: z.boolean().default(false).describe("Allow replacing an existing file (default: false)."),
+            create_parents: z.boolean().default(false).describe("Create missing parent directories (default: false)."),
+          },
+          annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        },
+        async input => {
+          const scope = scopeFor(input.workspace);
+          const res = handleWriteFile({
+            path: input.path,
+            content: input.content,
+            overwrite: input.overwrite,
+            create_parents: input.create_parents,
+            cwd: scope.cwd,
+            roots: scope.roots,
+            writableRoots: scope.writableRoots,
+            cache: workspaceFileCache,
+          });
+          auditSuccessfulMutation("codex_write_file", res, input.path);
+          return chatFirstToolResult("codex_write_file", scope.cwd, res);
+        },
+      );
+
+      server.registerTool(
+        "codex_patch_file",
+        {
+          title: "Patch a chat-first workspace file",
+          description: "Replace the first exact occurrence of target_content with replacement_content in a configured local workspace file; the mutation is recorded in the local audit log.",
+          inputSchema: {
+            path: z.string().min(1).max(16_384).describe("Path to the file (relative to the workspace or absolute)."),
+            target_content: z.string().min(1).max(1_000_000).describe("Exact text to replace, including whitespace and indentation. Only the first occurrence is replaced."),
+            replacement_content: z.string().max(1_000_000).describe("Replacement text; an empty string deletes the matched target."),
+            workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+          },
+          annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        },
+        async input => {
+          const scope = scopeFor(input.workspace);
+          const res = handlePatchFile({
+            path: input.path,
+            target_content: input.target_content,
+            replacement_content: input.replacement_content,
+            cwd: scope.cwd,
+            roots: scope.roots,
+            writableRoots: scope.writableRoots,
+            cache: workspaceFileCache,
+          });
+          auditSuccessfulMutation("codex_patch_file", res, input.path);
+          return chatFirstToolResult("codex_patch_file", scope.cwd, res);
+        },
+      );
+
+      server.registerTool(
+        "codex_exec",
+        {
+          title: "Run a chat-first shell command",
+          description: "Execute a shell command (tests, builds, git, cli) in the configured local workspace; the execution is recorded in the local audit log. Returns stdout, stderr, and exit_code. Set background=true to run asynchronously without waiting.",
+          inputSchema: {
+            cmd: z.string().min(1).max(32_768).describe("Shell command string to execute."),
+            workdir: z.string().max(16_384).optional().describe("Working directory (relative to workspace or absolute). Defaults to workspace root."),
+            workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+            background: z.boolean().default(false).optional().describe("If true, runs command asynchronously in background and returns task_id immediately without blocking web chat. Use codex_poll_task to check progress."),
+            timeout_ms: z.number().int().min(MIN_EXEC_TIMEOUT_MS).max(MAX_EXEC_TIMEOUT_MS).default(DEFAULT_EXEC_TIMEOUT_MS).optional().describe("Maximum command execution time in milliseconds (for synchronous execution)."),
+          },
+          annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+        },
+        async input => {
+          const scope = scopeFor(input.workspace);
+          if (input.background) {
+            const task = globalBackgroundTaskManager.startTask({
+              cmd: input.cmd,
+              cwd: scope.cwd,
+              roots: scope.roots,
+              writableRoots: scope.writableRoots,
+            });
+            const bgPayload = {
+              task_id: task.id,
+              status: task.status,
+              cmd: task.cmd,
+              pid: task.pid,
+              log_file: task.logFile,
+              message: "Command started in background. The web chat does not need to wait. Use codex_poll_task to check results or inspect the log file with codex_read_file.",
+            };
+            auditSuccessfulMutation("codex_exec", result(bgPayload), input.cmd);
+            return chatFirstToolResult("codex_exec", scope.cwd, result(bgPayload));
+          }
+
+          // Clamp chat-first command execution to 55s ceiling to prevent OpenAI cloud tunnel deadline retirement
+          const requestedTimeout = input.timeout_ms ?? 55_000;
+          const safeTimeout = Math.min(requestedTimeout, 55_000);
+          const res = await handleExecCommand({
+            cmd: input.cmd,
+            workdir: input.workdir,
+            timeout_ms: safeTimeout,
+            cwd: scope.cwd,
+            roots: scope.roots,
+            writableRoots: scope.writableRoots,
+            cache: workspaceFileCache,
+          });
+          auditSuccessfulMutation("codex_exec", res, input.cmd);
+          return chatFirstToolResult("codex_exec", scope.cwd, res);
+        },
+      );
+
+      server.registerTool(
+        "codex_poll_task",
+        {
+          title: "Poll or manage a background shell task",
+          description: "Check status, retrieve output logs, wait for completion, or terminate a background command launched with codex_exec(background=true). If task_id is omitted, lists recent background tasks.",
+          inputSchema: {
+            task_id: z.string().optional().describe("Task ID to check or manage. If omitted, lists recent background tasks."),
+            wait_ms: z.number().int().min(0).max(30_000).default(0).optional().describe("Milliseconds to wait (0-30000) for task to complete before returning (default: 0, non-blocking)."),
+            kill: z.boolean().default(false).optional().describe("If true, terminates the running background task."),
+            lines: z.number().int().min(1).max(500).default(100).optional().describe("Number of trailing log lines to return (default: 100)."),
+            workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+          },
+          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        },
+        async input => {
+          const scope = scopeFor(input.workspace);
+          if (!input.task_id) {
+            const tasks = globalBackgroundTaskManager.listTasks().map(t => ({
+              task_id: t.id,
+              cmd: t.cmd,
+              status: t.status,
+              exit_code: t.exitCode,
+              started_at: t.startedAt,
+              duration_ms: t.durationMs ?? (Date.now() - new Date(t.startedAt).getTime()),
+              log_file: t.logFile,
+            }));
+            return chatFirstToolResult("codex_poll_task", scope.cwd, result({ tasks }));
+          }
+
+          if (input.kill) {
+            const killed = globalBackgroundTaskManager.killTask(input.task_id);
+            const task = globalBackgroundTaskManager.getTask(input.task_id);
+            return chatFirstToolResult("codex_poll_task", scope.cwd, result({
+              task_id: input.task_id,
+              status: task?.status ?? "not_found",
+              killed,
+            }));
+          }
+
+          const polled = await globalBackgroundTaskManager.pollTask(input.task_id, input.wait_ms ?? 0, input.lines ?? 100);
+          if (!polled) {
+            return chatFirstToolResult("codex_poll_task", scope.cwd, result({ error: `Task not found: ${input.task_id}` }, true));
+          }
+
+          return chatFirstToolResult("codex_poll_task", scope.cwd, result({
+            task_id: polled.task.id,
+            cmd: polled.task.cmd,
+            status: polled.task.status,
+            exit_code: polled.task.exitCode,
+            duration_ms: polled.task.durationMs ?? (Date.now() - new Date(polled.task.startedAt).getTime()),
+            started_at: polled.task.startedAt,
+            completed_at: polled.task.completedAt,
+            log_file: polled.task.logFile,
+            output_tail: polled.tail,
+          }));
+        },
+      );
+
+      server.registerTool(
+        "codex_wait_tasks",
+        {
+          title: "Wait for background tasks and return compact summaries",
+          description: "Wait for background command tasks to finish or until wait_ms expires. Returns a compact single-line summary for each task and the count of pending tasks.",
+          inputSchema: {
+            task_ids: z.array(z.string().min(1)).min(1).max(10).describe("List of 1 to 10 background task IDs to wait for."),
+            wait_ms: z.number().int().min(0).max(90_000).default(60_000).optional().describe("Milliseconds to wait for completion (clamped <= 90000, default 60000)."),
+            lines: z.number().int().min(1).max(500).default(30).optional().describe("Trailing log lines to inspect for summarizing (default 30)."),
+            workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
+          },
+          annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        },
+        async input => {
+          const scope = scopeFor(input.workspace);
+          const rawWait = input.wait_ms ?? 60_000;
+          const clampedWait = Math.min(Math.max(rawWait, 0), 90_000);
+          const res = await waitOnTasks(input.task_ids, clampedWait, input.lines ?? 30);
+          return chatFirstToolResult("codex_wait_tasks", scope.cwd, result(res));
+        },
+      );
+    }
   }
 
   await server.connect(observeMcpToolCalls(new StdioServerTransport(), BRIDGE_TOOL_NAMES));

@@ -151,15 +151,20 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
     out.push(tool);
   };
   const pushFreeform = (t: Record<string, unknown>) => {
+    const isApplyPatch = t.name === "apply_patch";
     const tool: CodexTool = {
       name: t.name as string,
-      description: (t.description as string) ?? "",
+      description: isApplyPatch
+        ? "Apply a patch to files in the repository. STRICT FORMATTING & QUALITY RULE: Every file created or edited MUST be fully formatted, un-minified, and beautifully indented with 2 spaces across multiple lines. NEVER emit minified code, condensed single-line files, or placeholder stubs."
+        : ((t.description as string) ?? ""),
       parameters: {
         type: "object",
         properties: {
           input: {
             type: "string",
-            description: "Raw tool input. For apply_patch, begin exactly with `*** Begin Patch` (no trailing `***`), then use its standard patch envelope.",
+            description: isApplyPatch
+              ? "Raw tool input. For apply_patch, begin exactly with `*** Begin Patch` (no trailing `***`), then use its standard patch envelope. STRICT RULE: Multi-line, un-minified, 2-space indented code ONLY. Never emit single-line minified files."
+              : "Raw tool input. For apply_patch, begin exactly with `*** Begin Patch` (no trailing `***`), then use its standard patch envelope.",
           },
         },
         required: ["input"],
@@ -620,7 +625,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
     options.reasoning = requestedEffort;
   }
   const summaryMode = data.reasoning?.summary;
-  if (!summaryMode || summaryMode === "none") options.hideThinkingSummary = true;
+  // Unless explicitly disabled via CODEX_CHATGPT_WEB_FORCE_REASONING=0, do not hide thinking summary
+  // for ChatGPT Web. Codex CLI defaults to summary: "none", which previously discarded all thinking deltas.
+  const forceReasoning = process.env.CODEX_CHATGPT_WEB_FORCE_REASONING !== "0";
+  if (!forceReasoning && (!summaryMode || summaryMode === "none")) {
+    options.hideThinkingSummary = true;
+  }
   if (data.presence_penalty !== undefined) options.presencePenalty = data.presence_penalty;
   if (data.frequency_penalty !== undefined) options.frequencyPenalty = data.frequency_penalty;
   if (data.service_tier !== undefined) options.serviceTier = data.service_tier;

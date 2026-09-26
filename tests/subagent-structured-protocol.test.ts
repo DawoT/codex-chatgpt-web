@@ -7,6 +7,7 @@ import {
   parseSubagentStructuredResult,
   type SubagentStructuredResult,
 } from "../src/adapters/chatgpt-web/subagent-protocol";
+import { NATIVE_CHATGPT_MCP_INSTRUCTIONS } from "../src/adapters/chatgpt-web/mcp-server";
 
 describe("Sprint F: Structured Subagent Return Protocol", () => {
   describe("parseSubagentStructuredResult", () => {
@@ -261,7 +262,7 @@ End of report.
         "turn_12345678901234567890123456789012",
       );
 
-      expect(compiled.text).toContain("parse their <subagent_result> blocks for task status");
+      expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("parse their <subagent_result> blocks for task status");
       expect(compiled.text).not.toContain("You are an ephemeral atomic worker operating in a dedicated sub-session.");
     });
 

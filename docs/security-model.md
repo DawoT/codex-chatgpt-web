@@ -45,6 +45,31 @@ The direct turn-token MCP schema is attached only through the `Codex Native2` co
 The pre-v4 `Codex Native` connector is treated as legacy and is never selected as a fallback. This
 prevents a cached legacy schema from being mistaken for the current capability contract.
 
+## Chat-First connector
+
+The chat-first contract is a third connector identity (`Codex Chat-First`, MCP server name
+`codex-chat-first`) with a different ABI: its tools accept no turn token and no per-call request
+id, because there is no Codex envelope to derive authority from.
+
+1. New source of authority: the `chatFirst` block of the local operator's `config.json`. The
+   enabled flag, sandbox mode, and workspace list come from that file only — never from request
+   envelopes, prompt text, or tool output. Both the MCP entry point and the server fail closed
+   when `chatFirst.enabled` is not true.
+2. Separate connector identity and ABI: chat-first tools advertise no `turn_token`/`request_id`
+   argument and never dial the turn broker, so they cannot inherit or impersonate a Codex turn's
+   derived capabilities.
+3. No per-call secret: the tunnel's stdio transport does not forward credentials per call. The
+   gate is the conjunction of `chatFirst.enabled`, the tunnel runtime's account binding, and the
+   sandbox of the configured mode (`readOnly`, `workspaceWrite`, `dangerFullAccess`).
+4. Audited mutations: every successful `codex_write_file` and `codex_patch_file` appends one JSONL
+   record to `runtime/chat-first-audit.jsonl` (rotated at 5 MB) with the timestamp, tool, target
+   path, and written byte count. The audit is fail-open: it never breaks a completed mutation.
+5. `dangerFullAccess` grants read/write access to the whole disk with the operating user's
+   permissions, and it is the default sandbox mode for an enabled chat-first connector. Activating
+   chat-first therefore starts from full-disk access unless the operator explicitly lowers
+   `chatFirst.sandboxMode`; either choice is an explicit operator decision recorded in
+   `config.json`.
+
 ## Principal risks
 
 ### Prompt injection and destructive tool use
@@ -109,6 +134,10 @@ bounded local continuation cache is private, expires, and exists only to impleme
 one-shot MCP control capability in the exact retained source chat. If that chat no longer exists, a
 fresh tool-free Temporary Chat receives the canonical Codex history; the bridge never parses ordinary
 assistant prose as a structured handoff.
+
+### Background command execution and sandbox boundary
+
+When `codex_exec` is run with `background=true` in `workspaceWrite` or `dangerFullAccess` mode, the command is spawned as a detached process using the system shell (`/bin/bash` or `cmd.exe`) in `.codex-tmp/tasks/` and its output streams directly to disk. The execution does not pass through the outer Codex harness container sandbox; this is an explicit operator trade-off allowing non-blocking long-running jobs (builds, test suites) to run without browser timeout constraints. Background execution is strictly rejected when the turn sandbox policy is `readOnly`.
 
 ## Network exposure
 

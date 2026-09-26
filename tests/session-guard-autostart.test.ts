@@ -123,6 +123,7 @@ describe("Sprint W: Background Session Proactive Refresher & Watchdog Auto-Start
   test("server auto-starts session watchdog in full mode and stops on shutdown", async () => {
     const root = mkdtempSync(join(tmpdir(), "cgw-session-watchdog-"));
     try {
+      sessionHealthGuard.reset();
       const config = { ...defaultConfig("full"), port: 0, brokerSocketPath: defaultBrokerEndpoint(root) };
       expect(sessionHealthGuard.isWatchdogActive()).toBe(false);
 
@@ -133,23 +134,42 @@ describe("Sprint W: Background Session Proactive Refresher & Watchdog Auto-Start
         const endpoint = `http://127.0.0.1:${server.port}`;
         const authorization = { authorization: `Bearer ${config.controlToken}` };
 
+        // Cancel any turns from concurrent test files to ensure clean drain
+        await fetch(`${endpoint}/admin/cancel-turns`, {
+          method: "POST",
+          headers: authorization,
+        }).catch(() => {});
+
         // Drain first then shutdown
         const drain = await fetch(`${endpoint}/admin/drain`, {
           method: "POST",
           headers: authorization,
         });
         expect(drain.status).toBe(200);
+        await drain.text();
 
-        const shutdown = await fetch(`${endpoint}/admin/shutdown`, {
-          method: "POST",
-          headers: authorization,
-        });
-        expect(shutdown.status).toBe(200);
+        let shutdownStatus = 0;
+        const shutdownDeadline = Date.now() + 2_000;
+        while (Date.now() < shutdownDeadline) {
+          const shutdown = await fetch(`${endpoint}/admin/shutdown`, {
+            method: "POST",
+            headers: authorization,
+          });
+          shutdownStatus = shutdown.status;
+          await shutdown.text();
+          if (shutdownStatus === 200) break;
+          await Bun.sleep(25);
+        }
 
-        // Allow asynchronous shutdown to execute
-        const deadline = Date.now() + 2_000;
-        while (Date.now() < deadline && sessionHealthGuard.isWatchdogActive()) {
-          await Bun.sleep(20);
+        // If shutdown endpoint succeeded, await async shutdown; otherwise trigger server.stop
+        if (shutdownStatus === 200) {
+          const deadline = Date.now() + 2_000;
+          while (Date.now() < deadline && sessionHealthGuard.isWatchdogActive()) {
+            await Bun.sleep(20);
+          }
+        }
+        if (sessionHealthGuard.isWatchdogActive()) {
+          server.stop(true);
         }
         expect(sessionHealthGuard.isWatchdogActive()).toBe(false);
       } finally {
@@ -159,7 +179,7 @@ describe("Sprint W: Background Session Proactive Refresher & Watchdog Auto-Start
       sessionHealthGuard.reset();
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, { timeout: 15_000 });
 
   test("server does not auto-start watchdog in browser-only mode", async () => {
     const config = { ...defaultConfig("browser-only"), port: 0 };

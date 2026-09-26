@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import type { AppConfig, BrowserInteractionMode, RuntimeMode, SubagentProtocol } from "./config";
+import type { AppConfig, BrowserInteractionMode, RuntimeMode, SubagentProtocol, TunnelConfig } from "./config";
 import {
   currentRuntimeCommand,
   defaultBrokerEndpoint,
@@ -38,8 +38,9 @@ import {
   restartService,
   uninstallService,
 } from "./service";
-import { connectTunnel, createTunnelConfig, installRuntimeKey, installRuntimeKeyBytes, installTunnelClient, managedRuntimeKeyPath, stopTunnel, waitForTunnelReady } from "./tunnel";
+import { connectTunnel, chatFirstMcpCommand, createTunnelConfig, installRuntimeKey, installRuntimeKeyBytes, installTunnelClient, managedRuntimeKeyPath, stopTunnel, TUNNEL_READY_TIMEOUT_MS, tunnelCommandOutput, tunnelConnectLaunchError, waitForTunnelReady } from "./tunnel";
 import { getTunnelServiceStatus, installTunnelService, restartTunnelService, stopTunnelService, tunnelServiceDefinitionMatches, uninstallTunnelService } from "./tunnel-service";
+import { runCommand } from "./process";
 import { VERSION } from "./version";
 
 export interface SetupOptions {
@@ -157,6 +158,7 @@ function meaningfulRuntimeChange(before: AppConfig, after: AppConfig): boolean {
     tunnel: before.tunnel,
     automaticTunnel: before.automaticTunnel,
     manualTunnel: before.manualTunnel,
+    chatFirst: before.chatFirst,
   }) !== JSON.stringify({
     mode: after.mode,
     subagentProtocol: after.subagentProtocol,
@@ -188,6 +190,7 @@ function meaningfulRuntimeChange(before: AppConfig, after: AppConfig): boolean {
     tunnel: after.tunnel,
     automaticTunnel: after.automaticTunnel,
     manualTunnel: after.manualTunnel,
+    chatFirst: after.chatFirst,
   });
 }
 
@@ -432,6 +435,75 @@ async function bootstrapTunnelProfile(config: AppConfig): Promise<void> {
   if (bootstrapError) throw bootstrapError;
 }
 
+const CHAT_FIRST_TUNNEL_PROFILE = "codex-chatgpt-web-chat-first";
+
+function chatFirstTunnelDetail(value: string): string {
+  return value
+    .replace(/tunnel_[a-f0-9]{32}/g, "[tunnel-id]")
+    .replace(/sk-[A-Za-z0-9_-]{12,}/g, "[redacted-key]")
+    .slice(0, 2_000);
+}
+
+/**
+ * Best-effort registration of the optional chat-first tunnel profile. It reuses the primary
+ * tunnel's pinned tunnel-client binary, Tunnel ID, runtime key, and profile directory under the
+ * dedicated `codex-chatgpt-web-chat-first` profile/alias and points tunnel-client at the
+ * token-free chat-first MCP contract via chatFirstMcpCommand.
+ *
+ * The operation is strictly isolated from the primary connector: any failure is reported on
+ * stderr and setup continues with the primary tunnel profile untouched (never stopped,
+ * re-registered, or rewritten). Launcher-owned setups delegate profile creation to the launcher
+ * supervisor and do not call this function.
+ *
+ * Returns true when the chat-first runtime completed a healthy, ready launch.
+ */
+export async function setupChatFirstTunnelProfile(config: AppConfig): Promise<boolean> {
+  if (config.mode !== "full" || !config.tunnel || config.chatFirst?.enabled !== true) return false;
+  const settings: TunnelConfig = {
+    ...config.tunnel,
+    profileName: CHAT_FIRST_TUNNEL_PROFILE,
+    alias: CHAT_FIRST_TUNNEL_PROFILE,
+  };
+  try {
+    mkdirSync(settings.profileDir, { recursive: true, mode: 0o700 });
+    // Same `runtimes connect` flow as connectTunnel, with the chat-first MCP command; the frozen
+    // connectTunnel pins mcpCommand(config), which only expresses the native/safe contracts.
+    const result = runCommand(settings.binaryPath, [
+      "runtimes", "connect",
+      "--alias", settings.alias,
+      "--profile", settings.profileName,
+      "--profile-dir", settings.profileDir,
+      "--tunnel-client-bin", settings.binaryPath,
+      "--tunnel-id", settings.tunnelId,
+      "--runtime-api-key", `file:${settings.runtimeKeyFile}`,
+      "--mcp-command", chatFirstMcpCommand(config),
+      "--json",
+    ], { timeout: TUNNEL_READY_TIMEOUT_MS });
+    const structuredOutput = result.stdout.trim();
+    const launchError = structuredOutput
+      ? tunnelConnectLaunchError(structuredOutput)
+      : undefined;
+    if (result.status !== 0) {
+      const detail = launchError && launchError !== "tunnel-client returned non-JSON connect output"
+        ? launchError
+        : chatFirstTunnelDetail(tunnelCommandOutput(result) || `exit ${result.status}`);
+      throw new Error(`chat-first tunnel registration failed: ${detail}`);
+    }
+    if (launchError) throw new Error(`chat-first tunnel runtime exited during launch: ${launchError}`);
+    const status = await waitForTunnelReady({ ...config, tunnel: settings });
+    if (!status.ok) {
+      throw new Error(`chat-first tunnel runtime did not become healthy and ready: ${status.detail}`);
+    }
+    return true;
+  } catch (error) {
+    console.error(
+      `[codex-chatgpt-web] chat-first tunnel profile was not registered; continuing without it: `
+        + `${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
+}
+
 function prepareSetup(options: SetupOptions): PreparedSetup {
   const existing = loadExistingConfig();
   if (existing?.purpose === DEV_CONFIG_PURPOSE) {
@@ -623,6 +695,9 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       const status = await waitForTunnelReady(config);
       if (!status.ok) throw new Error(`Tunnel runtime did not become healthy and ready: ${status.detail}`);
       tunnelReady = true;
+      // Optional chat-first connector profile: registered only when enabled, best-effort, and
+      // fully isolated from the primary profile registered above.
+      await setupChatFirstTunnelProfile(config);
     }
   }
   if (launcherOwned && (beforeService.installed || beforeService.loaded)) {

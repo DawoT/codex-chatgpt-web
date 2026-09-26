@@ -2323,6 +2323,51 @@ test("retained tool turns re-select the connector if the composer lost its bindi
   expect(calls).toEqual(["selectConnector", "selectedFocus", `press:${CHATGPT_COMPOSER_DOCUMENT_END_KEY}`, "insert", "assert"]);
 });
 
+test("retained tool turns re-select the connector with hasExistingTurns when the page has existing user turns", async () => {
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(
+      page: unknown,
+      prompt: string,
+      localTools: boolean,
+      captureDiagnostic?: (checkpoint: string) => Promise<void>,
+      abortSignal?: AbortSignal,
+      catalogRefreshAvailable?: boolean,
+      connectorAttemptBudget?: unknown,
+      reuseConnector?: boolean,
+    ): Promise<void>;
+  }).attachPrompt;
+
+  const calls: string[] = [];
+  const composer = {
+    focus: async () => { calls.push("focus"); },
+    press: async (key: string) => { calls.push(`press:${key}`); },
+  };
+  const basePage = dialogPage("").page;
+  const pageWithTurns = {
+    ...basePage,
+    locator: (selector: string) => {
+      if (typeof selector === "string" && selector.includes("user")) {
+        return { count: async () => 2 };
+      }
+      return basePage.locator(selector);
+    },
+  };
+  let receivedHasExistingTurns: boolean | undefined;
+  await attachPrompt.call({
+    activeComposer: async () => composer,
+    connectorIsSelected: async () => false,
+    selectConnector: async (_page: unknown, _capture: unknown, _refresh: unknown, _budget: unknown, _signal: unknown, hasExistingTurns: boolean) => {
+      receivedHasExistingTurns = hasExistingTurns;
+      calls.push("selectConnector");
+      return composer;
+    },
+    insertPromptText: async (_page: unknown, text: string) => { expect(text).toBe(" retained context"); calls.push("insert"); },
+    assertPromptAttached: async () => { calls.push("assert"); },
+  }, pageWithTurns, "retained context", true, undefined, undefined, false, undefined, true);
+  expect(calls).toEqual(["selectConnector", "focus", `press:${CHATGPT_COMPOSER_DOCUMENT_END_KEY}`, "insert", "assert"]);
+  expect(receivedHasExistingTurns).toBe(true);
+});
+
 test("image attachment readiness uses exact file tiles and not localized remove-button text", async () => {
   const imageUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   const calls: Array<[string, string?]> = [];
@@ -4294,6 +4339,79 @@ test("proven MCP activity within the stall ceiling never orphans pending tool ev
   expect(tracker.update({ ...evidence, externalProgressLive: false }, now + CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS + 999)).toBeUndefined();
   expect(tracker.update({ ...evidence, externalProgressLive: false }, now + CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS + 2_000))
     .toContain("pending tool evidence");
+});
+
+test("a single long tool call in flight suspends the orphan window past the progress stall ceiling", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000);
+  const now = 3_600_000;
+  // One legitimate tool call recorded once at dispatch: lastProgressAt is already past the
+  // external progress stall ceiling, so externalProgressLive has lapsed, but the call itself is
+  // still in flight. That must not be misread as an orphan container.
+  const inFlight = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+    toolCallsInFlight: true,
+    activeToolCalls: 1,
+    lastProgressAt: now - CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS - 60_000,
+  };
+
+  expect(tracker.update(inFlight, now)).toBeUndefined();
+  expect(tracker.update(inFlight, now + CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS)).toBeUndefined();
+  expect(tracker.update(inFlight, now + CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS)).toBeUndefined();
+});
+
+test("an in-flight tool call that outlives its own ceiling aborts with a precise hang verdict", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000, 5_000);
+  const state = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+    toolCallsInFlight: true,
+    activeToolCalls: 2,
+    lastProgressAt: 3_600_000 - 240_000,
+  };
+
+  expect(tracker.update(state, 3_600_000)).toBeUndefined();
+  expect(tracker.update(state, 3_600_000 + 4_999)).toBeUndefined();
+  const verdict = tracker.update(state, 3_600_000 + 5_000);
+  expect(verdict).toContain("in flight for 5s");
+  expect(verdict).toContain("2 active tool call(s)");
+  // Silence is measured at the verdict: 240s of stale progress plus the 5s window itself.
+  expect(verdict).toContain("245s of silence since the last recorded MCP progress");
+  expect(verdict).toContain("appears hung");
+  // The hung-tool verdict must not borrow the orphan-container phrasing: the two failures name
+  // different defects and the orphan message stays reserved for DOM-only evidence.
+  expect(verdict).not.toContain("orphan status");
+});
+
+test("a resolved in-flight tool call lets the orphan window evaluate cleanly afterwards", () => {
+  const tracker = new ChatGptPendingToolEvidenceTracker(1_000, 5_000);
+  const inFlight = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+    toolCallsInFlight: true,
+    activeToolCalls: 1,
+    lastProgressAt: 3_600_000 - 1_000,
+  };
+  expect(tracker.update(inFlight, 3_600_000)).toBeUndefined();
+  expect(tracker.update(inFlight, 3_600_000 + 3_000)).toBeUndefined();
+
+  // The tool result landed (activeToolCalls back to zero) while its status container outlived
+  // it: the orphan window starts from this observation, not from the protected stretch.
+  const settled = {
+    pendingToolEvidence: true,
+    running: false,
+    streamDelta: false,
+    externalProgressLive: false,
+  };
+  expect(tracker.update(settled, 3_600_000 + 3_100)).toBeUndefined();
+  expect(tracker.update(settled, 3_600_000 + 3_100 + 999)).toBeUndefined();
+  expect(tracker.update(settled, 3_600_000 + 3_100 + 1_000)).toContain("pending tool evidence");
 });
 
 test("a new answer delta restarts the orphaned-evidence stall window", () => {

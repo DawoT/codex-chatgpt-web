@@ -382,4 +382,132 @@ test("turn broker names the finished turn that owns a replayed handle", async ()
     await broker.close();
     rmSync(root, { recursive: true, force: true });
   }
+}, 15_000);
+
+test("completed-activity tombstones stay bounded while recent ones keep blocking claims", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-broker-tombstones-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const token = await broker.register({
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      sandboxPolicy: { type: "dangerFullAccess" },
+      tools: [],
+    }, 60_000);
+    for (let index = 0; index < 300; index += 1) {
+      await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
+        method: "activity_complete",
+        token,
+        activityId: `activity_tombstone_bound_${String(index).padStart(4, "0")}`,
+      })).resolves.toMatchObject({ completed: false });
+    }
+
+    // The oldest tombstones were evicted with the bound, so the very first activity id may
+    // claim again instead of failing closed forever.
+    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_tombstone_bound_0000",
+    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+
+    // Recent tombstones survive the eviction and still block their duplicate claim.
+    await expect(callTurnBroker(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_tombstone_bound_0299",
+    })).rejects.toThrow("turn activity was already completed before this claim settled");
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 15_000);
+
+test("the liveness sweep leaves a tombstone so a retried claim cannot resurrect the lease", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-broker-reap-tombstone-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath, 40);
+  try {
+    const token = await broker.register({
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      sandboxPolicy: { type: "dangerFullAccess" },
+      tools: [],
+    }, 60_000);
+    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_reap_tombstone_123456",
+    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+
+    // Past the liveness bound the sweep removes the lease; a claim reusing the same activity id
+    // must fail closed instead of resuming it.
+    await Bun.sleep(60);
+    await expect(callTurnBroker(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_reap_tombstone_123456",
+    })).rejects.toThrow("turn activity was already completed before this claim settled");
+
+    // A different activity id claims normally after the sweep; it is settled right away so the
+    // fence below can still commit on this channel.
+    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_reap_fresh_id_123456",
+    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
+      method: "activity_complete",
+      token,
+      activityId: "activity_reap_fresh_id_123456",
+    })).resolves.toMatchObject({ completed: true });
+
+    // The sweep is still a causal event, so the fence it once vetoed opens on the bumped revision.
+    const revision = broker.beginCompletionFence(token);
+    expect(revision).toBeDefined();
+    expect(broker.commitCompletionFence(token, revision!)).toBeTrue();
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("re-registered aliases refresh their recency instead of aging out FIFO", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-broker-alias-lru-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const token = await broker.register({
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      sandboxPolicy: { type: "dangerFullAccess" },
+      tools: [],
+    }, 60_000);
+    const alias = (index: number) => `turn_lru_${String(index).padStart(3, "0")}_aaaaaaaaaaaaaaaa`;
+    for (let index = 0; index < 256; index += 1) {
+      broker.registerAlias(alias(index), token);
+    }
+
+    // Re-inserting the oldest alias refreshes its recency, so the next insertion evicts its
+    // neighbor instead: an LRU bound, not a FIFO one.
+    broker.registerAlias(alias(0), token);
+    broker.registerAlias("turn_lru_fresh_aaaaaaaaaaaa", token);
+
+    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token: alias(0),
+      activityId: "activity_alias_lru_kept_001",
+    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(callTurnBroker(socketPath, {
+      method: "claim",
+      token: alias(1),
+      activityId: "activity_alias_lru_evict_1",
+    })).rejects.toThrow("turn token is invalid, expired, or revoked");
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

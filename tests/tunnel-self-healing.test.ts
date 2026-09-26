@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig, TunnelConfig } from "../src/config";
 import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
-import { TunnelSupervisor } from "../src/tunnel-supervisor";
+import { TunnelSupervisor, defaultHealthUrlProbe } from "../src/tunnel-supervisor";
 import type { TunnelRuntimeStatus } from "../src/tunnel";
 import { startServer } from "../src/server";
 
@@ -316,6 +316,42 @@ describe("Sprint I: Tunnel Supervisor & Self-Healing", () => {
     } finally {
       await server.stop(true);
       mockSupervisor.stop();
+    }
+  });
+
+  test("defaultHealthUrlProbe returns false when metrics report 502 error on MCP channel", async () => {
+    let return502InMetrics = false;
+    const mockHealthServer = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/readyz") {
+          return new Response("ready", { status: 200 });
+        }
+        if (path === "/metrics") {
+          if (return502InMetrics) {
+            const metrics502 = `
+command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_status="200"} 73
+command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_status="502"} 39
+`;
+            return new Response(metrics502, { status: 200 });
+          }
+          return new Response('command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_status="200"} 73\n', { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    try {
+      const url = `http://127.0.0.1:${mockHealthServer.port}`;
+      // Healthy initially
+      expect(await defaultHealthUrlProbe(url)).toBe(true);
+
+      // Now simulate deadline retirement / 502 on channel
+      return502InMetrics = true;
+      expect(await defaultHealthUrlProbe(url)).toBe(false);
+    } finally {
+      mockHealthServer.stop(true);
     }
   });
 });

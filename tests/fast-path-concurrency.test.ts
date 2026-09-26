@@ -46,8 +46,8 @@ describe("Sprint X: Concurrent Fast-Path Batch Execution", () => {
     expect(isMutatingFastPathTool("codex_list_dir")).toBe(false);
   });
 
-  test("dispatchFastPathTool returns error for unknown tool without throwing", () => {
-    const res = dispatchFastPathTool(
+  test("dispatchFastPathTool returns error for unknown tool without throwing", async () => {
+    const res = await dispatchFastPathTool(
       "non_existent_tool",
       {},
       { cwd: tmpDir, roots: [tmpDir], cache },

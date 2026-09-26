@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -39,8 +40,80 @@ interface RealpathDeps {
   realpath?: (path: string) => string;
 }
 
-export function resolveSafeWorkspacePath(requestedPath: string, cwd: string, roots: string[], deps: RealpathDeps = {}): string {
+function isInsideRoot(base: string, root: string): boolean {
+  const rel = relative(root, base);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** Deepest ancestor of `path` (including `path` itself) that currently exists on disk. */
+function deepestExistingAncestor(path: string): string {
+  let current = resolve(path);
+  for (;;) {
+    if (existsSync(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+}
+
+/**
+ * Symlink-containment verification shared by every handler that resolves a workspace path
+ * (Sprint C1). Two cases must hold before any filesystem mutation:
+ *  - If the leaf exists, its full realpath must land inside the realpath-ed roots (pre-existing
+ *    leaf check; realpath transitively covers every ancestor of an existing leaf).
+ *  - If the leaf does not exist, the deepest EXISTING ancestor is the only on-disk component that
+ *    mkdirSync/writeFileSync would traverse, so its realpath must land inside the realpath-ed
+ *    roots. A dangling leaf symlink (lstat succeeds, realpath fails) fails closed exactly like
+ *    any other unverifiable path; otherwise writeFileSync would follow it and create the target
+ *    outside the sandbox.
+ * The purely lexical root check in resolveSafeWorkspacePath stays as defense in depth.
+ */
+export function assertSymlinkSafePath(
+  resolved: string,
+  roots: string[],
+  requestedPath: string,
+  deps: RealpathDeps = {},
+): void {
   const realpath = deps.realpath ?? realpathSync;
+  const outsideError = () => new Error(`Resolved symlink targets outside allowed sandbox roots: ${requestedPath}`);
+  const run = (): void => {
+    const realRoots = roots.map(root => (existsSync(root) ? realpath(resolve(root)) : resolve(root)));
+    if (existsSync(resolved)) {
+      const real = realpath(resolved);
+      if (!realRoots.some(realRoot => isInsideRoot(real, realRoot))) throw outsideError();
+      return;
+    }
+    let danglingLeaf = false;
+    try {
+      lstatSync(resolved);
+      danglingLeaf = true;
+    } catch {
+      // Truly absent leaf: fall through to the ancestor check.
+    }
+    if (danglingLeaf) {
+      // Dangling symlink: realpath must fail and trigger the fail-closed branch below.
+      const real = realpath(resolved);
+      if (!realRoots.some(realRoot => isInsideRoot(real, realRoot))) throw outsideError();
+      return;
+    }
+    const realAncestor = realpath(deepestExistingAncestor(resolved));
+    if (!realRoots.some(realRoot => isInsideRoot(realAncestor, realRoot))) throw outsideError();
+  };
+  try {
+    run();
+  } catch (realErr) {
+    if (realErr instanceof Error && realErr.message.includes("Resolved symlink")) throw realErr;
+    // Fail closed: an unverifiable path (EACCES, ELOOP, EPERM, ...) must never be accepted as
+    // symlink-safe, otherwise a hostile link could escape the sandbox unnoticed.
+    const code = realErr !== null && typeof realErr === "object" && "code" in realErr
+      && typeof (realErr as { code: unknown }).code === "string"
+      ? (realErr as { code: string }).code
+      : "UNKNOWN";
+    throw new Error(`Cannot verify symlink safety for ${requestedPath}: ${code}`);
+  }
+}
+
+export function resolveSafeWorkspacePath(requestedPath: string, cwd: string, roots: string[], deps: RealpathDeps = {}): string {
   const resolved = isAbsolute(requestedPath) ? resolve(requestedPath) : resolve(cwd, requestedPath);
   const isAllowed = roots.some(root => {
     const rel = relative(resolve(root), resolved);
@@ -49,28 +122,7 @@ export function resolveSafeWorkspacePath(requestedPath: string, cwd: string, roo
   if (!isAllowed) {
     throw new Error(`Path is outside allowed sandbox roots: ${requestedPath}`);
   }
-  if (existsSync(resolved)) {
-    try {
-      const real = realpath(resolved);
-      const realAllowed = roots.some(root => {
-        const realRoot = existsSync(root) ? realpath(resolve(root)) : resolve(root);
-        const rel = relative(realRoot, real);
-        return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-      });
-      if (!realAllowed) {
-        throw new Error(`Resolved symlink targets outside allowed sandbox roots: ${requestedPath}`);
-      }
-    } catch (realErr) {
-      if (realErr instanceof Error && realErr.message.includes("Resolved symlink")) throw realErr;
-      // Fail closed: an unverifiable path (EACCES, ELOOP, EPERM, ...) must never be accepted as
-      // symlink-safe, otherwise a hostile link could escape the sandbox unnoticed.
-      const code = realErr !== null && typeof realErr === "object" && "code" in realErr
-        && typeof (realErr as { code: unknown }).code === "string"
-        ? (realErr as { code: string }).code
-        : "UNKNOWN";
-      throw new Error(`Cannot verify symlink safety for ${requestedPath}: ${code}`);
-    }
-  }
+  assertSymlinkSafePath(resolved, roots, requestedPath, deps);
   return resolved;
 }
 
@@ -206,6 +258,24 @@ export function handleReadFile(options: {
   });
 }
 
+/**
+ * Sprint C2: when the turn environment declares writableRoots, mutations must be contained there
+ * instead of the broader read-only roots. Callers must reject an empty writableRoots list before
+ * reaching this helper (read-only workspaces reject every mutation outright).
+ */
+function assertWritableRootContainment(
+  resolved: string,
+  requestedPath: string,
+  writableRoots: string[],
+  deps: RealpathDeps = {},
+): void {
+  const lexicalAllowed = writableRoots.some(root => isInsideRoot(resolved, resolve(root)));
+  if (!lexicalAllowed) {
+    throw new Error(`Path is outside allowed writable roots: ${requestedPath}`);
+  }
+  assertSymlinkSafePath(resolved, writableRoots, requestedPath, deps);
+}
+
 export function handleWriteFile(options: {
   path: string;
   content: string;
@@ -213,11 +283,20 @@ export function handleWriteFile(options: {
   create_parents?: boolean;
   cwd: string;
   roots: string[];
+  writableRoots?: string[];
   cache?: FastPathWorkspaceCache;
 }): FastPathToolResult {
   const { path, content, overwrite = false, create_parents = false } = options;
   const cache = options.cache ?? workspaceFileCache;
+  // A read-only sandbox policy (writableRoots: []) rejects every mutation before touching the
+  // filesystem; without writableRoots the write roots fall back to `roots` (legacy behavior).
+  if (options.writableRoots !== undefined && options.writableRoots.length === 0) {
+    return result({ error: "Workspace is read-only (writableRoots is empty): codex_write_file cannot modify files." }, true);
+  }
   const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
+  if (options.writableRoots !== undefined) {
+    assertWritableRootContainment(resolved, path, options.writableRoots);
+  }
   const existed = existsSync(resolved);
   if (existed) {
     const st = statSync(resolved);
@@ -258,11 +337,19 @@ export function handlePatchFile(options: {
   replacement_content: string;
   cwd: string;
   roots: string[];
+  writableRoots?: string[];
   cache?: FastPathWorkspaceCache;
 }): FastPathToolResult {
   const { path, target_content, replacement_content } = options;
   const cache = options.cache ?? workspaceFileCache;
+  // Same read-only/writable-roots policy as codex_write_file (Sprint C2).
+  if (options.writableRoots !== undefined && options.writableRoots.length === 0) {
+    return result({ error: "Workspace is read-only (writableRoots is empty): codex_patch_file cannot modify files." }, true);
+  }
   const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
+  if (options.writableRoots !== undefined) {
+    assertWritableRootContainment(resolved, path, options.writableRoots);
+  }
   if (!existsSync(resolved)) {
     return result({ error: `File does not exist: ${path}` }, true);
   }
@@ -381,18 +468,49 @@ export type RgExecutor = (rgPath: string, args: string[], options: { cwd: string
 const RG_FALLBACK_PATHS = ["/usr/bin/rg", "/usr/local/bin/rg", "/opt/homebrew/bin/rg"];
 const RG_TIMEOUT_MS = 15_000;
 const RG_MAX_BUFFER_BYTES = 5 * 1024 * 1024;
+/** Sprint C3: a failed lookup is retried after this TTL instead of being cached for the process lifetime. */
+export const RG_FAILURE_CACHE_TTL_MS = 30_000;
 
 let cachedRgPath: string | null | undefined;
+let cachedRgFailedAtMs = 0;
+
+export interface RgResolverDeps {
+  /** Injectable for tests; production uses Bun.which. */
+  which?: (name: string) => string | null;
+  /** Injectable for tests; production uses node:fs.existsSync. */
+  exists?: (path: string) => boolean;
+  /** Injectable clock for tests; production uses Date.now. */
+  now?: () => number;
+}
+
+/** Clears the memoized ripgrep lookup (Sprint C3 test hook and retry escape hatch). */
+export function resetRgPathCache(): void {
+  cachedRgPath = undefined;
+  cachedRgFailedAtMs = 0;
+}
 
 /**
- * Resolve the ripgrep binary once per process. Bun.which covers PATH lookups; the fallback list
- * covers GUI-launched daemons whose PATH omits the usual install locations.
+ * Resolve the ripgrep binary. Bun.which covers PATH lookups; the fallback list covers GUI-launched
+ * daemons whose PATH omits the usual install locations. A successful resolution is cached for the
+ * process lifetime, but a failure is only cached for RG_FAILURE_CACHE_TTL_MS so that installing rg
+ * (or fixing PATH) is picked up without restarting the MCP server.
  */
-export function resolveRgPath(): string | null {
-  if (cachedRgPath !== undefined) return cachedRgPath;
-  const fromPath = typeof Bun !== "undefined" ? Bun.which("rg") : null;
-  cachedRgPath = fromPath ?? RG_FALLBACK_PATHS.find(candidate => existsSync(candidate)) ?? null;
-  return cachedRgPath;
+export function resolveRgPath(deps: RgResolverDeps = {}): string | null {
+  if (cachedRgPath) return cachedRgPath;
+  const now = deps.now?.() ?? Date.now();
+  if (cachedRgPath === null && now - cachedRgFailedAtMs < RG_FAILURE_CACHE_TTL_MS) {
+    return null;
+  }
+  const which = deps.which ?? ((name: string) => (typeof Bun !== "undefined" ? Bun.which(name) : null));
+  const exists = deps.exists ?? existsSync;
+  const found = which("rg") ?? RG_FALLBACK_PATHS.find(candidate => exists(candidate)) ?? null;
+  cachedRgPath = found;
+  if (found === null) {
+    cachedRgFailedAtMs = now;
+  } else {
+    cachedRgFailedAtMs = 0;
+  }
+  return found;
 }
 
 function defaultRgExecutor(rgPath: string, args: string[], options: { cwd: string }): RgExecution {
@@ -488,6 +606,172 @@ export function handleGrep(options: {
   });
 }
 
+export interface HandleExecCommandOptions {
+  cmd: string;
+  workdir?: string;
+  timeout_ms?: number;
+  cwd: string;
+  roots: string[];
+  writableRoots?: string[];
+  cache?: FastPathWorkspaceCache;
+}
+
+export const DEFAULT_EXEC_TIMEOUT_MS = 600_000; // 10 minutes
+export const MAX_EXEC_TIMEOUT_MS = 1_800_000;   // 30 minutes
+export const MIN_EXEC_TIMEOUT_MS = 1_000;       // 1 second
+
+export async function handleExecCommand(options: HandleExecCommandOptions): Promise<FastPathToolResult> {
+  const { cmd, workdir, timeout_ms, cwd, roots, writableRoots, cache } = options;
+  if (!cmd || typeof cmd !== "string" || !cmd.trim()) {
+    return result({ error: "cmd must be a non-empty string" }, true);
+  }
+
+  if (!writableRoots || writableRoots.length === 0) {
+    return result({ error: "Command execution is disabled in readOnly mode" }, true);
+  }
+
+  let effectiveCwd = cwd;
+  if (workdir && typeof workdir === "string" && workdir.trim()) {
+    try {
+      effectiveCwd = resolveSafeWorkspacePath(workdir.trim(), cwd, roots);
+      if (!existsSync(effectiveCwd) || !statSync(effectiveCwd).isDirectory()) {
+        return result({ error: `workdir is not an existing directory: ${workdir}` }, true);
+      }
+    } catch (err) {
+      return result({ error: err instanceof Error ? err.message : String(err) }, true);
+    }
+  }
+
+  const timeout = Math.min(Math.max(timeout_ms ?? DEFAULT_EXEC_TIMEOUT_MS, MIN_EXEC_TIMEOUT_MS), MAX_EXEC_TIMEOUT_MS);
+  const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
+  const shellArgs = process.platform === "win32" ? ["/c", cmd] : ["-c", cmd];
+
+  return new Promise<FastPathToolResult>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let timer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+
+    let child: ChildProcess;
+    try {
+      child = spawn(shell, shellArgs, {
+        cwd: effectiveCwd,
+        detached: process.platform !== "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+    } catch (spawnError) {
+      resolve(result({
+        cmd,
+        exit_code: 1,
+        error: spawnError instanceof Error ? spawnError.message : String(spawnError),
+      }, true));
+      return;
+    }
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
+        killTimer = undefined;
+      }
+      if (cache) {
+        cache.clear();
+      } else {
+        workspaceFileCache.clear();
+      }
+    };
+
+    timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        if (process.platform === "win32") {
+          child.kill("SIGTERM");
+          killTimer = setTimeout(() => {
+            try {
+              child.kill("SIGKILL");
+            } catch {}
+          }, 3_000);
+        } else if (child.pid) {
+          try {
+            process.kill(-child.pid, "SIGTERM");
+          } catch {
+            child.kill("SIGTERM");
+          }
+          killTimer = setTimeout(() => {
+            try {
+              if (child.pid) process.kill(-child.pid, "SIGKILL");
+            } catch {
+              try {
+                child.kill("SIGKILL");
+              } catch {}
+            }
+          }, 3_000);
+        }
+      } catch {}
+    }, timeout);
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      if (stdout.length < 10 * 1024 * 1024) {
+        stdout += chunk;
+      }
+    });
+
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      if (stderr.length < 10 * 1024 * 1024) {
+        stderr += chunk;
+      }
+    });
+
+    child.on("error", (err) => {
+      cleanup();
+      resolve(result({
+        cmd,
+        exit_code: 1,
+        error: err.message,
+        stdout,
+        stderr,
+      }, true));
+    });
+
+    child.on("close", (code, signal) => {
+      cleanup();
+      if (timedOut) {
+        const timeoutSec = Math.round(timeout / 1000);
+        const timeoutMin = (timeout / 60000).toFixed(1);
+        const partialNotice = `\n[codex_exec] Command timed out after ${timeout}ms (${timeoutSec}s / ~${timeoutMin}m).` +
+          `\nPartial output was preserved above.` +
+          `\nHint: For long-running test batteries or builds, pass a larger timeout_ms (e.g. 900000 for 15m, max 1800000 = 30m), or execute tests in targeted sub-suites.`;
+        resolve(result({
+          cmd,
+          exit_code: -1,
+          timed_out: true,
+          stdout,
+          stderr: (stderr ? stderr + "\n" : "") + partialNotice,
+        }, true));
+        return;
+      }
+
+      const exitCode = code ?? (signal ? 1 : 0);
+      const isError = exitCode !== 0;
+      resolve(result({
+        cmd,
+        cwd: effectiveCwd,
+        exit_code: exitCode,
+        stdout,
+        stderr,
+        timed_out: false,
+      }, isError));
+    });
+  });
+}
+
 export function isReadOnlyFastPathTool(toolName: string): boolean {
   return (
     toolName === "codex_read_file" ||
@@ -503,8 +787,10 @@ export function isMutatingFastPathTool(toolName: string): boolean {
   return (
     toolName === "codex_write_file" ||
     toolName === "codex_patch_file" ||
+    toolName === "codex_exec" ||
     toolName === "write_file" ||
-    toolName === "patch_file"
+    toolName === "patch_file" ||
+    toolName === "exec"
   );
 }
 
@@ -526,9 +812,10 @@ export function dispatchFastPathTool(
   context: {
     cwd: string;
     roots: string[];
+    writableRoots?: string[];
     cache?: FastPathWorkspaceCache;
   },
-): FastPathToolResult {
+): FastPathToolResult | Promise<FastPathToolResult> {
   const norm = tool.startsWith("codex_") ? tool : `codex_${tool}`;
   switch (norm) {
     case "codex_read_file":
@@ -548,6 +835,7 @@ export function dispatchFastPathTool(
         create_parents: Boolean(args.create_parents),
         cwd: context.cwd,
         roots: context.roots,
+        writableRoots: context.writableRoots,
         cache: context.cache,
       });
     case "codex_patch_file":
@@ -557,6 +845,7 @@ export function dispatchFastPathTool(
         replacement_content: String(args.replacement_content ?? ""),
         cwd: context.cwd,
         roots: context.roots,
+        writableRoots: context.writableRoots,
         cache: context.cache,
       });
     case "codex_list_dir":
@@ -577,6 +866,16 @@ export function dispatchFastPathTool(
         cwd: context.cwd,
         roots: context.roots,
       });
+    case "codex_exec":
+      return handleExecCommand({
+        cmd: String(args.cmd ?? ""),
+        workdir: typeof args.workdir === "string" ? args.workdir : undefined,
+        timeout_ms: typeof args.timeout_ms === "number" ? args.timeout_ms : undefined,
+        cwd: context.cwd,
+        roots: context.roots,
+        writableRoots: context.writableRoots,
+        cache: context.cache,
+      });
     default:
       return result({ error: `Unsupported fast-path tool: ${tool}` }, true);
   }
@@ -587,6 +886,7 @@ export async function executeFastPathBatch(
   context: {
     cwd: string;
     roots: string[];
+    writableRoots?: string[];
     cache?: FastPathWorkspaceCache;
   },
 ): Promise<FastPathBatchResult[]> {
@@ -600,7 +900,7 @@ export async function executeFastPathBatch(
     await Promise.all(
       current.map(async ({ index, call }) => {
         try {
-          const res = dispatchFastPathTool(call.tool, call.arguments, context);
+          const res = await dispatchFastPathTool(call.tool, call.arguments, context);
           results[index] = { id: call.id, tool: call.tool, result: res };
         } catch (err) {
           results[index] = {
@@ -621,7 +921,7 @@ export async function executeFastPathBatch(
       // Barrier: flush all preceding read operations concurrently before mutating
       await flushReadSegment();
       try {
-        const res = dispatchFastPathTool(call.tool, call.arguments, context);
+        const res = await dispatchFastPathTool(call.tool, call.arguments, context);
         results[i] = { id: call.id, tool: call.tool, result: res };
       } catch (err) {
         results[i] = {

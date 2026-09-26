@@ -30,6 +30,8 @@
     "dev:chat": "bun run src/cli.ts dev chat",
     "test": "bun test ./tests",
     "audit": "bun audit",
+    "audit:dogfood": "bun run scripts/dogfood-audit.ts",
+    "prune:sessions": "bun run scripts/prune-codex-rollouts.ts",
     "check-version": "bun run scripts/check-version.ts",
     "typecheck": "bun x --no-install --bun tsc --noEmit",
     "licenses": "bun run scripts/generate-third-party-notices.ts --include-launcher",

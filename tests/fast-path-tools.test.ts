@@ -8,6 +8,9 @@ import {
   handleListDir,
   handleReadFile,
   resolveSafeWorkspacePath,
+  RG_FAILURE_CACHE_TTL_MS,
+  resetRgPathCache,
+  resolveRgPath,
   type FastPathToolResult,
   type RgExecution,
 } from "../src/adapters/chatgpt-web/fast-path-handlers";
@@ -354,4 +357,30 @@ describe("handleGrep", () => {
   test("rejects search targets outside the sandbox", () => {
     expect(() => handleGrep({ query: "needle", path: "../outside", cwd: root, roots: [root] })).toThrow("outside allowed sandbox roots");
   });
+});
+
+test("resolveRgPath retries a cached failure once RG_FAILURE_CACHE_TTL_MS elapses (Sprint C3)", () => {
+  resetRgPathCache();
+  try {
+    let nowMs = 1_000_000;
+    const clock = () => nowMs;
+
+    // Nothing installed anywhere: the lookup fails and the failure is memoized...
+    expect(resolveRgPath({ which: () => null, exists: () => false, now: clock })).toBeNull();
+
+    // ...so rg "gets installed", but within the TTL the cached failure is still served without
+    // re-resolving (the injected which/exists would already succeed).
+    nowMs += 1_000;
+    expect(resolveRgPath({ which: () => "/opt/rg/bin/rg", exists: () => true, now: clock })).toBeNull();
+
+    // After the TTL the resolver retries and finds the binary.
+    nowMs += RG_FAILURE_CACHE_TTL_MS;
+    expect(resolveRgPath({ which: () => "/opt/rg/bin/rg", exists: () => true, now: clock })).toBe("/opt/rg/bin/rg");
+
+    // A successful resolution stays cached for the process lifetime regardless of the clock.
+    nowMs += 10 * RG_FAILURE_CACHE_TTL_MS;
+    expect(resolveRgPath({ which: () => null, exists: () => false, now: clock })).toBe("/opt/rg/bin/rg");
+  } finally {
+    resetRgPathCache();
+  }
 });

@@ -66,6 +66,8 @@ codex-api() {
 codex-status() {
     echo -e "${YELLOW}=== Diagnóstico de Estado: Codex Web GPT & Túnel ===${NC}"
     
+    local cgw_home="${CODEX_CHATGPT_WEB_HOME:-$HOME/.codex-chatgpt-web}"
+    
     # Comprobar daemon HTTP local
     local health_json
     health_json=$(curl -s --connect-timeout 2 http://127.0.0.1:17841/healthz 2>/dev/null)
@@ -95,21 +97,31 @@ codex-status() {
     fi
 
     # Comprobar proceso del túnel
-    local tunnel_pid
-    tunnel_pid=$(pgrep -f "tunnel-client run" 2>/dev/null | head -n 1)
-    if [ -n "$tunnel_pid" ]; then
-        echo -e "● Túnel OpenAI:       ${GREEN}En ejecución (PID: ${tunnel_pid})${NC}"
+    local tunnel_pids
+    tunnel_pids=$(pgrep -f "$cgw_home/bin/tunnel-client run" 2>/dev/null)
+    if [ -n "$tunnel_pids" ]; then
+        local count
+        count=$(echo "$tunnel_pids" | wc -l)
+        echo -e "● Túnel OpenAI:       ${GREEN}En ejecución ($count instancia(s): $(echo $tunnel_pids | tr '\n' ' '))${NC}"
     else
         echo -e "● Túnel OpenAI:       ${YELLOW}No detectado en segundo plano${NC}"
     fi
 
-    # Comprobar MCP Server
-    local mcp_pid
-    mcp_pid=$(pgrep -f "cli.js mcp" 2>/dev/null | head -n 1)
-    if [ -n "$mcp_pid" ]; then
-        echo -e "● Servidor MCP Local: ${GREEN}Activo (PID: ${mcp_pid})${NC}"
+    # Comprobar MCP Servers (Native y Chat-First)
+    local mcp_native_pid
+    mcp_native_pid=$(pgrep -f "cli.js mcp --contract native" 2>/dev/null | head -n 1)
+    if [ -n "$mcp_native_pid" ]; then
+        echo -e "● Servidor MCP Native:    ${GREEN}Activo (PID: ${mcp_native_pid})${NC}"
     else
-        echo -e "● Servidor MCP Local: ${YELLOW}No detectado en segundo plano${NC}"
+        echo -e "● Servidor MCP Native:    ${YELLOW}No detectado${NC}"
+    fi
+
+    local mcp_cf_pid
+    mcp_cf_pid=$(pgrep -f "cli.js mcp --contract chat-first" 2>/dev/null | head -n 1)
+    if [ -n "$mcp_cf_pid" ]; then
+        echo -e "● Servidor MCP Chat-First:${GREEN}Activo (PID: ${mcp_cf_pid})${NC}"
+    else
+        echo -e "● Servidor MCP Chat-First:${YELLOW}No detectado${NC}"
     fi
 
     echo -e "${YELLOW}====================================================${NC}"
@@ -121,20 +133,6 @@ codex-restart() {
     local cgw_home="${CODEX_CHATGPT_WEB_HOME:-$HOME/.codex-chatgpt-web}"
     mkdir -p "$cgw_home/logs"
 
-    local pids
-    pids=$(pgrep -f "tunnel-client run|cli.js mcp|cli.js serve" 2>/dev/null)
-    if [ -n "$pids" ]; then
-        kill $pids 2>/dev/null
-        sleep 1
-        local lingering
-        lingering=$(pgrep -f "tunnel-client run|cli.js mcp|cli.js serve" 2>/dev/null)
-        if [ -n "$lingering" ]; then
-            kill -9 $lingering 2>/dev/null
-            sleep 1
-        fi
-    fi
-
-    # Daemon HTTP local (debe levantarse primero: crea el socket del turn-broker que usa el MCP)
     local runtime_dir
     runtime_dir="$(ls -1d "$cgw_home"/versions/*-linux-x64 2>/dev/null | sort -V | tail -n 1)"
     if [ -z "$runtime_dir" ]; then
@@ -142,21 +140,41 @@ codex-restart() {
         codex-status
         return 1
     fi
+
+    # Kills quirúrgicos: cada patrón matchea el cmdline completo con la ruta real de esta
+    # instalación, así que nunca mata procesos ajenos (p.ej. el shell de un auditor corriendo
+    # "cli.js mcp" en otro checkout). El patrón AppImage cubre el daemon viejo lanzado con
+    # --hidden desde el AppImage, que antes sobrevivía al restart.
+    local kill_patterns=(
+        "$cgw_home/bin/tunnel-client run"
+        "$runtime_dir/app/cli.js serve"
+        "$runtime_dir/app/cli.js mcp"
+    )
+    local kill_ERE
+    kill_ERE="$(IFS='|'; echo "${kill_patterns[*]}")"
+    local pids
+    pids=$(pgrep -f "$kill_ERE" 2>/dev/null)
+    if [ -n "$pids" ]; then
+        pkill -f "$kill_ERE" 2>/dev/null
+        sleep 1
+        local lingering
+        lingering=$(pgrep -f "$kill_ERE" 2>/dev/null)
+        if [ -n "$lingering" ]; then
+            pkill -9 -f "$kill_ERE" 2>/dev/null
+            sleep 1
+        fi
+    fi
+
+    # Daemon HTTP local (debe levantarse primero: crea el socket del turn-broker que usa el MCP)
     setsid "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" serve > "$cgw_home/logs/daemon.log" 2>&1 < /dev/null &
     disown $! 2>/dev/null
     sleep 2
 
-    # Túnel OpenAI con el perfil real en vivo (mismo formato que usa el proceso del túnel)
+    # Túnel OpenAI con el perfil real en vivo.
+    # Se ejecuta una sola instancia de túnel para evitar que dos pollers compitan por el mismo tunnel_id.
     setsid "$cgw_home/bin/tunnel-client" run \
         --profile-dir "$cgw_home/tunnel/profiles" \
         --profile codex-chatgpt-web > "$cgw_home/logs/tunnel.log" 2>&1 < /dev/null &
-    disown $! 2>/dev/null
-    sleep 2
-
-    # Servidor MCP local sobre el socket del turn-broker del daemon recién levantado
-    setsid "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" mcp \
-        --contract native \
-        --broker-socket "$cgw_home/runtime/turn-broker.sock" > "$cgw_home/logs/mcp.log" 2>&1 < /dev/null &
     disown $! 2>/dev/null
     sleep 2
 

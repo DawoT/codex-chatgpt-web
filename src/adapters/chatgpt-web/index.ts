@@ -22,7 +22,7 @@ import type { ProviderAdapter } from "../base";
 import { parseDataUrl } from "../image";
 import { ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
-import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity, isChatGptSubagentTurn, priorChatGptAbortedTurnIds } from "./environment";
+import { extractChatGptThreadSpawnLineage, extractChatGptTurnEnvironment, extractChatGptTurnIdentity, isChatGptSubagentTurn, priorChatGptAbortedTurnIds } from "./environment";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
 import { chatGptReadOnlyContextWarning, compileChatGptWebPrompt } from "./prompt";
 import { createChatGptStructuredOutputValidator } from "./output-validation";
@@ -30,6 +30,16 @@ import { chatGptWebTurnRetryPolicy } from "./retry-policy";
 import { TurnBroker, type BrokerToolRequest, type BrokerToolResult, type TurnBrokerOwner } from "./turn-broker";
 import { ChatGptTextFeed, ChatGptTraceFeed, chatGptCompactionSourceExecutionKey, chatGptInstructionLineage, chatGptThreadOwnershipKey, chatGptTurnExecutionKey, chatGptTurnRetryKey, chatGptTurnRoundKey, chatGptTurnSessions, type ChatGptBrowserOutcome, type ChatGptTraceEvent, type ChatGptTurnRuntime, type ChatGptTurnSession } from "./turn-execution";
 import { estimateChatGptWebUsage, resolveBiggerContextMultipartParts } from "./usage";
+import { preparePreflightInput } from "./preflight-budget";
+import {
+  extractReferencedFilePaths,
+  listTurnCheckpoints,
+  mergeCompactionIntoWorkspaceState,
+  saveTurnCheckpoint,
+  validateCompactionQuality,
+} from "./autonomous-compaction";
+import { ensureWorkspaceState, readWorkspaceState } from "./workspace-state";
+import { resolveSubagentWorkspace } from "./subagent-workspace";
 import { ChatGptThreadEnvironmentStore } from "./thread-environment";
 import {
   ChatGptLunaCheckpointStore,
@@ -421,7 +431,7 @@ export function createChatGptWebAdapter(
     environment: ReturnType<typeof extractChatGptTurnEnvironment> | undefined,
     traceId: string,
     turnCapabilities: ChatGptWebCapabilities,
-    hooks: { onCompactionProgress?: () => void } = {},
+    hooks: { onCompactionProgress?: () => void; onHeartbeat?: () => void } = {},
   ): ChatGptTurnRuntime => {
     const manualRequest = isChatGptWebZeroRiskBackendModel(parsed.modelId);
     if (manualRequest !== manualInteraction) {
@@ -461,8 +471,10 @@ export function createChatGptWebAdapter(
       : undefined;
     const compileOptionsFor = (input: CodexParsedRequest) => {
       if (manualRequest) return {};
-      const experimentalMultipartParts = experimentalBiggerContext
-        ? resolveBiggerContextMultipartParts(input, turnCapabilities, experimentalSkillAttachments)
+      const { input: preflightInput, verdict } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
+      const shouldPromoteMultipart = experimentalBiggerContext || verdict.actionRequired === "promote_multipart";
+      const experimentalMultipartParts = shouldPromoteMultipart
+        ? resolveBiggerContextMultipartParts(preflightInput, turnCapabilities, experimentalSkillAttachments)
         : undefined;
       return {
         captureLunaCheckpoint,
@@ -708,15 +720,18 @@ export function createChatGptWebAdapter(
         reasoning: parsed.options.reasoning,
         ...(parsed._chatgptModelFamily ? { modelFamily: parsed._chatgptModelFamily } : {}),
         capabilities: turnCapabilities,
-        prepare: async () => ({
-          ...compileChatGptWebPrompt(
-            checkpointInput.parsed,
-            turnCapabilities,
-            undefined,
-            compileOptionsFor(checkpointInput.parsed),
-          ),
-          release: () => {},
-        }),
+        prepare: async () => {
+          const { input: preflightInput } = preparePreflightInput(checkpointInput.parsed, turnCapabilities, { experimentalBiggerContext });
+          return {
+            ...compileChatGptWebPrompt(
+              preflightInput,
+              turnCapabilities,
+              undefined,
+              compileOptionsFor(preflightInput),
+            ),
+            release: () => {},
+          };
+        },
         abortSignal: browserAbort.signal,
         ...(parsed._compactionRequest ? { compaction: true } : {}),
         ...submissionLifecycle,
@@ -724,6 +739,7 @@ export function createChatGptWebAdapter(
         onReasoningSummary: (text, continuation) => trace.push({ kind: "reasoning", text, ...(continuation ? { continuation: true } : {}) }),
         onCommentary: (text, continuation) => trace.push({ kind: "commentary", text, ...(continuation ? { continuation: true } : {}) }),
         onTextDelta: delta => text.push(delta),
+        ...(hooks.onHeartbeat ? { onHeartbeat: hooks.onHeartbeat } : {}),
         ...(captureLunaCheckpoint ? {
           captureLunaCheckpoint: true,
           onLunaCheckpoint: captureCheckpoint,
@@ -759,11 +775,12 @@ export function createChatGptWebAdapter(
       activeToken = turnToken;
       lastRegisteredToken = turnToken;
       try {
+        const { input: preflightInput } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
         const compiled = compileChatGptWebPrompt(
-          input,
+          preflightInput,
           turnCapabilities,
           turnToken,
-          compileOptionsFor(input),
+          compileOptionsFor(preflightInput),
         );
         // Publish only after preparation succeeds: otherwise its failure revokes the token
         // before the response observer uses it and masks the cause as an expired capability.
@@ -795,6 +812,7 @@ export function createChatGptWebAdapter(
       onReasoningSummary: (text, continuation) => trace.push({ kind: "reasoning", text, ...(continuation ? { continuation: true } : {}) }),
       onCommentary: (text, continuation) => trace.push({ kind: "commentary", text, ...(continuation ? { continuation: true } : {}) }),
       onTextDelta: delta => text.push(delta),
+      ...(hooks.onHeartbeat ? { onHeartbeat: hooks.onHeartbeat } : {}),
       externalProgress,
       completionFence: {
         begin: async () => broker.beginCompletionFence(await token.promise),
@@ -890,6 +908,20 @@ export function createChatGptWebAdapter(
             throw error;
           }
         }
+        if (environment?.cwd) {
+          try {
+            ensureWorkspaceState(environment.cwd);
+            if (isChatGptSubagentTurn(parsed)) {
+              const lineage = extractChatGptThreadSpawnLineage(parsed);
+              const subId = lineage?.agentName?.replace(/^\/root\/?/, "").replace(/\//g, "_")
+                || extractChatGptTurnIdentity(parsed).turnId
+                || "sub_default";
+              resolveSubagentWorkspace(environment.cwd, subId);
+            }
+          } catch (stateErr) {
+            console.warn("[chatgpt-web] best-effort workspace state init failed:", stateErr);
+          }
+        }
         if (parsed._compactionRequest) {
           const structuredCompactionRequired = parsed.modelId !== CHATGPT_WEB_LUNA_MODEL_ID
             && configuredCapabilities.localToolsEnabled;
@@ -978,7 +1010,7 @@ export function createChatGptWebAdapter(
                       manualRequest ? environment : undefined,
                       freshCompactionTraceId,
                       turnCapabilities,
-                      { onCompactionProgress: armHandoffDeadline },
+                      { onCompactionProgress: armHandoffDeadline, onHeartbeat: () => emit({ type: "heartbeat" }) },
                     );
                     retainOwnershipUntil(fallbackRuntime.physicalSettlement);
                     try {
@@ -1153,6 +1185,25 @@ export function createChatGptWebAdapter(
               });
               return;
             }
+            try {
+              const workspaceRoot = environment?.cwd ?? process.cwd();
+              const existingCheckpoints = listTurnCheckpoints(workspaceRoot);
+              const nextEpoch = (existingCheckpoints[0]?.epoch ?? 0) + 1;
+              const quality = validateCompactionQuality(parsed.context.messages, summary);
+              if (!quality.valid) {
+                console.warn(`[chatgpt-web] Compaction quality warning: ${quality.missingInvariants.join("; ")}`);
+              }
+              saveTurnCheckpoint(workspaceRoot, {
+                epoch: nextEpoch,
+                turnCount: parsed.context.messages.length,
+                stateSnapshot: readWorkspaceState(workspaceRoot),
+                compactSummary: summary,
+                prunedFileReferences: extractReferencedFilePaths(parsed.context.messages),
+              });
+              mergeCompactionIntoWorkspaceState(workspaceRoot, summary);
+            } catch (checkpointError) {
+              console.warn("[chatgpt-web] Failed to record turn checkpoint:", checkpointError);
+            }
             emit({ type: "text_delta", text: summary, phase: "final_answer" });
             emitBrowserCompletion(
               { type: "final", answer: summary },
@@ -1178,7 +1229,9 @@ export function createChatGptWebAdapter(
         const session = await chatGptTurnSessions.getOrCreateAfterOwnerRetirement(
           executionKey,
           ownerKey,
-          () => startRuntime(parsed, environment, traceId, turnCapabilities),
+          () => startRuntime(parsed, environment, traceId, turnCapabilities, {
+            onHeartbeat: () => emit({ type: "heartbeat" }),
+          }),
           traceId,
           incoming.abortSignal,
           nativeTurnId,

@@ -97,6 +97,7 @@ interface BrokerRequest {
     | "owner_register"
     | "owner_register_safe"
     | "owner_register_alias"
+    | "owner_touch_activity"
     | "owner_update"
     | "owner_safe_sent"
     | "owner_next"
@@ -154,6 +155,13 @@ const MAX_RETIRED_TURN_HANDLES = 64;
 const MAX_ACTIVITY_LIVENESS_MS = 120_000;
 /** Alias chains are bounded like retired-handle history; the broker is a process singleton. */
 const MAX_TOKEN_ALIASES = 256;
+/**
+ * Completed-activity tombstones are bounded with the same eviction style as the alias chains.
+ *
+ * A tombstone only needs to outlive the retries that could resurrect its lease, so the oldest
+ * entries give way first while recent ones keep blocking duplicate claims.
+ */
+const MAX_COMPLETED_ACTIVITY_TOMBSTONES = 256;
 
 export async function closeTurnBrokers(): Promise<void> {
   const active = [...brokers.values()];
@@ -237,6 +245,7 @@ export interface TurnBrokerOwner {
     predecessorToken?: string,
   ): Promise<string>;
   registerAlias?(oldToken: string, newToken: string): void | Promise<void>;
+  touchActivity?(token: string, activityId: string): boolean | Promise<boolean>;
   updateEnvironment(token: string, environment: ChatGptTurnEnvironment): void | Promise<void>;
   confirmSafeTurnSent(
     token: string,
@@ -303,6 +312,8 @@ export class TurnBroker implements TurnBrokerOwner {
   }
 
   registerAlias(oldToken: string, newToken: string): void {
+    // Re-inserting refreshes recency, so a re-registered alias is evicted last (LRU, not FIFO).
+    this.tokenAliases.delete(oldToken);
     this.tokenAliases.set(oldToken, newToken);
     this.trimOldest(this.tokenAliases, MAX_TOKEN_ALIASES);
     console.info(
@@ -529,6 +540,25 @@ export class TurnBroker implements TurnBrokerOwner {
     channel.invocations.delete(callId);
     console.info(`[chatgpt-web] broker trace=${channel.traceId} completed call=${callId.slice(0, 17)} pending=${channel.invocations.size}`);
     invocation.resolve(result);
+  }
+
+  /**
+   * Refreshes an MCP activity lease without a causal event.
+   *
+   * A handler that chains several invokes under one claim can spend longer than the activity
+   * liveness bound between invokes; with no pending invocation there is nothing else keeping the
+   * lease alive, so the sweep would liquidate it and the next invoke would die against a
+   * committed fence. Touching resets `claimedAt` only: `activities.size` already vetoes the
+   * completion fence, so a touch must not move `activityRevision` and would only break fence
+   * begins captured in flight. An activity that is gone (settled, swept, or on a dead channel)
+   * returns false and is never revived.
+   */
+  touchActivity(token: string, activityId: string): boolean {
+    this.prune();
+    const channel = this.resolveActiveToken(token)?.channel;
+    if (!channel || !channel.activities.has(activityId)) return false;
+    channel.activities.set(activityId, Date.now());
+    return true;
   }
 
   beginCompletionFence(token: string): number | undefined {
@@ -776,7 +806,7 @@ export class TurnBroker implements TurnBrokerOwner {
   }
 
   /** Evicts by insertion order (oldest out), the same bound style as the retired-handle history. */
-  private trimOldest(history: Map<string, string>, limit: number): void {
+  private trimOldest(history: Map<string, string> | Set<string>, limit: number): void {
     while (history.size > limit) {
       const oldest = history.keys().next();
       if (oldest.done) return;
@@ -1007,7 +1037,7 @@ export class TurnBroker implements TurnBrokerOwner {
     if (!request || typeof request !== "object" || typeof request.id !== "string" || request.id.length === 0 || request.id.length > 256) {
       throw new Error("turn broker request id is invalid");
     }
-    if (!["claim", "resolve", "release", "invoke", "owner_status", "owner_register", "owner_register_safe", "owner_register_alias", "owner_update", "owner_safe_sent", "owner_next", "owner_complete", "owner_completion_fence_begin", "owner_completion_fence_commit", "owner_wait_retirement", "owner_revoke", "owner_safe_wait_start", "owner_safe_wait_completion", "owner_request_compaction", "owner_compaction_delivery_count", "safe_start", "safe_complete", "activity_complete", "submit_compaction_handoff"].includes(request.method)) {
+    if (!["claim", "resolve", "release", "invoke", "owner_status", "owner_register", "owner_register_safe", "owner_register_alias", "owner_touch_activity", "owner_update", "owner_safe_sent", "owner_next", "owner_complete", "owner_completion_fence_begin", "owner_completion_fence_commit", "owner_wait_retirement", "owner_revoke", "owner_safe_wait_start", "owner_safe_wait_completion", "owner_request_compaction", "owner_compaction_delivery_count", "safe_start", "safe_complete", "activity_complete", "submit_compaction_handoff"].includes(request.method)) {
       throw new Error("turn broker method is invalid");
     }
   }
@@ -1050,6 +1080,13 @@ export class TurnBroker implements TurnBrokerOwner {
       if (!request.newToken) throw new Error("new token is required");
       this.registerAlias(request.token, request.newToken);
       return { registered: true };
+    }
+    if (request.method === "owner_touch_activity") {
+      if (!request.token) throw new Error("turn owner token is required");
+      if (typeof request.activityId !== "string" || !/^activity_[A-Za-z0-9_-]{16,128}$/.test(request.activityId)) {
+        throw new Error("turn activity id is invalid");
+      }
+      return { touched: this.touchActivity(request.token, request.activityId) };
     }
     if (request.method === "owner_register") {
       const environment = ownerEnvironment(request.environment);
@@ -1195,13 +1232,13 @@ export class TurnBroker implements TurnBrokerOwner {
         if (!existing || existing.token !== effectiveToken || existing.channel !== activeChannel) {
           throw new Error("turn token binding state is inconsistent");
         }
-        return { bindingId: activeChannel.bindingId, activityId, environment: activeChannel.environment };
+        return { bindingId: activeChannel.bindingId, activityId, environment: activeChannel.environment, traceId: activeChannel.traceId };
       }
       this.pending.delete(effectiveToken);
       const bindingId = opaqueId("binding");
       activeChannel.bindingId = bindingId;
       this.bindings.set(bindingId, { token: effectiveToken, channel: activeChannel });
-      return { bindingId, activityId, environment: activeChannel.environment };
+      return { bindingId, activityId, environment: activeChannel.environment, traceId: activeChannel.traceId };
     }
 
     const bindingId = request.bindingId;
@@ -1221,6 +1258,7 @@ export class TurnBroker implements TurnBrokerOwner {
       }
       const wasActive = channel.activities.delete(request.activityId);
       channel.completedActivities.add(request.activityId);
+      this.trimOldest(channel.completedActivities, MAX_COMPLETED_ACTIVITY_TOMBSTONES);
       // A cleanup that overtakes an ambiguously delivered claim is still a causal event. Its
       // tombstone makes the delayed claim fail instead of resurrecting activity after a fence.
       channel.activityRevision += 1;
@@ -1353,6 +1391,11 @@ export class TurnBroker implements TurnBrokerOwner {
       for (const [activityId, claimedAt] of channel.activities) {
         if (now - claimedAt < this.activityLivenessMs) continue;
         channel.activities.delete(activityId);
+        // Sweeping is a cleanup exactly like activity_complete, so it leaves the same tombstone:
+        // a retried claim reusing this activity id must fail closed instead of resurrecting the
+        // lease the sweep just removed.
+        channel.completedActivities.add(activityId);
+        this.trimOldest(channel.completedActivities, MAX_COMPLETED_ACTIVITY_TOMBSTONES);
         channel.activityRevision += 1;
       }
     }
@@ -1496,6 +1539,18 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       token: oldToken,
       newToken,
     });
+  }
+
+  async touchActivity(token: string, activityId: string): Promise<boolean> {
+    const response = await callTurnBroker<{ touched?: unknown }>(this.socketPath, {
+      method: "owner_touch_activity",
+      token,
+      activityId,
+    });
+    if (typeof response.touched !== "boolean") {
+      throw new Error("DEV turn owner received an invalid activity touch result");
+    }
+    return response.touched;
   }
 
   async register(

@@ -89,6 +89,15 @@ the legacy connector. Future public schema changes require another explicit conn
 Repository DEV mode uses `Codex Native2 DEV` so the same ChatGPT account can keep both production
 and development connectors installed without renaming, refreshing, or deleting either one.
 
+A third connector identity, `Codex Chat-First` (MCP server name `codex-chat-first`), serves the
+optional chat-first contract. Its ABI is deliberately token-free: the tools take no turn token or
+request id, the server never dials the turn broker, and authority is derived from the local
+operator's `config.json` (`chatFirst.enabled`, sandbox mode, workspace list) instead of a Codex
+envelope. It shares the direct-filesystem fast-path tool handlers with the turn-bound contracts,
+registers mutation tools only outside the `readOnly` sandbox mode, and records successful
+mutations in `runtime/chat-first-audit.jsonl`. Because ChatGPT caches the tools/list contract per
+connector identity, this third surface never mutates the `Codex Native2` or Zero Risk ABI.
+
 ## Browser lifecycle
 
 The desktop launcher owns one persistent Electron partition and up to five task-bound browser

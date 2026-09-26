@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { ensureChatGptPersonalizedConnectorAccess } from "../src/adapters/chatgpt-web/browser-worker";
+import {
+  ensureChatGptPersonalizedConnectorAccess,
+  CHATGPT_PERSONALIZATION_PREFLIGHT_TIMEOUT_MS,
+} from "../src/adapters/chatgpt-web/browser-worker";
 
 function matchesName(name: string | RegExp, label: string): boolean {
   return typeof name === "string" ? name === label : name.test(label);
@@ -591,7 +594,7 @@ test("the absolute personalization deadline always returns the connector deadlin
   Date.now = () => now;
   const absent = visibleLocator(() => {
     countReads += 1;
-    if (countReads === 2) now += 30_001;
+    if (countReads === 2) now += CHATGPT_PERSONALIZATION_PREFLIGHT_TIMEOUT_MS + 1;
     return 0;
   });
   try {
@@ -660,7 +663,7 @@ test("an absolute deadline never hides a failed personalization rollback", async
         async () => {
           proofCalls += 1;
           if (proofCalls === 1) return false;
-          now += 30_001;
+          now += CHATGPT_PERSONALIZATION_PREFLIGHT_TIMEOUT_MS + 1;
           return false;
         },
       );
@@ -688,3 +691,16 @@ test("ambiguous personalization controls fail before connector selection", async
     retryable: false,
   });
 });
+
+test("an active conversation with existing user turns is treated as already-personalized without timeout", async () => {
+  const page = {
+    locator: (selector: string) => ({
+      count: () => Promise.resolve(1),
+    }),
+    getByRole: () => visibleLocator(() => 0),
+  } as any;
+
+  const result = await ensureChatGptPersonalizedConnectorAccess(page, undefined, undefined, undefined, true);
+  expect(result).toBe("already-personalized");
+});
+

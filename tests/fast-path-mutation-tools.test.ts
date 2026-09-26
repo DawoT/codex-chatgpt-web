@@ -308,6 +308,150 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
     });
   });
 
+  describe("Sprint C: symlinked ancestors for new files (C1) and writableRoots (C2)", () => {
+    test("C1: rejects write_file of a new file through a symlinked parent directory", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-c1-parent-link-"));
+      const outsideDir = mkdtempSync(join(tmpdir(), "cgw-c1-outside-"));
+      try {
+        symlinkSync(outsideDir, join(root, "link"));
+
+        // The leaf does not exist, so verification must fall back to the deepest existing
+        // ancestor (the symlinked directory); otherwise writeFileSync would follow the link
+        // and create the file outside the sandbox.
+        expect(() =>
+          handleWriteFile({ path: "link/newfile.txt", content: "escaped", cwd: root, roots: [root] }),
+        ).toThrow("outside allowed sandbox roots");
+        expect(existsSync(join(outsideDir, "newfile.txt"))).toBe(false);
+        expect(existsSync(join(root, "link", "newfile.txt"))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    test("C1: refuses create_parents through a symlinked ancestor and creates nothing outside", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-c1-parents-link-"));
+      const outsideDir = mkdtempSync(join(tmpdir(), "cgw-c1-parents-out-"));
+      try {
+        symlinkSync(outsideDir, join(root, "link"));
+
+        expect(() =>
+          handleWriteFile({
+            path: "link/made/up/file.txt",
+            content: "x",
+            create_parents: true,
+            cwd: root,
+            roots: [root],
+          }),
+        ).toThrow("outside allowed sandbox roots");
+        expect(existsSync(join(outsideDir, "made"))).toBe(false);
+        expect(existsSync(join(root, "link", "made"))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    test("C1: fails closed when the new file path is a dangling symlink pointing outside", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-c1-dangling-"));
+      const outsideDir = mkdtempSync(join(tmpdir(), "cgw-c1-dangling-out-"));
+      try {
+        // Target does not exist yet: existsSync(leaf) is false, but writeFileSync would still
+        // follow the link and create the target outside the sandbox.
+        symlinkSync(join(outsideDir, "not-yet.txt"), join(root, "dangling.txt"));
+
+        expect(() =>
+          handleWriteFile({ path: "dangling.txt", content: "x", cwd: root, roots: [root] }),
+        ).toThrow("Cannot verify symlink safety");
+        expect(existsSync(join(outsideDir, "not-yet.txt"))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    test("C1 regression: an existing file behind a symlinked directory stays rejected for patch_file", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-c1-patch-link-"));
+      const outsideDir = mkdtempSync(join(tmpdir(), "cgw-c1-patch-out-"));
+      try {
+        writeFileSync(join(outsideDir, "victim.txt"), "secret");
+        symlinkSync(outsideDir, join(root, "link"));
+
+        expect(() =>
+          handlePatchFile({
+            path: "link/victim.txt",
+            target_content: "secret",
+            replacement_content: "hacked",
+            cwd: root,
+            roots: [root],
+          }),
+        ).toThrow("outside allowed sandbox roots");
+        expect(readFileSync(join(outsideDir, "victim.txt"), "utf8")).toBe("secret");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    test("C2: writableRoots [] (read-only policy) rejects write and patch without touching disk", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-c2-readonly-"));
+      try {
+        writeFileSync(join(root, "existing.txt"), "original");
+
+        const denied = handleWriteFile({ path: "new.txt", content: "x", cwd: root, roots: [root], writableRoots: [] });
+        expect(denied.isError).toBe(true);
+        expect(payload(denied).error).toContain("read-only");
+        expect(existsSync(join(root, "new.txt"))).toBe(false);
+
+        const patchDenied = handlePatchFile({
+          path: "existing.txt",
+          target_content: "original",
+          replacement_content: "mutated",
+          cwd: root,
+          roots: [root],
+          writableRoots: [],
+        });
+        expect(patchDenied.isError).toBe(true);
+        expect(payload(patchDenied).error).toContain("read-only");
+        expect(readFileSync(join(root, "existing.txt"), "utf8")).toBe("original");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    test("C2: writableRoots narrower than roots confines writes to the writable subtree", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-c2-narrow-"));
+      try {
+        mkdirSync(join(root, "src"));
+        mkdirSync(join(root, "docs"));
+        const options = { cwd: root, roots: [root], writableRoots: [join(root, "src")] };
+
+        const inside = handleWriteFile({ ...options, path: "src/inside.txt", content: "ok" });
+        expect(inside.isError).toBeUndefined();
+        expect(readFileSync(join(root, "src", "inside.txt"), "utf8")).toBe("ok");
+
+        // Inside the read roots but outside the writable roots: rejected for new files...
+        expect(() => handleWriteFile({ ...options, path: "docs/outside.txt", content: "x" })).toThrow(
+          "outside allowed writable roots",
+        );
+        expect(existsSync(join(root, "docs", "outside.txt"))).toBe(false);
+
+        // ...and for patches of existing files.
+        writeFileSync(join(root, "docs", "existing.txt"), "original");
+        expect(() =>
+          handlePatchFile({ ...options, path: "docs/existing.txt", target_content: "original", replacement_content: "mutated" }),
+        ).toThrow("outside allowed writable roots");
+        expect(readFileSync(join(root, "docs", "existing.txt"), "utf8")).toBe("original");
+
+        const patched = handlePatchFile({ ...options, path: "src/inside.txt", target_content: "ok", replacement_content: "ok patched" });
+        expect(patched.isError).toBeUndefined();
+        expect(readFileSync(join(root, "src", "inside.txt"), "utf8")).toBe("ok patched");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("Prompt contract integration", () => {
     const req = {
       modelId: CHATGPT_WEB_MODEL_ID,

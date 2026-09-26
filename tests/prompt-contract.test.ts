@@ -10,6 +10,7 @@ import {
   withoutRetiredTurnHandles,
 } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_LUNA_MODEL_ID, CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { NATIVE_CHATGPT_MCP_INSTRUCTIONS } from "../src/adapters/chatgpt-web/mcp-server";
 import { SUMMARY_PREFIX } from "../src/responses/compaction";
 import { biggerContextPartCount } from "../src/adapters/chatgpt-web/usage";
 import type { CodexParsedRequest } from "../src/types";
@@ -458,9 +459,9 @@ test("assigns prior assistant output to the model and never attributes Codex con
     content: [{ type: "text", text: "Hi! How can I help?" }],
   });
   expect(compiled.text).toContain("assistant messages are your own earlier replies");
-  expect(compiled.text).toContain("environment_context, are operational context rather than human-authored text");
+  expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("environment_context, are operational context rather than human-authored text");
   expect(compiled.text).toContain("answer only from the human-authored text in user messages");
-  expect(compiled.text).toContain("do not attribute, quote, summarize, or otherwise mention them");
+  expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("do not attribute, quote, summarize, or otherwise mention them");
 });
 
 test("a long task keeps the newest images and drops the overflow instead of failing", () => {
@@ -605,9 +606,9 @@ test("requires ChatGPT-native rich results to include a safe Markdown answer for
     { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
   );
 
-  expect(compiled.text).toContain("also provide the relevant result as ordinary Markdown in the final answer");
-  expect(compiled.text).toContain("A private ChatGPT UI widget never replaces the Markdown answer returned to Codex");
-  expect(compiled.text).toContain("Never copy a ChatGPT widget's HTML, CSS, class names, or DOM markup");
+  expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("also provide the relevant result as ordinary Markdown in the final answer");
+  expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("A private ChatGPT UI widget never replaces the Markdown answer returned to Codex");
+  expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("Never copy a ChatGPT widget's HTML, CSS, class names, or DOM markup");
 });
 
 test("uses the public Instant name without leaking the browser menu alias into the prompt", () => {
@@ -688,5 +689,52 @@ test("mode.localTools prompts include the Anti-Resignation Rule to prevent hallu
   expect(compiled.text).toContain("ANTI-RESIGNATION RULE:");
   expect(compiled.text).toContain("Never deduce, claim, or report that the local Codex session, environment, broker, or tools are terminated");
   expect(compiled.text).toContain("You may ONLY report an infrastructure or execution failure if an actual tool invocation in THIS ACTIVE TURN returned an explicit failure error result.");
+});
+
+test("root user-facing turn receives quality and depth contract while subagents and compactions remain concise", () => {
+  const token = "turn_12345678901234567890123456789012";
+  const caps = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
+
+  // 1. Root turn: has FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY contract
+  const rootReq = request("high");
+  const rootCompiled = compileChatGptWebPrompt(rootReq, caps, token);
+  expect(rootCompiled.text).toContain("STAFF PRINCIPAL ENGINEER & FRONTIER CRAFTSMANSHIP CONTRACT:");
+  expect(rootCompiled.text).toContain("While internal handoffs, context compaction, and subagent state transmissions must remain concise");
+  expect(rootCompiled.text).toContain("1. AMBITIOUS SCOPE & PRODUCTION COMPLETENESS: Never build toys, minimal demos, 3-question placeholders, or shallow stubs");
+  expect(rootCompiled.text).toContain("Execute the latest active user request now.");
+
+  // 2. Subagent turn: does NOT receive root craftsmanship contract, must remain concise (<25 lines)
+  const subagentReq = request("high");
+  subagentReq._rawBody = {
+    client_metadata: {
+      "x-codex-turn-metadata": {
+        request_kind: "turn",
+        subagent_kind: "thread_spawn",
+        thread_id: "thread_child_12345678",
+        parent_thread_id: "thread_parent_12345678",
+        agent_name: "/root/researcher",
+        sandbox_mode: "danger-full-access",
+        workspaces: { "/home/deuz/Proyectos/codex-chatgpt-web": {} },
+      },
+    },
+  };
+  const subCompiled = compileChatGptWebPrompt(subagentReq, caps, token);
+  expect(subCompiled.text).not.toContain("FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY CONTRACT:");
+  expect(subCompiled.text).toContain("Your final response to the parent agent must be concise (under 25 lines)");
+  expect(subCompiled.text).toContain("Execute your assigned worker brief now.");
+
+  // 3. Compaction turn: does NOT receive root craftsmanship contract, must remain concise
+  const compactReq = request("high");
+  compactReq._compactionRequest = true;
+  const compactCompiled = compileChatGptWebPrompt(compactReq, caps, token);
+  expect(compactCompiled.text).not.toContain("FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY CONTRACT:");
+  expect(compactCompiled.text).toContain("Produce the requested checkpoint summary now without calling tools.");
+
+  // 4. Low verbosity explicit request: does NOT receive comprehensive craftsmanship contract
+  const lowVerbosityReq = request("high");
+  lowVerbosityReq.options = { ...lowVerbosityReq.options, verbosity: "low" };
+  const lowCompiled = compileChatGptWebPrompt(lowVerbosityReq, caps, token);
+  expect(lowCompiled.text).not.toContain("FRONTIER CRAFTSMANSHIP & RESPONSE QUALITY CONTRACT:");
+  expect(lowCompiled.text).toContain("Codex requested low response verbosity. Keep the final user-facing answer concise and direct");
 });
 

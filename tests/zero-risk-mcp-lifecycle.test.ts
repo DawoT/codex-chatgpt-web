@@ -305,6 +305,7 @@ describe("Zero Risk public MCP ABI", () => {
         "codex_turn_complete",
         "codex_turn_start",
         "codex_view_image",
+        "codex_wait_tasks",
         "codex_write_file",
         "codex_write_stdin",
       ]);

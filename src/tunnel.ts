@@ -265,6 +265,26 @@ export function mcpCommand(config: AppConfig, platform = process.platform): stri
   return command.map(shellQuote).join(" ");
 }
 
+/**
+ * MCP command for the optional chat-first connector profile. It follows the same quoting and
+ * transport shape as mcpCommand but pins the token-free chat-first contract; the chat-first MCP
+ * server never dials the turn broker, so the socket argument is accepted and simply unused.
+ */
+export function chatFirstMcpCommand(config: AppConfig, platform = process.platform): string {
+  const command = [
+    ...config.runtimeCommand,
+    "mcp",
+    "--contract",
+    "chat-first",
+    "--broker-socket",
+    config.brokerSocketPath,
+  ];
+  if (platform === "win32") {
+    return command.map(tunnelCommandQuoted).join(" ");
+  }
+  return command.map(shellQuote).join(" ");
+}
+
 function tunnel(config: AppConfig): TunnelConfig {
   if (config.mode !== "full" || !config.tunnel) throw new Error("Tunnel commands require full mode");
   return config.tunnel;

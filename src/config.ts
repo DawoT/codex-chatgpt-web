@@ -23,6 +23,8 @@ export const CHATGPT_CONNECTOR_NAME = "Codex Native2";
 export const DEV_CHATGPT_CONNECTOR_NAME = `${CHATGPT_CONNECTOR_NAME} DEV`;
 export const ZERO_RISK_CHATGPT_CONNECTOR_NAME = "Codex Zero Risk";
 export const LEGACY_CHATGPT_CONNECTOR_NAMES = ["Codex Native"] as const;
+/** Connector identity for the chat-first MCP contract (turn calls without a turn token). */
+export const CHAT_FIRST_CHATGPT_CONNECTOR_NAME = "Codex Chat-First";
 
 export function isLegacyChatGptConnectorName(value: string): boolean {
   return (LEGACY_CHATGPT_CONNECTOR_NAMES as readonly string[]).includes(value);
@@ -99,6 +101,31 @@ export interface AppConfig {
   tunnel?: TunnelConfig;
   automaticTunnel?: TunnelConfig;
   manualTunnel?: TunnelConfig;
+  /**
+   * Sprint AG: Maximum requests per minute per API key for /v1/responses.
+   * 0 or undefined = disabled (no rate limiting). Default: 60.
+   * Configurable via CODEX_RATE_LIMIT_RPM environment variable.
+   */
+  rateLimitRpm?: number;
+  /**
+   * Optional chat-first MCP contract: ChatGPT Web turns arrive without a turn token and their
+   * environment is derived from this block instead of the trusted Codex environment context.
+   */
+  chatFirst?: {
+    enabled: boolean;
+    sandboxMode: "readOnly" | "workspaceWrite" | "dangerFullAccess";
+    workspaces?: string[];
+  };
+  /**
+   * Optional background-task tuning (Sprint H1). When the block is absent the previous behavior
+   * is kept: no concurrency limit and no log garbage collection. Defaults when present:
+   * maxConcurrent 8, resumeNotes true, logRetentionHours 48.
+   */
+  backgroundTasks?: {
+    maxConcurrent?: number; // 1..32, default 8
+    resumeNotes?: boolean; // default true
+    logRetentionHours?: number; // 1..720, default 48
+  };
 }
 
 export function tunnelConfigForInteractionMode(
@@ -537,6 +564,66 @@ function parseConfig(value: unknown, path: string): AppConfig {
   if (proAvailable && !solAvailable) {
     throw new Error(`Invalid ChatGPT account capabilities in ${path}: Pro requires Sol`);
   }
+  let chatFirst: AppConfig["chatFirst"];
+  const rawChatFirst = parsed.chatFirst as unknown;
+  if (rawChatFirst !== undefined) {
+    if (!rawChatFirst || typeof rawChatFirst !== "object" || Array.isArray(rawChatFirst)) {
+      throw new Error(`Invalid chatFirst in ${path}`);
+    }
+    const raw = rawChatFirst as Partial<NonNullable<AppConfig["chatFirst"]>>;
+    if (typeof raw.enabled !== "boolean") {
+      throw new Error(`Invalid chatFirst.enabled in ${path}; chat-first requires an explicit boolean`);
+    }
+    const sandboxMode = raw.sandboxMode ?? "dangerFullAccess";
+    if (sandboxMode !== "readOnly" && sandboxMode !== "workspaceWrite" && sandboxMode !== "dangerFullAccess") {
+      throw new Error(`Invalid chatFirst.sandboxMode in ${path}`);
+    }
+    let workspaces: string[] = [];
+    if (raw.workspaces !== undefined) {
+      if (!Array.isArray(raw.workspaces)
+        || raw.workspaces.some(entry => typeof entry !== "string" || !entry.trim())) {
+        throw new Error(`Invalid chatFirst.workspaces in ${path}; it must be an array of non-empty path strings`);
+      }
+      workspaces = raw.workspaces.map(entry => {
+        const expanded = expandUserPath(entry);
+        if (!isAbsolute(expanded)) {
+          throw new Error(`chatFirst.workspaces entries must be absolute in ${path}: ${entry}`);
+        }
+        return resolve(expanded);
+      });
+    }
+    if (sandboxMode === "workspaceWrite" && workspaces.length === 0) {
+      throw new Error(
+        `chatFirst.sandboxMode workspaceWrite requires at least one chatFirst.workspaces entry in ${path}`,
+      );
+    }
+    chatFirst = {
+      enabled: raw.enabled,
+      sandboxMode,
+      ...(workspaces.length > 0 ? { workspaces } : {}),
+    };
+  }
+  let backgroundTasks: AppConfig["backgroundTasks"];
+  const rawBackgroundTasks = parsed.backgroundTasks as unknown;
+  if (rawBackgroundTasks !== undefined) {
+    if (!rawBackgroundTasks || typeof rawBackgroundTasks !== "object" || Array.isArray(rawBackgroundTasks)) {
+      throw new Error(`Invalid backgroundTasks in ${path}`);
+    }
+    const raw = rawBackgroundTasks as Partial<NonNullable<AppConfig["backgroundTasks"]>>;
+    const maxConcurrent = raw.maxConcurrent ?? 8;
+    if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 32) {
+      throw new Error(`Invalid backgroundTasks.maxConcurrent in ${path}; it must be an integer between 1 and 32`);
+    }
+    const resumeNotes = raw.resumeNotes ?? true;
+    if (typeof resumeNotes !== "boolean") {
+      throw new Error(`Invalid backgroundTasks.resumeNotes in ${path}`);
+    }
+    const logRetentionHours = raw.logRetentionHours ?? 48;
+    if (!Number.isInteger(logRetentionHours) || logRetentionHours < 1 || logRetentionHours > 720) {
+      throw new Error(`Invalid backgroundTasks.logRetentionHours in ${path}; it must be an integer between 1 and 720`);
+    }
+    backgroundTasks = { maxConcurrent, resumeNotes, logRetentionHours };
+  }
   return {
     ...parsed,
     appName: expectedAppName,
@@ -551,6 +638,8 @@ function parseConfig(value: unknown, path: string): AppConfig {
     experimentalFreshConversationPerTurn,
     useSavedChats,
     zeroRiskProEnabled,
+    ...(chatFirst !== undefined ? { chatFirst } : {}),
+    ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
   } as AppConfig;
 }
 

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultBrokerEndpoint } from "../src/config";
-import { callTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { callTurnBroker, RemoteTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 
 test("turn broker aliases predecessor token to active successor turn", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-lineage-1-"));
@@ -370,6 +370,123 @@ test("bounded lineage keeps recent turns routable across many registrations and 
       token: predecessor,
       activityId: "activity_churn_recent_123456",
     })).resolves.toMatchObject({ bindingId: expect.any(String) });
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("touching an activity refreshes its lease past the liveness bound without a fence event", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-lineage-touch-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath, 400);
+  const remote = new RemoteTurnBroker(socketPath);
+  try {
+    const environment = {
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      sandboxPolicy: { type: "dangerFullAccess" as const },
+      tools: [],
+    };
+
+    const token1 = await broker.register(environment, 60_000, "trace-sess-touch");
+    const token2 = await broker.register(environment, 60_000, "trace-sess-touch", false, "turn", token1);
+    const rev1 = broker.beginCompletionFence(token1);
+    broker.commitCompletionFence(token1, rev1!);
+
+    // The claim resolves through the alias, so its activity lease lands on the successor channel.
+    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token: token1,
+      activityId: "activity_touch_claim_1234567",
+    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    expect(broker.beginCompletionFence(token2)).toBeUndefined();
+
+    // A multi-invoke owner refreshes the lease through the retired handle before each invoke.
+    await Bun.sleep(250);
+    await expect(remote.touchActivity(token1, "activity_touch_claim_1234567")).resolves.toBeTrue();
+    await Bun.sleep(250);
+
+    // Refreshed 250 ms ago: the lease outlives the 400 ms liveness bound — and a turn without
+    // the touch would already have swept it at twice the bound — so the fence stays vetoed.
+    expect(broker.beginCompletionFence(token2)).toBeUndefined();
+    expect(broker.commitCompletionFence(token2, 0)).toBeFalse();
+
+    // A touch is not a causal event: the fence only opens once the claim settles.
+    await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
+      method: "activity_complete",
+      token: token1,
+      activityId: "activity_touch_claim_1234567",
+    })).resolves.toMatchObject({ completed: true });
+    const rev2 = broker.beginCompletionFence(token2);
+    expect(rev2).toBeDefined();
+    expect(broker.commitCompletionFence(token2, rev2!)).toBeTrue();
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("touching a missing, settled, or revoked activity returns false and moves no revision", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-lineage-touch-miss-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  const remote = new RemoteTurnBroker(socketPath);
+  try {
+    const environment = {
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      sandboxPolicy: { type: "dangerFullAccess" as const },
+      tools: [],
+    };
+
+    const token = await broker.register(environment, 60_000, "trace-touch-miss");
+    await expect(remote.touchActivity(token, "activity_unknown_touch_123456")).resolves.toBeFalse();
+
+    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token,
+      activityId: "activity_touch_settled_123456",
+    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
+      method: "activity_complete",
+      token,
+      activityId: "activity_touch_settled_123456",
+    })).resolves.toMatchObject({ completed: true });
+    // A settled (tombstoned) activity is never revived by a touch.
+    await expect(remote.touchActivity(token, "activity_touch_settled_123456")).resolves.toBeFalse();
+
+    // The socket path validates the activity id exactly like claim and activity_complete.
+    await expect(callTurnBroker(socketPath, {
+      method: "owner_touch_activity",
+      token,
+      activityId: "not-an-activity-id",
+    })).rejects.toThrow("turn activity id is invalid");
+
+    broker.revoke(token);
+    await expect(remote.touchActivity(token, "activity_unknown_touch_123456")).resolves.toBeFalse();
+    await expect(remote.touchActivity("turn_missing_aaaaaaaaaaaaaaaa", "activity_unknown_touch_123456"))
+      .resolves.toBeFalse();
+
+    // A touch is not a causal event: two claims plus two settles leave the fence revision at
+    // exactly four, where an extra revision bump from either touch would read five.
+    const revisionToken = await broker.register(environment, 60_000, "trace-touch-revision");
+    for (const activityId of ["activity_touch_first_1234567", "activity_touch_second_123456"]) {
+      await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: revisionToken,
+        activityId,
+      })).resolves.toMatchObject({ bindingId: expect.any(String) });
+      await expect(remote.touchActivity(revisionToken, activityId)).resolves.toBeTrue();
+      await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
+        method: "activity_complete",
+        token: revisionToken,
+        activityId,
+      })).resolves.toMatchObject({ completed: true });
+    }
+    expect(broker.beginCompletionFence(revisionToken)).toBe(4);
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });

@@ -80,7 +80,24 @@ export async function defaultHealthUrlProbe(url: string, timeoutMs = 2_000): Pro
   try {
     const target = url.endsWith("/") ? `${url}readyz` : `${url}/readyz`;
     const response = await fetch(target, { signal: controller.signal });
-    return response.status === 200;
+    if (response.status !== 200) return false;
+
+    // Check tunnel metrics for 502 status indicating retired stdio channel or broken upstream
+    const metricsTarget = url.endsWith("/") ? `${url}metrics` : `${url}/metrics`;
+    try {
+      const metricsResponse = await fetch(metricsTarget, { signal: controller.signal });
+      if (metricsResponse.status === 200) {
+        const text = await metricsResponse.text();
+        const match502 = text.match(/tunnel_service_status="502"[^}]*\}\s+(\d+)/);
+        if (match502 && parseInt(match502[1], 10) > 0) {
+          return false;
+        }
+      }
+    } catch {
+      // Best-effort check; do not fail if metrics endpoint is temporarily unreachable
+    }
+
+    return true;
   } catch {
     return false;
   } finally {
@@ -137,9 +154,29 @@ export class TunnelSupervisor {
     this.pollIntervalMs = options.pollIntervalMs ?? 15_000;
     this.backoffDelaysMs = options.backoffDelaysMs ?? [1_000, 2_000, 5_000];
     this.maxConsecutiveRestarts = options.maxConsecutiveRestarts ?? 3;
-    this.statusProbe = options.statusProbe ?? (cfg => tunnelStatus(cfg));
     this.restartAction = options.restartAction ?? (cfg => defaultRestartAction(cfg));
     this.healthUrlProbe = options.healthUrlProbe ?? (url => defaultHealthUrlProbe(url));
+    this.statusProbe = options.statusProbe ?? (async cfg => {
+      const status = tunnelStatus(cfg);
+      if (!status.ok) return status;
+      const healthUrl = resolveTunnelHealthUrl(cfg);
+      if (healthUrl) {
+        try {
+          const isHealthy = await this.healthUrlProbe(healthUrl);
+          if (!isHealthy) {
+            return {
+              ok: false,
+              processRunning: status.processRunning,
+              healthy: false,
+              ready: false,
+              state: status.state,
+              detail: "tunnel health probe failed (endpoint unreachable or 502 error detected)",
+            };
+          }
+        } catch {}
+      }
+      return status;
+    });
     this.logger = options.logger ?? {
       info: msg => console.info(`[tunnel-supervisor] ${msg}`),
       warn: msg => console.warn(`[tunnel-supervisor] ${msg}`),

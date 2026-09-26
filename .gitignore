@@ -20,3 +20,4 @@ notes.md
 .zcode/
 *.AppImage
 pnpm-lock.yaml
+.agents/
