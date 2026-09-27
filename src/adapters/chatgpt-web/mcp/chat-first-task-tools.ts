@@ -3,7 +3,7 @@ import * as z from "zod/v4";
 import { realpathSync } from "node:fs";
 import type { AppConfig } from "../../../config";
 import type { resolveChatFirstWorkspace } from "../chat-first-environment";
-import { CommandAdmission } from "../command-admission";
+import { SharedCommandAdmission } from "../shared-command-admission";
 import { BackgroundTaskManager } from "../background-task-manager";
 import { workspaceFileCache } from "../fast-path-cache";
 import { handleExecCommand, DEFAULT_EXEC_TIMEOUT_MS, MIN_EXEC_TIMEOUT_MS, MAX_EXEC_TIMEOUT_MS, result, type FastPathToolResult } from "../fast-path-handlers";
@@ -17,13 +17,35 @@ export function registerChatFirstTaskTools(server: McpServer, services: {
   audit: (name: string, result: FastPathToolResult, path: string) => void;
 }): void {
   const { config: chatFirstConfig, scopeFor, toolResult: chatFirstToolResult, audit: auditMutationOutcome } = services;
-  // One quota per registration; workspace selection cannot create another process pool.
+  // Keep task visibility local to this MCP process; share only execution capacity.
   const manager = new BackgroundTaskManager();
-  const admission = new CommandAdmission(chatFirstConfig.backgroundTasks?.maxConcurrent ?? 8);
-  const backgroundLeases = new Map<string, () => void>();
+  const admission = new SharedCommandAdmission(chatFirstConfig.backgroundTasks?.maxConcurrent ?? 8);
+  const backgroundLeases = new Map<string, { release: () => void; ownerId: string }>();
+  const shutdown = new AbortController();
+  const previousClose = server.server.onclose;
+  server.server.onclose = () => {
+    shutdown.abort(new Error("Chat-First MCP transport closed"));
+    for (const [id, lease] of backgroundLeases) {
+      manager.killTask(id, lease.ownerId);
+    }
+    previousClose?.();
+  };
+  const settleBackgroundLease = (id: string, attempt = 0): void => {
+    const lease = backgroundLeases.get(id);
+    if (!lease) return;
+    try {
+      lease.release();
+      backgroundLeases.delete(id);
+    } catch (error) {
+      if (attempt < 4) {
+        setTimeout(() => settleBackgroundLease(id, attempt + 1), 100 * (attempt + 1));
+      } else {
+        console.error(`Chat-First command lease ${id} could not be released: ${String(error)}`);
+      }
+    }
+  };
   manager.onCompletion(task => {
-    backgroundLeases.get(task.id)?.();
-    backgroundLeases.delete(task.id);
+    settleBackgroundLease(task.id);
     workspaceFileCache.clear();
   });
   const ownerFor = (cwd: string) => {
@@ -48,24 +70,26 @@ export function registerChatFirstTaskTools(server: McpServer, services: {
     async (input, extra) => {
       const scope = scopeFor(input.workspace);
       const ownerId = ownerFor(scope.cwd);
-      extra.signal.throwIfAborted();
-      const release = await admission.acquire(extra.signal, !input.background);
+      const signal = AbortSignal.any([extra.signal, shutdown.signal]);
+      signal.throwIfAborted();
+      const release = await admission.acquire(signal, !input.background);
       let backgroundOwnsLease = false;
       try {
-        extra.signal.throwIfAborted();
+        signal.throwIfAborted();
         if (input.background) {
           const task = manager.startTask({
             cmd: input.cmd,
             workdir: input.workdir,
             ownerId,
             maxConcurrent: chatFirstConfig.backgroundTasks?.maxConcurrent ?? 8,
+            keepAlive: true,
             logRetentionHours: chatFirstConfig.backgroundTasks?.logRetentionHours ?? 48,
             cwd: scope.cwd,
             roots: scope.roots,
             writableRoots: scope.writableRoots,
           });
           if (task.status === "running") {
-            backgroundLeases.set(task.id, release);
+            backgroundLeases.set(task.id, { release, ownerId });
             backgroundOwnsLease = true;
           }
           workspaceFileCache.clear();
@@ -92,7 +116,7 @@ export function registerChatFirstTaskTools(server: McpServer, services: {
           roots: scope.roots,
           writableRoots: scope.writableRoots,
           cache: workspaceFileCache,
-          signal: extra.signal,
+          signal,
         });
         auditMutationOutcome("codex_exec", res, input.cmd);
         return chatFirstToolResult("codex_exec", scope.cwd, res);

@@ -6,6 +6,18 @@ import {
   resolveChatGptWebContextLimits,
 } from "../src/chatgpt-web-models";
 import { modelsRequest } from "../src/server";
+import { modelCatalogClient } from "../src/server/models-route";
+
+test("catalog diagnostics classify callers without exposing arbitrary headers", () => {
+  expect(modelCatalogClient(new Request("http://localhost/v1/models", {
+    headers: { authorization: "Bearer PRIVATE_TOKEN", "user-agent": "codex_cli_rs/0.151.0 (Linux)" },
+  }))).toEqual({ client: "codex", version: "0.151.0", bearerPresent: true });
+  const unknown = modelCatalogClient(new Request("http://localhost/v1/models", {
+    headers: { "user-agent": "PRIVATE_UNTRUSTED_VALUE", authorization: "Basic PRIVATE_TOKEN" },
+  }));
+  expect(unknown).toEqual({ client: "other", bearerPresent: false });
+  expect(JSON.stringify(unknown)).not.toContain("PRIVATE");
+});
 
 test("proxies official /models auth and query, then appends grouped and legacy Web models", async () => {
   const request = new Request("http://127.0.0.1:17841/v1/models?client_version=1.2.3", {

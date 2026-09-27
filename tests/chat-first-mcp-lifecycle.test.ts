@@ -451,3 +451,194 @@ test("foreground and background execution share admission until process close", 
     await client.close();
   }
 });
+
+test("independent MCP processes share one command capacity for the same home", async () => {
+  const { home, ws } = workspaceHome("cross-process-admission", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const configPath = join(home, "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.backgroundTasks = { maxConcurrent: 1 };
+  writeFileSync(configPath, JSON.stringify(config));
+  const first = connectChatFirst(home);
+  const second = connectChatFirst(home);
+  const childErrors: string[] = [];
+  first.transport.stderr?.on("data", chunk => childErrors.push(String(chunk)));
+  second.transport.stderr?.on("data", chunk => childErrors.push(String(chunk)));
+  let taskId: string | undefined;
+  try {
+    await Promise.all([
+      first.client.connect(first.transport),
+      second.client.connect(second.transport),
+    ]).catch(error => {
+      throw new Error(`${String(error)}\n${childErrors.join("")}`);
+    });
+    const started = await first.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, background: true, cmd: "printf ready > ready; sleep 5" },
+    });
+    expect(started.isError).toBeUndefined();
+    taskId = (started.structuredContent as { task_id: string }).task_id;
+    const deadline = Date.now() + 2000;
+    while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
+      await Bun.sleep(10);
+    }
+    expect(existsSync(join(ws, "ready"))).toBe(true);
+
+    const overLimit = await second.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, background: true, cmd: "printf overflow > overflow" },
+    });
+    expect(overLimit.isError).toBe(true);
+    expect(existsSync(join(ws, "overflow"))).toBe(false);
+
+    const queued = second.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, cmd: "printf admitted > admitted" },
+    });
+    await Bun.sleep(80);
+    expect(existsSync(join(ws, "admitted"))).toBe(false);
+    await first.client.callTool({
+      name: "codex_poll_task",
+      arguments: { workspace: ws, task_id: taskId, kill: true },
+    });
+    await first.client.callTool({
+      name: "codex_poll_task",
+      arguments: { workspace: ws, task_id: taskId, wait_ms: 2000 },
+    });
+    expect((await queued).isError).toBeUndefined();
+    expect(readFileSync(join(ws, "admitted"), "utf8")).toBe("admitted");
+  } finally {
+    if (taskId) {
+      await first.client.callTool({
+        name: "codex_poll_task",
+        arguments: { workspace: ws, task_id: taskId, kill: true },
+      }).catch(() => {});
+      await first.client.callTool({
+        name: "codex_poll_task",
+        arguments: { workspace: ws, task_id: taskId, wait_ms: 2000 },
+      }).catch(() => {});
+    }
+    await Promise.all([
+      first.client.close().catch(() => {}),
+      second.client.close().catch(() => {}),
+    ]);
+  }
+});
+
+test("closing an MCP transport settles its running background task and frees the shared slot", async () => {
+  const { home, ws } = workspaceHome("cross-process-close", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const configPath = join(home, "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.backgroundTasks = { maxConcurrent: 1 };
+  writeFileSync(configPath, JSON.stringify(config));
+  const first = connectChatFirst(home);
+  const second = connectChatFirst(home);
+  try {
+    await Promise.all([
+      first.client.connect(first.transport),
+      second.client.connect(second.transport),
+    ]);
+    const started = await first.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, background: true, cmd: "printf ready > ready; sleep 2; printf late > late" },
+    });
+    expect(started.isError).toBeUndefined();
+    const deadline = Date.now() + 2000;
+    while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
+      await Bun.sleep(10);
+    }
+    expect(existsSync(join(ws, "ready"))).toBe(true);
+    await first.client.close();
+    const admitted = await second.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, cmd: "printf after > after" },
+    });
+    expect(admitted.isError).toBeUndefined();
+    expect(readFileSync(join(ws, "after"), "utf8")).toBe("after");
+    await Bun.sleep(2200);
+    expect(existsSync(join(ws, "late"))).toBe(false);
+  } finally {
+    await Promise.all([
+      first.client.close().catch(() => {}),
+      second.client.close().catch(() => {}),
+    ]);
+  }
+});
+
+test("an abruptly killed MCP owner cannot silently grant its potentially running slot", async () => {
+  const { home, ws } = workspaceHome("cross-process-crash", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const configPath = join(home, "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.backgroundTasks = { maxConcurrent: 1 };
+  writeFileSync(configPath, JSON.stringify(config));
+  const first = connectChatFirst(home);
+  const second = connectChatFirst(home);
+  try {
+    await Promise.all([
+      first.client.connect(first.transport),
+      second.client.connect(second.transport),
+    ]);
+    const started = await first.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, background: true, cmd: "printf ready > ready; sleep 1; printf done > done" },
+    });
+    expect(started.isError).toBeUndefined();
+    const deadline = Date.now() + 2000;
+    while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
+      await Bun.sleep(10);
+    }
+    expect(existsSync(join(ws, "ready"))).toBe(true);
+    const pid = first.transport.pid;
+    expect(pid).not.toBeNull();
+    process.kill(pid!, "SIGKILL");
+    const rejected = await second.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, background: true, cmd: "printf overflow > overflow" },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(existsSync(join(ws, "overflow"))).toBe(false);
+    const doneDeadline = Date.now() + 3000;
+    while (!existsSync(join(ws, "done")) && Date.now() < doneDeadline) {
+      await Bun.sleep(20);
+    }
+    expect(existsSync(join(ws, "done"))).toBe(true);
+
+    const status = Bun.spawn([
+      process.execPath, "src/cli.ts", "admission", "status", "--json",
+    ], { cwd: process.cwd(), env: childEnv(home), stdout: "pipe", stderr: "pipe" });
+    expect(await status.exited).toBe(0);
+    const snapshot = JSON.parse(await new Response(status.stdout).text()) as {
+      active: Array<{ id: number; ownerPid: number }>;
+    };
+    expect(snapshot.active).toHaveLength(1);
+    expect(snapshot.active[0]?.ownerPid).toBe(pid!);
+
+    const recovered = Bun.spawn([
+      process.execPath, "src/cli.ts", "admission", "recover", String(snapshot.active[0]!.id),
+      "--ack-descendants-settled",
+    ], { cwd: process.cwd(), env: childEnv(home), stdout: "pipe", stderr: "pipe" });
+    expect(await recovered.exited).toBe(0);
+    const admitted = await second.client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, cmd: "printf recovered > recovered" },
+    });
+    expect(admitted.isError).toBeUndefined();
+    expect(readFileSync(join(ws, "recovered"), "utf8")).toBe("recovered");
+  } finally {
+    await Promise.all([
+      first.client.close().catch(() => {}),
+      second.client.close().catch(() => {}),
+    ]);
+  }
+});

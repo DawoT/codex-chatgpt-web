@@ -95,5 +95,10 @@ export async function runChatGptMcpServer(options: {
     registerNativeAndSafeTools(server, coordinator);
   }
 
+  if (contract === "chat-first") {
+    process.stdin.once("end", () => {
+      void server.close().catch(() => {});
+    });
+  }
   await server.connect(observeMcpToolCalls(new StdioServerTransport(), BRIDGE_TOOL_NAMES));
 }

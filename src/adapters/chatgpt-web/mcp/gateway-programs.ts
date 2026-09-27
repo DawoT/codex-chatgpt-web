@@ -1,3 +1,4 @@
+import { boundedSessionArguments } from "./session-yield";
 import { AGENT_WAIT_TRANSPORT_RULE, CHATGPT_WEB_AGENT_WAIT_POLL_MS } from "./instructions";
 import {
   GATEWAY_AGENT_WAIT_TOOL_NAMES,
@@ -119,7 +120,7 @@ export function execGatewayProgram(
   if (gatewayName !== nestedToolName) {
     throw new Error(`Codex nested tool name is invalid: ${nestedToolName}`);
   }
-  const nestedInput = freeform ? payload.input ?? "" : payload.arguments ?? {};
+  const nestedInput = freeform ? payload.input ?? "" : boundedSessionArguments(nestedToolName, payload.arguments ?? {});
   return execGatewayResultProgram([
     "if (typeof ALL_TOOLS === \"undefined\" || !Array.isArray(ALL_TOOLS)) throw new Error(\"Native nested tool registry is unavailable\");",
     `const nestedToolName = ${JSON.stringify(gatewayName)};`,
@@ -143,6 +144,7 @@ export function transportBoundRawExecProgram(input: string, blockedExecName: str
     input,
     "})((() => {",
     "  const source = tools;",
+    `  const boundSession = ${boundedSessionArguments.toString()};`,
     `  const waitNames = new Set(${JSON.stringify([...GATEWAY_AGENT_WAIT_TOOL_NAMES])});`,
     `  const blockedExecName = ${JSON.stringify(blockedExecName)};`,
     `  const pollMs = ${CHATGPT_WEB_AGENT_WAIT_POLL_MS};`,
@@ -164,6 +166,8 @@ export function transportBoundRawExecProgram(input: string, blockedExecName: str
     "        }",
     "        return Reflect.apply(value, source, [args]);",
     "      };",
+    "    } else if (typeof value === \"function\" && (name === \"exec_command\" || name === \"write_stdin\")) {",
+    "      exposed = args => Reflect.apply(value, source, [boundSession(name, args)]);",
     "    } else if (typeof value === \"function\") {",
     "      exposed = (...args) => Reflect.apply(value, source, args);",
     "    }",
@@ -203,7 +207,7 @@ export function execCommandGatewayProgram(
     "const nativeCommandName = nativeCommandCandidates[0];",
     "const nativeCommand = tools[nativeCommandName];",
     "if (typeof nativeCommand !== \"function\") throw new Error(\"Native command tool \" + nativeCommandName + \" is listed but unavailable\");",
-    `const nativeCommandInput = nativeCommandName === ${JSON.stringify(execCommandName)} ? ${JSON.stringify(execCommandArguments)} : ${JSON.stringify(shellCommandArguments)};`,
+    `const nativeCommandInput = nativeCommandName === ${JSON.stringify(execCommandName)} ? ${JSON.stringify(boundedSessionArguments("exec_command", execCommandArguments))} : ${JSON.stringify(shellCommandArguments)};`,
     "const result = await nativeCommand(nativeCommandInput);",
   ]);
 }

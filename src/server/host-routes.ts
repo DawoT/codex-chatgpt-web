@@ -1,23 +1,28 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { SlidingWindowRateLimiter } from "../adapters/chatgpt-web/rate-limiter";
-import type { AppConfig } from "../config";
+import { getConfigDir, type AppConfig } from "../config";
 import { availableChatGptWebModelRoutes, resolveChatGptWebContextLimits } from "../chatgpt-web-models";
 import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import { responseRequest, type ChatGptWebAdapterFactory } from "./response-route";
 import { HttpTurnCounter } from "./http-turn-counter";
-import { authorized, HostProtocolError, HostSessionStore, type HostSession, type HostTurn } from "./host-state";
+import { authorized, digest, HostProtocolError, HostSessionStore, type HostSession, type HostTurn } from "./host-state";
 import { prepareHostRequest, readHostBody } from "./host-request";
+import { HostRecoveryStore } from "./host-recovery";
+import { inspectHostTurn } from "./host-status";
 
 /** Local capability boundary. Never executes tools; all tool execution belongs to the paired host. */
 export class HostHttpRoutes {
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly rateLimiter: SlidingWindowRateLimiter;
+  private readonly recovery: HostRecoveryStore;
   constructor(
     private readonly config: AppConfig,
     private readonly httpTurns: HttpTurnCounter,
     private readonly adapterFactory?: ChatGptWebAdapterFactory,
     readonly store = new HostSessionStore(),
+    recoveryRoot = join(getConfigDir(), "host-recovery"),
   ) {
+    this.recovery = new HostRecoveryStore(recoveryRoot);
     const configuredRate = config.rateLimitRpm ?? Number(process.env.CODEX_RATE_LIMIT_RPM ?? 60);
     const rate = Number.isSafeInteger(configuredRate) ? configuredRate : 60;
     this.rateLimiter = new SlidingWindowRateLimiter({ limitPerWindow: rate, disabled: rate <= 0 });
@@ -47,8 +52,22 @@ export class HostHttpRoutes {
     const identity = { threadId: session.id, turnId: turn.id };
     const http = this.httpTurns.beginCancelTurn(identity, reason);
     const browser = chatGptTurnSessions.cancelNativeTurn(session.id, turn.id, reason);
+    if (session.recoveryScope) {
+      try {
+        this.recovery.markCancelled(session.recoveryScope, turn.id, "requested");
+      } catch (error) {
+        console.warn("[host] recovery cancellation receipt failed:", error instanceof Error ? error.message : "unknown error");
+      }
+    }
     void Promise.all([http.settlement, browser.settlement]).then(() => {
       turn.cancellation = "settled";
+      if (session.recoveryScope) {
+        try {
+          this.recovery.markCancelled(session.recoveryScope, turn.id, "settled");
+        } catch (error) {
+          console.warn("[host] recovery cancellation settlement receipt failed:", error instanceof Error ? error.message : "unknown error");
+        }
+      }
     }, () => {});
     return turn.cancellation;
   }
@@ -56,7 +75,9 @@ export class HostHttpRoutes {
   private remove(session: HostSession): void {
     this.store.sessions.delete(session.id);
     session.admitting?.abort.abort(new DOMException("Host session revoked", "AbortError"));
-    for (const turn of session.turns.values()) this.cancel(session, turn);
+    for (const turn of session.turns.values()) {
+      if (turn.active) this.cancel(session, turn);
+    }
     session.responses.clear();
     session.calls.clear();
     session.bytes = 0;
@@ -83,19 +104,30 @@ export class HostHttpRoutes {
         if (!authorized(request, this.config.controlToken)) throw new HostProtocolError(401, "Host pairing requires local control authorization");
         if (this.config.mode !== "full") throw new HostProtocolError(409, "Host integration requires full mode with host-owned tools");
         const body = await readHostBody(request);
-        if (body.protocol !== 1 || body.host !== "pi" || typeof body.cwd !== "string" || !isAbsolute(body.cwd) || body.cwd.length > 4096 || /[\x00-\x1f]/.test(body.cwd) || Object.keys(body).some(key => !["protocol", "host", "cwd"].includes(key))) {
+        if (body.protocol !== 1 || body.host !== "pi" || typeof body.cwd !== "string" || !isAbsolute(body.cwd) || body.cwd.length > 4096 || /[\x00-\x1f]/.test(body.cwd)
+          || (body.recovery_scope !== undefined && (typeof body.recovery_scope !== "string" || !/^[a-f0-9]{64}$/.test(body.recovery_scope)))
+          || Object.keys(body).some(key => !["protocol", "host", "cwd", "recovery_scope"].includes(key))) {
           throw new HostProtocolError(400, "Expected protocol 1, host pi and an absolute cwd");
         }
         const models = this.models();
         if (!models.length) throw new HostProtocolError(409, "No automatic ChatGPT Web routes are available");
-        const session = this.store.create(body.cwd);
+        const session = this.store.create(body.cwd, body.recovery_scope as string | undefined);
         return Response.json({ protocol: 1, session_id: session.id, token: session.token, models }, { headers: { "cache-control": "no-store" } });
       }
       if (path === "/host/v1/responses" && request.method === "POST") return await this.respond(request);
-      const match = /^\/host\/v1\/sessions\/([A-Za-z0-9_-]+)(?:\/turns\/([A-Za-z0-9_-]{1,128})\/cancel)?$/.exec(path);
+      const recoveryMatch = /^\/host\/v1\/sessions\/([A-Za-z0-9_-]+)\/recovery$/.exec(path);
+      if (recoveryMatch && request.method === "GET") {
+        const session = this.store.authenticate(request, recoveryMatch[1]!);
+        if (!session.recoveryScope) throw new HostProtocolError(409, "This host session has no persistent recovery scope");
+        return Response.json(this.recovery.inspectLatest(session.recoveryScope), { headers: { "cache-control": "no-store" } });
+      }
+      const match = /^\/host\/v1\/sessions\/([A-Za-z0-9_-]+)(?:\/turns\/([A-Za-z0-9_-]{1,128})(?:\/(cancel))?)?$/.exec(path);
       if (match) {
         const session = this.store.authenticate(request, match[1]!);
-        if (match[2] && request.method === "POST") {
+        if (match[2] && !match[3] && request.method === "GET") {
+          return Response.json(inspectHostTurn(session, match[2]), { headers: { "cache-control": "no-store" } });
+        }
+        if (match[2] && match[3] === "cancel" && request.method === "POST") {
           let turn = session.turns.get(match[2]);
           if (!turn && session.admitting?.turnId === match[2]) {
             turn = { id: match[2], catalog: "", names: new Set(), active: false, cancelled: false };
@@ -150,9 +182,14 @@ export class HostHttpRoutes {
     if (body.max_output_tokens !== undefined && (!Number.isSafeInteger(body.max_output_tokens) || Number(body.max_output_tokens) < 1 || Number(body.max_output_tokens) > 32_768)) throw new HostProtocolError(400, "Host output budget must be between 1 and 32768 tokens");
     body.max_output_tokens ??= 32_768;
     const prepared = prepareHostRequest(session, turnId, body);
+    if (session.recoveryScope) {
+      if (session.turns.has(turnId)) this.recovery.assertAdmitted(session.recoveryScope, turnId);
+      else this.recovery.admitTurn(session.recoveryScope, turnId, digest(prepared.body));
+    }
     session.sequence = Number(sequence);
     prepared.accept();
     const turn = prepared.turn;
+    turn.requestSequence = Number(sequence);
     try {
       return await this.httpTurns.track(async (signal, bindIdentity) => {
         bindIdentity({ threadId: session.id, turnId });
@@ -165,7 +202,14 @@ export class HostHttpRoutes {
           rememberState: false,
           hostTurn: { sessionId: session.id, turnId, cwd: session.cwd },
           onTurnIdentity: bindIdentity,
-          onCompletedResponse: output => this.store.remember(session, turn, prepared.body.input as unknown[], output),
+          onCompletedResponse: output => {
+            this.store.remember(session, turn, prepared.body.input as unknown[], output);
+            if (session.recoveryScope && typeof output.id === "string"
+              && turn.completedSequence === turn.requestSequence
+              && turn.completedResponseId === output.id && turn.requestSequence !== undefined) {
+              this.recovery.complete(session.recoveryScope, turnId, turn.requestSequence, output.id);
+            }
+          },
         });
         if (!response.body) {
           turn.active = false;

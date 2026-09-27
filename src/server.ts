@@ -34,6 +34,7 @@ import {
   modelsRequest,
   type ModelCatalogFailure,
   modelCatalogFailure,
+  modelCatalogClient,
 } from "./server/models-route";
 import {
   compactRequest,
@@ -219,7 +220,7 @@ export function startServer(
           const request = ++modelCatalogRequests;
           const started = Date.now();
           const recordResult = (response: Response, failure?: ModelCatalogFailure): Response => {
-            const result = { request, at: new Date().toISOString(), status: response.status, ...(failure ? { failure } : {}) };
+            const result = { request, at: new Date().toISOString(), status: response.status, caller: modelCatalogClient(req), ...(failure ? { failure } : {}) };
             if (!lastModelCatalogResult || request > lastModelCatalogResult.request) lastModelCatalogResult = result;
             if (!response.ok) {
               try {

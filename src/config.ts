@@ -117,8 +117,8 @@ export interface AppConfig {
     workspaces?: string[];
   };
   /**
-   * Optional task tuning. Chat-First shares maxConcurrent across foreground and background
-   * commands, queues at most maxConcurrent foreground calls for up to 5s, and applies 8 and
+   * Optional task tuning. Chat-First shares maxConcurrent across MCP processes,
+   * foreground and background commands, queues at most maxConcurrent foreground calls for up to 5s, and applies 8 and
    * logRetentionHours 48 when this block is absent. Defaults when present:
    * maxConcurrent 8, resumeNotes true, logRetentionHours 48.
    */

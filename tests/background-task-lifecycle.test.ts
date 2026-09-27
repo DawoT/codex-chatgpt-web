@@ -3,6 +3,10 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BackgroundTaskManager } from "../src/adapters/chatgpt-web/background-task-manager";
+import { createCommandCgroup } from "../src/adapters/chatgpt-web/command-cgroup";
+
+const delegatedCgroup = createCommandCgroup();
+delegatedCgroup?.release();
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "task-lifecycle-"));
@@ -151,6 +155,42 @@ test.skipIf(process.platform === "win32")("killing a task stops descendants that
     expect(manager.getTask(task.id)?.status).toBe("killed");
   } finally {
     manager.killTask(task.id);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!delegatedCgroup)("killing a task stops a descendant that starts a new session", async () => {
+  const { root, manager, start } = fixture();
+  const { existsSync } = await import("node:fs");
+  const task = start("setsid bash -c 'sleep 1; printf escaped > marker' </dev/null >/dev/null 2>&1 & printf ready > ready; sleep 10");
+  try {
+    const deadline = Date.now() + 2000;
+    while (!existsSync(join(root, "ready")) && Date.now() < deadline) await Bun.sleep(10);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    expect(manager.killTask(task.id)).toBe(true);
+    await manager.pollTask(task.id, 3000);
+    await Bun.sleep(1200);
+    expect(existsSync(join(root, "marker"))).toBe(false);
+  } finally {
+    manager.killTask(task.id);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("immediate task kill blocks execution before cgroup join", async () => {
+  const { root, manager, start } = fixture();
+  const { existsSync } = await import("node:fs");
+  try {
+    for (let index = 0; index < 20; index += 1) {
+      const task = start(`sleep 0.05; printf late > marker-${index}`);
+      expect(manager.killTask(task.id)).toBe(true);
+      await manager.pollTask(task.id, 2000);
+    }
+    await Bun.sleep(150);
+    for (let index = 0; index < 20; index += 1) {
+      expect(existsSync(join(root, `marker-${index}`))).toBe(false);
+    }
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

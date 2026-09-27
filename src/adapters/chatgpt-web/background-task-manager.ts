@@ -6,6 +6,7 @@ import { relative } from "node:path";
 
 import { resolveSafeWorkspacePath, assertWritableRootContainment } from "./fast-path/sandbox";
 import { waitForTaskRecords } from "./background-task-wait";
+import { CGROUP_SHELL_COMMAND, commandCgroupEnv, createCommandCgroup } from "./command-cgroup";
 import type { BackgroundTask, TaskRuntimeRecord, TaskWaitOptions } from "./background-task-types";
 export type { BackgroundTask } from "./background-task-types";
 
@@ -24,6 +25,7 @@ export class BackgroundTaskManager {
     roots: string[];
     writableRoots: string[];
     maxConcurrent?: number;
+    keepAlive?: boolean;
     logRetentionHours?: number;
   }): BackgroundTask {
     const { cmd } = options;
@@ -84,14 +86,18 @@ export class BackgroundTaskManager {
     };
 
     const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
-    const shellArgs = process.platform === "win32" ? ["/c", cmd] : ["-c", cmd];
+    const cgroup = createCommandCgroup();
+    record.cgroup = cgroup;
+    const shellArgs = process.platform === "win32"
+      ? ["/c", cmd]
+      : ["-c", cgroup ? CGROUP_SHELL_COMMAND : cmd];
 
     try {
       const child = spawn(shell, shellArgs, {
         cwd,
         detached: process.platform !== "win32",
         stdio: ["ignore", logFd, logFd],
-        env: { ...process.env },
+        env: { ...process.env, ...(cgroup ? commandCgroupEnv(cgroup, cmd) : {}) },
       });
 
       task.pid = child.pid;
@@ -105,7 +111,7 @@ export class BackgroundTaskManager {
       });
 
       // Detach from event loop so background task outlives short-lived callers if needed
-      if (typeof child.unref === "function") {
+      if (!options.keepAlive && typeof child.unref === "function") {
         child.unref();
       }
     } catch {
@@ -136,16 +142,17 @@ export class BackgroundTaskManager {
 
     const child = record.child;
     // An explicit kill is forceful: do not leave an escalation timer targeting a recycled PID.
+    const cgroupSignalled = record.cgroup?.kill() ?? false;
     try {
       if (process.platform === "win32") {
         if (!child.kill("SIGKILL")) return false;
       } else if (child.pid) {
         process.kill(-child.pid, "SIGKILL");
-      } else {
+      } else if (!cgroupSignalled) {
         return false;
       }
     } catch {
-      return false;
+      if (!cgroupSignalled) return false;
     }
     record.task.status = "terminating";
 
@@ -197,6 +204,8 @@ export class BackgroundTaskManager {
 
   private finishTask(record: TaskRuntimeRecord, exitCode: number): void {
     if (record.closed) return;
+    record.cgroup?.kill();
+    record.cgroup?.release();
     record.closed = true;
     const { task } = record;
     if (task.status === "terminating") {

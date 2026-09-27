@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import type { TaskLog } from "./background-task-log";
+import type { CommandCgroup } from "./command-cgroup";
 
 export interface BackgroundTask {
   id: string;
@@ -24,6 +25,7 @@ export interface TaskRuntimeRecord {
   task: BackgroundTask;
   ownerId?: string;
   child?: ChildProcess;
+  cgroup?: CommandCgroup;
   logFd?: number;
   log: TaskLog;
   closed: boolean;

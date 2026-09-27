@@ -24,6 +24,8 @@ for (const args of [["init", "-b", "main"], ["add", "source.ts"], ["-c", "user.n
 let rounds = 0;
 const sessionRounds = new Map<string, number>();
 const cancelledSessions = new Set<string>();
+const inspections: Array<{ sessionId: string; state: string }> = [];
+const recoveryReads: Array<{ state: string; turnId: string | null }> = [];
 const routes = new HostHttpRoutes({ ...defaultConfig("full"), controlToken: "host-probe-pairing" }, new HttpTurnCounter(), () => ({
   name: "scripted-host-probe",
   async runTurn(parsed, _options, emit) {
@@ -38,7 +40,9 @@ const routes = new HostHttpRoutes({ ...defaultConfig("full"), controlToken: "hos
     } else if (round === 4 || round === 6) {
       emit({ type: "tool_call_start", id: `call_${sessionId}_${round}`, name: "bash" });
       emit({ type: "tool_call_delta", arguments: JSON.stringify({
-        command: round === 4 ? "printf allowed > allowed" : "printf ready > ready; sleep 30; printf late > late",
+        command: round === 4
+          ? "printf allowed > allowed"
+          : "setsid bash -c 'sleep 1; printf late > late' </dev/null >/dev/null 2>&1 & printf ready > ready; sleep 30",
       }) });
       emit({ type: "tool_call_end" });
     } else {
@@ -48,11 +52,27 @@ const routes = new HostHttpRoutes({ ...defaultConfig("full"), controlToken: "hos
     }
     emit({ type: "done" });
   },
-}));
+}), undefined, join(root, "host-recovery"));
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
   if (new URL(request.url).pathname.endsWith("/cancel")) cancelledSessions.add(new URL(request.url).pathname.split("/")[4]!);
   if (new URL(request.url).pathname === "/healthz") return Response.json({ hostProtocol: 1 });
-  return await routes.handle(request) ?? new Response(null, { status: 404 });
+  const response = await routes.handle(request) ?? new Response(null, { status: 404 });
+  if (request.method === "GET" && /\/turns\/[A-Za-z0-9_-]+$/.test(new URL(request.url).pathname)) {
+    const value = await response.clone().json() as Record<string, unknown>;
+    if (response.status !== 200 || value.scope !== "bridge-http-and-browser-only" || value.replay_allowed !== false) {
+      throw new Error("Pi status inspection failed its authenticated metadata contract");
+    }
+    inspections.push({ sessionId: value.session_id as string, state: value.state as string });
+  }
+  if (request.method === "GET" && new URL(request.url).pathname.endsWith("/recovery")) {
+    const value = await response.clone().json() as Record<string, unknown>;
+    if (response.status !== 200 || value.scope !== "bridge-model-only" || value.replay_allowed !== false
+      || typeof value.turn_id !== "string") {
+      throw new Error("Pi recovery inspection failed its authenticated metadata contract");
+    }
+    recoveryReads.push({ state: value.state as string, turnId: value.turn_id as string });
+  }
+  return response;
 } });
 try {
   const launch = (workspacePath: string, agentPath: string) => Bun.spawn(["node", "--experimental-strip-types", probe], {
@@ -80,10 +100,13 @@ try {
   if (exitCodes.some(code => code !== 0) || rounds !== 20 || sessionRounds.size !== 4
     || [...sessionRounds.values()].filter(count => count === 7).length !== 2
     || [...sessionRounds.values()].filter(count => count === 3).length !== 2 || cancelledSessions.size !== 2
-    || routes.store.sessions.size !== 0) {
+    || routes.store.sessions.size !== 0 || inspections.length !== 8 || recoveryReads.length !== 2
+    || inspections.filter(value => value.state === "idle").length !== 6
+    || inspections.filter(value => value.state === "cancelled").length !== 2
+    || new Set(inspections.map(value => value.sessionId)).size !== 4) {
     throw new Error("Concurrent Pi host integration failed or leaked session state");
   }
-  console.log("Host HTTP probe: two concurrent Pi sessions, reconnection, twenty rounds, scoped cancellation and zero retained sessions passed");
+  console.log("Host HTTP probe: two concurrent Pi sessions, reconnection, twenty rounds, eight status inspections, scoped cancellation and zero retained sessions passed");
 } finally {
   await routes.close();
   server.stop(true);

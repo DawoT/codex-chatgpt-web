@@ -1,3 +1,4 @@
+import { boundedSessionArguments } from "./session-yield";
 import { randomBytes } from "node:crypto";
 import type { CodexTool } from "../../../types";
 import type { ChatGptTurnEnvironment } from "../environment";
@@ -136,7 +137,9 @@ export class TurnCoordinator {
         bindingId,
         wireName: wireName(tool),
         freeform: tool.freeform === true,
-        ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: payload.arguments ?? {} }),
+        ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: bound.execution === "host-only" || tool.namespace
+          ? payload.arguments ?? {}
+          : boundedSessionArguments(tool.name, payload.arguments ?? {}) }),
       }, timeoutMs, signal);
       return response;
     } catch (error) {

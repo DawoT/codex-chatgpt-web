@@ -43,6 +43,9 @@ export interface HostTurn {
   active: boolean;
   cancelled: boolean;
   cancellation?: "requested" | "settled";
+  requestSequence?: number;
+  completedSequence?: number;
+  completedResponseId?: string;
 }
 
 export interface HostCall {
@@ -56,6 +59,7 @@ export interface HostSession {
   id: string;
   token: string;
   cwd: string;
+  recoveryScope?: string;
   expires: number;
   sequence: number;
   admitting?: { turnId: string; abort: AbortController };
@@ -69,12 +73,13 @@ export class HostSessionStore {
   readonly sessions = new Map<string, HostSession>();
   constructor(readonly now = Date.now, readonly ttl = 60 * 60 * 1000, readonly maxSessions = 64) {}
 
-  create(cwd: string): HostSession {
+  create(cwd: string, recoveryScope?: string): HostSession {
     if (this.sessions.size >= this.maxSessions) throw new HostProtocolError(429, "Host session capacity reached; close an existing session");
     const session: HostSession = {
       id: `pi_${randomBytes(24).toString("hex")}`,
       token: randomBytes(32).toString("base64url"),
       cwd,
+      recoveryScope,
       expires: this.now() + this.ttl,
       sequence: 0,
       turns: new Map(),
@@ -122,5 +127,7 @@ export class HostSessionStore {
     }
     session.responses.set(response.id, { input: items, bytes });
     session.bytes += bytes;
+    turn.completedSequence = turn.requestSequence;
+    turn.completedResponseId = response.id;
   }
 }

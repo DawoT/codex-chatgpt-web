@@ -22,6 +22,7 @@ import {
 } from "./codex-integration";
 import { formatDoctorReport, runDoctor } from "./doctor";
 import { runChatGptMcpMain } from "./adapters/chatgpt-web/mcp-main";
+import { SharedCommandAdmission } from "./adapters/chatgpt-web/shared-command-admission";
 import { runCommand } from "./process";
 import { startServer } from "./server";
 import { assertServiceIdle, cancelActiveTurns, getServiceStatus, installService, interruptActiveTurn, restartService, startService, stopService, uninstallService } from "./service";
@@ -50,6 +51,7 @@ Usage:
   codex-chatgpt-web dev list
   codex-chatgpt-web serve
   codex-chatgpt-web mcp [--broker-socket PATH]
+  codex-chatgpt-web admission <status [--json]|recover ID --ack-descendants-settled [--ack-owner-offline]>
   codex-chatgpt-web service <status|install|start|restart|stop|cancel-turns>
   codex-chatgpt-web tunnel <status|start|restart|stop|key-import>
   codex-chatgpt-web open <tunnels|runtime-keys|connectors>
@@ -606,6 +608,31 @@ async function main(): Promise<void> {
     await new Promise<void>(() => {});
   } else if (command === "dev") await runDevCommand(args);
   else if (command === "mcp") await runChatGptMcpMain(args);
+  else if (command === "admission") {
+    const action = args.shift();
+    const admission = new SharedCommandAdmission(loadConfig().backgroundTasks?.maxConcurrent ?? 8);
+    if (action === "status") {
+      const json = takeFlag(args, "--json");
+      assertNoArgs(args);
+      const status = admission.status();
+      if (json) stdout.write(`${JSON.stringify(status)}\n`);
+      else {
+        stdout.write(`Capacity: ${status.capacity}; active: ${status.active.length}; waiting: ${status.waiting}\n`);
+        for (const lease of status.active) {
+          stdout.write(`Lease ${lease.id}: owner PID ${lease.ownerPid} (${lease.ownerState})\n`);
+        }
+      }
+    } else if (action === "recover") {
+      const id = Number(args.shift());
+      const acknowledged = takeFlag(args, "--ack-descendants-settled");
+      const ownerOffline = takeFlag(args, "--ack-owner-offline");
+      assertNoArgs(args);
+      admission.recoverStale(id, acknowledged, ownerOffline);
+      stdout.write(`Recovered command lease ${id}; this does not undo command effects.\n`);
+    } else {
+      throw new Error("Admission command must be: status [--json] or recover ID --ack-descendants-settled [--ack-owner-offline]");
+    }
+  }
   else if (command === "service") await serviceCommand(args);
   else if (command === "hook") {
     const action = args.shift();

@@ -2,13 +2,27 @@ import { createHash } from "node:crypto";
 import type { AppConfig } from "../config";
 import { formatErrorResponse } from "../bridge";
 import { augmentNativeModelCatalog } from "../model-catalog";
-import { forwardNativeCodexRequest, type NativeFetch } from "../native-passthrough";
+import { codexClientVersionFromUserAgent, forwardNativeCodexRequest, type NativeFetch } from "../native-passthrough";
 import { fetchNativeCodex } from "../native-network";
 import type { CodexModelContextOverride } from "../codex-integration";
 
 export interface ModelCatalogFailure {
   stage: "config" | "request" | "transport" | "upstream" | "catalog";
   code?: string;
+}
+
+export function modelCatalogClient(request: Request): {
+  client: "codex" | "other";
+  version?: string;
+  bearerPresent: boolean;
+} {
+  const version = codexClientVersionFromUserAgent(request.headers.get("user-agent"));
+  const authorization = request.headers.get("authorization") ?? "";
+  return {
+    client: version ? "codex" : "other",
+    ...(version ? { version } : {}),
+    bearerPresent: authorization.startsWith("Bearer ") && authorization.length > 7,
+  };
 }
 
 export function modelCatalogFailure(stage: ModelCatalogFailure["stage"], error: unknown): ModelCatalogFailure {
