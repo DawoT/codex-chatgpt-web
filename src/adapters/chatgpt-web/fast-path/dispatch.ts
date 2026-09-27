@@ -44,6 +44,8 @@ export function dispatchFastPathTool(
         path: String(safeArgs.path ?? ""),
         offset: typeof safeArgs.offset === "number" ? safeArgs.offset : undefined,
         limit_lines: typeof safeArgs.limit_lines === "number" ? safeArgs.limit_lines : undefined,
+        offset_bytes: typeof safeArgs.offset_bytes === "number" ? safeArgs.offset_bytes : undefined,
+        max_bytes: typeof safeArgs.max_bytes === "number" ? safeArgs.max_bytes : undefined,
         cwd: context.cwd,
         roots: context.roots,
         cache: context.cache,

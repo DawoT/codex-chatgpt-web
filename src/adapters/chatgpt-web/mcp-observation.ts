@@ -1,7 +1,9 @@
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { randomUUID } from "node:crypto";
+import { mcpTraceContext } from "./mcp-trace-context";
 
 interface PendingObservation {
-  call: { call: number; tool: string; started: number } | null;
+  call: { call: number; tool: string; started: number; trace_id: string } | null;
   remainingReplies: number;
 }
 
@@ -19,6 +21,7 @@ export function observeMcpToolCalls(
   };
   const receive = transport.onmessage;
   transport.onmessage = (message, extra) => {
+    let traceId: string | undefined;
     if ("method" in message && message.method === "tools/call" && "id" in message) {
       const name = message.params?.name;
       const tool = typeof name === "string" && knownTools.has(name) ? name : "unknown";
@@ -31,12 +34,14 @@ export function observeMcpToolCalls(
       } else if (pending.size >= 1_024) {
         emit({ event: "uncorrelated_call", reason: "tracking_limit", tool });
       } else {
-        const call = { call: ++sequence, tool, started: performance.now() };
+        const call = { call: ++sequence, tool, started: performance.now(), trace_id: randomUUID() };
+        traceId = call.trace_id;
         pending.set(message.id, { call, remainingReplies: 1 });
-        emit({ event: "call_received", call: call.call, tool });
+        emit({ event: "call_received", call: call.call, tool, trace_id: call.trace_id });
       }
     }
-    receive?.(message, extra);
+    if (traceId) mcpTraceContext.run(traceId, () => receive?.(message, extra));
+    else receive?.(message, extra);
   };
   const send = transport.send.bind(transport);
   transport.send = async (message, options) => {
@@ -49,7 +54,7 @@ export function observeMcpToolCalls(
       if (call) {
         const result = "result" in message ? message.result : undefined;
         emit({
-          event: "reply_sent", call: call.call, tool: call.tool,
+          event: "reply_sent", call: call.call, tool: call.tool, trace_id: call.trace_id,
           elapsed_ms: Math.round(performance.now() - call.started),
           outcome: "error" in message ? "protocol_error" : "result",
           ...("result" in message ? { is_error: result?.isError === true } : {}),
@@ -57,7 +62,7 @@ export function observeMcpToolCalls(
       }
     } catch (error) {
       const call = id !== undefined && pending.get(id) === entry ? entry?.call : undefined;
-      if (call) emit({ event: "reply_send_failed", call: call.call, tool: call.tool });
+      if (call) emit({ event: "reply_send_failed", call: call.call, tool: call.tool, trace_id: call.trace_id });
       throw error;
     } finally {
       if (entry && id !== undefined && id !== null && pending.get(id) === entry) {

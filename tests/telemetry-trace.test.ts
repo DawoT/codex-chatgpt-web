@@ -15,6 +15,44 @@ describe("TelemetryTraceSink", () => {
     await rm(logDir, { recursive: true, force: true });
   });
 
+  it("does not leak nested credentials or arbitrary error text", async () => {
+    const sink = new TelemetryTraceSink(logDir);
+    await sink.record({ traceId: "private", kind: "command", terminalState: "failed", error: "Authorization: Bearer private-value", metadata: { details: { password: "nested-value" } } });
+    const raw = await readFile(join(logDir, "telemetry.jsonl"), "utf8");
+    expect(raw).not.toContain("private-value");
+    expect(raw).not.toContain("nested-value");
+  });
+
+  it("coordinates independent sink instances through rotations", async () => {
+    const sinks = Array.from({ length: 20 }, () => new TelemetryTraceSink(logDir, { maxFileBytes: 400, maxFiles: 30 }));
+    await Promise.all(sinks.map((sink, index) => sink.record({ traceId: `parallel-${index}`, kind: "turn", terminalState: "completed" })));
+    expect(await sinks[0].query({ limit: 30 })).toHaveLength(20);
+    for (const name of await readdir(logDir)) {
+      expect((await stat(join(logDir, name))).size).toBeLessThanOrEqual(400);
+    }
+  });
+
+  it("refuses symlink archives rather than reading external records", async () => {
+    const fs = await import("node:fs/promises");
+    const target = join(logDir, "private.jsonl");
+    await fs.writeFile(target, JSON.stringify({ version: 1, traceId: "foreign-private-record" }) + "\n");
+    await fs.symlink(target, join(logDir, "telemetry.jsonl.1"));
+    await expect(new TelemetryTraceSink(logDir).query()).rejects.toThrow();
+  });
+
+  it("recovers after a failed write and bounds a single retained file", async () => {
+    const path = join(logDir, "telemetry.jsonl");
+    await (await import("node:fs/promises")).mkdir(path);
+    const sink = new TelemetryTraceSink(logDir, { maxFileBytes: 400, maxFiles: 1 });
+    await expect(sink.record({ traceId: "first", kind: "turn", terminalState: "failed" })).rejects.toThrow();
+    await rm(path, { recursive: true });
+    for (let index = 0; index < 10; index += 1) {
+      await sink.record({ traceId: `next-${index}`, kind: "turn", terminalState: "completed" });
+    }
+    expect((await stat(path)).size).toBeLessThanOrEqual(400);
+    expect((await sink.query())[0].traceId).toBe("next-9");
+  });
+
   it("records structured trace events with version and timestamp", async () => {
     const sink = new TelemetryTraceSink(logDir);
     await sink.record({

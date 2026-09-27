@@ -38,7 +38,6 @@ import {
 } from "../src/adapters/chatgpt-web/subagent-workspace";
 import {
   evaluatePreflightBudget,
-  applyPreflightPredictivePruning,
   preparePreflightInput,
   PREFLIGHT_SAFE_INLINE_CHAR_LIMIT,
 } from "../src/adapters/chatgpt-web/preflight-budget";
@@ -244,7 +243,7 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
     expect(allSubagents).toContain(subagentId);
   });
 
-  it("Step 5: Pre-flight Guardian & Predictive Pruning preventing HTTP 413 rejection", () => {
+  it("Step 5: Preflight retains evidence while requesting native compaction", () => {
     // Construct a mock Codex request containing 5 sequential tool outputs that sum to 120k chars
     const messages: CodexMessage[] = [
       { role: "user", content: "Analyze these 5 large log dumps", timestamp: 1 },
@@ -279,13 +278,13 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
       request,
       mockCapabilities,
       {
-        experimentalBiggerContext: false, // forces inline evaluation to test pruning
+        experimentalBiggerContext: false, // inline transport requires compaction above its limit
       },
     );
 
     expect(initialVerdict.safe).toBe(false);
-    expect(initialVerdict.actionRequired).toBe("apply_pruning");
-    expect(initialVerdict.prunableToolResultsCount).toBe(3); // 5 - 2 retained = 3
+    expect(initialVerdict.actionRequired).toBe("trigger_compaction");
+    expect(initialVerdict.prunableToolResultsCount).toBe(0); // No historical result is automatically disposable
 
     // Apply preflight preparation
     const { input: preparedRequest, verdict: preparedVerdict } = preparePreflightInput(
@@ -296,16 +295,10 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
       },
     );
 
-    expect(preparedVerdict.actionRequired).toBe("apply_pruning");
+    expect(preparedVerdict.actionRequired).toBe("trigger_compaction");
 
-    // Older 3 tool outputs pruned with informative tombstone
-    const preparedMessages = preparedRequest.context.messages;
-    expect(preparedMessages[1].role).toBe("toolResult");
-    expect(preparedMessages[1].content).toContain("[Historical tool output pruned by Preflight Guardian: read_log_file completed");
+    expect(preparedRequest).toEqual(request);
 
-    // Most recent 2 tool outputs preserved intact
-    expect(preparedMessages[4].content).toContain("2026-09-24 INFO Worker heartbeat healthy");
-    expect(preparedMessages[5].content).toContain("2026-09-24 INFO Worker heartbeat healthy");
   });
 
   it("Step 6: Autonomous compaction & turn checkpoints in real .agents/checkpoints/", () => {

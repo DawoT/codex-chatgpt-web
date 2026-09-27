@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CODEX_COMPACTION_CONTROL_WIRE_NAME } from "../src/adapters/chatgpt-web/native-compaction-control";
@@ -267,6 +267,32 @@ describe("Zero Risk turn broker lifecycle", () => {
 });
 
 describe("Zero Risk public MCP ABI", () => {
+  test("safe file line continuation preserves the claimed-turn boundary", async () => {
+    const socketPath = endpoint("byte-pages");
+    const broker = TurnBroker.forSocket(socketPath);
+    writeFileSync(join(root, "pages.txt"), "ab\n😀\ncd");
+    const requestId = await broker.registerSafe(environment(), nonceA, 60000, "byte-pages");
+    const transport = new StdioClientTransport({ command: process.execPath, args: ["src/cli.ts", "mcp", "--contract", "safe", "--broker-socket", socketPath], cwd: process.cwd(), stderr: "pipe" });
+    const client = new Client({ name: "safe-byte-test", version: "1" });
+    try {
+      await client.connect(transport);
+      const args = { request_id: requestId, path: "pages.txt", offset: 2, limit_lines: 1 };
+      broker.confirmSafeTurnSent(requestId, nonceA);
+      const early = await client.callTool({ name: "codex_read_file", arguments: args });
+      expect(early.isError).toBe(true);
+      await client.callTool({ name: "codex_turn_start", arguments: { request_id: requestId } });
+      const read = await client.callTool({ name: "codex_read_file", arguments: args });
+      expect(read.isError).toBeUndefined();
+      expect(read.structuredContent).toMatchObject({ content: "😀" });
+      const next = await client.callTool({ name: "codex_read_file", arguments: { ...args, offset: 3 } });
+      expect(next.structuredContent).toMatchObject({ content: "cd" });
+    } finally {
+      await client.close();
+      await transport.close();
+      await broker.close();
+    }
+  });
+
   test("exposes start and completion while hiding the bridge namespace", async () => {
     const socketPath = endpoint("stdio-contract");
     const broker = TurnBroker.forSocket(socketPath);

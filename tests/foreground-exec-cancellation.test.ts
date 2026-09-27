@@ -106,6 +106,21 @@ test("immediate cancellation blocks commands before their cgroup join", async ()
   }
 });
 
+test.skipIf(!delegatedCgroup)("root exit retires detached descendants that inherit output pipes", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "exec-inherited-pipes-"));
+  try {
+    const res = await handleExecCommand({
+      ...options(cwd),
+      cmd: "setsid bash -c 'sleep 0.3; printf escaped > marker' & printf done",
+      timeout_ms: 2000,
+    });
+    expect(res.structuredContent?.exit_code).toBe(0);
+    expect(existsSync(join(cwd, "marker"))).toBe(false);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("default and explicit working directories require writable containment", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "exec-writable-"));
   const writable = join(cwd, "writable");

@@ -5,6 +5,7 @@ export interface PendingTurn extends ChatGptTurnEnvironment {
 }
 
 export interface BrokerToolRequest {
+  observationId?: string;
   callId: string;
   wireName: string;
   freeform: boolean;
@@ -20,6 +21,7 @@ export interface BrokerToolResult {
 }
 
 export interface PendingInvocation {
+  observedStarted?: number;
   request: BrokerToolRequest;
   resolve: (result: BrokerToolResult) => void;
   reject: (error: Error) => void;
@@ -79,6 +81,7 @@ export interface TurnChannel {
 }
 
 export interface BrokerRequest {
+  observationId?: string;
   id: string;
   method:
     | "claim"

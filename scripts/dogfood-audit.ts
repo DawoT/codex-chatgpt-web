@@ -190,19 +190,14 @@ function auditLivePreflightGuardian(): void {
     };
 
     const verdict = evaluatePreflightBudget(request, mockCapabilities, { experimentalBiggerContext: false });
-    const { input: prunedInput } = preparePreflightInput(request, mockCapabilities, { experimentalBiggerContext: false });
-
-    const olderPruned = typeof prunedInput.context.messages[1].content === "string"
-      && prunedInput.context.messages[1].content.includes("[Historical tool output pruned by Preflight Guardian");
-    const recentPreserved = typeof prunedInput.context.messages[4].content === "string"
-      && prunedInput.context.messages[4].content.includes("Source chunk #4");
-
+    const { input: preservedInput } = preparePreflightInput(request, mockCapabilities, { experimentalBiggerContext: false });
+    const preserved = JSON.stringify(preservedInput) === JSON.stringify(request);
     recordResult(
       "5. Live Preflight Budget Guardian",
-      verdict.actionRequired === "apply_pruning" && olderPruned && recentPreserved,
+      verdict.actionRequired === "trigger_compaction" && preserved,
       performance.now() - start,
-      `Guardian intercepted 100k payload, pruned 2 older outputs and preserved the 2 most recent without HTTP 413 danger.`,
-      { actionRequired: verdict.actionRequired, prunableCount: verdict.prunableToolResultsCount },
+      "Oversized context retains all evidence and requests compaction; no HTTP delivery is tested here.",
+      { actionRequired: verdict.actionRequired },
     );
   } catch (error) {
     recordResult("5. Live Preflight Budget Guardian", false, performance.now() - start, `Preflight error: ${error instanceof Error ? error.message : String(error)}`);

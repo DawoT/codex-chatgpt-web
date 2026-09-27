@@ -26,6 +26,23 @@ function rgExecution(partial: Partial<RgExecution>): RgExecution {
   return { status: 0, stdout: "", stderr: "", ...partial };
 }
 
+test("fast-path dispatch forwards byte continuation without changing line semantics", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "dispatch-byte-"));
+  try {
+    writeFileSync(join(cwd, "sample.txt"), "ab😀cd");
+    const context = { cwd, roots: [cwd] };
+    const page = payload(await dispatchFastPathTool("codex_read_file", { path: "sample.txt", offset_bytes: 2, max_bytes: 4 }, context));
+    expect(page.content).toBe("😀");
+    expect(page.next_offset_bytes).toBe(6);
+    const invalid = await dispatchFastPathTool("codex_read_file", { path: "sample.txt", offset: 1, max_bytes: 4 }, context);
+    expect(invalid.isError).toBe(true);
+    const lines = payload(await dispatchFastPathTool("codex_read_file", { path: "sample.txt" }, context));
+    expect(lines.content).toBe("ab😀cd");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resolveSafeWorkspacePath enforces sandbox root boundaries", () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-sandbox-test-"));
   try {

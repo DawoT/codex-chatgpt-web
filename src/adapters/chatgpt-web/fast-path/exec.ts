@@ -4,6 +4,7 @@ import { workspaceFileCache, type FastPathWorkspaceCache } from "../fast-path-ca
 import { CGROUP_SHELL_COMMAND, commandCgroupEnv, createCommandCgroup } from "../command-cgroup";
 import { type FastPathToolResult, result } from "./types";
 import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./sandbox";
+import { utf8PrefixLength } from "./output";
 
 export interface HandleExecCommandOptions {
   cmd: string;
@@ -126,22 +127,26 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
     let stdoutTruncated = false;
     let stderrTruncated = false;
     let omittedBytes = 0;
+    let stdoutOmittedBytes = 0;
+    let stderrOmittedBytes = 0;
     let stdoutBytes = 0;
     let stderrBytes = 0;
 
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
       const chunkBytes = Buffer.byteLength(chunk, "utf8");
-      if (stdoutBytes + chunkBytes <= MAX_EXEC_STREAM_BYTES) {
+      if (!stdoutTruncated && stdoutBytes + chunkBytes <= MAX_EXEC_STREAM_BYTES) {
         stdout += chunk;
         stdoutBytes += chunkBytes;
       } else {
-        const remaining = Math.max(0, MAX_EXEC_STREAM_BYTES - stdoutBytes);
+        const bytes = Buffer.from(chunk, "utf8");
+        const remaining = stdoutTruncated ? 0 : utf8PrefixLength(bytes, Math.max(0, MAX_EXEC_STREAM_BYTES - stdoutBytes));
         if (remaining > 0) {
-          stdout += chunk.slice(0, remaining);
+          stdout += bytes.subarray(0, remaining).toString("utf8");
           stdoutBytes += remaining;
         }
         omittedBytes += chunkBytes - remaining;
+        stdoutOmittedBytes += chunkBytes - remaining;
         stdoutTruncated = true;
       }
     });
@@ -149,15 +154,18 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
       const chunkBytes = Buffer.byteLength(chunk, "utf8");
-      if (stderrBytes + chunkBytes <= MAX_EXEC_STREAM_BYTES) {
+      if (!stderrTruncated && stderrBytes + chunkBytes <= MAX_EXEC_STREAM_BYTES) {
         stderr += chunk;
         stderrBytes += chunkBytes;
       } else {
-        const remaining = Math.max(0, MAX_EXEC_STREAM_BYTES - stderrBytes);
+        const bytes = Buffer.from(chunk, "utf8");
+        const remaining = stderrTruncated ? 0 : utf8PrefixLength(bytes, Math.max(0, MAX_EXEC_STREAM_BYTES - stderrBytes));
         if (remaining > 0) {
-          stderr += chunk.slice(0, remaining);
+          stderr += bytes.subarray(0, remaining).toString("utf8");
           stderrBytes += remaining;
         }
+        omittedBytes += chunkBytes - remaining;
+        stderrOmittedBytes += chunkBytes - remaining;
         stderrTruncated = true;
       }
     });
@@ -173,7 +181,15 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         stdout_truncated: stdoutTruncated,
         stderr_truncated: stderrTruncated,
         omitted_bytes: omittedBytes,
+        stdout_omitted_bytes: stdoutOmittedBytes,
+        stderr_omitted_bytes: stderrOmittedBytes,
       }, true));
+    });
+
+    // Inherited pipes can keep `close` pending after the root has exited.
+    // Retire its unique cgroup now; never signal a potentially recycled PID.
+    child.once("exit", () => {
+      cgroup?.kill();
     });
 
     child.on("close", (code, signal) => {
@@ -185,11 +201,13 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
           exit_code: -1,
           cancelled: true,
           timed_out: timedOut,
-          stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${omittedBytes} bytes omitted]` : stdout,
+          stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${stdoutOmittedBytes} bytes omitted]` : stdout,
           stderr: stderrTruncated ? `${stderr}\n[codex_exec: stderr truncated at 1MB limit]` : stderr,
           stdout_truncated: stdoutTruncated,
           stderr_truncated: stderrTruncated,
           omitted_bytes: omittedBytes,
+          stdout_omitted_bytes: stdoutOmittedBytes,
+          stderr_omitted_bytes: stderrOmittedBytes,
         }, true));
         return;
       }
@@ -203,11 +221,13 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
           cmd,
           exit_code: -1,
           timed_out: true,
-          stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${omittedBytes} bytes omitted]` : stdout,
+          stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${stdoutOmittedBytes} bytes omitted]` : stdout,
           stderr: (stderr ? stderr + "\n" : "") + partialNotice,
           stdout_truncated: stdoutTruncated,
           stderr_truncated: stderrTruncated,
           omitted_bytes: omittedBytes,
+          stdout_omitted_bytes: stdoutOmittedBytes,
+          stderr_omitted_bytes: stderrOmittedBytes,
         }, true));
         return;
       }
@@ -218,11 +238,13 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         cmd,
         cwd: effectiveCwd,
         exit_code: exitCode,
-        stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${omittedBytes} bytes omitted]` : stdout,
+        stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${stdoutOmittedBytes} bytes omitted]` : stdout,
         stderr: stderrTruncated ? `${stderr}\n[codex_exec: stderr truncated at 1MB limit]` : stderr,
         stdout_truncated: stdoutTruncated,
         stderr_truncated: stderrTruncated,
         omitted_bytes: omittedBytes,
+        stdout_omitted_bytes: stdoutOmittedBytes,
+        stderr_omitted_bytes: stderrOmittedBytes,
         timed_out: false,
       }, isError));
     });

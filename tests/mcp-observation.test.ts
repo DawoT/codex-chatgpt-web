@@ -5,6 +5,35 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import * as z from "zod/v4";
 import { observeMcpToolCalls } from "../src/adapters/chatgpt-web/mcp-observation";
+import { currentMcpTrace } from "../src/adapters/chatgpt-web/mcp-trace-context";
+
+test("concurrent MCP handlers retain distinct opaque trace IDs across awaits", async () => {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const events: Array<Record<string, unknown>> = [];
+  const observed: string[] = [];
+  const server = new McpServer({ name: "trace-test", version: "1" });
+  server.registerTool("codex_exec", { inputSchema: { cmd: z.string() } }, async () => {
+    await Bun.sleep(5);
+    observed.push(currentMcpTrace()!);
+    return { content: [{ type: "text", text: "done" }] };
+  });
+  await server.connect(serverTransport);
+  observeMcpToolCalls(serverTransport, new Set(["codex_exec"]), event => events.push(event));
+  const client = new Client({ name: "trace-client", version: "1" });
+  try {
+    await client.connect(clientTransport);
+    await Promise.all(["secret-a", "secret-b"].map(cmd => client.callTool({ name: "codex_exec", arguments: { cmd } })));
+    expect(new Set(observed).size).toBe(2);
+    for (const id of observed) {
+      expect(id).toMatch(/^[a-f0-9-]{36}$/);
+      expect(events.filter(event => event.trace_id === id).map(event => event.event)).toEqual(["call_received", "reply_sent"]);
+    }
+    expect(JSON.stringify(events)).not.toContain("secret-");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
 
 test("MCP observations separate pre-handler validation and returned tool errors without recording content", async () => {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

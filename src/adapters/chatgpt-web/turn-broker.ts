@@ -2,6 +2,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { isWindowsPipeEndpoint } from "../../config";
+import { McpTelemetry } from "./mcp-telemetry";
 import {
   CompactionTransactionStore,
   type CompactionTransactionHandle,
@@ -72,6 +73,7 @@ export class TurnBroker implements TurnBrokerOwner {
   }
 
   private readonly channels = new Map<string, TurnChannel>();
+  private readonly telemetry = new McpTelemetry();
   private readonly pending = new Map<string, TurnChannel>();
   private readonly compactionTransactions = new CompactionTransactionStore();
   private readonly bindings = new Map<string, { token: string; channel: TurnChannel }>();
@@ -341,6 +343,7 @@ export class TurnBroker implements TurnBrokerOwner {
       throw new Error(`tool call was completed before it was delivered: ${callId}`);
     }
     channel.invocations.delete(callId);
+    this.recordToolObservation(invocation.request, "broker_result_received", result.isError === true, invocation.observedStarted);
     console.info(`[chatgpt-web] broker trace=${channel.traceId} completed call=${callId.slice(0, 17)} pending=${channel.invocations.size}`);
     invocation.resolve(result);
   }
@@ -427,6 +430,7 @@ export class TurnBroker implements TurnBrokerOwner {
       if (!invocation) continue;
       channel.invocations.delete(callId);
       channel.compactionDeliveryCount += 1;
+      this.recordToolObservation(invocation.request, "broker_compaction_cancelled", false, invocation.observedStarted);
       invocation.resolve(structuredClone(queuedResult));
     }
     if (queued.length > 0) {
@@ -1071,12 +1075,15 @@ export class TurnBroker implements TurnBrokerOwner {
     const callId = opaqueId("call");
     const toolRequest: BrokerToolRequest = {
       callId,
+      ...(typeof request.observationId === "string" && /^[a-f0-9-]{36}$/.test(request.observationId)
+        ? { observationId: request.observationId } : {}),
       wireName,
       freeform: request.freeform === true,
       ...(request.freeform === true ? { input: request.input ?? "" } : { arguments: request.arguments ?? {} }),
     };
     return new Promise<BrokerToolResult>((resolveInvoke, rejectInvoke) => {
-      binding.channel.invocations.set(callId, { request: toolRequest, resolve: resolveInvoke, reject: rejectInvoke });
+      binding.channel.invocations.set(callId, { request: toolRequest, resolve: resolveInvoke, reject: rejectInvoke, observedStarted: performance.now() });
+      this.recordToolObservation(toolRequest, "broker_queued");
       binding.channel.queuedCallIds.push(callId);
       console.info(
         `[chatgpt-web] broker trace=${binding.channel.traceId} queued call=${callId.slice(0, 17)} tool=${wireName} waiters=${binding.channel.waiters.size}`,
@@ -1095,10 +1102,22 @@ export class TurnBroker implements TurnBrokerOwner {
 
   private logToolDelivery(channel: TurnChannel, batch: BrokerToolRequest[], path: "immediate" | "waiter" | "replay"): void {
     for (const request of batch) {
+      this.recordToolObservation(request, "broker_delivered");
       console.info(
         `[chatgpt-web] broker trace=${channel.traceId} delivered call=${request.callId.slice(0, 17)} path=${path} replay=${path === "replay"}`,
       );
     }
+  }
+
+  private recordToolObservation(request: BrokerToolRequest, event: string, isError = false, started?: number): void {
+    if (!request.observationId) return;
+    this.telemetry.write({
+      trace_id: request.observationId,
+      broker_call_id: request.callId,
+      event,
+      is_error: isError,
+      ...(started !== undefined ? { elapsed_ms: Math.round(performance.now() - started) } : {}),
+    });
   }
 
   private scheduleToolWaiters(channel: TurnChannel): void {
@@ -1136,7 +1155,10 @@ export class TurnBroker implements TurnBrokerOwner {
     }
     channel.waiters.clear();
     rejectSafeWaiters(channel.claimWaiters, error);
-    for (const invocation of channel.invocations.values()) invocation.reject(error);
+    for (const invocation of channel.invocations.values()) {
+      this.recordToolObservation(invocation.request, "broker_abandoned", false, invocation.observedStarted);
+      invocation.reject(error);
+    }
     channel.invocations.clear();
     channel.queuedCallIds = [];
     channel.deliveredCallIds.clear();

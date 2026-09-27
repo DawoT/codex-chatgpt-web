@@ -5,6 +5,8 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { getConfigDir } from "../src/config";
+import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
 import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
 
 for (const contract of ["native", "safe"] as const) {
@@ -63,8 +65,20 @@ for (const contract of ["native", "safe"] as const) {
         });
         const [request] = await broker.nextToolBatch(token);
         expect(request).toMatchObject({ wireName: "exec_command", arguments: { cmd: "echo host-only" } });
+        expect(request?.observationId).toMatch(/^[a-f0-9-]{36}$/);
         broker.completeTool(token, request!.callId, { content: [{ type: "text", text: "host-response".repeat(1000) }] });
         const completed = await pending;
+        const sink = new TelemetryTraceSink(join(getConfigDir(), "logs", "mcp"));
+        let recorded: Awaited<ReturnType<typeof sink.query>> = [];
+        const traceDeadline = Date.now() + 3000;
+        while (Date.now() < traceDeadline) {
+          recorded = await sink.query({ traceId: request!.observationId });
+          if (recorded.some(row => row.metadata?.event === "broker_result_received")) break;
+          await Bun.sleep(10);
+        }
+        expect(recorded.filter(row => row.brokerCallId === request!.callId).map(row => row.metadata?.event).sort())
+          .toEqual(["broker_delivered", "broker_queued", "broker_result_received"]);
+        expect(JSON.stringify(recorded)).not.toContain("echo host-only");
         expect(JSON.stringify(completed.content)).toContain("host-response");
         expect(existsSync(join(cwd, ".agents"))).toBe(false);
         const inventory = client.callTool({

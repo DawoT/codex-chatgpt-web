@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { VERSION } from "../../version";
 import { loadConfig } from "../../config";
 import { observeMcpToolCalls } from "./mcp-observation";
+import { McpTelemetry } from "./mcp-telemetry";
 import {
   CHAT_FIRST_MCP_INSTRUCTIONS,
   CHATGPT_WEB_AGENT_WAIT_POLL_MS,
@@ -100,5 +101,17 @@ export async function runChatGptMcpServer(options: {
       void server.close().catch(() => {});
     });
   }
-  await server.connect(observeMcpToolCalls(new StdioServerTransport(), BRIDGE_TOOL_NAMES));
+  const telemetry = new McpTelemetry();
+  const transport = new StdioServerTransport();
+  const start = transport.start.bind(transport);
+  transport.start = async () => {
+    // The SDK installs its handler before starting the transport. Wrap that
+    // handler so request-local trace context encloses actual tool execution.
+    observeMcpToolCalls(transport, BRIDGE_TOOL_NAMES, event => {
+      console.error(`[chatgpt-web-mcp] transport=${JSON.stringify(event)}`);
+      telemetry.write(event);
+    });
+    await start();
+  };
+  await server.connect(transport);
 }

@@ -1,5 +1,14 @@
 import { CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS, type TruncateHeadTailOptions } from "./types";
 
+/** Return a byte boundary without splitting a UTF-8 code point. */
+export function utf8PrefixLength(bytes: Uint8Array, limit: number): number {
+  let end = Math.min(bytes.length, limit);
+  while (end > 0 && end < bytes.length && (bytes[end] & 0xc0) === 0x80) {
+    end -= 1;
+  }
+  return end;
+}
+
 export function truncateToolOutputText(
   text: string,
   maxChars = CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS,

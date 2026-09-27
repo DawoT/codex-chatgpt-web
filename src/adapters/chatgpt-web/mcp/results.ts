@@ -38,7 +38,16 @@ export function asMcpResult(
   value: BrokerToolResult | FastPathToolResult,
   options: ToolSpoolerOptions = {},
 ): McpCallResult {
-  const sanitizedContent = sanitizeToolOutputContent(value.content, options) as McpContentPart[];
+  const page = value.structuredContent !== null && typeof value.structuredContent === "object"
+    ? value.structuredContent as Record<string, unknown>
+    : undefined;
+  const bytePage = options.toolName === "codex_read_file" && page
+    && Number.isSafeInteger(page.read_bytes) && Number(page.read_bytes) >= 0 && Number(page.read_bytes) <= 131072
+    && Number.isSafeInteger(page.offset_bytes) && Number(page.offset_bytes) >= 0
+    && typeof page.content === "string" && Buffer.byteLength(page.content, "utf8") <= 131072;
+  // A bounded byte page is already selected at the producer. Truncating its
+  // visible JSON would skip evidence while still advancing the continuation.
+  const sanitizedContent = (bytePage ? value.content : sanitizeToolOutputContent(value.content, options)) as McpContentPart[];
   const spooledPart = Array.isArray(sanitizedContent)
     ? sanitizedContent.find(p => p && typeof p === "object" && typeof p.offloadedPath === "string")
     : undefined;

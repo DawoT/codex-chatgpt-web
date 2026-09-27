@@ -98,6 +98,72 @@ function auditLines(home: string): Array<Record<string, unknown>> {
 }
 
 describe("Chat-First MCP lifecycle", () => {
+  test("an unwritable telemetry destination does not fail a tool request", async () => {
+    const { home, ws } = workspaceHome("telemetry-failure", { enabled: true, sandboxMode: "dangerFullAccess", workspaces: [] });
+    writeFileSync(join(home, "logs"), "not a directory");
+    writeFileSync(join(ws, "readable.txt"), "still readable");
+    const { transport, client } = connectChatFirst(home);
+    try {
+      await client.connect(transport);
+      const result = await client.callTool({ name: "codex_read_file", arguments: { workspace: ws, path: "readable.txt" } });
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({ content: "still readable" });
+    } finally {
+      await client.close();
+      await transport.close();
+    }
+  });
+
+  test("byte pagination round-trips Unicode over stdio and rejects mixed modes", async () => {
+    const { home, ws } = workspaceHome("byte-pages", { enabled: true, sandboxMode: "dangerFullAccess", workspaces: [] });
+    writeFileSync(join(ws, "unicode.txt"), "ab😀cdéfg");
+    const { transport, client } = connectChatFirst(home);
+    try {
+      await client.connect(transport);
+      let content = "";
+      let offset = 0;
+      for (let page = 0; page < 10; page += 1) {
+        const res = await client.callTool({ name: "codex_read_file", arguments: {
+          path: "unicode.txt", workspace: ws, max_bytes: 5, offset_bytes: offset,
+        } });
+        expect(res.isError).toBeUndefined();
+        const data = res.structuredContent as any;
+        expect(data.read_bytes).toBeLessThanOrEqual(5);
+        content += data.content;
+        if (data.next_offset_bytes === null) break;
+        expect(data.next_offset_bytes).toBeGreaterThan(offset);
+        offset = data.next_offset_bytes;
+      }
+      expect(content).toBe("ab😀cdéfg");
+      const tracePath = join(home, "logs", "mcp", "telemetry.jsonl");
+      const deadline = Date.now() + 3000;
+      while ((!existsSync(tracePath) || !readFileSync(tracePath, "utf8").includes('"event":"reply_sent"')) && Date.now() < deadline) {
+        await Bun.sleep(10);
+      }
+      const events = readFileSync(tracePath, "utf8").trim().split("\n").map(line => JSON.parse(line));
+      const reply = events.find(event => event.metadata?.event === "reply_sent");
+      expect(reply).toBeDefined();
+      expect(events.some(event => event.traceId === reply.traceId && event.metadata?.event === "call_received")).toBe(true);
+      expect(JSON.stringify(events)).not.toContain("unicode.txt");
+      expect(JSON.stringify(events)).not.toContain("ab😀cdéfg");
+      const large = "line of evidence\n".repeat(5000);
+      writeFileSync(join(ws, "large.txt"), large);
+      const page = await client.callTool({ name: "codex_read_file", arguments: {
+        path: "large.txt", workspace: ws, max_bytes: 100000,
+      } });
+      expect(page.isError).toBeUndefined();
+      const textPart = (page.content as Array<{ type: string; text: string }>)[0];
+      expect(JSON.parse(textPart.text).content).toBe(large);
+      const mixed = await client.callTool({ name: "codex_read_file", arguments: {
+        path: "unicode.txt", workspace: ws, max_bytes: 5, offset: 1,
+      } });
+      expect(mixed.isError).toBe(true);
+    } finally {
+      await client.close();
+      await transport.close();
+    }
+  });
+
   test("dangerFullAccess serves six token-free tools, mutates the workspace, and audits mutations", async () => {
     const { home, ws } = workspaceHome("danger-full", {
       enabled: true,

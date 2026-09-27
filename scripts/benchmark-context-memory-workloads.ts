@@ -21,9 +21,9 @@ interface ScenarioResult {
   tokensOptimized?: number;
   savingsRatio?: number;
   gateChecks: {
-    zeroLossControl: boolean;
-    zeroCrossProject: boolean;
-    zeroMutationReplay: boolean;
+    zeroLossControl: null;
+    zeroCrossProject: null;
+    zeroMutationReplay: null;
   };
   details: string;
 }
@@ -34,7 +34,7 @@ function sha256(data: string | Buffer): string {
 
 async function runBenchmark() {
   console.log("================================================================================");
-  console.log("   BENCHMARK DE 30 ESCENARIOS: CONTEXTO Y MEMORIA VERIFICABLES (PI, CODEX, MCP) ");
+  console.log("   LEGACY EXPLORATORY SCENARIOS — NOT A QUALITY OR TOKEN-SAVINGS CERTIFICATION ");
   console.log("================================================================================\n");
 
   const results: ScenarioResult[] = [];
@@ -121,10 +121,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 350, // reading whole auth.ts
         tokensOptimized: 45,  // exact signature query
         savingsRatio: (350 - 45) / 350,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Discovered interface SessionToken in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 1: TS interface discovery (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 1: TS interface discovery (${durationMs.toFixed(2)}ms)`);
     }
 
     // 2. Function signature query
@@ -142,10 +142,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 350,
         tokensOptimized: 40,
         savingsRatio: (350 - 40) / 350,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Discovered function verifySession in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 2: Function signature query (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 2: Function signature query (${durationMs.toFixed(2)}ms)`);
     }
 
     // 3. Class declaration & method signatures
@@ -163,10 +163,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 350,
         tokensOptimized: 50,
         savingsRatio: (350 - 50) / 350,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Discovered class AuthManager in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 3: Class declaration & methods (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 3: Class declaration & methods (${durationMs.toFixed(2)}ms)`);
     }
 
     // 4. File-scoped symbol query
@@ -184,10 +184,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 250,
         tokensOptimized: 40,
         savingsRatio: (250 - 40) / 250,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Scoped query in server.ts found ${symbols.length} symbol in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 4: File-scoped symbol query (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 4: File-scoped symbol query (${durationMs.toFixed(2)}ms)`);
     }
 
     // 5. Package receipts / commands ground truth
@@ -205,10 +205,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 150,
         tokensOptimized: 30,
         savingsRatio: (150 - 30) / 150,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Discovered scripts in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 5: Package scripts & commands discovery (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 5: Package scripts & commands discovery (${durationMs.toFixed(2)}ms)`);
     }
 
     // -------------------------------------------------------------------------
@@ -231,10 +231,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 500,
         tokensOptimized: 25,
         savingsRatio: (500 - 25) / 500,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `auth.ts imported by server.ts proven in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 6: Direct dependents query (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 6: Direct dependents query (${durationMs.toFixed(2)}ms)`);
     }
 
     // 7. Transitive dependents propagation
@@ -258,10 +258,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 800,
         tokensOptimized: 40,
         savingsRatio: (800 - 40) / 800,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `auth.ts -> server.ts -> app.ts resolved in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 7: Transitive dependents propagation (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 7: Transitive dependents propagation (${durationMs.toFixed(2)}ms)`);
     }
 
     // 8. Leaf module query (zero dependents)
@@ -279,10 +279,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 300,
         tokensOptimized: 15,
         savingsRatio: (300 - 15) / 300,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Leaf app.ts has 0 dependents verified in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 8: Leaf module zero-dependents check (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 8: Leaf module zero-dependents check (${durationMs.toFixed(2)}ms)`);
     }
 
     // 9. Module resolution edges inspection
@@ -297,10 +297,10 @@ export function handleRequest(user: string) {
         name: "Module resolution edges check",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Indexed ${edges.length} import resolution edges in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 9: Module resolution edges check (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 9: Module resolution edges check (${durationMs.toFixed(2)}ms)`);
     }
 
     // 10. Git commit syntactic impact analysis
@@ -325,10 +325,10 @@ export function handleRequest(user: string) {
         name: "Git commit syntactic impact analysis",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Syntactic impact computed between ${initialCommitSha.slice(0, 7)} and ${secondCommitSha.slice(0, 7)} in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 10: Git commit syntactic impact analysis (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 10: Git commit syntactic impact analysis (${durationMs.toFixed(2)}ms)`);
     }
 
     // -------------------------------------------------------------------------
@@ -350,11 +350,11 @@ export function handleRequest(user: string) {
         name: "Broken syntax isolation & diagnostics",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `System survived syntax error without crashing in ${durationMs.toFixed(2)}ms`,
       });
       await rm(join(testWorkspace, "broken.ts"), { force: true });
-      console.log(`[PASS] Escenario 11: Broken syntax error isolation (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 11: Broken syntax error isolation (${durationMs.toFixed(2)}ms)`);
     }
 
     // 12. Nonexistent symbol query (graceful empty result)
@@ -369,10 +369,10 @@ export function handleRequest(user: string) {
         name: "Nonexistent symbol query graceful empty",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Empty result returned in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 12: Nonexistent symbol query (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 12: Nonexistent symbol query (${durationMs.toFixed(2)}ms)`);
     }
 
     // 13. Large stack trace bounded capture
@@ -392,10 +392,10 @@ export function handleRequest(user: string) {
         name: "Large stack trace bounded capture",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Captured error stream safely in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 13: Large stack trace bounded capture (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 13: Large stack trace bounded capture (${durationMs.toFixed(2)}ms)`);
     }
 
     // 14. Path outside sandbox rejection (fail-closed containment)
@@ -419,10 +419,10 @@ export function handleRequest(user: string) {
         name: "Sandbox path traversal containment",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Blocked traversal in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 14: Sandbox path traversal containment (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 14: Sandbox path traversal containment (${durationMs.toFixed(2)}ms)`);
     }
 
     // 15. Command execution in read-only mode blocked
@@ -442,10 +442,10 @@ export function handleRequest(user: string) {
         name: "Command execution in read-only policy blocked",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Blocked execution in read-only mode in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 15: Read-only execution policy enforcement (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 15: Read-only execution policy enforcement (${durationMs.toFixed(2)}ms)`);
     }
 
     // -------------------------------------------------------------------------
@@ -487,10 +487,10 @@ export function handleRequest(user: string) {
         tokensBaseline: 62000,
         tokensOptimized: ctxResult.budget.estimated_input_tokens,
         savingsRatio: (62000 - ctxResult.budget.estimated_input_tokens) / 62000,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Compacted from ~62k tokens to ${ctxResult.budget.estimated_input_tokens} tokens in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 16: Automated compaction (${durationMs.toFixed(2)}ms, tokens: ${ctxResult.budget.estimated_input_tokens})`);
+      console.log(`[CHECK] Escenario 16: Automated compaction (${durationMs.toFixed(2)}ms, tokens: ${ctxResult.budget.estimated_input_tokens})`);
     }
 
     // 17. Control layer (STATE.md) preserved 100% intact across compactions
@@ -513,10 +513,10 @@ export function handleRequest(user: string) {
         name: "Zero-loss Control Layer preservation",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Control layer 100% verified intact in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 17: Zero-loss Control Layer preservation (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 17: Zero-loss Control Layer preservation (${durationMs.toFixed(2)}ms)`);
     }
 
     // 18. Retrieval of historical checkpoint from .agents/memory/ by digest
@@ -531,10 +531,10 @@ export function handleRequest(user: string) {
         name: "Digest-verified memory record retrieval",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Retrieved verified checkpoint in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 18: Digest-verified memory retrieval (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 18: Digest-verified memory retrieval (${durationMs.toFixed(2)}ms)`);
     }
 
     // 19. Search over memory checkpoints with pagination
@@ -549,10 +549,10 @@ export function handleRequest(user: string) {
         name: "Project memory search with pagination",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Found ${searchRes.total} checkpoints in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 19: Project memory search (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 19: Project memory search (${durationMs.toFixed(2)}ms)`);
     }
 
     // 20. Character-offset bounded reading of memory record
@@ -568,10 +568,10 @@ export function handleRequest(user: string) {
         name: "Character-offset bounded memory reading",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Paged slices read seamlessly in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 20: Character-offset bounded reading (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 20: Character-offset bounded reading (${durationMs.toFixed(2)}ms)`);
     }
 
     // -------------------------------------------------------------------------
@@ -594,10 +594,10 @@ export function handleRequest(user: string) {
         name: "Branch switch and divergence detection",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Detected new symbols on branch feature/divergence in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 21: Branch switch and divergence (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 21: Branch switch and divergence (${durationMs.toFixed(2)}ms)`);
     }
 
     // 22. Git blob SHA cache invalidation on file edit
@@ -614,10 +614,10 @@ export function handleRequest(user: string) {
         name: "Git blob SHA cache invalidation",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Invalidated and re-indexed updated symbol in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 22: Git blob SHA cache invalidation (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 22: Git blob SHA cache invalidation (${durationMs.toFixed(2)}ms)`);
     }
 
     // 23. Reconnection across branches preserves memory
@@ -633,10 +633,10 @@ export function handleRequest(user: string) {
         name: "Reconnection across branches preserves memory",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Preserved ${searchRes.total} memory records across branch switch in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 23: Reconnection preserves memory (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 23: Reconnection preserves memory (${durationMs.toFixed(2)}ms)`);
     }
 
     // 24. Multi-session concurrent writes without collision
@@ -675,10 +675,10 @@ export function handleRequest(user: string) {
         name: "Multi-session concurrent writes without collision",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Concurrent writes completed in ${durationMs.toFixed(2)}ms with 0 collision`,
       });
-      console.log(`[PASS] Escenario 24: Multi-session concurrent writes (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 24: Multi-session concurrent writes (${durationMs.toFixed(2)}ms)`);
     }
 
     // 25. Complete workspace isolation (zero cross-project leakage)
@@ -707,10 +707,10 @@ export function handleRequest(user: string) {
           name: "Strict workspace isolation (Gate 2)",
           passed,
           durationMs,
-          gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+          gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
           details: `Zero cross-project leakage confirmed in ${durationMs.toFixed(2)}ms`,
         });
-        console.log(`[PASS] Escenario 25: Strict workspace isolation [GATE 2] (${durationMs.toFixed(2)}ms)`);
+        console.log(`[CHECK] Escenario 25: Strict workspace isolation [GATE 2] (${durationMs.toFixed(2)}ms)`);
       } finally {
         await rm(otherWorkspace, { recursive: true, force: true });
       }
@@ -742,10 +742,10 @@ export function handleRequest(user: string) {
         name: "Subprocess cancellation with SIGKILL",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Process terminated cleanly in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 26: Subprocess cancellation (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 26: Subprocess cancellation (${durationMs.toFixed(2)}ms)`);
     }
 
     // 27. Stalled command timeout enforcement
@@ -766,10 +766,10 @@ export function handleRequest(user: string) {
         name: "Stalled command timeout enforcement",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Timeout enforced after ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 27: Stalled command timeout (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 27: Stalled command timeout (${durationMs.toFixed(2)}ms)`);
     }
 
     // 28. Runaway command streaming cut off at 1 MiB
@@ -790,10 +790,10 @@ export function handleRequest(user: string) {
         name: "Runaway command output stream cut off at 1 MiB",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Cut off at 1MB, omitted ${res.structuredContent.omitted_bytes} bytes in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 28: Runaway streaming cut off (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 28: Runaway streaming cut off (${durationMs.toFixed(2)}ms)`);
     }
 
     // 29. Oversized file read bounded to 128 KiB chunk
@@ -816,10 +816,10 @@ export function handleRequest(user: string) {
         name: "Oversized file read bounded to 128 KiB",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Read bounded to ${res.structuredContent.read_bytes} bytes in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 29: Oversized file read bounded (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 29: Oversized file read bounded (${durationMs.toFixed(2)}ms)`);
     }
 
     // 30. Zero mutation replay on transport drop (Gate 3)
@@ -839,22 +839,22 @@ export function handleRequest(user: string) {
       results.push({
         id: 30,
         category: "Resiliencia e Interrupciones",
-        name: "Zero mutation replay on transport drop (Gate 3)",
+        name: "Trace serialization on transport drop; does not test mutation replay",
         passed,
         durationMs,
-        gateChecks: { zeroLossControl: true, zeroCrossProject: true, zeroMutationReplay: true },
-        details: `Transport drop recorded cleanly with zero automatic replay authority in ${durationMs.toFixed(2)}ms`,
+        gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
+        details: `Transport drop label serialized; mutation replay was not exercised in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[PASS] Escenario 30: Zero mutation replay [GATE 3] (${durationMs.toFixed(2)}ms)`);
+      console.log(`[CHECK] Escenario 30: Zero mutation replay [GATE 3] (${durationMs.toFixed(2)}ms)`);
     }
 
     // -------------------------------------------------------------------------
     // EVALUACIÓN DE LOS 4 GATES DE CALIDAD STAFF
     // -------------------------------------------------------------------------
     const totalPassed = results.filter((r) => r.passed).length;
-    const gate1Passed = results.every((r) => r.gateChecks.zeroLossControl);
-    const gate2Passed = results.every((r) => r.gateChecks.zeroCrossProject);
-    const gate3Passed = results.every((r) => r.gateChecks.zeroMutationReplay);
+    const gate1Passed = null;
+    const gate2Passed = null;
+    const gate3Passed = null;
 
     // Calculate token savings on exploration workloads
     const tokenWorkloads = results.filter((r) => r.tokensBaseline && r.tokensOptimized);
@@ -863,21 +863,24 @@ export function handleRequest(user: string) {
     const netTokenReductionPct = totalBaselineTokens > 0
       ? (((totalBaselineTokens - totalOptimizedTokens) / totalBaselineTokens) * 100).toFixed(1)
       : "0";
-    const gate4Passed = totalOptimizedTokens < totalBaselineTokens;
+    const gate4Passed = null;
 
     console.log("\n================================================================================");
-    console.log("                           INFORME DE AUDITORÍA STAFF                           ");
+    console.log("                      EXPLORATORY REPORT — QUALITY GATES NOT EVALUATED          ");
     console.log("================================================================================");
     console.log(`Total Escenarios Evaluados: ${results.length}/30`);
-    console.log(`Escenarios Exitosos:        ${totalPassed}/30 (100% pass rate)`);
+    console.log(`Escenarios Exitosos:        ${totalPassed}/30 (${((totalPassed / results.length) * 100).toFixed(1)}% observed scenario pass rate)`);
     console.log(`\n--- Verificación de Gates ---`);
-    console.log(`Gate 1 (Zero-Loss Control Layer):       ${gate1Passed ? "CUMPLIDO (0% directivas perdidas)" : "FALLIDO"}`);
-    console.log(`Gate 2 (Zero Cross-Project Leakage):     ${gate2Passed ? "CUMPLIDO (0 cruces detectados)" : "FALLIDO"}`);
-    console.log(`Gate 3 (Zero Replay on Transport Drop):  ${gate3Passed ? "CUMPLIDO (0 mutaciones re-ejecutadas)" : "FALLIDO"}`);
-    console.log(`Gate 4 (Net Token Reduction):            ${gate4Passed ? `CUMPLIDO (${netTokenReductionPct}% reducción en exploración)` : "FALLIDO"}`);
+    console.log(`Gate 1 (Zero-Loss Control Layer):       ${gate1Passed ? "CUMPLIDO (0% directivas perdidas)" : "NO EVALUADO"}`);
+    console.log(`Gate 2 (Zero Cross-Project Leakage):     ${gate2Passed ? "CUMPLIDO (0 cruces detectados)" : "NO EVALUADO"}`);
+    console.log(`Gate 3 (Zero Replay on Transport Drop):  ${gate3Passed ? "CUMPLIDO (0 mutaciones re-ejecutadas)" : "NO EVALUADO"}`);
+    console.log(`Gate 4 (Net Token Reduction):            ${gate4Passed ? `CUMPLIDO (${netTokenReductionPct}% reducción en exploración)` : "NO EVALUADO"}`);
 
     const report = {
-      benchmarkVersion: "1.0.0",
+      benchmarkVersion: "1.1.0-audit",
+      evidenceStatus: "exploratory_unverified",
+      rolloutApproved: false,
+      tokenMeasurement: "legacy illustrative constants; not measured provider tokens or savings",
       timestamp: new Date().toISOString(),
       workspaceRoot: testWorkspace,
       totalScenarios: results.length,
@@ -900,10 +903,11 @@ export function handleRequest(user: string) {
 
     const evidenceDir = join(process.cwd(), "docs", "evidence");
     await mkdir(evidenceDir, { recursive: true });
-    const reportPath = join(evidenceDir, "context-memory-benchmark-report.json");
+    const reportPath = join(evidenceDir, "context-memory-exploratory-report.json");
     await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
     console.log(`\nInforme guardado con éxito en: ${reportPath}`);
-    console.log(`Digest de Evidencia SHA-256: ${report.evidenceDigest}`);
+    console.log(`Artifact integrity SHA-256 (not proof of quality): ${report.evidenceDigest}`);
+    if (totalPassed !== results.length || results.length !== 30) process.exitCode = 1;
     console.log("================================================================================\n");
 
   } finally {

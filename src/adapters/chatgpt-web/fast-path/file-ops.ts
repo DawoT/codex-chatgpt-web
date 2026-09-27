@@ -2,7 +2,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rea
 import { dirname, join, relative } from "node:path";
 import { workspaceFileCache, type FastPathWorkspaceCache } from "../fast-path-cache";
 import { GLOBAL_SKILL_READ_ROOTS, type FastPathToolResult, result } from "./types";
-import { truncateToolOutputText } from "./output";
+import { truncateToolOutputText, utf8PrefixLength } from "./output";
 import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./sandbox";
 
 /** Hard ceiling for one codex_read_file call; larger files must be read in slices or via codex_exec. */
@@ -14,6 +14,7 @@ export function handleReadFile(options: {
   offset?: number;
   limit_lines?: number;
   max_bytes?: number;
+  offset_bytes?: number;
   cwd: string;
   roots: string[];
   cache?: FastPathWorkspaceCache;
@@ -38,13 +39,19 @@ export function handleReadFile(options: {
   if (st.isDirectory()) {
     return result({ error: `Path is a directory, not a file. Use codex_list_dir to view contents: ${path}` }, true);
   }
-  if (options.max_bytes !== undefined) {
-    const maxBytes = Math.max(1, options.max_bytes);
+  if (options.max_bytes !== undefined || options.offset_bytes !== undefined) {
+    const maxBytes = options.max_bytes ?? DEFAULT_MAX_READ_CHUNK_BYTES;
+    const byteOffset = options.offset_bytes ?? 0;
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > DEFAULT_MAX_READ_CHUNK_BYTES
+      || !Number.isSafeInteger(byteOffset) || byteOffset < 0
+      || options.offset !== undefined || options.limit_lines !== undefined) {
+      return result({ error: "Byte pagination requires max_bytes between 1 and 131072, a nonnegative offset_bytes, and no line pagination arguments" }, true);
+    }
     const fd = openSync(resolved, "r");
-    const buffer = Buffer.alloc(Math.min(st.size, maxBytes));
+    const buffer = Buffer.alloc(Math.min(Math.max(0, st.size - byteOffset), maxBytes + 1));
     let bytesRead = 0;
     try {
-      bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      bytesRead = readSync(fd, buffer, 0, buffer.length, byteOffset);
     } finally {
       closeSync(fd);
     }
@@ -59,14 +66,24 @@ export function handleReadFile(options: {
         }, true);
       }
     }
-    const text = buffer.subarray(0, bytesRead).toString("utf8");
-    const truncated = st.size > maxBytes;
+    bytesRead = utf8PrefixLength(buffer.subarray(0, bytesRead), maxBytes);
+    if (bytesRead === 0 && byteOffset < st.size) {
+      return result({ error: "max_bytes is too small for the next UTF-8 code point" }, true);
+    }
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, bytesRead));
+    } catch {
+      return result({ error: "File is not UTF-8 text or offset_bytes splits a code point" }, true);
+    }
+    const truncated = byteOffset + bytesRead < st.size;
     return result({
       path: relative(options.cwd, resolved) || path,
       read_bytes: bytesRead,
       total_bytes: st.size,
       truncated,
-      next_offset: truncated ? bytesRead : null,
+      offset_bytes: byteOffset,
+      next_offset_bytes: truncated ? byteOffset + bytesRead : null,
       content: text,
     });
   }

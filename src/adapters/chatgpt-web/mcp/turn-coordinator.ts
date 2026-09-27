@@ -1,4 +1,5 @@
 import { boundedSessionArguments } from "./session-yield";
+import { currentMcpTrace } from "../mcp-trace-context";
 import { randomBytes } from "node:crypto";
 import type { CodexTool } from "../../../types";
 import type { ChatGptTurnEnvironment } from "../environment";
@@ -134,6 +135,7 @@ export class TurnCoordinator {
     try {
       const response = await callTurnBroker<BrokerToolResult>(this.brokerSocketPath, {
         method: "invoke",
+        observationId: currentMcpTrace(),
         bindingId,
         wireName: wireName(tool),
         freeform: tool.freeform === true,
