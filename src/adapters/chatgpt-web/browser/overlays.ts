@@ -102,7 +102,7 @@ export const CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX =
  * both vocabularies are covered ("¿Eliminar chat?", "Delete conversation?", "Archive", "Trash").
  */
 export const CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX =
-  /\b(delete|eliminar|borrar|remove|quitar|archive|archivar|trash|papelera|permanently|permanentemente)\b/i;
+  /(\b(delete|eliminar|borrar|remove|quitar|archive|archivar|trash|papelera|permanently|permanentemente)\b|삭제|영구\s*삭제|削除|永久削除|删除|永久删除|刪除|永久刪除)/i;
 
 const overlayDialogSnippet = (text: string): string => {
   const compact = text.replace(/\s+/g, " ").trim();

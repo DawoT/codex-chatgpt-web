@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { defaultConfig } from "../src/config";
 import { createTunnelConfig, mcpCommand } from "../src/tunnel";
 import { tunnelServiceDefinition } from "../src/tunnel-service";
-import { existingFullSetupCredentials, tunnelWorkerRuntimeChanged } from "../src/setup";
+import { existingFullSetupCredentials, meaningfulRuntimeChange, tunnelWorkerRuntimeChanged } from "../src/setup";
 
 const roots: string[] = [];
 
@@ -171,4 +171,26 @@ describe("tunnel launchd ownership", () => {
     expect(parsePinnedTunnelCommand(mcpCommand(config, "win32"))).toContain("safe");
   });
 
+});
+
+describe("meaningfulRuntimeChange fingerprint", () => {
+  test("detects a stallTimeoutSec change that requires a runtime restart", () => {
+    const before = defaultConfig("browser-only");
+    const after = structuredClone(before);
+    after.stallTimeoutSec = 120;
+    // stallTimeoutSec governs the adapter watchdog; changing it must trigger a restart.
+    expect(meaningfulRuntimeChange(before, after)).toBe(true);
+    before.stallTimeoutSec = 120;
+    expect(meaningfulRuntimeChange(before, after)).toBe(false);
+  });
+
+  test("detects a rateLimitRpm change that requires a runtime restart", () => {
+    const before = defaultConfig("browser-only");
+    const after = structuredClone(before);
+    after.rateLimitRpm = 30;
+    // rateLimitRpm controls the rate-limiter; changing it must trigger a restart.
+    expect(meaningfulRuntimeChange(before, after)).toBe(true);
+    before.rateLimitRpm = 30;
+    expect(meaningfulRuntimeChange(before, after)).toBe(false);
+  });
 });

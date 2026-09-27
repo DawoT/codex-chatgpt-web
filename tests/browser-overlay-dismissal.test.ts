@@ -378,4 +378,22 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     expect(CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX.test("Got it")).toBeTrue();
     expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("What's new in GPT-5. Got it")).toBeFalse();
   });
+
+  test("CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX matches CJK destructive keywords", () => {
+    // Korean: 삭제 (delete), 영구 삭제 (permanently delete)
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("삭제")).toBeTrue();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("영구 삭제")).toBeTrue();
+    // Japanese: 削除 (delete), 永久削除 (permanently delete)
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("削除")).toBeTrue();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("永久削除")).toBeTrue();
+    // Simplified Chinese: 删除 (delete), 永久删除 (permanently delete)
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("删除")).toBeTrue();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("永久删除")).toBeTrue();
+    // Traditional Chinese: 刪除 (delete), 永久刪除 (permanently delete)
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("刪除")).toBeTrue();
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("永久刪除")).toBeTrue();
+    // Benign CJK text must not match
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("了解")).toBeFalse(); // 了解 (Got it)
+    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("知道了")).toBeFalse(); // 知道了 (I understand)
+  });
 });

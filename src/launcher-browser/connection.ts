@@ -45,6 +45,11 @@ export async function selectLauncherPage(
     if (owned.length > 1) {
       throw new Error(`Launcher browser host exposed ${owned.length} surfaces with the same ownership id`);
     }
+    // Re-check abort after the async CDP inspection round completes so that cancellation is
+    // not delayed by the full duration of an in-flight Promise.all.
+    if (abortSignal?.aborted) {
+      throw new DOMException("Launcher browser connection aborted", "AbortError");
+    }
     await new Promise(resolve => setTimeout(resolve, 100));
   } while (Date.now() < deadline);
   throw new Error("Launcher browser host did not expose its owned browser surface");
