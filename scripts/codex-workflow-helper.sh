@@ -168,6 +168,8 @@ codex-restart() {
 
     # Exportar timeout generoso para herramientas MCP (10 minutos por defecto)
     export CODEX_CHATGPT_WEB_MCP_TIMEOUT_MS="${CODEX_CHATGPT_WEB_MCP_TIMEOUT_MS:-600000}"
+    # Exportar timeout de sonda DOM tolerante a chats pesados (15 segundos)
+    export CODEX_CHATGPT_BROWSER_PROBE_TIMEOUT_MS="${CODEX_CHATGPT_BROWSER_PROBE_TIMEOUT_MS:-15000}"
 
     # Daemon HTTP local (debe levantarse primero: crea el socket del turn-broker que usa el MCP)
     setsid "$runtime_dir/runtime/bun" "$runtime_dir/app/cli.js" serve > "$cgw_home/logs/daemon.log" 2>&1 < /dev/null &
