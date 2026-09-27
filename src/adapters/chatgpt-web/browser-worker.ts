@@ -344,6 +344,9 @@ export {
   chatGptConnectorIsSelected,
   chatGptConnectorMentionRowTitles,
   chatGptConnectorMentionFailure,
+  chatGptRowIsHighlighted,
+  CHATGPT_ATTACHMENT_INPUT_SELECTOR,
+  CHATGPT_MENTION_MENU_ROWS_SELECTOR,
   type ChatGptConnectorMentionFailureOptions,
 } from "./browser/connectors";
 import {
@@ -351,6 +354,9 @@ import {
   chatGptConnectorIsSelected,
   chatGptConnectorMentionRowTitles,
   chatGptConnectorMentionFailure,
+  chatGptRowIsHighlighted,
+  CHATGPT_ATTACHMENT_INPUT_SELECTOR,
+  CHATGPT_MENTION_MENU_ROWS_SELECTOR,
 } from "./browser/connectors";
 export {
   chatGptActiveComposer,
@@ -830,7 +836,7 @@ export class ChatGptBrowserWorker {
       if (!mode.thinkEnabled) await setChatGptThinkMode(composerForm, false, captureDiagnostic);
       return mode;
     }
-    const currentEffort = composerForm.locator(CHATGPT_EFFORT_CONTROL_SELECTOR).last();
+    const currentEffort = composerForm.locator(CHATGPT_EFFORT_CONTROL_SELECTOR).filter({ visible: true });
     const effortWaitAbort = new AbortController();
     try {
       const ready = await Promise.race([
@@ -1718,9 +1724,7 @@ export class ChatGptBrowserWorker {
       throwIfPromptAttachmentAborted(abortSignal);
     };
     let composer: Locator;
-    const menuRows = page.locator(
-      '[class*="suggestionMenu"] button, .composer-home-top-menu button, .__menu-item[tabindex="0"], [role="menuitem"], [role="option"]'
-    );
+    const menuRows = page.locator(CHATGPT_MENTION_MENU_ROWS_SELECTOR);
     const appResult = menuRows.filter({
       has: page.getByText(this.config.appName, { exact: true }),
     });
@@ -1872,23 +1876,11 @@ export class ChatGptBrowserWorker {
       // otherwise move the menu highlight until it does. Keep
       // focus on the composer, activate through the menu's real keyboard owner, then prove the exact
       // selected connector pill below.
-      const rowHighlighted = async () => {
-        const highlightedAttr = await appResult.getAttribute("data-highlighted", {
-          signal: abortSignal,
-          timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-        }).catch(() => null);
-        if (highlightedAttr !== null) return true;
-        const ariaSelected = await appResult.getAttribute("aria-selected", {
-          signal: abortSignal,
-          timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-        }).catch(() => null);
-        if (ariaSelected === "true") return true;
-        const classList = await appResult.getAttribute("class", {
-          signal: abortSignal,
-          timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-        }).catch(() => null);
-        return classList !== null && (classList.includes("bg-primary-ghost-hover") || classList.includes("opacity-100"));
-      };
+      const rowHighlighted = async () => chatGptRowIsHighlighted(
+        appResult,
+        abortSignal,
+        CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
+      );
       if (!await rowHighlighted()) {
         const visibleRowCount = await withBrowserTurnAbort(
           withChatGptBrowserObservationTimeout(menuRows.filter({ visible: true }).count()),
@@ -2447,7 +2439,7 @@ export class ChatGptBrowserWorker {
     if (files.length === 0) return;
     const composer = await this.activeComposer(page);
     const composerForm = composer.locator("xpath=ancestor::form[1]");
-    const input = page.locator('input[data-testid="upload-photos-input"]');
+    const input = page.locator(CHATGPT_ATTACHMENT_INPUT_SELECTOR);
     await input.waitFor({ state: "attached", timeout: 20_000 });
     await input.setInputFiles(files);
     try {

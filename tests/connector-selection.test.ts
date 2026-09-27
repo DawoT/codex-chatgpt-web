@@ -9,6 +9,9 @@ import {
   chatGptConnectorIsSelected,
   chatGptConnectorMentionRowTitles,
   chatGptConnectorMentionFailure,
+  chatGptRowIsHighlighted,
+  CHATGPT_ATTACHMENT_INPUT_SELECTOR,
+  CHATGPT_MENTION_MENU_ROWS_SELECTOR,
 } from "../src/adapters/chatgpt-web/browser/connectors";
 
 describe("chatGptSelectedConnectorControl", () => {
@@ -240,5 +243,102 @@ describe("chatGptConnectorMentionFailure", () => {
       fetchRowTitles: async () => ["Row A", "Row B"],
     });
     expect(message).toContain('exposed no row named "My Tool" after 2 complete mention trigger attempt(s)');
+  });
+});
+
+describe("CHATGPT_ATTACHMENT_INPUT_SELECTOR", () => {
+  test("includes both testid upload input and unaccepted multiple composer file input fallback", () => {
+    expect(CHATGPT_ATTACHMENT_INPUT_SELECTOR).toContain('input[data-testid="upload-photos-input"]');
+    expect(CHATGPT_ATTACHMENT_INPUT_SELECTOR).toContain('form[data-chatgpt-composer] input[type="file"][multiple]:not([accept])');
+  });
+});
+
+describe("CHATGPT_MENTION_MENU_ROWS_SELECTOR", () => {
+  test("includes literal scroll-area navigation item selector from upstream", () => {
+    expect(CHATGPT_MENTION_MENU_ROWS_SELECTOR).toContain('[data-mention-list-scroll-area] button[data-list-navigation-item="true"]');
+    expect(CHATGPT_MENTION_MENU_ROWS_SELECTOR).toContain('.__menu-item[tabindex="0"]');
+  });
+});
+
+describe("chatGptRowIsHighlighted", () => {
+  function createMockRow(attributes: Record<string, string | null>) {
+    return {
+      getAttribute: async (name: string, _options?: unknown) => attributes[name] ?? null,
+    } as unknown as Locator;
+  }
+
+  test("returns true when row has data-highlighted attribute", async () => {
+    const row = createMockRow({ "data-highlighted": "" });
+    expect(await chatGptRowIsHighlighted(row)).toBe(true);
+  });
+
+  test("returns true when row has aria-current='true'", async () => {
+    const row = createMockRow({ "aria-current": "true" });
+    expect(await chatGptRowIsHighlighted(row)).toBe(true);
+  });
+
+  test("returns true when row has aria-selected='true'", async () => {
+    const row = createMockRow({ "aria-selected": "true" });
+    expect(await chatGptRowIsHighlighted(row)).toBe(true);
+  });
+
+  test("returns true when row has bg-primary-ghost-hover class", async () => {
+    const row = createMockRow({ class: "some-class bg-primary-ghost-hover other-class" });
+    expect(await chatGptRowIsHighlighted(row)).toBe(true);
+  });
+
+  test("returns true when row has opacity-100 class", async () => {
+    const row = createMockRow({ class: "py-2 opacity-100 flex" });
+    expect(await chatGptRowIsHighlighted(row)).toBe(true);
+  });
+
+  test("returns false when row has no matching highlighting indicators", async () => {
+    const row = createMockRow({
+      "aria-current": "false",
+      "aria-selected": "false",
+      class: "py-2 opacity-50",
+    });
+    expect(await chatGptRowIsHighlighted(row)).toBe(false);
+  });
+
+  test("returns false when getAttribute throws a regular error", async () => {
+    const row = {
+      getAttribute: async () => { throw new Error("DOM disconnected"); },
+    } as unknown as Locator;
+    expect(await chatGptRowIsHighlighted(row)).toBe(false);
+  });
+
+  test("re-throws when abortSignal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("Turn aborted"));
+    const row = {
+      getAttribute: async (_name: string, options?: { signal?: AbortSignal }) => {
+        if (options?.signal?.aborted) throw options.signal.reason;
+        return null;
+      },
+    } as unknown as Locator;
+    await expect(chatGptRowIsHighlighted(row, controller.signal)).rejects.toThrow("Turn aborted");
+  });
+});
+
+describe("exactSelectedConnectorCount filter logic", () => {
+  function matchConnector(element: { getAttribute: (name: string) => string | null }, appName: string): boolean {
+    return (element.getAttribute("data-keyword") ?? element.getAttribute("app-mention-display-name")) === appName;
+  }
+
+  test("matches connector pill with data-keyword", () => {
+    const element = {
+      getAttribute: (name: string) => name === "data-keyword" ? "Codex Native2" : null,
+    };
+    expect(matchConnector(element, "Codex Native2")).toBe(true);
+    expect(matchConnector(element, "Other")).toBe(false);
+  });
+
+  test("matches connector pill with app-mention-display-name fallback", () => {
+    const element = {
+      getAttribute: (name: string) => name === "app-mention-display-name" ? "Codex Native2" : null,
+    };
+    expect(matchConnector(element, "Codex Native2")).toBe(true);
+    expect(matchConnector(element, "Other")).toBe(false);
   });
 });

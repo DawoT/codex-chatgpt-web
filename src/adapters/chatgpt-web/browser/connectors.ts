@@ -10,6 +10,40 @@ import {
   withChatGptBrowserObservationTimeout,
 } from "./suspension-clock";
 
+export const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
+
+export const CHATGPT_ATTACHMENT_INPUT_SELECTOR =
+  'input[data-testid="upload-photos-input"], form[data-chatgpt-composer] input[type="file"][multiple]:not([accept])';
+
+export const CHATGPT_MENTION_MENU_ROWS_SELECTOR =
+  '[data-mention-list-scroll-area] button[data-list-navigation-item="true"], [class*="suggestionMenu"] button, .composer-home-top-menu button, .__menu-item[tabindex="0"], [role="menuitem"], [role="option"]';
+
+/**
+ * Checks whether a row in the mention dropdown menu is currently highlighted.
+ * Recognizes data-highlighted, aria-current="true", aria-selected="true", and hover/opacity classes.
+ */
+export async function chatGptRowIsHighlighted(
+  rowLocator: Locator,
+  abortSignal?: AbortSignal,
+  timeoutMs: number = CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
+): Promise<boolean> {
+  const options = { signal: abortSignal, timeout: timeoutMs };
+  try {
+    const highlightedAttr = await rowLocator.getAttribute("data-highlighted", options);
+    if (highlightedAttr !== null) return true;
+    const ariaCurrent = await rowLocator.getAttribute("aria-current", options);
+    if (ariaCurrent === "true") return true;
+    const ariaSelected = await rowLocator.getAttribute("aria-selected", options);
+    if (ariaSelected === "true") return true;
+    const classList = await rowLocator.getAttribute("class", options);
+    return classList !== null && (classList.includes("bg-primary-ghost-hover") || classList.includes("opacity-100"));
+  } catch (error) {
+    if (abortSignal?.aborted) throw error;
+    return false;
+  }
+}
+
+
 /**
  * Resolves the composer locator matching an active connector control by appName or its slug.
  */

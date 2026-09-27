@@ -13,6 +13,7 @@ import {
   CHATGPT_STOP_BUTTON_SELECTOR,
   CHATGPT_USER_TURN_SELECTOR,
 } from "../../../chatgpt-session";
+import { CHATGPT_MENTION_MENU_ROWS_SELECTOR } from "./connectors";
 import { withChatGptBrowserObservationTimeout } from "./suspension-clock";
 
 export function redactChatGptUiDiagnostic(value: string): string {
@@ -120,6 +121,7 @@ export class ChatGptBrowserDiagnostics {
           userTurnSelector,
           stopButtonSelector,
           completionActionSelector,
+          menuRowsSelector,
           appName,
         }) => {
           const rendered = (element: Element): boolean => {
@@ -156,10 +158,10 @@ export class ChatGptBrowserDiagnostics {
           const composers = [...document.querySelectorAll(composerSelector)].filter(rendered);
           const assistantTurns = [...document.querySelectorAll(assistantTurnSelector)].filter(rendered);
           const selectedConnectors = composers.flatMap(composer => (
-            [...composer.querySelectorAll('[data-id^="plugin:"][data-keyword], [app-mention-display-name], [class*="Mention-"]')]
+            [...composer.querySelectorAll('[data-id^="plugin:"][data-keyword], [app-mention-path^="app://"][app-mention-display-name][contenteditable="false"], [app-mention-display-name], [class*="Mention-"]')]
           ))
             .filter(rendered);
-          const exactConnectorRows = [...document.querySelectorAll('.__menu-item[tabindex="0"], [class*="suggestionMenu"] button, .composer-home-top-menu button, [role="menuitem"], [role="option"]')]
+          const exactConnectorRows = [...document.querySelectorAll(menuRowsSelector)]
             .filter(element => rendered(element) && exactText(element, appName));
           const currentUrl = new URL(location.href);
           const integerAttribute = (element: Element, name: string): number | null => {
@@ -209,7 +211,7 @@ export class ChatGptBrowserDiagnostics {
                 : [],
               selectedConnectorCount: selectedConnectors.length,
               exactSelectedConnectorCount: selectedConnectors.filter(
-                element => element.getAttribute("data-keyword") === appName,
+                element => (element.getAttribute("data-keyword") ?? element.getAttribute("app-mention-display-name")) === appName,
               ).length,
             },
             focus: {
@@ -263,6 +265,7 @@ export class ChatGptBrowserDiagnostics {
           userTurnSelector: CHATGPT_USER_TURN_SELECTOR,
           stopButtonSelector: CHATGPT_STOP_BUTTON_SELECTOR,
           completionActionSelector: CHATGPT_COMPLETION_ACTION_SELECTOR,
+          menuRowsSelector: CHATGPT_MENTION_MENU_ROWS_SELECTOR,
           appName: this.appName,
         })),
       ]);
