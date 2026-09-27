@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { workspaceFileCache, type FastPathWorkspaceCache } from "../fast-path-cache";
 import { GLOBAL_SKILL_READ_ROOTS, type FastPathToolResult, result } from "./types";
@@ -7,11 +7,13 @@ import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./sandb
 
 /** Hard ceiling for one codex_read_file call; larger files must be read in slices or via codex_exec. */
 export const CHATGPT_WEB_MAX_READ_FILE_BYTES = 16 * 1024 * 1024;
+export const DEFAULT_MAX_READ_CHUNK_BYTES = 128 * 1024;
 
 export function handleReadFile(options: {
   path: string;
   offset?: number;
   limit_lines?: number;
+  max_bytes?: number;
   cwd: string;
   roots: string[];
   cache?: FastPathWorkspaceCache;
@@ -35,6 +37,38 @@ export function handleReadFile(options: {
   const st = statSync(resolved);
   if (st.isDirectory()) {
     return result({ error: `Path is a directory, not a file. Use codex_list_dir to view contents: ${path}` }, true);
+  }
+  if (options.max_bytes !== undefined) {
+    const maxBytes = Math.max(1, options.max_bytes);
+    const fd = openSync(resolved, "r");
+    const buffer = Buffer.alloc(Math.min(st.size, maxBytes));
+    let bytesRead = 0;
+    try {
+      bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+    } finally {
+      closeSync(fd);
+    }
+    const checkBytes = Math.min(bytesRead, 8192);
+    for (let i = 0; i < checkBytes; i++) {
+      if (buffer[i] === 0) {
+        return result({
+          path: relative(options.cwd, resolved) || path,
+          binary: true,
+          size_bytes: st.size,
+          error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
+        }, true);
+      }
+    }
+    const text = buffer.subarray(0, bytesRead).toString("utf8");
+    const truncated = st.size > maxBytes;
+    return result({
+      path: relative(options.cwd, resolved) || path,
+      read_bytes: bytesRead,
+      total_bytes: st.size,
+      truncated,
+      next_offset: truncated ? bytesRead : null,
+      content: text,
+    });
   }
   if (st.size > CHATGPT_WEB_MAX_READ_FILE_BYTES) {
     return result({

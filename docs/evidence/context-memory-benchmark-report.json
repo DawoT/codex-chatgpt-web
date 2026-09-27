@@ -1,0 +1,439 @@
+{
+  "benchmarkVersion": "1.0.0",
+  "timestamp": "2026-09-27T18:28:48.627Z",
+  "workspaceRoot": "/tmp/benchmark-workloads-hE29Yh",
+  "totalScenarios": 30,
+  "passedScenarios": 30,
+  "passRate": 100,
+  "gates": {
+    "gate1_zeroLossControl": true,
+    "gate2_zeroCrossProject": true,
+    "gate3_zeroMutationReplay": true,
+    "gate4_netTokenReduction": {
+      "passed": true,
+      "baselineTokens": 65050,
+      "optimizedTokens": 542,
+      "reductionPercent": 99.2
+    }
+  },
+  "scenarios": [
+    {
+      "id": 1,
+      "category": "Contratos y Firmas",
+      "name": "TS interface discovery via Facts",
+      "passed": true,
+      "durationMs": 0.10266899999999168,
+      "tokensBaseline": 350,
+      "tokensOptimized": 45,
+      "savingsRatio": 0.8714285714285714,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Discovered interface SessionToken in 0.10ms"
+    },
+    {
+      "id": 2,
+      "category": "Contratos y Firmas",
+      "name": "Function signature query via Facts",
+      "passed": true,
+      "durationMs": 0.007912999999973636,
+      "tokensBaseline": 350,
+      "tokensOptimized": 40,
+      "savingsRatio": 0.8857142857142857,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Discovered function verifySession in 0.01ms"
+    },
+    {
+      "id": 3,
+      "category": "Contratos y Firmas",
+      "name": "Class declaration & method discovery",
+      "passed": true,
+      "durationMs": 0.004248999999958869,
+      "tokensBaseline": 350,
+      "tokensOptimized": 50,
+      "savingsRatio": 0.8571428571428571,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Discovered class AuthManager in 0.00ms"
+    },
+    {
+      "id": 4,
+      "category": "Contratos y Firmas",
+      "name": "File-scoped symbol query",
+      "passed": true,
+      "durationMs": 0.0033019999999623906,
+      "tokensBaseline": 250,
+      "tokensOptimized": 40,
+      "savingsRatio": 0.84,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Scoped query in server.ts found 1 symbol in 0.00ms"
+    },
+    {
+      "id": 5,
+      "category": "Contratos y Firmas",
+      "name": "Package scripts & commands discovery",
+      "passed": true,
+      "durationMs": 0.15625899999997728,
+      "tokensBaseline": 150,
+      "tokensOptimized": 30,
+      "savingsRatio": 0.8,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Discovered scripts in 0.16ms"
+    },
+    {
+      "id": 6,
+      "category": "Impacto entre Módulos",
+      "name": "Direct dependents query on core module",
+      "passed": true,
+      "durationMs": 0.24112299999995912,
+      "tokensBaseline": 500,
+      "tokensOptimized": 25,
+      "savingsRatio": 0.95,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "auth.ts imported by server.ts proven in 0.24ms"
+    },
+    {
+      "id": 7,
+      "category": "Impacto entre Módulos",
+      "name": "Transitive dependents propagation",
+      "passed": true,
+      "durationMs": 0.5900849999999878,
+      "tokensBaseline": 800,
+      "tokensOptimized": 40,
+      "savingsRatio": 0.95,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "auth.ts -> server.ts -> app.ts resolved in 0.59ms"
+    },
+    {
+      "id": 8,
+      "category": "Impacto entre Módulos",
+      "name": "Leaf module zero-dependents check",
+      "passed": true,
+      "durationMs": 0.02046100000001161,
+      "tokensBaseline": 300,
+      "tokensOptimized": 15,
+      "savingsRatio": 0.95,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Leaf app.ts has 0 dependents verified in 0.02ms"
+    },
+    {
+      "id": 9,
+      "category": "Impacto entre Módulos",
+      "name": "Module resolution edges check",
+      "passed": true,
+      "durationMs": 0.03369699999996101,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Indexed 2 import resolution edges in 0.03ms"
+    },
+    {
+      "id": 10,
+      "category": "Impacto entre Módulos",
+      "name": "Git commit syntactic impact analysis",
+      "passed": true,
+      "durationMs": 65.73960199999999,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Syntactic impact computed between 04ae8b5 and bff86fc in 65.74ms"
+    },
+    {
+      "id": 11,
+      "category": "Diagnóstico de Errores",
+      "name": "Broken syntax isolation & diagnostics",
+      "passed": true,
+      "durationMs": 28.783743000000015,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "System survived syntax error without crashing in 28.78ms"
+    },
+    {
+      "id": 12,
+      "category": "Diagnóstico de Errores",
+      "name": "Nonexistent symbol query graceful empty",
+      "passed": true,
+      "durationMs": 0.030327999999997246,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Empty result returned in 0.03ms"
+    },
+    {
+      "id": 13,
+      "category": "Diagnóstico de Errores",
+      "name": "Large stack trace bounded capture",
+      "passed": true,
+      "durationMs": 32.91469999999998,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Captured error stream safely in 32.91ms"
+    },
+    {
+      "id": 14,
+      "category": "Diagnóstico de Errores",
+      "name": "Sandbox path traversal containment",
+      "passed": true,
+      "durationMs": 3.7226679999999988,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Blocked traversal in 3.72ms"
+    },
+    {
+      "id": 15,
+      "category": "Diagnóstico de Errores",
+      "name": "Command execution in read-only policy blocked",
+      "passed": true,
+      "durationMs": 0.036669000000017604,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Blocked execution in read-only mode in 0.04ms"
+    },
+    {
+      "id": 16,
+      "category": "Sesiones Largas y Compacción",
+      "name": "Automated compaction above 48k tokens",
+      "passed": true,
+      "durationMs": 6.128934000000015,
+      "tokensBaseline": 62000,
+      "tokensOptimized": 257,
+      "savingsRatio": 0.9958548387096774,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Compacted from ~62k tokens to 257 tokens in 6.13ms"
+    },
+    {
+      "id": 17,
+      "category": "Sesiones Largas y Compacción",
+      "name": "Zero-loss Control Layer preservation",
+      "passed": true,
+      "durationMs": 0.04057600000004413,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Control layer 100% verified intact in 0.04ms"
+    },
+    {
+      "id": 18,
+      "category": "Sesiones Largas y Compacción",
+      "name": "Digest-verified memory record retrieval",
+      "passed": true,
+      "durationMs": 0.6706790000000069,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Retrieved verified checkpoint in 0.67ms"
+    },
+    {
+      "id": 19,
+      "category": "Sesiones Largas y Compacción",
+      "name": "Project memory search with pagination",
+      "passed": true,
+      "durationMs": 0.30445500000001857,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Found 1 checkpoints in 0.30ms"
+    },
+    {
+      "id": 20,
+      "category": "Sesiones Largas y Compacción",
+      "name": "Character-offset bounded memory reading",
+      "passed": true,
+      "durationMs": 0.11934300000001485,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Paged slices read seamlessly in 0.12ms"
+    },
+    {
+      "id": 21,
+      "category": "Ramas y Actualización de Git",
+      "name": "Branch switch and divergence detection",
+      "passed": true,
+      "durationMs": 35.436826999999994,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Detected new symbols on branch feature/divergence in 35.44ms"
+    },
+    {
+      "id": 22,
+      "category": "Ramas y Actualización de Git",
+      "name": "Git blob SHA cache invalidation",
+      "passed": true,
+      "durationMs": 31.22452800000002,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Invalidated and re-indexed updated symbol in 31.22ms"
+    },
+    {
+      "id": 23,
+      "category": "Ramas y Actualización de Git",
+      "name": "Reconnection across branches preserves memory",
+      "passed": true,
+      "durationMs": 3.423404000000005,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Preserved 1 memory records across branch switch in 3.42ms"
+    },
+    {
+      "id": 24,
+      "category": "Ramas y Actualización de Git",
+      "name": "Multi-session concurrent writes without collision",
+      "passed": true,
+      "durationMs": 0.30214999999998327,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Concurrent writes completed in 0.30ms with 0 collision"
+    },
+    {
+      "id": 25,
+      "category": "Ramas y Actualización de Git",
+      "name": "Strict workspace isolation (Gate 2)",
+      "passed": true,
+      "durationMs": 0.43876000000000204,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Zero cross-project leakage confirmed in 0.44ms"
+    },
+    {
+      "id": 26,
+      "category": "Resiliencia e Interrupciones",
+      "name": "Subprocess cancellation with SIGKILL",
+      "passed": true,
+      "durationMs": 52.5981670000001,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Process terminated cleanly in 52.60ms"
+    },
+    {
+      "id": 27,
+      "category": "Resiliencia e Interrupciones",
+      "name": "Stalled command timeout enforcement",
+      "passed": true,
+      "durationMs": 1002.473618,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Timeout enforced after 1002.47ms"
+    },
+    {
+      "id": 28,
+      "category": "Resiliencia e Interrupciones",
+      "name": "Runaway command output stream cut off at 1 MiB",
+      "passed": true,
+      "durationMs": 36.75127500000008,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Cut off at 1MB, omitted 1048576 bytes in 36.75ms"
+    },
+    {
+      "id": 29,
+      "category": "Resiliencia e Interrupciones",
+      "name": "Oversized file read bounded to 128 KiB",
+      "passed": true,
+      "durationMs": 1.4908359999999448,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Read bounded to 131072 bytes in 1.49ms"
+    },
+    {
+      "id": 30,
+      "category": "Resiliencia e Interrupciones",
+      "name": "Zero mutation replay on transport drop (Gate 3)",
+      "passed": true,
+      "durationMs": 0.6086370000000443,
+      "gateChecks": {
+        "zeroLossControl": true,
+        "zeroCrossProject": true,
+        "zeroMutationReplay": true
+      },
+      "details": "Transport drop recorded cleanly with zero automatic replay authority in 0.61ms"
+    }
+  ],
+  "evidenceDigest": "965f6622c086b8e4b251e253974e656031148ba633885260d18f7d98e9d3fa04"
+}

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { workspaceFileCache, type FastPathWorkspaceCache } from "../fast-path-cache";
+import { CGROUP_SHELL_COMMAND, commandCgroupEnv, createCommandCgroup } from "../command-cgroup";
 import { type FastPathToolResult, result } from "./types";
 import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./sandbox";
 
@@ -18,6 +19,7 @@ export interface HandleExecCommandOptions {
 export const DEFAULT_EXEC_TIMEOUT_MS = 600_000; // 10 minutes
 export const MAX_EXEC_TIMEOUT_MS = 1_800_000;   // 30 minutes
 export const MIN_EXEC_TIMEOUT_MS = 1_000;       // 1 second
+export const MAX_EXEC_STREAM_BYTES = 1024 * 1024; // 1 MiB hard output streaming cap
 
 export async function handleExecCommand(options: HandleExecCommandOptions): Promise<FastPathToolResult> {
   const { cmd, workdir, timeout_ms, cwd, roots, writableRoots, cache, signal: abortSignal } = options;
@@ -46,7 +48,12 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
 
   const timeout = Math.min(Math.max(timeout_ms ?? DEFAULT_EXEC_TIMEOUT_MS, MIN_EXEC_TIMEOUT_MS), MAX_EXEC_TIMEOUT_MS);
   const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
-  const shellArgs = process.platform === "win32" ? ["/c", cmd] : ["-c", cmd];
+  const cgroup = createCommandCgroup();
+  const shellArgs = process.platform === "win32"
+    ? ["/c", cmd]
+    : cgroup
+      ? ["-c", CGROUP_SHELL_COMMAND]
+      : ["-c", cmd];
 
   return new Promise<FastPathToolResult>((resolve) => {
     let stdout = "";
@@ -61,9 +68,13 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         cwd: effectiveCwd,
         detached: process.platform !== "win32",
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
+        env: {
+          ...process.env,
+          ...(cgroup ? commandCgroupEnv(cgroup, cmd) : {}),
+        },
       });
     } catch (spawnError) {
+      cgroup?.release();
       resolve(result({
         cmd,
         exit_code: 1,
@@ -78,6 +89,8 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         timer = undefined;
       }
       abortSignal?.removeEventListener("abort", onAbort);
+      cgroup?.kill();
+      cgroup?.release();
       if (cache) {
         cache.clear();
       } else {
@@ -88,6 +101,7 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
     const terminate = () => {
       // Kill the current POSIX process group before close; no delayed signal can
       // accidentally target a recycled PID. Windows currently terminates the root only.
+      const cgroupSignalled = cgroup?.kill() ?? false;
       try {
         if (process.platform !== "win32" && child.pid) {
           process.kill(-child.pid, "SIGKILL");
@@ -95,7 +109,7 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
           child.kill("SIGKILL");
         }
       } catch {
-        child.kill("SIGKILL");
+        if (!cgroupSignalled) child.kill("SIGKILL");
       }
     };
     const onAbort = () => {
@@ -111,24 +125,40 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
 
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let omittedBytes = 0;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
 
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
-      if (stdout.length < 10 * 1024 * 1024) {
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      if (stdoutBytes + chunkBytes <= MAX_EXEC_STREAM_BYTES) {
         stdout += chunk;
-      } else if (!stdoutTruncated) {
+        stdoutBytes += chunkBytes;
+      } else {
+        const remaining = Math.max(0, MAX_EXEC_STREAM_BYTES - stdoutBytes);
+        if (remaining > 0) {
+          stdout += chunk.slice(0, remaining);
+          stdoutBytes += remaining;
+        }
+        omittedBytes += chunkBytes - remaining;
         stdoutTruncated = true;
-        stdout += "\n[codex_exec: stdout truncated at 10MB limit]";
       }
     });
 
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
-      if (stderr.length < 10 * 1024 * 1024) {
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      if (stderrBytes + chunkBytes <= MAX_EXEC_STREAM_BYTES) {
         stderr += chunk;
-      } else if (!stderrTruncated) {
+        stderrBytes += chunkBytes;
+      } else {
+        const remaining = Math.max(0, MAX_EXEC_STREAM_BYTES - stderrBytes);
+        if (remaining > 0) {
+          stderr += chunk.slice(0, remaining);
+          stderrBytes += remaining;
+        }
         stderrTruncated = true;
-        stderr += "\n[codex_exec: stderr truncated at 10MB limit]";
       }
     });
 
@@ -140,6 +170,9 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         error: err.message,
         stdout,
         stderr,
+        stdout_truncated: stdoutTruncated,
+        stderr_truncated: stderrTruncated,
+        omitted_bytes: omittedBytes,
       }, true));
     });
 
@@ -152,8 +185,11 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
           exit_code: -1,
           cancelled: true,
           timed_out: timedOut,
-          stdout,
-          stderr,
+          stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${omittedBytes} bytes omitted]` : stdout,
+          stderr: stderrTruncated ? `${stderr}\n[codex_exec: stderr truncated at 1MB limit]` : stderr,
+          stdout_truncated: stdoutTruncated,
+          stderr_truncated: stderrTruncated,
+          omitted_bytes: omittedBytes,
         }, true));
         return;
       }
@@ -167,8 +203,11 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
           cmd,
           exit_code: -1,
           timed_out: true,
-          stdout,
+          stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${omittedBytes} bytes omitted]` : stdout,
           stderr: (stderr ? stderr + "\n" : "") + partialNotice,
+          stdout_truncated: stdoutTruncated,
+          stderr_truncated: stderrTruncated,
+          omitted_bytes: omittedBytes,
         }, true));
         return;
       }
@@ -179,8 +218,11 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         cmd,
         cwd: effectiveCwd,
         exit_code: exitCode,
-        stdout,
-        stderr,
+        stdout: stdoutTruncated ? `${stdout}\n[codex_exec: stdout truncated at 1MB limit; ${omittedBytes} bytes omitted]` : stdout,
+        stderr: stderrTruncated ? `${stderr}\n[codex_exec: stderr truncated at 1MB limit]` : stderr,
+        stdout_truncated: stdoutTruncated,
+        stderr_truncated: stderrTruncated,
+        omitted_bytes: omittedBytes,
         timed_out: false,
       }, isError));
     });
