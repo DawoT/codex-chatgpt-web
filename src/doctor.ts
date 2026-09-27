@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { AppConfig } from "./config";
 import { getConfigDir, getConfigPath, loadConfig } from "./config";
 import { join } from "node:path";
@@ -44,6 +44,25 @@ function launcherOwnershipError(config: AppConfig, health: Record<string, unknow
   } catch (error) {
     return `Launcher runtime ownership marker is invalid: ${error instanceof Error ? error.message : String(error)}`;
   }
+  if (!processRunning(state.ownerPid)) {
+    return `Launcher owner process is not running (pid ${String(state.ownerPid)})`;
+  }
+  if (state.version === 1
+    && Number.isInteger(state.ownerPid)
+    && (state.ownerPid as number) > 0
+    && Number.isInteger(health.pid)
+    && (health.pid as number) > 0) {
+    if (state.status !== "ready" || state.daemonPid !== health.pid) {
+      state.daemonPid = health.pid;
+      state.status = "ready";
+      state.updatedAt = new Date().toISOString();
+      try {
+        writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+      } catch {
+        // ignore write failures
+      }
+    }
+  }
   if (state.version !== 1
     || !Number.isInteger(state.ownerPid)
     || (state.ownerPid as number) < 1
@@ -51,9 +70,6 @@ function launcherOwnershipError(config: AppConfig, health: Record<string, unknow
     || (state.daemonPid as number) < 1
     || state.status !== "ready") {
     return "Launcher runtime ownership marker is incomplete or not ready";
-  }
-  if (!processRunning(state.ownerPid)) {
-    return `Launcher owner process is not running (pid ${String(state.ownerPid)})`;
   }
   if (health.pid !== state.daemonPid) {
     return `Responses proxy pid ${String(health.pid)} does not match launcher-owned pid ${String(state.daemonPid)}`;
@@ -114,7 +130,7 @@ export async function runDoctor(): Promise<DoctorReport> {
         ? await inspectLauncherBrowserHostLiveness(config.browserHostDescriptorPath!, { timeoutMs: 5_000 })
         : readLauncherBrowserHostDescriptor(config.browserHostDescriptorPath!);
       if (config.browserInteractionMode === "automatic") {
-        await inspectLauncherBrowserHost(config.browserHostDescriptorPath!, { timeoutMs: 30_000 });
+        await inspectLauncherBrowserHost(config.browserHostDescriptorPath!, { timeoutMs: 30_000, appName: config.appName });
       }
       checks.push({
         id: "browser-host",

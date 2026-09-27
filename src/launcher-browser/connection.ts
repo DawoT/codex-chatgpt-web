@@ -1,4 +1,10 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
 import { assertCdpReady, readLauncherBrowserHostDescriptor } from "./descriptor";
 import {
   LAUNCHER_CAPABILITY_INSPECTION_TIMEOUT_MS,
@@ -7,6 +13,140 @@ import {
   type LauncherBrowserHostDescriptor,
   type LauncherBrowserHostProfile,
 } from "./types";
+
+function resolveAppName(optionsAppName?: string): string {
+  if (optionsAppName?.trim()) return optionsAppName.trim();
+  try {
+    const configPath = join(homedir(), ".codex-chatgpt-web", "config.json");
+    if (existsSync(configPath)) {
+      const parsed = JSON.parse(readFileSync(configPath, "utf8")) as { appName?: string };
+      if (typeof parsed?.appName === "string" && parsed.appName.trim()) return parsed.appName.trim();
+    }
+  } catch {
+    // ignore
+  }
+  return "Codex Native2";
+}
+
+function resolveBrowserHelperScript(descriptor: LauncherBrowserHostDescriptor): string | undefined {
+  const entrypoint = process.argv[1];
+  if (typeof entrypoint === "string") {
+    const sibling = join(dirname(entrypoint), "browser-helper.cjs");
+    if (existsSync(sibling)) return sibling;
+  }
+  const projectDist = join(process.cwd(), "dist", "browser-helper.cjs");
+  if (existsSync(projectDist)) return projectDist;
+  const versionsDir = join(homedir(), ".codex-chatgpt-web", "versions");
+  if (existsSync(versionsDir)) {
+    try {
+      const dirs = readdirSync(versionsDir).filter(d => d.includes("linux") || d.includes("darwin") || d.includes("win"));
+      for (const dir of dirs.sort().reverse()) {
+        const candidate = join(versionsDir, dir, "app", "browser-helper.cjs");
+        if (existsSync(candidate)) return candidate;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (existsSync(descriptor.helper.script)) return descriptor.helper.script;
+  return undefined;
+}
+
+async function inspectLauncherBrowserHostViaHelper(
+  descriptor: LauncherBrowserHostDescriptor,
+  descriptorPath: string,
+  options: { detectCapabilities?: boolean; timeoutMs?: number; appName?: string },
+): Promise<{ solAvailable?: boolean; extraHighAvailable?: boolean; proAvailable?: boolean; url: string }> {
+  const helperScript = resolveBrowserHelperScript(descriptor);
+  if (!helperScript || !existsSync(descriptor.helper.executable)) {
+    throw new Error("Launcher browser helper executable or script is missing");
+  }
+
+  const timeoutMs = options.timeoutMs ?? (options.detectCapabilities
+    ? LAUNCHER_CAPABILITY_INSPECTION_TIMEOUT_MS
+    : LAUNCHER_SESSION_INSPECTION_TIMEOUT_MS);
+  const appName = resolveAppName(options.appName);
+
+  const child = spawn(descriptor.helper.executable, [helperScript], {
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+      CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS: "1",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+
+  const id = `inspect-${randomBytes(12).toString("hex")}`;
+  return new Promise((resolve, reject) => {
+    let completed = false;
+    const timer = setTimeout(() => {
+      if (completed) return;
+      completed = true;
+      child.kill();
+      reject(new Error(`helper session inspection timed out after ${timeoutMs}ms`));
+    }, Math.min(timeoutMs, 30_000));
+
+    const finish = (error: Error | null, value?: Record<string, unknown>) => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timer);
+      child.kill();
+      if (error) reject(error);
+      else {
+        if (!value || value.authenticated !== true || value.temporary !== true || typeof value.url !== "string") {
+          reject(new Error("Launcher helper returned invalid ChatGPT session evidence"));
+          return;
+        }
+        if (options.detectCapabilities
+          && (typeof value.solAvailable !== "boolean" || typeof value.extraHighAvailable !== "boolean" || typeof value.proAvailable !== "boolean")) {
+          reject(new Error("Launcher helper did not return complete ChatGPT account capability evidence"));
+          return;
+        }
+        if (options.detectCapabilities && (value.proAvailable === true || value.extraHighAvailable === true) && value.solAvailable !== true) {
+          reject(new Error("Launcher helper returned contradictory ChatGPT account capability evidence"));
+          return;
+        }
+        resolve({
+          url: value.url as string,
+          ...(options.detectCapabilities ? {
+            solAvailable: value.solAvailable as boolean,
+            extraHighAvailable: value.extraHighAvailable as boolean,
+            proAvailable: value.proAvailable as boolean,
+          } : {}),
+        });
+      }
+    };
+
+    const output = createInterface({ input: child.stdout });
+    output.on("line", line => {
+      try {
+        const msg = JSON.parse(line) as { type?: string; id?: string; value?: Record<string, unknown>; message?: string };
+        if (msg.type === "ready") {
+          child.stdin.write(JSON.stringify({
+            type: "inspect",
+            id,
+            detectCapabilities: options.detectCapabilities === true,
+            config: {
+              appName,
+              browserHostDescriptorPath: descriptorPath,
+            },
+          }) + "\n");
+        } else if (msg.id === id) {
+          if (msg.type === "result") finish(null, msg.value);
+          else finish(new Error(msg.message || "Launcher helper inspection returned error"));
+        }
+      } catch {
+        // ignore non-json
+      }
+    });
+
+    child.on("error", err => finish(err instanceof Error ? err : new Error(String(err))));
+    child.on("exit", (code, signal) => {
+      if (!completed) finish(new Error(`Launcher browser helper exited prematurely (${signal ? `signal ${signal}` : `status ${code}`})`));
+    });
+  });
+}
 
 export async function selectLauncherPage(
   browser: Browser,
@@ -100,6 +240,7 @@ export async function inspectLauncherBrowserHost(
     detectCapabilities?: boolean;
     expectedProfile?: LauncherBrowserHostProfile;
     timeoutMs?: number;
+    appName?: string;
   } = {},
 ): Promise<{ solAvailable?: boolean; extraHighAvailable?: boolean; proAvailable?: boolean; url: string }> {
   const descriptor = readLauncherBrowserHostDescriptor(descriptorPath);
@@ -113,10 +254,11 @@ export async function inspectLauncherBrowserHost(
     : LAUNCHER_SESSION_INSPECTION_TIMEOUT_MS);
   const controller = new AbortController();
   let timedOut = false;
+  const httpTimeoutMs = timeoutMs >= 10_000 ? Math.min(timeoutMs, 5_000) : timeoutMs;
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, timeoutMs);
+  }, httpTimeoutMs);
   try {
     const response = await fetch(`${descriptor.control.endpoint}/v1/session/inspect`, {
       method: "POST",
@@ -148,6 +290,13 @@ export async function inspectLauncherBrowserHost(
       } : {}),
     };
   } catch (error) {
+    if (timeoutMs >= 10_000) {
+      try {
+        return await inspectLauncherBrowserHostViaHelper(descriptor, descriptorPath, options);
+      } catch {
+        // Fallback failed as well, proceed to throw standard error
+      }
+    }
     const detail = timedOut
       ? `session inspection timed out after ${timeoutMs}ms`
       : error instanceof Error ? error.message : String(error);
