@@ -358,5 +358,46 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
         await server.stop(true);
       }
     });
+
+    test("GET /healthz dispatches alert webhook when alerts are present and webhook URL is configured", async () => {
+      let receivedBody: unknown = null;
+      const webhookServer = Bun.serve({
+        port: 17886,
+        hostname: "127.0.0.1",
+        fetch(req) {
+          return req.json().then(body => {
+            receivedBody = body;
+            return Response.json({ ok: true });
+          });
+        },
+      });
+
+      const oldWebhook = process.env["CODEX_ALERT_WEBHOOK_URL"];
+      process.env["CODEX_ALERT_WEBHOOK_URL"] = "http://127.0.0.1:17886/webhook";
+
+      const config = defaultConfig("browser-only");
+      config.port = 17887;
+      config.host = "127.0.0.1";
+      const server = startServer(config);
+      try {
+        runtimeMetrics.recordJanitorRun({ filesPruned: 0, bytesReclaimed: 0, error: true });
+        runtimeMetrics.recordJanitorRun({ filesPruned: 0, bytesReclaimed: 0, error: true });
+        expect(runtimeMetrics.getAlerts().length).toBeGreaterThan(0);
+
+        const res = await fetch(`http://${config.host}:${config.port}/healthz`);
+        expect(res.status).toBe(200);
+
+        await new Promise(r => setTimeout(r, 200));
+
+        expect(receivedBody).toBeTruthy();
+      } finally {
+        if (oldWebhook !== undefined) process.env["CODEX_ALERT_WEBHOOK_URL"] = oldWebhook;
+        else delete process.env["CODEX_ALERT_WEBHOOK_URL"];
+        runtimeMetrics.recordJanitorRun({ filesPruned: 0, bytesReclaimed: 0, error: false });
+        await server.stop(true);
+        await webhookServer.stop(true);
+      }
+    });
   });
 });
+
