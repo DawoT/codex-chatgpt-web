@@ -1,25 +1,20 @@
+import { registerChatFirstTaskTools } from "./chat-first-task-tools";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { loadConfig } from "../../../config";
 import { appendChatFirstAuditEntry } from "../chat-first-audit";
 import { resolveChatFirstWorkspace } from "../chat-first-environment";
 import { workspaceFileCache } from "../fast-path-cache";
-import { globalBackgroundTaskManager } from "../background-task-manager";
 import {
   handleGrep,
   handleListDir,
   handlePatchFile,
   handleReadFile,
   handleWriteFile,
-  handleExecCommand,
-  DEFAULT_EXEC_TIMEOUT_MS,
-  MAX_EXEC_TIMEOUT_MS,
-  MIN_EXEC_TIMEOUT_MS,
   result,
   type FastPathToolResult,
 } from "../fast-path-handlers";
 import { asMcpResult } from "./results";
-import { waitOnTasks } from "./tasks";
 
 export function registerChatFirstTools(
   server: McpServer,
@@ -31,13 +26,14 @@ export function registerChatFirstTools(
   const chatFirstWritable = chatFirstSandboxMode !== "readOnly";
   const scopeFor = (requested?: string) => resolveChatFirstWorkspace(chatFirstConfig, requested);
   const chatFirstToolResult = (toolName: string, cwd: string, res: FastPathToolResult) =>
-    asMcpResult(res, { toolName, workspaceRoot: cwd });
-  // Only a completed mutation reaches the audit log; a failed call changed nothing on disk.
-  const auditSuccessfulMutation = (tool: string, res: FastPathToolResult, requestedPath: string): void => {
-    if (res.isError) return;
+    asMcpResult(res, { toolName, offload: false });
+  // Shell failures and cancellation can follow filesystem effects; record their outcomes too.
+  const auditMutationOutcome = (tool: string, res: FastPathToolResult, requestedPath: string): void => {
+    if (res.isError && tool !== "codex_exec") return;
     const structured = res.structuredContent;
     appendChatFirstAuditEntry({
       tool,
+      ...(tool === "codex_exec" ? { detail: res.isError ? "error" : "success" } : {}),
       path: typeof structured.path === "string" ? structured.path : requestedPath,
       ...(typeof structured.bytes_written === "number" ? { bytes: structured.bytes_written } : {}),
     });
@@ -180,7 +176,7 @@ export function registerChatFirstTools(
           writableRoots: scope.writableRoots,
           cache: workspaceFileCache,
         });
-        auditSuccessfulMutation("codex_write_file", res, input.path);
+        auditMutationOutcome("codex_write_file", res, input.path);
         return chatFirstToolResult("codex_write_file", scope.cwd, res);
       },
     );
@@ -209,141 +205,16 @@ export function registerChatFirstTools(
           writableRoots: scope.writableRoots,
           cache: workspaceFileCache,
         });
-        auditSuccessfulMutation("codex_patch_file", res, input.path);
+        auditMutationOutcome("codex_patch_file", res, input.path);
         return chatFirstToolResult("codex_patch_file", scope.cwd, res);
       },
     );
 
-    server.registerTool(
-      "codex_exec",
-      {
-        title: "Run a chat-first shell command",
-        description: "Execute a shell command (tests, builds, git, cli) in the configured local workspace; the execution is recorded in the local audit log. Returns stdout, stderr, and exit_code. Set background=true to run asynchronously without waiting.",
-        inputSchema: {
-          cmd: z.string().min(1).max(32_768).describe("Shell command string to execute."),
-          workdir: z.string().max(16_384).optional().describe("Working directory (relative to workspace or absolute). Defaults to workspace root."),
-          workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
-          background: z.boolean().default(false).optional().describe("If true, runs command asynchronously in background and returns task_id immediately without blocking web chat. Use codex_poll_task to check progress."),
-          timeout_ms: z.number().int().min(MIN_EXEC_TIMEOUT_MS).max(MAX_EXEC_TIMEOUT_MS).default(DEFAULT_EXEC_TIMEOUT_MS).optional().describe("Maximum command execution time in milliseconds (for synchronous execution)."),
-        },
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-      },
-      async input => {
-        const scope = scopeFor(input.workspace);
-        if (input.background) {
-          const task = globalBackgroundTaskManager.startTask({
-            cmd: input.cmd,
-            cwd: scope.cwd,
-            roots: scope.roots,
-            writableRoots: scope.writableRoots,
-          });
-          const bgPayload = {
-            task_id: task.id,
-            status: task.status,
-            cmd: task.cmd,
-            pid: task.pid,
-            log_file: task.logFile,
-            message: "Command started in background. The web chat does not need to wait. Use codex_poll_task to check results or inspect the log file with codex_read_file.",
-          };
-          auditSuccessfulMutation("codex_exec", result(bgPayload), input.cmd);
-          return chatFirstToolResult("codex_exec", scope.cwd, result(bgPayload));
-        }
-
-        // Clamp chat-first command execution to 55s ceiling to prevent OpenAI cloud tunnel deadline retirement
-        const requestedTimeout = input.timeout_ms ?? 55_000;
-        const safeTimeout = Math.min(requestedTimeout, 55_000);
-        const res = await handleExecCommand({
-          cmd: input.cmd,
-          workdir: input.workdir,
-          timeout_ms: safeTimeout,
-          cwd: scope.cwd,
-          roots: scope.roots,
-          writableRoots: scope.writableRoots,
-          cache: workspaceFileCache,
-        });
-        auditSuccessfulMutation("codex_exec", res, input.cmd);
-        return chatFirstToolResult("codex_exec", scope.cwd, res);
-      },
-    );
-
-    server.registerTool(
-      "codex_poll_task",
-      {
-        title: "Poll or manage a background shell task",
-        description: "Check status, retrieve output logs, wait for completion, or terminate a background command launched with codex_exec(background=true). If task_id is omitted, lists recent background tasks.",
-        inputSchema: {
-          task_id: z.string().optional().describe("Task ID to check or manage. If omitted, lists recent background tasks."),
-          wait_ms: z.number().int().min(0).max(30_000).default(0).optional().describe("Milliseconds to wait (0-30000) for task to complete before returning (default: 0, non-blocking)."),
-          kill: z.boolean().default(false).optional().describe("If true, terminates the running background task."),
-          lines: z.number().int().min(1).max(500).default(100).optional().describe("Number of trailing log lines to return (default: 100)."),
-          workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
-        },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      },
-      async input => {
-        const scope = scopeFor(input.workspace);
-        if (!input.task_id) {
-          const tasks = globalBackgroundTaskManager.listTasks().map(t => ({
-            task_id: t.id,
-            cmd: t.cmd,
-            status: t.status,
-            exit_code: t.exitCode,
-            started_at: t.startedAt,
-            duration_ms: t.durationMs ?? (Date.now() - new Date(t.startedAt).getTime()),
-            log_file: t.logFile,
-          }));
-          return chatFirstToolResult("codex_poll_task", scope.cwd, result({ tasks }));
-        }
-
-        if (input.kill) {
-          const killed = globalBackgroundTaskManager.killTask(input.task_id);
-          const task = globalBackgroundTaskManager.getTask(input.task_id);
-          return chatFirstToolResult("codex_poll_task", scope.cwd, result({
-            task_id: input.task_id,
-            status: task?.status ?? "not_found",
-            killed,
-          }));
-        }
-
-        const polled = await globalBackgroundTaskManager.pollTask(input.task_id, input.wait_ms ?? 0, input.lines ?? 100);
-        if (!polled) {
-          return chatFirstToolResult("codex_poll_task", scope.cwd, result({ error: `Task not found: ${input.task_id}` }, true));
-        }
-
-        return chatFirstToolResult("codex_poll_task", scope.cwd, result({
-          task_id: polled.task.id,
-          cmd: polled.task.cmd,
-          status: polled.task.status,
-          exit_code: polled.task.exitCode,
-          duration_ms: polled.task.durationMs ?? (Date.now() - new Date(polled.task.startedAt).getTime()),
-          started_at: polled.task.startedAt,
-          completed_at: polled.task.completedAt,
-          log_file: polled.task.logFile,
-          output_tail: polled.tail,
-        }));
-      },
-    );
-
-    server.registerTool(
-      "codex_wait_tasks",
-      {
-        title: "Wait for background tasks and return compact summaries",
-        description: "Wait for background command tasks to finish or until wait_ms expires. Returns a compact single-line summary for each task and the count of pending tasks.",
-        inputSchema: {
-          task_ids: z.array(z.string().min(1)).min(1).max(10).describe("List of 1 to 10 background task IDs to wait for."),
-          wait_ms: z.number().int().min(0).max(90_000).default(60_000).optional().describe("Milliseconds to wait for completion (clamped <= 90000, default 60000)."),
-          lines: z.number().int().min(1).max(500).default(30).optional().describe("Trailing log lines to inspect for summarizing (default 30)."),
-          workspace: z.string().max(1_024).optional().describe("Optional configured workspace; omit it to use the default workspace."),
-        },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      },
-      async input => {
-        const scope = scopeFor(input.workspace);
-        const rawWait = input.wait_ms ?? 60_000;
-        const clampedWait = Math.min(Math.max(rawWait, 0), 90_000);
-        const res = await waitOnTasks(input.task_ids, clampedWait, input.lines ?? 30);
-        return chatFirstToolResult("codex_wait_tasks", scope.cwd, result(res));
-      },
-    );
+    registerChatFirstTaskTools(server, {
+      config: chatFirstConfig,
+      scopeFor,
+      toolResult: chatFirstToolResult,
+      audit: auditMutationOutcome,
+    });
   }
 }

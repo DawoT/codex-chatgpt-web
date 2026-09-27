@@ -117,8 +117,9 @@ export interface AppConfig {
     workspaces?: string[];
   };
   /**
-   * Optional background-task tuning (Sprint H1). When the block is absent the previous behavior
-   * is kept: no concurrency limit and no log garbage collection. Defaults when present:
+   * Optional task tuning. Chat-First shares maxConcurrent across foreground and background
+   * commands, queues at most maxConcurrent foreground calls for up to 5s, and applies 8 and
+   * logRetentionHours 48 when this block is absent. Defaults when present:
    * maxConcurrent 8, resumeNotes true, logRetentionHours 48.
    */
   backgroundTasks?: {

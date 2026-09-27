@@ -65,6 +65,7 @@ export async function handleAdminRoute(
     const healthzPayload = {
       status: "ok",
       service: "codex-chatgpt-web",
+      hostProtocol: 1,
       version: VERSION,
       mode: config.mode,
       pid: process.pid,

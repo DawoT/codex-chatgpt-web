@@ -11,12 +11,16 @@ import type { McpContentPart, McpCallResult } from "./types";
 
 export type { McpContentPart, McpCallResult };
 
+const MAX_MCP_RESULT_BYTES = 1024 * 1024;
+
 export function chatGptMcpInvocationTimeout(
   environment: ChatGptTurnEnvironment & { expiresAt?: number },
   now = Date.now(),
-  requestedTimeoutMs?: number,
+  _requestedTimeoutMs?: number,
 ): number {
-  const baseTimeout = Math.max(CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS, requestedTimeoutMs ?? 0);
+  // A host wait hint cannot extend the transport deadline. Long jobs must yield
+  // through host sessions; cancellation here does not prove a command stopped.
+  const baseTimeout = CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS;
   const remaining = environment.expiresAt === undefined
     ? baseTimeout
     : Math.max(1, environment.expiresAt - now);
@@ -52,7 +56,7 @@ export function asMcpResult(
     };
   }
 
-  return {
+  const response: McpCallResult = {
     content: sanitizedContent,
     ...(structuredContent !== undefined && structuredContent !== null && typeof structuredContent === "object"
       ? { structuredContent: structuredContent as Record<string, unknown> }
@@ -62,4 +66,28 @@ export function asMcpResult(
       ? { _meta: (value as { _meta?: Record<string, unknown> })._meta as Record<string, unknown> }
       : {}),
   };
+  return enforceMcpResultBudget(response);
+}
+
+/** Bound a complete MCP response without altering valid protocol JSON or schemas. */
+export function enforceMcpResultBudget(response: McpCallResult): McpCallResult {
+  // Include structured data, images and metadata, not just visible text. This is
+  // a wire budget; upstream handlers still need their own allocation limits.
+  const bytes = Buffer.byteLength(JSON.stringify(response), "utf8");
+  if (bytes > MAX_MCP_RESULT_BYTES) {
+    return {
+      isError: true,
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          code: "mcp_result_too_large",
+          bytes,
+          limit_bytes: MAX_MCP_RESULT_BYTES,
+          retryable: false,
+          message: "The tool returned a result larger than the MCP delivery budget. Effects may already have occurred. Do not repeat mutations; use narrower read queries or supported pagination to retrieve evidence.",
+        }),
+      }],
+    };
+  }
+  return response;
 }

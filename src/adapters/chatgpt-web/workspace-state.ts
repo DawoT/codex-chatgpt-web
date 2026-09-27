@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { getConfigDir } from "../../config";
 import { randomBytes } from "node:crypto";
 
 export interface WorkspaceState {
@@ -36,7 +36,13 @@ export function defaultWorkspaceState(): WorkspaceState {
   };
 }
 
-export function resolveWorkspaceStatePath(workspaceRoot?: string): string {
+export function resolveWorkspaceStatePath(workspaceRoot?: string, strict = false): string {
+  if (strict) {
+    if (!workspaceRoot) throw new Error("Strict persistence requires a workspace root");
+    const agentsDir = join(workspaceRoot, ".agents");
+    mkdirSync(agentsDir, { recursive: true });
+    return join(agentsDir, "STATE.md");
+  }
   if (workspaceRoot && typeof workspaceRoot === "string") {
     try {
       const agentsDir = join(workspaceRoot, ".agents");
@@ -47,7 +53,7 @@ export function resolveWorkspaceStatePath(workspaceRoot?: string): string {
     }
   }
 
-  const fallbackDir = join(homedir(), ".codex-chatgpt-web", "workspaces", "default");
+  const fallbackDir = join(getConfigDir(), "workspaces", "default");
   try {
     mkdirSync(fallbackDir, { recursive: true });
   } catch {
@@ -247,6 +253,11 @@ export function serializeWorkspaceState(state: WorkspaceState): string {
   lines.push(state.nextImmediateAction ? state.nextImmediateAction.trim() : "Await instructions.");
   lines.push("");
 
+  if (state.customSections && Object.keys(state.customSections).length > 0) {
+    // JSON escapes embedded headings and newlines so summaries cannot become state fields.
+    lines.push("## Bridge Custom Sections", "", "```json", JSON.stringify(state.customSections, null, 2), "```", "");
+  }
+
   return lines.join("\n");
 }
 
@@ -280,7 +291,21 @@ export function parseWorkspaceState(markdown: string): WorkspaceState {
     const header = headerMatch[1].trim().toLowerCase();
     const contentLines = lines.slice(1).map(l => l.trim()).filter(Boolean);
 
-    if (header.includes("goal") || header.includes("mission")) {
+    if (header === "bridge custom sections") {
+      const encoded = contentLines.join("\n").match(/^```json\n([\s\S]*)\n```$/)?.[1];
+      if (encoded) {
+        try {
+          const parsed: unknown = JSON.parse(encoded);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            state.customSections = Object.fromEntries(
+              Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+            );
+          }
+        } catch {
+          // Malformed optional metadata must not discard the ordinary workspace state.
+        }
+      }
+    } else if (header.includes("goal") || header.includes("mission")) {
       state.goal = contentLines.filter(l => !l.startsWith(">")).join("\n").trim();
     } else if (header.includes("active phase") || header.includes("phase")) {
       state.activePhase = contentLines.join("\n").trim();
@@ -308,7 +333,9 @@ export function parseWorkspaceState(markdown: string): WorkspaceState {
 }
 
 export function readWorkspaceState(workspaceRoot?: string): WorkspaceState | null {
-  const filePath = resolveWorkspaceStatePath(workspaceRoot);
+  const filePath = workspaceRoot
+    ? join(workspaceRoot, ".agents", "STATE.md")
+    : join(getConfigDir(), "workspaces", "default", "STATE.md");
   if (!existsSync(filePath)) return null;
 
   try {
@@ -319,8 +346,8 @@ export function readWorkspaceState(workspaceRoot?: string): WorkspaceState | nul
   }
 }
 
-export function writeWorkspaceState(workspaceRoot: string, state: WorkspaceState): void {
-  const filePath = resolveWorkspaceStatePath(workspaceRoot);
+export function writeWorkspaceState(workspaceRoot: string, state: WorkspaceState, strict = false): void {
+  const filePath = resolveWorkspaceStatePath(workspaceRoot, strict);
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
 
@@ -332,6 +359,7 @@ export function writeWorkspaceState(workspaceRoot: string, state: WorkspaceState
     writeFileSync(tmpPath, content, "utf-8");
     renameSync(tmpPath, filePath);
   } catch (error) {
+    if (strict) throw error;
     // If atomic rename fails (e.g. across mount points), direct write as fallback
     try {
       writeFileSync(filePath, content, "utf-8");
@@ -344,11 +372,12 @@ export function writeWorkspaceState(workspaceRoot: string, state: WorkspaceState
 export function ensureWorkspaceState(
   workspaceRoot?: string,
   defaults?: Partial<WorkspaceState>,
+  strict = false,
 ): WorkspaceState {
   const existing = readWorkspaceState(workspaceRoot);
   if (existing) return existing;
 
-  const targetPath = resolveWorkspaceStatePath(workspaceRoot);
+  const targetPath = resolveWorkspaceStatePath(workspaceRoot, strict);
   const state: WorkspaceState = {
     ...defaultWorkspaceState(),
     ...defaults,

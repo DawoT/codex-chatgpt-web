@@ -1,3 +1,4 @@
+import { HostHttpRoutes } from "./server/host-routes";
 import { closeChatGptBrowserWorkers } from "./adapters/chatgpt-web/browser-worker";
 import { closeTurnBrokers, TurnBroker } from "./adapters/chatgpt-web/turn-broker";
 import { chatGptTurnSessions } from "./adapters/chatgpt-web/turn-execution";
@@ -146,6 +147,7 @@ export function startServer(
     request: number; at: string; status: number; failure?: ModelCatalogFailure;
   } | null = null;
   const httpTurns = new HttpTurnCounter();
+  const hostRoutes = new HostHttpRoutes(config, httpTurns, dependencies.adapterFactory);
 
   // Sprint AG: Rate limiter
   const rateLimitRpm = config.rateLimitRpm
@@ -197,6 +199,10 @@ export function startServer(
     idleTimeout: 0,
     async fetch(req) {
       const url = new URL(req.url);
+      if (url.pathname.startsWith("/host/v1/")) {
+        if (draining && req.method !== "DELETE" && !url.pathname.endsWith("/cancel")) return formatErrorResponse(503, "server_error", "Host bridge is draining");
+        return (await hostRoutes.handle(req))!;
+      }
 
       const adminResponse = await handleAdminRoute(req, url, adminContext);
       if (adminResponse !== undefined) return adminResponse;
@@ -366,12 +372,14 @@ export function startServer(
     taskResumeOrchestrator?.stop();
     sessionHealthGuard.stopWatchdog();
     tunnelSupervisor?.stop();
+    void hostRoutes.close();
     return originalStop(closeActiveConnections);
   };
 
   function shutdown(): void {
     if (shutdownPromise) return;
     draining = true;
+    void hostRoutes.close();
     tunnelSupervisor?.stop();
     sessionHealthGuard.stopWatchdog();
     sessionJanitor?.stop();

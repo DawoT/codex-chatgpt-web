@@ -42,6 +42,9 @@ import type { NativeCodexTurnIdentity } from "./types";
 export type ChatGptWebAdapterFactory = (provider: CodexProviderConfig) => ProviderAdapter;
 
 export interface ResponseRequestOptions {
+  /** In-process host admission, never request JSON. */
+  hostTurn?: { sessionId: string; turnId: string; cwd: string };
+  onCompletedResponse?: (response: Record<string, unknown>) => void;
   /** DEV and other in-process harnesses can keep continuation state in their own canonical store. */
   rememberState?: boolean;
   /** Observe the exact production adapter stream when invoking the handler in-process. */
@@ -137,12 +140,17 @@ export async function responseRequest(
     ? (raw as { model?: unknown }).model
     : undefined;
   try {
-    const identity = extractCodexTurnIdentityFromBody(raw);
+    const identity = options.hostTurn
+      ? { threadId: options.hostTurn.sessionId, turnId: options.hostTurn.turnId }
+      : extractCodexTurnIdentityFromBody(raw);
     if (identity.threadId && identity.turnId) {
       options.onTurnIdentity?.({ threadId: identity.threadId, turnId: identity.turnId });
     }
   } catch (error) {
     return formatErrorResponse(400, "invalid_request_error", error instanceof Error ? error.message : String(error));
+  }
+  if (options.hostTurn && (typeof requestedModel !== "string" || !isChatGptWebModelSlug(requestedModel))) {
+    return formatErrorResponse(400, "invalid_request_error", "Host requests require an available ChatGPT Web model");
   }
   if (typeof requestedModel === "string" && !isChatGptWebModelSlug(requestedModel)) {
     try {
@@ -154,11 +162,25 @@ export async function responseRequest(
   const requestedPreviousResponseId = raw && typeof raw === "object" && !Array.isArray(raw)
     ? (raw as { previous_response_id?: unknown }).previous_response_id
     : undefined;
-  const expanded = expandPreviousResponseInput(raw);
+  const expanded = options.hostTurn ? raw : expandPreviousResponseInput(raw);
   let parsed: CodexParsedRequest;
   let route: ChatGptWebModelRoute;
   try {
     parsed = parseRequest(expanded);
+    if (options.hostTurn) {
+      parsed._hostTurn = {
+        sessionId: options.hostTurn.sessionId,
+        turnId: options.hostTurn.turnId,
+        environment: {
+          execution: "host-only",
+          cwd: options.hostTurn.cwd,
+          roots: [],
+          writableRoots: [],
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+          tools: parsed.context.tools ?? [],
+        },
+      };
+    }
     route = routeChatGptWebRequest(parsed, config);
     const identity = extractChatGptTurnIdentity(parsed);
     if (identity.threadId && identity.turnId) {
@@ -210,6 +232,7 @@ export async function responseRequest(
   const compaction = parsed._compactionRequest === true;
   const compactionItem = compaction && parsed._compactionResponseFormat !== "message";
   const rememberCompletedResponse = (response: Record<string, unknown>): void => {
+    options.onCompletedResponse?.(response);
     if (!compaction) {
       if (options.rememberState !== false) rememberResponseState(parsed._rawBody, response, { force: true });
       return;

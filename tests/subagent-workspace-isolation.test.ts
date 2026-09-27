@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { getConfigDir } from "../src/config";
 import {
   cleanupSubagentWorkspace,
   listSubagentWorkspaces,
@@ -40,7 +41,7 @@ describe("Sprint W: Subagentes Aislados con Workspace Local (.agents/subagents/<
 
   test("resolveSubagentWorkspace falls back safely when workspace is missing or invalid", () => {
     const fallback = resolveSubagentWorkspace(undefined, "sub_fallback_1");
-    expect(fallback).toContain(".codex-chatgpt-web");
+    expect(fallback).toBe(join(getConfigDir(), "subagents", "sub_fallback_1"));
     expect(fallback).toContain("sub_fallback_1");
   });
 

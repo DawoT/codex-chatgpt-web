@@ -1,0 +1,51 @@
+{
+  "sourceSha256": "3797f0123310588aa96e8922bc709332cc8db3baf917d86b4e855c5ad49ead95",
+  "generatedAt": "2026-09-27T07:00:51.472Z",
+  "runtime": "v26.3.0",
+  "platform": "linux",
+  "description": "One real 8-second task, 5.2-second wait. Baseline reproduces the former polling algorithm against the current manager. Counts successful log-tail reads, not disk-cache misses. Cancellation samples exercise the current manager in both modes. No model calls or throughput claim.",
+  "samples": [
+    {
+      "repetition": 0,
+      "mode": "polling-baseline",
+      "elapsedMs": 5200.908600000001,
+      "logReads": 3,
+      "cancellationMs": 0.682847000000038
+    },
+    {
+      "repetition": 0,
+      "mode": "completion-events",
+      "elapsedMs": 5202.253140000001,
+      "logReads": 1,
+      "cancellationMs": 0.047278000000005704
+    },
+    {
+      "repetition": 1,
+      "mode": "polling-baseline",
+      "elapsedMs": 5200.2979350000005,
+      "logReads": 3,
+      "cancellationMs": 0.04971800000021176
+    },
+    {
+      "repetition": 1,
+      "mode": "completion-events",
+      "elapsedMs": 5200.8580170000005,
+      "logReads": 1,
+      "cancellationMs": 0.053220000001601875
+    },
+    {
+      "repetition": 2,
+      "mode": "polling-baseline",
+      "elapsedMs": 5201.078176999999,
+      "logReads": 3,
+      "cancellationMs": 0.055518999997730134
+    },
+    {
+      "repetition": 2,
+      "mode": "completion-events",
+      "elapsedMs": 5200.701486999998,
+      "logReads": 1,
+      "cancellationMs": 0.050996999998460524
+    }
+  ]
+}

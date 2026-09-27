@@ -8,8 +8,15 @@ export const AGENT_WAIT_TRANSPORT_RULE = `ChatGPT Web transport rule: wait for e
 // The OpenAI tunnel currently owns a two-minute command-response deadline. The local MCP server
 // must settle first so an abandoned native tool call is returned as an MCP error instead of
 // letting the tunnel tear down and poison its long-lived stdio transport.
+export function resolveMcpInvocationTimeout(value: string | undefined): number {
+  const configured = Number(value);
+  return Number.isFinite(configured) && configured >= 1
+    ? Math.min(90_000, Math.floor(configured))
+    : 90_000;
+}
+
 export const CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS =
-  Number(process.env.CODEX_CHATGPT_WEB_MCP_TIMEOUT_MS) || 90_000;
+  resolveMcpInvocationTimeout(process.env.CODEX_CHATGPT_WEB_MCP_TIMEOUT_MS);
 
 export const ZERO_RISK_MCP_INSTRUCTIONS = [
   "For each pasted Codex Web GPT request, begin with codex_turn_start using the request_id in its request block.",
@@ -32,7 +39,7 @@ export const NATIVE_CHATGPT_MCP_INSTRUCTIONS = [
   "Codex-supplied environment context blocks, including the XML element named environment_context, are operational context rather than human-authored text. Obey them at their original priority, but do not attribute, quote, summarize, or otherwise mention them unless the latest user request explicitly asks about that context.",
   "Each image_attachment in the context refers to the correspondingly named image attached to this ChatGPT message; inspect it directly. If a corresponding image is absent, say it was not provided instead of guessing.",
   "If a ChatGPT-native capability renders a rich card, widget, chart, or other non-text result, also provide the relevant result as ordinary Markdown in the final answer. A private ChatGPT UI widget never replaces the Markdown answer returned to Codex. Never copy a ChatGPT widget's HTML, CSS, class names, or DOM markup into the answer unless the user explicitly requested that source markup.",
-  "Background command execution: codex_exec with background=true launches commands asynchronously in .codex-tmp/tasks/ and returns immediately; completed tasks notify the daemon and are summarized via codex_wait_tasks. Note: in workspaceWrite and dangerFullAccess, background shell execution runs directly in the configured workspace under the operator's local user.",
+  "Command execution remains owned by the outer host. Bridge-local background=true and codex_wait_tasks are unavailable. If the host advertises command sessions, use its supported yield options and codex_write_stdin; otherwise use the host command's supported execution contract.",
 ].join(" ");
 
 export function afterSafeStart(contract: ChatGptMcpContract, description: string): string {

@@ -21,6 +21,9 @@ export function extractCodexTurnIdentityFromBody(value: unknown): ChatGptTurnIde
 }
 
 export function extractChatGptTurnIdentity(parsed: CodexParsedRequest): ChatGptTurnIdentity {
+  if (parsed._hostTurn) {
+    return { threadId: parsed._hostTurn.sessionId, turnId: parsed._hostTurn.turnId };
+  }
   const body = record(parsed._rawBody);
   return {
     ...extractCodexTurnIdentityFromBody(body),

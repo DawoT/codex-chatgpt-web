@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { getConfigDir } from "../src/config";
 import {
   ensureWorkspaceState,
   parseWorkspaceState,
@@ -31,7 +32,7 @@ describe("Sprint U: Persistent Workspace State (.agents/STATE.md)", () => {
 
   test("resolveWorkspaceStatePath falls back cleanly when workspace is missing or unwritable", () => {
     const fallback = resolveWorkspaceStatePath(undefined);
-    expect(fallback).toContain(".codex-chatgpt-web");
+    expect(fallback).toBe(join(getConfigDir(), "workspaces", "default", "STATE.md"));
     expect(fallback).toContain("STATE.md");
   });
 
@@ -176,4 +177,3 @@ Simple goal description
     expect(compiled.text).toContain(".agents/STATE.md");
   });
 });
-

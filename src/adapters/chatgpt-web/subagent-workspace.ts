@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { homedir } from "node:os";
+import { getConfigDir } from "../../config";
 import type { SubagentStructuredResult, SubagentResultStatus } from "./subagent-protocol";
 import { pruneCodexSessions } from "./session-store-pruner";
 
@@ -16,8 +16,15 @@ export function sanitizeSubagentId(id: string): string {
   return id.replace(/[^\w.-]/g, "_").slice(0, 48);
 }
 
-export function resolveSubagentWorkspace(workspaceRoot?: string, subagentId = "sub_default"): string {
+export function resolveSubagentWorkspace(workspaceRoot?: string, subagentId = "sub_default", strict = false): string {
   const safeId = sanitizeSubagentId(subagentId);
+
+  if (strict) {
+    if (!workspaceRoot) throw new Error("Strict persistence requires a workspace root");
+    const dir = resolve(workspaceRoot, ".agents", "subagents", safeId);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
 
   if (workspaceRoot && typeof workspaceRoot === "string") {
     try {
@@ -29,7 +36,7 @@ export function resolveSubagentWorkspace(workspaceRoot?: string, subagentId = "s
     }
   }
 
-  const fallbackDir = join(homedir(), ".codex-chatgpt-web", "subagents", safeId);
+  const fallbackDir = join(getConfigDir(), "subagents", safeId);
   try {
     mkdirSync(fallbackDir, { recursive: true });
   } catch {
@@ -83,7 +90,7 @@ export function listSubagentWorkspaces(workspaceRoot?: string): string[] {
   if (workspaceRoot && typeof workspaceRoot === "string") {
     baseDir = resolve(workspaceRoot, ".agents", "subagents");
   } else {
-    baseDir = join(homedir(), ".codex-chatgpt-web", "subagents");
+    baseDir = join(getConfigDir(), "subagents");
   }
 
   if (!existsSync(baseDir)) return [];
@@ -245,4 +252,3 @@ export function gcSubagentWorkspaces(
 
   return { purgedWorkspaces, cleanedScratchDirs, prunedRolloutsCount, reclaimedRolloutBytes };
 }
-

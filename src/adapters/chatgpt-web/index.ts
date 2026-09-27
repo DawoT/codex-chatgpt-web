@@ -37,8 +37,7 @@ import {
 } from "./turn-execution";
 import { estimateChatGptWebUsage, resolveBiggerContextMultipartParts } from "./usage";
 import { preparePreflightInput } from "./preflight-budget";
-import { ensureWorkspaceState } from "./workspace-state";
-import { resolveSubagentWorkspace } from "./subagent-workspace";
+import { initializeTurnWorkspace } from "./workspace-persistence";
 import { ChatGptThreadEnvironmentStore } from "./thread-environment";
 import {
   ChatGptLunaCheckpointStore,
@@ -357,7 +356,7 @@ export function createChatGptWebAdapter(
     let activeToken: string | undefined;
     let lastRegisteredToken: string | undefined;
     const prepareWith = async (input: CodexParsedRequest, optionsOverrides?: Partial<CompileChatGptWebPromptOptions>) => {
-      const predecessor = activeToken ?? lastRegisteredToken;
+      const predecessor = environment.execution === "host-only" ? undefined : activeToken ?? lastRegisteredToken;
       const turnToken = activeToken ?? await broker.register(
         environment,
         timeoutMs === undefined ? undefined : timeoutMs + 60_000,
@@ -499,7 +498,7 @@ export function createChatGptWebAdapter(
         let environment: ReturnType<typeof extractChatGptTurnEnvironment> | undefined;
         if (mode.localTools) {
           try {
-            environment = environmentStore.resolve(parsed);
+            environment = parsed._hostTurn?.environment ?? environmentStore.resolve(parsed);
           } catch (error) {
             const identity = extractChatGptTurnIdentity(parsed);
             console.warn(
@@ -508,16 +507,16 @@ export function createChatGptWebAdapter(
             throw error;
           }
         }
-        if (environment?.cwd) {
+        if (environment?.cwd && environment.execution !== "host-only") {
           try {
-            ensureWorkspaceState(environment.cwd);
+            let subId: string | undefined;
             if (isChatGptSubagentTurn(parsed)) {
               const lineage = extractChatGptThreadSpawnLineage(parsed);
-              const subId = lineage?.agentName?.replace(/^\/root\/?/, "").replace(/\//g, "_")
+              subId = lineage?.agentName?.replace(/^\/root\/?/, "").replace(/\//g, "_")
                 || extractChatGptTurnIdentity(parsed).turnId
                 || "sub_default";
-              resolveSubagentWorkspace(environment.cwd, subId);
             }
+            initializeTurnWorkspace(environment, subId);
           } catch (stateErr) {
             console.warn("[chatgpt-web] best-effort workspace state init failed:", stateErr);
           }

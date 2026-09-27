@@ -1,7 +1,7 @@
-import { globalBackgroundTaskManager } from "../background-task-manager";
+import type { BackgroundTaskManager } from "../background-task-manager";
 import { summarizeTask } from "../task-summaries";
 
-export async function waitOnTasks(taskIds: string[], waitMs: number, lines = 30): Promise<{
+export async function waitOnTasks(manager: BackgroundTaskManager, taskIds: string[], waitMs: number, lines = 30, options: { ownerId?: string; signal?: AbortSignal } = {}): Promise<{
   tasks: Array<{
     task_id: string;
     status: string;
@@ -11,20 +11,10 @@ export async function waitOnTasks(taskIds: string[], waitMs: number, lines = 30)
   }>;
   pending: number;
 }> {
-  const deadline = Date.now() + Math.max(0, waitMs);
-  while (Date.now() < deadline) {
-    const running = taskIds
-      .map(id => globalBackgroundTaskManager.getTask(id))
-      .filter((t): t is NonNullable<typeof t> => t !== undefined && t.status === "running");
-    if (running.length === 0) break;
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    const slice = Math.min(remaining, 5_000);
-    await globalBackgroundTaskManager.pollTask(running[0]!.id, slice, lines);
-  }
+  await manager.waitForTasks(taskIds, waitMs, options);
 
   const results = taskIds.map(id => {
-    const task = globalBackgroundTaskManager.getTask(id);
+    const task = manager.getTask(id, options.ownerId);
     if (!task) {
       return {
         task_id: id,
@@ -34,7 +24,7 @@ export async function waitOnTasks(taskIds: string[], waitMs: number, lines = 30)
         log_path: "",
       };
     }
-    const logInfo = globalBackgroundTaskManager.getTaskLog(task.id, lines);
+    const logInfo = manager.getTaskLog(task.id, lines, options.ownerId);
     const summary = summarizeTask(task, logInfo?.logTail ?? "");
     return {
       task_id: task.id,
@@ -45,6 +35,6 @@ export async function waitOnTasks(taskIds: string[], waitMs: number, lines = 30)
     };
   });
 
-  const pending = results.filter(r => r.status === "running").length;
+  const pending = results.filter(r => r.status === "running" || r.status === "terminating").length;
   return { tasks: results, pending };
 }

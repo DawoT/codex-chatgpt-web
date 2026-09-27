@@ -172,9 +172,10 @@ describe("Sprint AI: Production Turn Execution & Workspace Auto-Init", () => {
         "token_123",
       );
 
-      // MUST contain the imperative action instruction
+      // Fresh effects require tools; earlier evidence does not require redundant reads.
       expect(compiled.text).toContain("CRITICAL WORKSPACE ACTION RULE");
-      expect(compiled.text).toContain("MUST invoke the appropriate Codex Native tool");
+      expect(compiled.text).toContain("Invoke the appropriate tool for requested mutations or fresh verification.");
+      expect(compiled.text).toContain("Reuse sufficient supplied evidence");
       expect(compiled.text).toContain("ANTI-RESIGNATION RULE");
     });
   });

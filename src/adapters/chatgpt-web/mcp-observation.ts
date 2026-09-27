@@ -1,5 +1,10 @@
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
+interface PendingObservation {
+  call: { call: number; tool: string; started: number } | null;
+  remainingReplies: number;
+}
+
 /** Content-free receipt/reply observations. A sent MCP result is not proof of tool execution. */
 export function observeMcpToolCalls(
   transport: Transport,
@@ -7,7 +12,7 @@ export function observeMcpToolCalls(
   write: (event: Record<string, unknown>) => void = event => console.error(`[chatgpt-web-mcp] transport=${JSON.stringify(event)}`),
 ): Transport {
   let sequence = 0;
-  const pending = new Map<string | number, { call: number; tool: string; started: number } | null>();
+  const pending = new Map<string | number, PendingObservation>();
   const emit = (event: Record<string, unknown>) => {
     // Logging is observational: a broken sink cannot change the invocation or its result.
     try { write({ pid: process.pid, ...event }); } catch { /* Preserve transport semantics. */ }
@@ -17,15 +22,17 @@ export function observeMcpToolCalls(
     if ("method" in message && message.method === "tools/call" && "id" in message) {
       const name = message.params?.name;
       const tool = typeof name === "string" && knownTools.has(name) ? name : "unknown";
-      if (pending.has(message.id)) {
+      const existing = pending.get(message.id);
+      if (existing) {
         // An ambiguous protocol ID cannot safely correlate either reply.
-        pending.set(message.id, null);
+        existing.call = null;
+        existing.remainingReplies += 1;
         emit({ event: "uncorrelated_call", reason: "duplicate_id", tool });
       } else if (pending.size >= 1_024) {
         emit({ event: "uncorrelated_call", reason: "tracking_limit", tool });
       } else {
         const call = { call: ++sequence, tool, started: performance.now() };
-        pending.set(message.id, call);
+        pending.set(message.id, { call, remainingReplies: 1 });
         emit({ event: "call_received", call: call.call, tool });
       }
     }
@@ -34,9 +41,11 @@ export function observeMcpToolCalls(
   const send = transport.send.bind(transport);
   transport.send = async (message, options) => {
     const id = "id" in message ? message.id : undefined;
-    const call = id !== undefined && id !== null && !("method" in message) ? pending.get(id) : undefined;
+    const entry = id !== undefined && id !== null && !("method" in message) ? pending.get(id) : undefined;
     try {
       await send(message, options);
+      // A duplicate may arrive while send awaits transport completion.
+      const call = id !== undefined && pending.get(id) === entry ? entry?.call : undefined;
       if (call) {
         const result = "result" in message ? message.result : undefined;
         emit({
@@ -47,10 +56,14 @@ export function observeMcpToolCalls(
         });
       }
     } catch (error) {
+      const call = id !== undefined && pending.get(id) === entry ? entry?.call : undefined;
       if (call) emit({ event: "reply_send_failed", call: call.call, tool: call.tool });
       throw error;
     } finally {
-      if (call && id !== undefined && id !== null) pending.delete(id);
+      if (entry && id !== undefined && id !== null && pending.get(id) === entry) {
+        entry.remainingReplies -= 1;
+        if (entry.remainingReplies === 0) pending.delete(id);
+      }
     }
   };
   const close = transport.onclose;

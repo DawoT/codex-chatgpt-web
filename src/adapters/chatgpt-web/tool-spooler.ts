@@ -40,6 +40,8 @@ export interface ToolSpoolerDeps {
 }
 
 export interface ToolSpoolerOptions {
+  /** Host-owned results must not create files using the bridge's ambient authority. */
+  offload?: boolean;
   workspaceRoot?: string;
   subagentId?: string;
   maxChars?: number;
@@ -195,6 +197,9 @@ export function spoolToolOutput(text: string, options: ToolSpoolerOptions = {}):
   const maxChars = options.maxChars ?? DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS;
   if (typeof text !== "string" || text.length <= maxChars) {
     return { text, spooled: false };
+  }
+  if (options.offload === false) {
+    return { text: truncateToolOutputText(text, maxChars), spooled: false };
   }
 
   const headLinesCount = options.headLines ?? DEFAULT_HEAD_LINES;

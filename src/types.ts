@@ -1,4 +1,8 @@
+import type { ChatGptTurnEnvironment } from "./adapters/chatgpt-web/environment/types";
+
 export interface CodexParsedRequest {
+  /** Trusted host HTTP admission only; never accepted from request JSON. */
+  _hostTurn?: { sessionId: string; turnId: string; environment: ChatGptTurnEnvironment };
   modelId: string;
   previousResponseId?: string;
   context: CodexContext;

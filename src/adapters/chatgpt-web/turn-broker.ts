@@ -7,6 +7,7 @@ import {
   type CompactionTransactionHandle,
 } from "./compaction-transaction";
 import type { ChatGptTurnEnvironment } from "./environment";
+import { namespacedToolName } from "../../types";
 import {
   type BrokerRequest,
   type BrokerResponse,
@@ -85,6 +86,7 @@ export class TurnBroker implements TurnBrokerOwner {
   private acceptingExternalOwners = true;
   private server?: Server;
   private startPromise?: Promise<void>;
+  private socketIdentity?: { dev: number; ino: number };
 
   private constructor(
     readonly socketPath: string,
@@ -102,6 +104,9 @@ export class TurnBroker implements TurnBrokerOwner {
   }
 
   registerAlias(oldToken: string, newToken: string): void {
+    if (oldToken.startsWith("host_") || newToken.startsWith("host_")) {
+      throw new Error("host-only capabilities cannot be aliased");
+    }
     // Re-inserting refreshes recency, so a re-registered alias is evicted last (LRU, not FIFO).
     this.tokenAliases.delete(oldToken);
     this.tokenAliases.set(oldToken, newToken);
@@ -116,6 +121,8 @@ export class TurnBroker implements TurnBrokerOwner {
     if (directChannel && !directChannel.completionCommitted) {
       return { resolvedToken: token, channel: directChannel };
     }
+    // Host capabilities are exact and irrevocable; never recover them through Codex lineage.
+    if (token.startsWith("host_")) return undefined;
     // 1. Follow explicit alias chain
     let curr = token;
     const visited = new Set<string>([curr]);
@@ -124,7 +131,7 @@ export class TurnBroker implements TurnBrokerOwner {
       if (visited.has(curr)) break;
       visited.add(curr);
       const target = this.channels.get(curr);
-      if (target && !target.completionCommitted) {
+      if (target && target.environment.execution !== "host-only" && !target.completionCommitted) {
         return { resolvedToken: curr, channel: target };
       }
     }
@@ -134,7 +141,7 @@ export class TurnBroker implements TurnBrokerOwner {
       const activeToken = this.traceActiveTokens.get(traceId);
       if (activeToken) {
         const activeChannel = this.channels.get(activeToken);
-        if (activeChannel && !activeChannel.completionCommitted) {
+        if (activeChannel && activeChannel.environment.execution !== "host-only" && !activeChannel.completionCommitted) {
           return { resolvedToken: activeToken, channel: activeChannel };
         }
       }
@@ -143,7 +150,7 @@ export class TurnBroker implements TurnBrokerOwner {
         for (let i = allForTrace.length - 1; i >= 0; i--) {
           const cand = allForTrace[i];
           const candChannel = this.channels.get(cand);
-          if (candChannel && !candChannel.completionCommitted) {
+          if (candChannel && candChannel.environment.execution !== "host-only" && !candChannel.completionCommitted) {
             return { resolvedToken: cand, channel: candChannel };
           }
         }
@@ -160,6 +167,10 @@ export class TurnBroker implements TurnBrokerOwner {
     handlePrefix = "turn",
     predecessorToken?: string,
   ): Promise<string> {
+    if (environment.execution !== undefined) environment = ownerEnvironment(environment);
+    if (predecessorToken && (environment.execution === "host-only" || predecessorToken.startsWith("host_"))) {
+      throw new Error("host-only capabilities cannot inherit predecessor aliases");
+    }
     await this.start();
     this.prune();
     if (externalOwner && !this.acceptingExternalOwners) {
@@ -168,7 +179,7 @@ export class TurnBroker implements TurnBrokerOwner {
     if (ttlMs !== undefined && (!Number.isFinite(ttlMs) || ttlMs <= 0)) {
       throw new Error("ChatGPT web turn broker TTL must be a positive finite number");
     }
-    const token = opaqueId(handlePrefix);
+    const token = opaqueId(environment.execution === "host-only" ? `host_${handlePrefix}` : handlePrefix);
     const channel: TurnChannel = {
       traceId,
       externalOwner,
@@ -252,6 +263,7 @@ export class TurnBroker implements TurnBrokerOwner {
   }
 
   updateEnvironment(token: string, environment: ChatGptTurnEnvironment): void {
+    if (environment.execution !== undefined) environment = ownerEnvironment(environment);
     this.prune();
     const channel = this.channels.get(token);
     if (!channel) throw new Error("turn token is invalid or expired");
@@ -611,6 +623,8 @@ export class TurnBroker implements TurnBrokerOwner {
     this.traceActiveTokens.clear();
     this.traceTokens.clear();
     const server = this.server;
+    const socketIdentity = this.socketIdentity;
+    this.socketIdentity = undefined;
     this.server = undefined;
     this.startPromise = undefined;
     brokers.delete(this.socketPath);
@@ -620,14 +634,18 @@ export class TurnBroker implements TurnBrokerOwner {
         else rejectClose(error);
       }));
     }
-    if (!isWindowsPipeEndpoint(this.socketPath)
-      && existsSync(this.socketPath)
-      && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
+    if (socketIdentity && !isWindowsPipeEndpoint(this.socketPath) && existsSync(this.socketPath)) {
+      const current = lstatSync(this.socketPath);
+      if (current.isSocket() && current.dev === socketIdentity.dev && current.ino === socketIdentity.ino) {
+        unlinkSync(this.socketPath);
+      }
+    }
   }
 
   private start(): Promise<void> {
     if (this.startPromise) return this.startPromise;
-    this.startPromise = new Promise<void>((resolveStart, rejectStart) => {
+    let attemptServer: Server | undefined;
+    const attempt = new Promise<void>((resolveStart, rejectStart) => {
       const windowsPipe = isWindowsPipeEndpoint(this.socketPath);
       if (!windowsPipe) {
         // sun_path is a fixed-size field in the kernel, so an over-long path fails inside listen()
@@ -645,6 +663,7 @@ export class TurnBroker implements TurnBrokerOwner {
       }
       const listen = () => {
         const server = createServer(socket => this.handleSocket(socket));
+        attemptServer = server;
         this.server = server;
         server.once("error", rejectStart);
         server.on("error", error => {
@@ -654,7 +673,11 @@ export class TurnBroker implements TurnBrokerOwner {
         });
         server.listen(this.socketPath, () => {
           server.off("error", rejectStart);
-          if (!windowsPipe) chmodSync(this.socketPath, 0o600);
+          if (!windowsPipe) {
+            chmodSync(this.socketPath, 0o600);
+            const owned = lstatSync(this.socketPath);
+            this.socketIdentity = { dev: owned.dev, ino: owned.ino };
+          }
           resolveStart();
         });
       };
@@ -715,7 +738,17 @@ export class TurnBroker implements TurnBrokerOwner {
         });
       });
     });
-    return this.startPromise;
+    // A later caller may acquire a newly available endpoint. This does not retry the
+    // failed request or any tool execution, and concurrent callers share one attempt.
+    const retryableAttempt = attempt.catch(error => {
+      if (this.startPromise === retryableAttempt) this.startPromise = undefined;
+      if (attemptServer && !attemptServer.listening && this.server === attemptServer) {
+        this.server = undefined;
+      }
+      throw error;
+    });
+    this.startPromise = retryableAttempt;
+    return retryableAttempt;
   }
 
   private handleSocket(socket: Socket): void {
@@ -1029,6 +1062,12 @@ export class TurnBroker implements TurnBrokerOwner {
 
     const wireName = request.wireName?.trim();
     if (!wireName) throw new Error("wire tool name is required");
+    if (binding.channel.environment.execution === "host-only") {
+      const tool = binding.channel.environment.tools.find(candidate => namespacedToolName(candidate.namespace, candidate.name) === wireName);
+      if (!tool || (tool.freeform === true) !== (request.freeform === true)) {
+        throw new Error("Tool is not advertised by this host-only turn");
+      }
+    }
     const callId = opaqueId("call");
     const toolRequest: BrokerToolRequest = {
       callId,

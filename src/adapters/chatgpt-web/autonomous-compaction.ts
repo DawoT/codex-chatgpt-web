@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { getConfigDir } from "../../config";
 import type { CodexMessage } from "../../types";
 import {
   type WorkspaceState,
@@ -69,7 +69,13 @@ export function evaluateAutonomousCompactionNeeded(context: AutonomousCompaction
 /**
  * Resolves or creates the local checkpoint directory under .agents/checkpoints/
  */
-export function resolveCheckpointsDirectory(workspaceRoot?: string): string {
+export function resolveCheckpointsDirectory(workspaceRoot?: string, strict = false): string {
+  if (strict) {
+    if (!workspaceRoot) throw new Error("Strict persistence requires a workspace root");
+    const dir = join(workspaceRoot, ".agents", "checkpoints");
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
   if (workspaceRoot && typeof workspaceRoot === "string") {
     try {
       const dir = join(workspaceRoot, ".agents", "checkpoints");
@@ -80,7 +86,7 @@ export function resolveCheckpointsDirectory(workspaceRoot?: string): string {
     }
   }
 
-  const fallbackDir = join(homedir(), ".codex-chatgpt-web", "checkpoints", "default");
+  const fallbackDir = join(getConfigDir(), "checkpoints", "default");
   try {
     mkdirSync(fallbackDir, { recursive: true });
   } catch {
@@ -96,8 +102,9 @@ export function saveTurnCheckpoint(
   workspaceRoot: string,
   checkpoint: Omit<TurnCheckpoint, "timestamp"> & { timestamp?: string },
   maxRetention = DEFAULT_CHECKPOINT_MAX_RETENTION,
+  strict = false,
 ): string {
-  const dir = resolveCheckpointsDirectory(workspaceRoot);
+  const dir = resolveCheckpointsDirectory(workspaceRoot, strict);
   const timestamp = checkpoint.timestamp || new Date().toISOString();
   const safeTimestamp = timestamp.replace(/[:.]/g, "-");
   const filename = `checkpoint_${checkpoint.epoch.toString().padStart(4, "0")}_${safeTimestamp}.json`;
@@ -114,7 +121,8 @@ export function saveTurnCheckpoint(
   try {
     writeFileSync(tmpPath, payload, "utf-8");
     renameSync(tmpPath, targetPath);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     try {
       writeFileSync(targetPath, payload, "utf-8");
     } catch (e) {
@@ -149,7 +157,7 @@ export function saveTurnCheckpoint(
  * Lists all available turn checkpoints sorted descending by epoch and timestamp.
  */
 export function listTurnCheckpoints(workspaceRoot: string): TurnCheckpoint[] {
-  const dir = resolveCheckpointsDirectory(workspaceRoot);
+  const dir = join(workspaceRoot, ".agents", "checkpoints");
   if (!existsSync(dir)) return [];
 
   try {
@@ -250,8 +258,9 @@ export function mergeCompactionIntoWorkspaceState(
   workspaceRoot: string,
   summary: string,
   completedMilestones?: string[],
+  strict = false,
 ): WorkspaceState {
-  const existing = readWorkspaceState(workspaceRoot) ?? ensureWorkspaceState(workspaceRoot);
+  const existing = readWorkspaceState(workspaceRoot) ?? ensureWorkspaceState(workspaceRoot, undefined, strict);
 
   if (completedMilestones && completedMilestones.length > 0) {
     for (const milestone of completedMilestones) {
@@ -262,8 +271,12 @@ export function mergeCompactionIntoWorkspaceState(
     }
   }
 
+  existing.customSections = {
+    ...existing.customSections,
+    lastCompactionSummary: summary.slice(0, 32_768),
+  };
   existing.lastUpdatedIso = new Date().toISOString();
-  writeWorkspaceState(workspaceRoot, existing);
+  writeWorkspaceState(workspaceRoot, existing, strict);
 
   return existing;
 }

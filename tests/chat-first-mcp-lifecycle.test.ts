@@ -290,3 +290,164 @@ describe("Chat-First MCP lifecycle", () => {
     }
   });
 });
+
+test("chat-first tasks are scoped by selected workspace and obey a shared concurrency cap", async () => {
+  const home = makeHome("task-scopes", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const wsA = join(home, "a");
+  const wsB = join(home, "b");
+  mkdirSync(join(wsA, "sub"), { recursive: true });
+  mkdirSync(wsB);
+  const configPath = join(home, "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.backgroundTasks = { maxConcurrent: 1, logRetentionHours: 48, resumeNotes: false };
+  writeFileSync(configPath, JSON.stringify(config));
+  const { client, transport } = connectChatFirst(home);
+  let taskId: string | undefined;
+  try {
+    await client.connect(transport);
+    const started = await client.callTool({
+      name: "codex_exec",
+      arguments: {
+        workspace: wsA,
+        workdir: "sub",
+        background: true,
+        cmd: process.platform === "win32" ? "cd & ping -n 6 127.0.0.1 > NUL" : "pwd; sleep 5",
+      },
+    });
+    expect(started.isError).toBeUndefined();
+    taskId = (started.structuredContent as { task_id: string }).task_id;
+    const foreignList = await client.callTool({ name: "codex_poll_task", arguments: { workspace: wsB } });
+    expect(foreignList.structuredContent).toMatchObject({ tasks: [] });
+    const foreignKill = await client.callTool({
+      name: "codex_poll_task",
+      arguments: { workspace: wsB, task_id: taskId, kill: true },
+    });
+    expect(foreignKill.structuredContent).toMatchObject({ status: "not_found", killed: false });
+    const foreignWait = await client.callTool({
+      name: "codex_wait_tasks",
+      arguments: { workspace: wsB, task_ids: [taskId], wait_ms: 100 },
+    });
+    expect(foreignWait.structuredContent).toMatchObject({ tasks: [{ status: "not_found" }] });
+    const overLimit = await client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: wsB, background: true, cmd: "echo should-not-start" },
+    });
+    expect(overLimit.isError).toBe(true);
+    expect(JSON.stringify(overLimit.content)).toContain("maxConcurrent=1");
+    const own = await client.callTool({
+      name: "codex_poll_task",
+      arguments: { workspace: wsA, task_id: taskId, wait_ms: 25 },
+    });
+    expect(own.structuredContent).toMatchObject({ status: "running" });
+    expect((own.structuredContent as { output_tail: string }).output_tail).toContain(join(wsA, "sub"));
+  } finally {
+    if (taskId) {
+      await client.callTool({ name: "codex_poll_task", arguments: { workspace: wsA, task_id: taskId, kill: true } });
+      await client.callTool({ name: "codex_poll_task", arguments: { workspace: wsA, task_id: taskId, wait_ms: 2000 } });
+    }
+    await client.close();
+  }
+});
+
+test("MCP cancellation terminates a foreground command before its delayed write", async () => {
+  const { home, ws } = workspaceHome("foreground-cancel", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const { transport, client } = connectChatFirst(home);
+  const controller = new AbortController();
+  try {
+    await client.connect(transport);
+    const pending = client.callTool({
+      name: "codex_exec",
+      arguments: {
+        workspace: ws,
+        cmd: "printf ready > ready; sleep 2; printf late > late",
+      },
+    }, undefined, { signal: controller.signal }).catch(error => error);
+    const deadline = Date.now() + 3000;
+    while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
+      await Bun.sleep(10);
+    }
+    expect(existsSync(join(ws, "ready"))).toBe(true);
+    controller.abort();
+    await pending;
+    await Bun.sleep(2200);
+    expect(existsSync(join(ws, "late"))).toBe(false);
+    const reply = await client.callTool({ name: "codex_exec", arguments: { workspace: ws, cmd: "printf alive" } });
+    expect(reply.structuredContent).toMatchObject({ stdout: "alive", exit_code: 0 });
+  } finally {
+    controller.abort();
+    await client.close();
+  }
+});
+
+test("failed commands that changed files still appear in the audit log", async () => {
+  const { home, ws } = workspaceHome("failed-command-audit", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const { transport, client } = connectChatFirst(home);
+  try {
+    await client.connect(transport);
+    const cmd = "printf changed > changed; exit 7";
+    const reply = await client.callTool({ name: "codex_exec", arguments: { workspace: ws, cmd } });
+    expect(reply.isError).toBe(true);
+    expect(readFileSync(join(ws, "changed"), "utf8")).toBe("changed");
+    expect(existsSync(join(home, "runtime", "chat-first-audit.jsonl"))).toBe(true);
+    expect(auditLines(home)).toContainEqual(expect.objectContaining({ tool: "codex_exec", path: cmd, detail: "error" }));
+  } finally {
+    await client.close();
+  }
+});
+
+test("foreground and background execution share admission until process close", async () => {
+  const { home, ws } = workspaceHome("shared-admission", {
+    enabled: true,
+    sandboxMode: "dangerFullAccess",
+    workspaces: [],
+  });
+  const configPath = join(home, "config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.backgroundTasks = { maxConcurrent: 1 };
+  writeFileSync(configPath, JSON.stringify(config));
+  const { transport, client } = connectChatFirst(home);
+  const controller = new AbortController();
+  try {
+    await client.connect(transport);
+    const foreground = client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, cmd: "printf ready > ready; sleep 3" },
+    }, undefined, { signal: controller.signal }).catch(error => error);
+    const deadline = Date.now() + 2000;
+    while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
+      await Bun.sleep(10);
+    }
+    expect(existsSync(join(ws, "ready"))).toBe(true);
+    const background = await client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, background: true, cmd: "printf wrong > overflow" },
+    });
+    expect(background.isError).toBe(true);
+    expect(existsSync(join(ws, "overflow"))).toBe(false);
+    const queued = client.callTool({
+      name: "codex_exec",
+      arguments: { workspace: ws, cmd: "printf admitted > admitted" },
+    });
+    await Bun.sleep(60);
+    expect(existsSync(join(ws, "admitted"))).toBe(false);
+    controller.abort();
+    await foreground;
+    expect((await queued).isError).toBeUndefined();
+    expect(readFileSync(join(ws, "admitted"), "utf8")).toBe("admitted");
+  } finally {
+    controller.abort();
+    await client.close();
+  }
+});

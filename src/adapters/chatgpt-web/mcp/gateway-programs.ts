@@ -54,6 +54,9 @@ export function gatewayToolCatalogPage(response: {
   if (textBlocks.length !== 1) {
     throw new Error("Native nested tool inventory returned an invalid text response");
   }
+  if (Buffer.byteLength(textBlocks[0]!, "utf8") > 1024 * 1024) {
+    throw new Error("Native nested tool inventory exceeds the 1 MiB response budget");
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(textBlocks[0]!);

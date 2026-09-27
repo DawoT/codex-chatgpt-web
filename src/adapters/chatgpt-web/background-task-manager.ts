@@ -1,30 +1,13 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, readSync, statSync, unlinkSync } from "node:fs";
-import { join, relative } from "node:path";
+import { closeSync, statSync, realpathSync } from "node:fs";
+import { createTaskLog, readTaskLogTail, removeTaskLog } from "./background-task-log";
+import { relative } from "node:path";
 
-export interface BackgroundTask {
-  id: string;
-  cmd: string;
-  cwd: string;
-  pid?: number;
-  status: "running" | "completed" | "failed" | "killed";
-  exitCode: number | null;
-  startedAt: string;
-  completedAt?: string;
-  durationMs?: number;
-  logFile: string; // Relative path from cwd
-  fullLogPath: string;
-}
-
-interface TaskRuntimeRecord {
-  task: BackgroundTask;
-  child?: ChildProcess;
-  logFd?: number;
-  completionWaiters: Array<() => void>;
-  listenersNotified?: boolean;
-  logDeleted?: boolean;
-}
+import { resolveSafeWorkspacePath, assertWritableRootContainment } from "./fast-path/sandbox";
+import { waitForTaskRecords } from "./background-task-wait";
+import type { BackgroundTask, TaskRuntimeRecord, TaskWaitOptions } from "./background-task-types";
+export type { BackgroundTask } from "./background-task-types";
 
 export class BackgroundTaskManager {
   private readonly tasks = new Map<string, TaskRuntimeRecord>();
@@ -36,13 +19,18 @@ export class BackgroundTaskManager {
   startTask(options: {
     cmd: string;
     cwd: string;
+    ownerId?: string;
     workdir?: string;
     roots: string[];
     writableRoots: string[];
     maxConcurrent?: number;
     logRetentionHours?: number;
   }): BackgroundTask {
-    const { cmd, cwd } = options;
+    const { cmd } = options;
+    const requestedCwd = resolveSafeWorkspacePath(options.workdir?.trim() || ".", options.cwd, options.roots);
+    assertWritableRootContainment(requestedCwd, requestedCwd, options.writableRoots);
+    const cwd = realpathSync(requestedCwd);
+    if (!statSync(cwd).isDirectory()) throw new Error("Task workdir must be a directory");
     if (options.maxConcurrent !== undefined) {
       if (!Number.isInteger(options.maxConcurrent) || options.maxConcurrent < 1) {
         throw new Error(`Invalid maxConcurrent ${options.maxConcurrent}; it must be an integer >= 1`);
@@ -56,7 +44,7 @@ export class BackgroundTaskManager {
       this.logRetentionHours = options.logRetentionHours;
     }
     if (this.maxConcurrentLimit !== undefined) {
-      const runningCount = Array.from(this.tasks.values()).filter(r => r.task.status === "running").length;
+      const runningCount = Array.from(this.tasks.values()).filter(r => !r.closed).length;
       if (runningCount >= this.maxConcurrentLimit) {
         throw new Error(
           `Background task limit reached: ${runningCount} task(s) running (maxConcurrent=${this.maxConcurrentLimit}). `
@@ -64,13 +52,15 @@ export class BackgroundTaskManager {
         );
       }
     }
+    this.pruneOldTasks(this.maxRetainedTasks - 1);
+    if (this.tasks.size >= this.maxRetainedTasks) {
+      throw new Error("Background task retention limit reached; owned logs could not be reclaimed");
+    }
     const taskId = `task_${Date.now()}_${randomBytes(4).toString("hex")}`;
-    const taskDir = join(cwd, ".codex-tmp", "tasks");
-    mkdirSync(taskDir, { recursive: true });
-
-    const fullLogPath = join(taskDir, `${taskId}.log`);
-    const logFd = openSync(fullLogPath, "a");
-    const logFile = relative(cwd, fullLogPath);
+    const log = createTaskLog(cwd, taskId);
+    const fullLogPath = log.path;
+    const logFd = log.fd;
+    const logFile = relative(options.cwd, fullLogPath);
 
     const startedAt = new Date().toISOString();
     const task: BackgroundTask = {
@@ -87,7 +77,10 @@ export class BackgroundTaskManager {
     const record: TaskRuntimeRecord = {
       task,
       logFd,
-      completionWaiters: [],
+      log,
+      ownerId: options.ownerId,
+      closed: false,
+      completionWaiters: new Set(),
     };
 
     const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
@@ -105,79 +98,18 @@ export class BackgroundTaskManager {
       record.child = child;
 
       child.on("close", (code, signal) => {
-        const exitCode = code ?? (signal ? 1 : 0);
-        task.exitCode = exitCode;
-        if (task.status === "running") {
-          task.status = exitCode === 0 ? "completed" : "failed";
-        }
-        task.completedAt = new Date().toISOString();
-        task.durationMs = Date.now() - new Date(task.startedAt).getTime();
-
-        try {
-          if (record.logFd !== undefined) {
-            closeSync(record.logFd);
-            record.logFd = undefined;
-          }
-        } catch {}
-
-        for (const waiter of record.completionWaiters) {
-          try {
-            waiter();
-          } catch {}
-        }
-        record.completionWaiters = [];
-
-        if (!record.listenersNotified) {
-          record.listenersNotified = true;
-          const snapshot: BackgroundTask = { ...task };
-          for (const listener of this.completionListeners) {
-            try {
-              listener(snapshot);
-            } catch {}
-          }
-        }
-        this.gcExpiredLogs();
+        this.finishTask(record, code ?? (signal ? 1 : 0));
       });
-
-      child.on("error", err => {
-        task.status = "failed";
-        task.exitCode = 1;
-        task.completedAt = new Date().toISOString();
-        task.durationMs = Date.now() - new Date(task.startedAt).getTime();
-        for (const waiter of record.completionWaiters) {
-          try {
-            waiter();
-          } catch {}
-        }
-        record.completionWaiters = [];
-
-        if (!record.listenersNotified) {
-          record.listenersNotified = true;
-          const snapshot: BackgroundTask = { ...task };
-          for (const listener of this.completionListeners) {
-            try {
-              listener(snapshot);
-            } catch {}
-          }
-        }
-        this.gcExpiredLogs();
+      child.on("error", () => {
+        this.finishTask(record, 1);
       });
 
       // Detach from event loop so background task outlives short-lived callers if needed
       if (typeof child.unref === "function") {
         child.unref();
       }
-    } catch (err) {
-      task.status = "failed";
-      task.exitCode = 1;
-      task.completedAt = new Date().toISOString();
-      task.durationMs = 0;
-      try {
-        if (record.logFd !== undefined) {
-          closeSync(record.logFd);
-          record.logFd = undefined;
-        }
-      } catch {}
+    } catch {
+      this.finishTask(record, 1);
     }
 
     this.tasks.set(taskId, record);
@@ -185,48 +117,37 @@ export class BackgroundTaskManager {
     return task;
   }
 
-  getTask(taskId: string): BackgroundTask | undefined {
-    return this.tasks.get(taskId)?.task;
+  getTask(taskId: string, ownerId?: string): BackgroundTask | undefined {
+    return this.ownedRecord(taskId, ownerId)?.task;
   }
 
-  listTasks(): BackgroundTask[] {
+  listTasks(ownerId?: string): BackgroundTask[] {
     return Array.from(this.tasks.values())
+      .filter(record => record.ownerId === ownerId)
       .map(r => r.task)
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
-  killTask(taskId: string): boolean {
-    const record = this.tasks.get(taskId);
+  killTask(taskId: string, ownerId?: string): boolean {
+    const record = this.ownedRecord(taskId, ownerId);
     if (!record || !record.child || record.task.status !== "running") {
       return false;
     }
 
     const child = record.child;
-    record.task.status = "killed";
-    record.task.exitCode = 137;
-    record.task.completedAt = new Date().toISOString();
-    record.task.durationMs = Date.now() - new Date(record.task.startedAt).getTime();
-
+    // An explicit kill is forceful: do not leave an escalation timer targeting a recycled PID.
     try {
       if (process.platform === "win32") {
-        child.kill("SIGTERM");
+        if (!child.kill("SIGKILL")) return false;
       } else if (child.pid) {
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch {
-          child.kill("SIGTERM");
-        }
-        setTimeout(() => {
-          try {
-            if (child.pid) process.kill(-child.pid, "SIGKILL");
-          } catch {
-            try {
-              child.kill("SIGKILL");
-            } catch {}
-          }
-        }, 1_500).unref();
+        process.kill(-child.pid, "SIGKILL");
+      } else {
+        return false;
       }
-    } catch {}
+    } catch {
+      return false;
+    }
+    record.task.status = "terminating";
 
     this.gcExpiredLogs();
     return true;
@@ -245,83 +166,74 @@ export class BackgroundTaskManager {
     };
   }
 
-  async pollTask(taskId: string, waitMs = 0, lines = 100): Promise<{
+  async waitForTasks(taskIds: string[], waitMs: number, options: TaskWaitOptions = {}): Promise<void> {
+    const records = [...new Set(taskIds)]
+      .map(id => this.ownedRecord(id, options.ownerId))
+      .filter((record): record is TaskRuntimeRecord => record !== undefined);
+    await waitForTaskRecords(records, waitMs, options.signal);
+  }
+
+  async pollTask(taskId: string, waitMs = 0, lines = 100, options: TaskWaitOptions = {}): Promise<{
     task: BackgroundTask;
     tail: string;
   } | null> {
-    const record = this.tasks.get(taskId);
+    options.signal?.throwIfAborted();
+    const record = this.ownedRecord(taskId, options.ownerId);
     if (!record) return null;
+    await waitForTaskRecords([record], Math.min(waitMs, 30_000), options.signal);
+    return { task: record.task, tail: readTaskLogTail(record.log, lines) };
+  }
 
-    if (waitMs > 0 && record.task.status === "running") {
-      await new Promise<void>(resolve => {
-        const timer = setTimeout(() => {
-          const idx = record.completionWaiters.indexOf(done);
-          if (idx !== -1) record.completionWaiters.splice(idx, 1);
-          resolve();
-        }, Math.min(waitMs, 30_000));
+  getTaskLog(taskId: string, lines = 100, ownerId?: string): { task: BackgroundTask; logTail: string } | null {
+    const record = this.ownedRecord(taskId, ownerId);
+    if (!record) return null;
+    return { task: record.task, logTail: readTaskLogTail(record.log, lines) };
+  }
 
-        const done = () => {
-          clearTimeout(timer);
-          resolve();
-        };
+  private ownedRecord(taskId: string, ownerId?: string): TaskRuntimeRecord | undefined {
+    const record = this.tasks.get(taskId);
+    return record?.ownerId === ownerId ? record : undefined;
+  }
 
-        record.completionWaiters.push(done);
-      });
+  private finishTask(record: TaskRuntimeRecord, exitCode: number): void {
+    if (record.closed) return;
+    record.closed = true;
+    const { task } = record;
+    if (task.status === "terminating") {
+      task.status = "killed";
+      task.exitCode = 137;
+    } else {
+      task.exitCode = exitCode;
+      task.status = exitCode === 0 ? "completed" : "failed";
     }
-
-    const tail = this.readLogTail(record.task.fullLogPath, lines);
-    return {
-      task: record.task,
-      tail,
-    };
-  }
-
-  getTaskLog(taskId: string, lines = 100): { task: BackgroundTask; logTail: string } | null {
-    const record = this.tasks.get(taskId);
-    if (!record) return null;
-    return {
-      task: record.task,
-      logTail: this.readLogTail(record.task.fullLogPath, lines),
-    };
-  }
-
-  private readLogTail(filePath: string, maxLines: number): string {
-    if (!existsSync(filePath)) return "";
-    try {
-      const stats = statSync(filePath);
-      if (stats.size === 0) return "";
-      const readSize = Math.min(stats.size, 128 * 1024); // read last 128KB max
-      const position = Math.max(0, stats.size - readSize);
-      const fd = openSync(filePath, "r");
-      const buffer = Buffer.alloc(readSize);
+    task.completedAt = new Date().toISOString();
+    task.durationMs = Date.now() - new Date(task.startedAt).getTime();
+    if (record.logFd !== undefined) {
       try {
-        const bytesRead = readSync(fd, buffer, 0, readSize, position);
-        const text = buffer.subarray(0, bytesRead).toString("utf8");
-        const allLines = text.split("\n");
-        if (position > 0 && allLines.length > 1) {
-          allLines.shift();
-        }
-        return allLines.slice(-maxLines).join("\n");
-      } finally {
-        try {
-          closeSync(fd);
-        } catch {}
-      }
-    } catch {
-      return "";
+        closeSync(record.logFd);
+      } catch {}
+      record.logFd = undefined;
     }
+    for (const waiter of [...record.completionWaiters]) waiter();
+    record.completionWaiters.clear();
+    for (const listener of [...this.completionListeners]) {
+      try {
+        listener({ ...task });
+      } catch {}
+    }
+    this.gcExpiredLogs();
   }
 
-  private pruneOldTasks(): void {
+  private pruneOldTasks(target = this.maxRetainedTasks): void {
     this.gcExpiredLogs();
-    if (this.tasks.size <= this.maxRetainedTasks) return;
+    if (this.tasks.size <= target) return;
     const sorted = Array.from(this.tasks.entries())
-      .filter(([_, r]) => r.task.status !== "running")
+      .filter(([_, r]) => r.closed)
       .sort((a, b) => a[1].task.startedAt.localeCompare(b[1].task.startedAt));
 
-    const toDeleteCount = this.tasks.size - this.maxRetainedTasks;
-    for (let i = 0; i < Math.min(toDeleteCount, sorted.length); i++) {
-      this.tasks.delete(sorted[i]![0]);
+    for (const [id, record] of sorted) {
+      if (this.tasks.size <= target) break;
+      if (record.logDeleted || removeTaskLog(record.log)) this.tasks.delete(id);
     }
   }
 
@@ -337,21 +249,10 @@ export class BackgroundTaskManager {
     for (const record of this.tasks.values()) {
       if (record.logDeleted) continue;
       const { task } = record;
-      if (task.status === "running" || !task.completedAt) continue;
+      if (!record.closed || !task.completedAt) continue;
       const completedMs = new Date(task.completedAt).getTime();
       if (!Number.isFinite(completedMs) || completedMs > cutoffMs) continue;
-      try {
-        if (!existsSync(task.fullLogPath)) {
-          record.logDeleted = true;
-          continue;
-        }
-        unlinkSync(task.fullLogPath);
-        record.logDeleted = true;
-      } catch (err) {
-        console.error(`[background-task-manager] failed to prune expired log for task ${task.id} at ${task.fullLogPath}:`, err);
-      }
+      record.logDeleted = removeTaskLog(record.log);
     }
   }
 }
-
-export const globalBackgroundTaskManager = new BackgroundTaskManager();

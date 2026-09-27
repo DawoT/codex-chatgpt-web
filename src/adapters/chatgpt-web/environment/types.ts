@@ -6,6 +6,8 @@ export type ChatGptSandboxPolicy =
   | { type: "workspaceWrite"; writableRoots: string[]; networkAccess: boolean };
 
 export interface ChatGptTurnEnvironment {
+  /** Explicit host authority: no bridge-local execution or inferred tool aliases. */
+  execution?: "host-only";
   cwd: string;
   roots: string[];
   writableRoots: string[];

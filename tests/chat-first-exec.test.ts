@@ -132,7 +132,7 @@ describe("Chat-First Shell Execution (codex_exec)", () => {
       expect(out.stdout).not.toContain("should never reach");
       expect(out.stderr).toContain("Command timed out after 1000ms"); // clamped to MIN_EXEC_TIMEOUT_MS = 1000ms
       expect(out.stderr).toContain("Partial output was preserved above");
-      expect(out.stderr).toContain("pass a larger timeout_ms");
+      expect(out.stderr).toContain("active transport may cap timeout_ms");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

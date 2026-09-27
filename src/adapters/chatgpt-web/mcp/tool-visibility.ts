@@ -20,6 +20,7 @@ export const BRIDGE_TOOL_NAMES = new Set([
   "codex_tool_inventory",
   "codex_tool_call",
   "codex_poll_task",
+  "codex_wait_tasks",
   "codex_turn_complete",
 ]);
 
@@ -83,6 +84,7 @@ export function gatewayToolNameIsValid(name: string): boolean {
 }
 
 export function safeVisibleTools(environment: ChatGptTurnEnvironment, contract: ChatGptMcpContract): CodexTool[] {
+  if (environment.execution === "host-only") return environment.tools;
   if (contract === "native") return environment.tools;
   const bridgeNamespaces = new Set(environment.tools
     .filter(tool => tool.namespace && BRIDGE_TOOL_NAMES.has(tool.name))
@@ -165,6 +167,7 @@ export function assertGatewayToolArguments(name: string, args: Record<string, un
 }
 
 export function execGateway(environment: ChatGptTurnEnvironment): CodexTool | undefined {
+  if (environment.execution === "host-only") return undefined;
   const tool = exactTool(environment, "exec");
   return tool?.freeform ? tool : undefined;
 }

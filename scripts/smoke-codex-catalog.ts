@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { CHATGPT_WEB_MODEL_ROUTES, availableChatGptWebModelRoutes, chatGptWebRouteEfforts } from "../src/chatgpt-web-models";
+import { availableChatGptWebModelRoutes, chatGptWebRouteEfforts } from "../src/chatgpt-web-models";
 import { defaultConfig } from "../src/config";
 import { augmentNativeModelCatalog } from "../src/model-catalog";
 
@@ -36,7 +36,8 @@ const config = defaultConfig("browser-only");
 config.proAvailable = true;
 config.subagentProtocol = "compatibility-v1";
 const catalogPath = join(root, "augmented-models.json");
-writeFileSync(catalogPath, `${JSON.stringify(augmentNativeModelCatalog(sourceCatalog, config))}\n`);
+const augmentedCatalog = augmentNativeModelCatalog(sourceCatalog, config);
+writeFileSync(catalogPath, `${JSON.stringify(augmentedCatalog)}\n`);
 writeFileSync(join(process.env.CODEX_HOME, "config.toml"), [
   `model_catalog_json = ${JSON.stringify(catalogPath)}`,
   "",
@@ -89,13 +90,15 @@ try {
     .toSorted((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
     .slice(0, 5)
     .map(model => model.slug);
-  const expectedSpawnOverrides = [
-    (sourceCatalog.models as Array<{ slug: string; visibility: string; supported_in_api: boolean; priority?: number }>)
-      .filter(model => model.supported_in_api && model.visibility === "list")
-      .toSorted((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))[0]?.slug,
-    ...CHATGPT_WEB_MODEL_ROUTES.slice(1).map(route => route.slug),
-    "chatgpt-web/gpt-5.6-sol-instant",
-  ];
+  // Verify the installed Codex preserves the emitted catalog's admission ordering.
+  // Native model priorities can change independently of this bridge release.
+  const expectedSpawnOverrides = (augmentedCatalog.models as Array<{
+    slug: string; visibility: string; supported_in_api: boolean; priority?: number;
+  }>)
+    .filter(model => model.supported_in_api && model.visibility === "list")
+    .toSorted((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, 5)
+    .map(model => model.slug);
   if (JSON.stringify(spawnOverrides) !== JSON.stringify(expectedSpawnOverrides)) {
     throw new Error(`Codex did not preserve the bounded V1 subagent roster: ${JSON.stringify(spawnOverrides)}`);
   }

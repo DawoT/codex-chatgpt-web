@@ -91,6 +91,10 @@ export class TurnCoordinator {
     }, CHATGPT_MCP_ACTIVITY_KEEP_ALIVE_MS);
     keepAlive.unref?.();
     try {
+      if (claimed.environment.execution === "host-only"
+        && toolName !== "codex_tool_inventory" && toolName !== "codex_tool_call") {
+        throw new Error("This host-only turn requires exact advertised tools through codex_tool_call; local handlers and aliases are unavailable");
+      }
       return await action(claimed);
     } finally {
       clearInterval(keepAlive);
@@ -109,6 +113,22 @@ export class TurnCoordinator {
     signal?: AbortSignal,
     requestedTimeoutMs?: number,
   ) {
+    const response = await this.invokeRaw(bindingId, bound, tool, payload, signal, requestedTimeoutMs);
+    return asMcpResult(response, {
+      toolName: wireName(tool),
+      offload: false,
+    });
+  }
+
+  /** Internal protocol consumers validate their own payload before presenting it to a model. */
+  async invokeRaw(
+    bindingId: string,
+    bound: ChatGptTurnEnvironment & { expiresAt?: number },
+    tool: CodexTool,
+    payload: { arguments?: Record<string, unknown>; input?: string },
+    signal?: AbortSignal,
+    requestedTimeoutMs?: number,
+  ) {
     const timeoutMs = chatGptMcpInvocationTimeout(bound, Date.now(), requestedTimeoutMs);
     try {
       const response = await callTurnBroker<BrokerToolResult>(this.brokerSocketPath, {
@@ -118,10 +138,7 @@ export class TurnCoordinator {
         freeform: tool.freeform === true,
         ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: payload.arguments ?? {} }),
       }, timeoutMs, signal);
-      return asMcpResult(response, {
-        toolName: wireName(tool),
-        workspaceRoot: bound.cwd,
-      });
+      return response;
     } catch (error) {
       // A cancelled/timed-out MCP request no longer has a consumer for the native result. Revoke
       // the whole turn capability so the broker drops the pending invocation and every later call

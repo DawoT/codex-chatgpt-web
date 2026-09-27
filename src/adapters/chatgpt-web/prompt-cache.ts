@@ -8,11 +8,14 @@ export interface PromptContractFingerprintInput {
   isSubagent: boolean;
   verbosity?: string;
   outputFormatSchema?: string;
+  outputFormatName?: string;
+  outputFormatStrict?: boolean;
   captureLunaCheckpoint?: boolean;
   manualControl?: boolean;
   multipartEnabled?: boolean;
   isCompaction?: boolean;
   isContinuation?: boolean;
+  executionMode?: "host-only";
 }
 
 export interface PromptCacheStats {
@@ -28,7 +31,7 @@ export interface PromptCacheStats {
 /**
  * LRU cache and fingerprinting engine for static ChatGPT Web prompt contracts.
  * Reuses immutable static contract segments across successive turns within the same session
- * to minimize JSON stringification, token recount, and string concatenation overhead.
+ * to avoid rebuilding static instruction segments on cache hits.
  */
 export class PromptContractCache {
   private readonly cache = new Map<string, readonly string[]>();
@@ -39,7 +42,10 @@ export class PromptContractCache {
   private totalCompilations = 0;
 
   constructor(maxEntries = 16) {
-    this.maxEntries = Math.max(1, maxEntries);
+    if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
+      throw new RangeError("Prompt cache capacity must be a positive safe integer");
+    }
+    this.maxEntries = maxEntries;
   }
 
   /**
@@ -54,11 +60,14 @@ export class PromptContractCache {
       input.isSubagent,
       input.verbosity ?? "",
       input.outputFormatSchema ?? "",
+      input.outputFormatName ?? "",
+      input.outputFormatStrict ?? false,
       Boolean(input.captureLunaCheckpoint),
       Boolean(input.manualControl),
       Boolean(input.multipartEnabled),
       Boolean(input.isCompaction),
       Boolean(input.isContinuation),
+      input.executionMode ?? "legacy",
     ]);
     return createHash("sha256").update(raw).digest("hex").slice(0, 16);
   }
@@ -83,9 +92,10 @@ export class PromptContractCache {
    * Stores static contracts in cache with LRU eviction.
    */
   set(fingerprint: string, contracts: readonly string[]): void {
+    this.cache.delete(fingerprint);
     if (this.cache.size >= this.maxEntries) {
       const oldestKey = this.cache.keys().next().value;
-      if (oldestKey) this.cache.delete(oldestKey);
+      if (oldestKey !== undefined) this.cache.delete(oldestKey);
     }
     this.cache.set(fingerprint, Object.freeze([...contracts]));
   }

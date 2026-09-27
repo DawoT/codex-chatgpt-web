@@ -4,7 +4,7 @@ import { getConfigDir } from "../../config";
 
 /**
  * Local audit trail for the chat-first MCP contract. Every successful mutating tool call
- * (codex_write_file, codex_patch_file) appends one JSONL line under the runtime directory so the
+ * (codex_write_file, codex_patch_file) and every settled command attempt appends a JSONL line so the
  * operator can reconstruct which workspace files the chat-first connector changed. The audit is
  * fail-open by design: a logging failure must never turn a completed mutation into a tool error,
  * but it is always attempted and reported on stderr when it cannot be written.

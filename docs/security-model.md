@@ -137,7 +137,19 @@ assistant prose as a structured handoff.
 
 ### Background command execution and sandbox boundary
 
-When `codex_exec` is run with `background=true` in `workspaceWrite` or `dangerFullAccess` mode, the command is spawned as a detached process using the system shell (`/bin/bash` or `cmd.exe`) in `.codex-tmp/tasks/` and its output streams directly to disk. The execution does not pass through the outer Codex harness container sandbox; this is an explicit operator trade-off allowing non-blocking long-running jobs (builds, test suites) to run without browser timeout constraints. Background execution is strictly rejected when the turn sandbox policy is `readOnly`.
+For native and safe contracts, command execution belongs to the outer host. `codex_exec(background=true)` now fails explicitly for every sandbox policy: the former local-shell path bypassed host hooks and could not enforce `workspaceWrite`. Use the command options actually advertised by the host. Where native command sessions are available, `codex_write_stdin` continues them; a `shell_command` implementation does not necessarily provide that capability.
+
+`codex_wait_tasks` remains a compatibility entry but rejects bridge-local task IDs in native/safe turns. These turns no longer create local task logs or completion/resume notifications. Existing local task IDs cannot be converted into native session IDs.
+
+Chat-First remains an explicitly local execution mode. Its task manager is now private to the MCP registration; operations filter tasks by the canonical selected workspace. This is routing isolation, not separate authentication between ChatGPT conversations: a caller authorized for several configured workspaces may select any of them. One aggregate quota covers the registration (default eight active processes), so changing workspace does not create a new quota. Requested background workdirs are validated and honored. Logs are returned relative to the selected workspace.
+
+Task polling and multi-task waiting are cancelable and subscribe to completion events without periodic log reads. Canceling a wait leaves the job running. Explicit kill transitions through `terminating` until process close; the process continues to count against its quota. On POSIX, kill sends SIGKILL immediately to the process group, avoiding delayed signals after PID reuse. This does not cover descendants that deliberately escape that process group; Windows currently signals the root child process and has no equivalent verified group guarantee. Local shell commands still do not have OS-level filesystem/network sandboxing merely because a workspace policy is configured.
+
+Task-log storage rejects pre-existing symlink directories and checks stored file/directory identity before reading or collecting logs. It reads at most 128 KiB per tail request. Finished records are capped at 50 total retained task records; eviction removes the corresponding owned log. If logs cannot be safely reclaimed, admission fails at that record bound. A 48-hour default TTL is checked opportunistically while the registration is alive; this is not cross-restart disk retention. These checks do not establish race-free isolation against hostile concurrent ancestor-directory renames. Chat-First result conversion also disables implicit spooling, including for read-only requests.
+
+Native/safe tool-result transport no longer spools large text into the workspace or home directory. It returns bounded inline text with the existing truncation notice. This applies to delegated results and legacy filesystem-tool results. The legacy direct filesystem handlers still exist and are not suitable for a host-only Pi adapter. This change does not harden other users of the general-purpose spooler.
+
+The tool descriptions changed, so refresh the ChatGPT MCP connector's cached tool catalog when deploying this revision. Source changes alone do not update a running launcher.
 
 ## Network exposure
 
@@ -152,3 +164,9 @@ When `codex_exec` is run with `background=true` in `workspaceWrite` or `dangerFu
 - Defending against a compromised local OS user or compromised Codex/Electron binary.
 - Bypassing ChatGPT plan, workspace, usage, action-control, or model restrictions.
 - Making consumer browser automation equivalent to a supported OpenAI API contract.
+
+### Foreground command cancellation and delivery limits
+
+Chat-First foreground calls now pass MCP cancellation into the local process handler. Already-aborted requests do not start a shell; cancellation and timeout terminate the current POSIX process group immediately and await close. Windows root-process termination and deliberately detached descendants retain the limits stated above. Working directories, including the default, must pass writable-root validation; shell commands themselves are still not confined by that path check. Failed/cancelled command outcomes are included in the best-effort audit log because partial effects may have occurred.
+
+Tool-result conversion now rejects a serialized result object larger than 1 MiB, including structured data and metadata, with an explicit error instead of slicing structured JSON. This supersedes the earlier unbounded structured-result delivery limitation. It does not cap memory consumed while producing/serializing a result or provide automatic pagination, and a delivery error does not undo tool effects.

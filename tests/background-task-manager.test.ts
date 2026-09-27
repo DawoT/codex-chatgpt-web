@@ -50,6 +50,8 @@ describe("BackgroundTaskManager", () => {
       const killed = manager.killTask(task.id);
       expect(killed).toBe(true);
 
+      expect(manager.getTask(task.id)?.status).toBe("terminating");
+      await manager.pollTask(task.id, 2000);
       const status = manager.getTask(task.id);
       expect(status?.status).toBe("killed");
       expect(status?.exitCode).toBe(137);
@@ -146,7 +148,7 @@ describe("BackgroundTaskManager", () => {
     }
   });
 
-  test("startTask enforces maxConcurrent and reports the running count", () => {
+  test("startTask keeps a killed process in the quota until it closes", async () => {
     const root = mkdtempSync(join(tmpdir(), "bg-task-concurrent-"));
     const manager = new BackgroundTaskManager();
     const running: string[] = [];
@@ -174,9 +176,12 @@ describe("BackgroundTaskManager", () => {
       expect(() => manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 }))
         .toThrow(/codex_poll_task/);
 
-      // Freeing a slot (kill flips status to "killed") allows starting again.
+      // A termination request does not immediately free an operating-system process slot.
       expect(manager.killTask(first.id)).toBe(true);
       running.splice(running.indexOf(first.id), 1);
+      expect(() => manager.startTask({ cmd: "echo early", cwd: root, roots: [root], writableRoots: [root] }))
+        .toThrow(/maxConcurrent=2/);
+      await manager.pollTask(first.id, 2000);
       const third = manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 });
       running.push(third.id);
       expect(third.status).toBe("running");

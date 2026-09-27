@@ -103,6 +103,14 @@ export function userRevision(value: unknown, expectedTurnId?: string, metadata?:
 export function latestChatGptTurnUserRevision(parsed: CodexParsedRequest, expectedTurnId?: string): ChatGptTurnUserRevision | undefined {
   const body = record(parsed._rawBody);
   const input = Array.isArray(body?.input) ? body.input : [];
+  if (parsed._hostTurn) {
+    const current = input.findLast(value => {
+      const item = record(value);
+      return item?.role === "user" && (item.type === undefined || item.type === "message");
+    });
+    const item = record(current);
+    return item ? { content: item.content, turnId: parsed._hostTurn.turnId } : undefined;
+  }
   const metadata = clientTurnMetadata(parsed);
   for (let index = input.length - 1; index >= 0; index -= 1) {
     const revision = userRevision(input[index], expectedTurnId, metadata);
@@ -138,6 +146,10 @@ export function extractChatGptTurnUserRevision(parsed: CodexParsedRequest): unkn
 
 /** Canonical instruction order distinguishes new steering from a delayed older request. */
 export function chatGptTurnUserRevisionHistory(parsed: CodexParsedRequest): ChatGptTurnUserRevision[] {
+  if (parsed._hostTurn) {
+    const revision = latestChatGptTurnUserRevision(parsed);
+    return revision ? [revision] : [];
+  }
   const body = record(parsed._rawBody);
   const turnId = extractChatGptTurnIdentity(parsed).turnId;
   const metadata = clientTurnMetadata(parsed);

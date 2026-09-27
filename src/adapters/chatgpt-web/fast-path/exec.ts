@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { workspaceFileCache, type FastPathWorkspaceCache } from "../fast-path-cache";
 import { type FastPathToolResult, result } from "./types";
-import { resolveSafeWorkspacePath } from "./sandbox";
+import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./sandbox";
 
 export interface HandleExecCommandOptions {
   cmd: string;
@@ -12,6 +12,7 @@ export interface HandleExecCommandOptions {
   roots: string[];
   writableRoots?: string[];
   cache?: FastPathWorkspaceCache;
+  signal?: AbortSignal;
 }
 
 export const DEFAULT_EXEC_TIMEOUT_MS = 600_000; // 10 minutes
@@ -19,7 +20,7 @@ export const MAX_EXEC_TIMEOUT_MS = 1_800_000;   // 30 minutes
 export const MIN_EXEC_TIMEOUT_MS = 1_000;       // 1 second
 
 export async function handleExecCommand(options: HandleExecCommandOptions): Promise<FastPathToolResult> {
-  const { cmd, workdir, timeout_ms, cwd, roots, writableRoots, cache } = options;
+  const { cmd, workdir, timeout_ms, cwd, roots, writableRoots, cache, signal: abortSignal } = options;
   if (!cmd || typeof cmd !== "string" || !cmd.trim()) {
     return result({ error: "cmd must be a non-empty string" }, true);
   }
@@ -28,16 +29,19 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
     return result({ error: "Command execution is disabled in readOnly mode" }, true);
   }
 
-  let effectiveCwd = cwd;
-  if (workdir && typeof workdir === "string" && workdir.trim()) {
-    try {
-      effectiveCwd = resolveSafeWorkspacePath(workdir.trim(), cwd, roots);
-      if (!existsSync(effectiveCwd) || !statSync(effectiveCwd).isDirectory()) {
-        return result({ error: `workdir is not an existing directory: ${workdir}` }, true);
-      }
-    } catch (err) {
-      return result({ error: err instanceof Error ? err.message : String(err) }, true);
+  if (abortSignal?.aborted) {
+    return result({ cmd, exit_code: -1, cancelled: true, timed_out: false }, true);
+  }
+
+  let effectiveCwd: string;
+  try {
+    effectiveCwd = resolveSafeWorkspacePath(workdir?.trim() || cwd, cwd, roots);
+    assertWritableRootContainment(effectiveCwd, effectiveCwd, writableRoots);
+    if (!existsSync(effectiveCwd) || !statSync(effectiveCwd).isDirectory()) {
+      return result({ error: `workdir is not an existing directory: ${effectiveCwd}` }, true);
     }
+  } catch (err) {
+    return result({ error: err instanceof Error ? err.message : String(err) }, true);
   }
 
   const timeout = Math.min(Math.max(timeout_ms ?? DEFAULT_EXEC_TIMEOUT_MS, MIN_EXEC_TIMEOUT_MS), MAX_EXEC_TIMEOUT_MS);
@@ -49,7 +53,7 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
     let stderr = "";
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
-    let killTimer: NodeJS.Timeout | undefined;
+    let cancelled = false;
 
     let child: ReturnType<typeof spawn>;
     try {
@@ -73,10 +77,7 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
         clearTimeout(timer);
         timer = undefined;
       }
-      if (killTimer) {
-        clearTimeout(killTimer);
-        killTimer = undefined;
-      }
+      abortSignal?.removeEventListener("abort", onAbort);
       if (cache) {
         cache.clear();
       } else {
@@ -84,33 +85,28 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
       }
     };
 
+    const terminate = () => {
+      // Kill the current POSIX process group before close; no delayed signal can
+      // accidentally target a recycled PID. Windows currently terminates the root only.
+      try {
+        if (process.platform !== "win32" && child.pid) {
+          process.kill(-child.pid, "SIGKILL");
+        } else {
+          child.kill("SIGKILL");
+        }
+      } catch {
+        child.kill("SIGKILL");
+      }
+    };
+    const onAbort = () => {
+      cancelled = true;
+      terminate();
+    };
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+    if (abortSignal?.aborted) onAbort();
     timer = setTimeout(() => {
       timedOut = true;
-      try {
-        if (process.platform === "win32") {
-          child.kill("SIGTERM");
-          killTimer = setTimeout(() => {
-            try {
-              child.kill("SIGKILL");
-            } catch {}
-          }, 3_000);
-        } else if (child.pid) {
-          try {
-            process.kill(-child.pid, "SIGTERM");
-          } catch {
-            child.kill("SIGTERM");
-          }
-          killTimer = setTimeout(() => {
-            try {
-              if (child.pid) process.kill(-child.pid, "SIGKILL");
-            } catch {
-              try {
-                child.kill("SIGKILL");
-              } catch {}
-            }
-          }, 3_000);
-        }
-      } catch {}
+      terminate();
     }, timeout);
 
     let stdoutTruncated = false;
@@ -149,12 +145,24 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
 
     child.on("close", (code, signal) => {
       cleanup();
+      if (cancelled) {
+        resolve(result({
+          cmd,
+          cwd: effectiveCwd,
+          exit_code: -1,
+          cancelled: true,
+          timed_out: timedOut,
+          stdout,
+          stderr,
+        }, true));
+        return;
+      }
       if (timedOut) {
         const timeoutSec = Math.round(timeout / 1000);
         const timeoutMin = (timeout / 60000).toFixed(1);
         const partialNotice = `\n[codex_exec] Command timed out after ${timeout}ms (${timeoutSec}s / ~${timeoutMin}m).` +
           `\nPartial output was preserved above.` +
-          `\nHint: For long-running test batteries or builds, pass a larger timeout_ms (e.g. 900000 for 15m, max 1800000 = 30m), or execute tests in targeted sub-suites.`;
+          `\nUse supported background execution or smaller work units for long-running jobs; the active transport may cap timeout_ms.`;
         resolve(result({
           cmd,
           exit_code: -1,

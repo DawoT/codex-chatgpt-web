@@ -3,10 +3,6 @@ import type { AdapterEvent, CodexParsedRequest } from "../../../types";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
 import type { ChatGptBrowserWorker } from "../browser-worker";
 import {
-  extractReferencedFilePaths,
-  listTurnCheckpoints,
-  mergeCompactionIntoWorkspaceState,
-  saveTurnCheckpoint,
   validateCompactionQuality,
 } from "../autonomous-compaction";
 import {
@@ -32,7 +28,7 @@ import {
   type ChatGptTurnSession,
 } from "../turn-execution";
 import { estimateChatGptWebUsage } from "../usage";
-import { readWorkspaceState } from "../workspace-state";
+import { persistTurnCompaction } from "../workspace-persistence";
 import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
 
@@ -350,21 +346,11 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       return true;
     }
     try {
-      const workspaceRoot = environment?.cwd ?? process.cwd();
-      const existingCheckpoints = listTurnCheckpoints(workspaceRoot);
-      const nextEpoch = (existingCheckpoints[0]?.epoch ?? 0) + 1;
       const quality = validateCompactionQuality(parsed.context.messages, summary);
       if (!quality.valid) {
         console.warn(`[chatgpt-web] Compaction quality warning: ${quality.missingInvariants.join("; ")}`);
       }
-      saveTurnCheckpoint(workspaceRoot, {
-        epoch: nextEpoch,
-        turnCount: parsed.context.messages.length,
-        stateSnapshot: readWorkspaceState(workspaceRoot),
-        compactSummary: summary,
-        prunedFileReferences: extractReferencedFilePaths(parsed.context.messages),
-      });
-      mergeCompactionIntoWorkspaceState(workspaceRoot, summary);
+      persistTurnCompaction(environment, parsed.context.messages, summary);
     } catch (checkpointError) {
       console.warn("[chatgpt-web] Failed to record turn checkpoint:", checkpointError);
     }
