@@ -327,6 +327,18 @@ import {
   assertChatGptWebMultipartInputWithinLimits,
   resolveChatGptWebMultipartStagingMode,
 } from "./browser/staging-limits";
+export {
+  promptCodeUnitEquivalent,
+  promptUnitsEquivalent,
+  promptTextEquivalent,
+  promptEquivalentPrefixLength,
+} from "./browser/prompt-equivalence";
+import {
+  promptCodeUnitEquivalent,
+  promptUnitsEquivalent,
+  promptTextEquivalent,
+  promptEquivalentPrefixLength,
+} from "./browser/prompt-equivalence";
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
 const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
@@ -545,61 +557,28 @@ export class ChatGptBrowserWorker {
     observed: string,
     index: number,
   ): boolean {
-    const expectedUnit = expected[index];
-    const observedUnit = observed[index];
-
-    if (expectedUnit === observedUnit) return true;
-    if (expectedUnit !== " " || observedUnit !== "\u00A0") return false;
-
-    return expected[index - 1] === " " || expected[index + 1] === " ";
+    return promptCodeUnitEquivalent(expected, observed, index);
   }
 
   private promptUnitsEquivalent(
     expected: string,
     observed: string,
   ): boolean {
-    if (expected.length !== observed.length) return false;
-
-    for (let index = 0; index < expected.length; index += 1) {
-      if (!this.promptCodeUnitEquivalent(expected, observed, index)) {
-        return false;
-      }
-    }
-
-    return true;
+    return promptUnitsEquivalent(expected, observed);
   }
 
   private promptTextEquivalent(
     expected: string,
     observed: string,
   ): boolean {
-    if (expected === observed) return true;
-    if (this.promptUnitsEquivalent(expected, observed)) return true;
-
-    const normExpected = normalizePromptForComparison(expected);
-    const normObserved = normalizePromptForComparison(observed);
-
-    if (normExpected === normObserved) return true;
-    return this.promptUnitsEquivalent(normExpected, normObserved);
+    return promptTextEquivalent(expected, observed);
   }
 
   private promptEquivalentPrefixLength(
     expected: string,
     observed: string,
   ): number {
-    const normExpected = normalizePromptForComparison(expected);
-    const normObserved = normalizePromptForComparison(observed);
-    const length = Math.min(normExpected.length, normObserved.length);
-
-    let index = 0;
-    while (
-      index < length
-      && this.promptCodeUnitEquivalent(normExpected, normObserved, index)
-    ) {
-      index += 1;
-    }
-
-    return index;
+    return promptEquivalentPrefixLength(expected, observed);
   }
 
   run(turn: BrowserTurn): Promise<string> {
@@ -1828,7 +1807,9 @@ export class ChatGptBrowserWorker {
     const appResult = menuRows.filter({
       has: page.getByText(this.config.appName, { exact: true }),
     });
-    if (new URL(page.url()).searchParams.get("temporary-chat") === "true" && !hasExistingTurns) await ensureChatGptPersonalizedConnectorAccess(
+    const pageUrl = page.url();
+    const isTemporaryChat = Boolean(pageUrl && new URL(pageUrl, "https://chatgpt.com").searchParams.get("temporary-chat") === "true");
+    if (isTemporaryChat && !hasExistingTurns) await ensureChatGptPersonalizedConnectorAccess(
       page,
       capture,
       async (personalizationSignal) => {

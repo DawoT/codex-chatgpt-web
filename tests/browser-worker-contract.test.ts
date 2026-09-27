@@ -2326,6 +2326,36 @@ test("an abort after connector activation removes the selected pill before retur
   expect(connectorSelected).toBeFalse();
 });
 
+test("selectConnector safely handles empty or non-standard page URLs without throwing Invalid URL", async () => {
+  const composer = {
+    fill: async () => {},
+    focus: async () => {},
+    pressSequentially: async () => {},
+    press: async () => {},
+  };
+  const page = {
+    url: () => "", // Empty URL during navigation or disconnected surface
+    locator: () => ({
+      filter: () => ({
+        waitFor: async () => {},
+        count: async () => 1,
+        getAttribute: async () => "true",
+      }),
+    }),
+    getByText: () => ({ exact: true }),
+  };
+  const prototype = ChatGptBrowserWorker.prototype as unknown as {
+    selectConnector(page: unknown, capture?: unknown, refresh?: boolean, budget?: unknown, signal?: AbortSignal): Promise<unknown>;
+  };
+  const result = await prototype.selectConnector.call({
+    config: { appName: CHATGPT_CONNECTOR_NAME },
+    activeComposer: async () => composer,
+    connectorIsSelected: async () => true,
+    clearChatGptComposerState: async () => {},
+  }, page);
+  expect(result).toBeDefined();
+});
+
 test("an abort while inserting a connector prompt clears the selected pill and partial text before returning", async () => {
   const controller = new AbortController();
   let connectorSelected = true;
