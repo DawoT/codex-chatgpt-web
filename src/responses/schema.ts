@@ -99,7 +99,7 @@ const customToolCallOutputItemSchema = z.object({
   output: toolOutputSchema,
 });
 
-export const inputItemSchema = z.union([
+export const knownInputItemSchema = z.union([
   userMessageItemSchema,
   systemMessageItemSchema,
   assistantMessageItemSchema,
@@ -109,6 +109,10 @@ export const inputItemSchema = z.union([
   functionCallOutputItemSchema,
   customToolCallItemSchema,
   customToolCallOutputItemSchema,
+]);
+
+export const inputItemSchema = z.union([
+  knownInputItemSchema,
   z.object({ type: z.string() }).loose(),
 ]);
 

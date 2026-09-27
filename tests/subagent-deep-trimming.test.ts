@@ -170,7 +170,7 @@ describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () 
     expect(subagentPruned[3]!.content).toBe("C".repeat(180)); // most recent is retained
   });
 
-  test("compileChatGptWebPrompt automatically applies subagent pruning thresholds for subagent turns", () => {
+  test("compileChatGptWebPrompt preserves tool evidence for subagent and root turns", () => {
     const historicalMessages: CodexMessage[] = [
       { role: "user", timestamp: 1000, content: "Start" },
       {
@@ -216,8 +216,9 @@ describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () 
       "turn_subagent_00000000000000000000000",
     );
 
-    // The subagent prompt should contain tombstone for older tool result exceeding 150 chars
-    expect(compiledSubagent.text).toContain("[Historical tool output omitted: codex_read_file completed in earlier turn");
+    expect(compiledSubagent.text).toContain("Long historical tool output exceeding 150 chars");
+    expect(compiledSubagent.text).toContain("Recent tool result");
+    expect(compiledSubagent.text).not.toContain("[Historical tool output omitted:");
 
     const rootReq = {
       modelId: CHATGPT_WEB_MODEL_ID,
@@ -235,8 +236,8 @@ describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () 
       "turn_root_000000000000000000000000000",
     );
 
-    // The root prompt retains 2 recent tool results, so neither is tombstoned
-    expect(compiledRoot.text).not.toContain("[Historical tool output omitted: codex_read_file completed in earlier turn");
+    expect(compiledRoot.text).toContain("Long historical tool output exceeding 150 chars");
+    expect(compiledRoot.text).toContain("Recent tool result");
+    expect(compiledRoot.text).not.toContain("[Historical tool output omitted:");
   });
 });
-

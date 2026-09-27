@@ -1287,18 +1287,16 @@ test.each([false, true])("structured compact rebuilds canonical context when its
     const contextText = prepared.multipart?.parts.join("\n") ?? prepared.text;
     expect(contextText).toContain("Original task");
     expect(contextText).toContain("Continue with the next step");
-    if (experimentalBiggerContext) {
-      expect(prepared.multipart!.parts).toHaveLength(6);
-      expect(prepared.trimmedCompactionMessages).toBeUndefined();
-      const lastRecord = prepared.multipart!.parts.flatMap(part => JSON.parse(part).records).at(-1);
-      expect(lastRecord.message.content).toBe(compact.context.messages.at(-1)!.content);
-    }
+    expect(prepared.multipart!.parts).toHaveLength(6);
+    expect(prepared.trimmedCompactionMessages).toBeUndefined();
+    const lastRecord = prepared.multipart!.parts.flatMap(part => JSON.parse(part).records).at(-1);
+    expect(lastRecord.message.content).toBe(compact.context.messages.at(-1)!.content);
     prepared.release();
     return "Fallback checkpoint from canonical Codex context";
   };
   const compact = request(true);
   const events: AdapterEvent[] = [];
-  if (experimentalBiggerContext) compact.context.messages.at(-1)!.content += "x".repeat(160_000);
+  compact.context.messages.at(-1)!.content += "x".repeat(160_000);
   try {
     await createChatGptWebAdapter(provider).runTurn!(
       compact,

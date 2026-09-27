@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { callTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import { ownerEnvironment } from "../src/adapters/chatgpt-web/turn-broker/helpers";
 import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
+import { TurnCoordinator } from "../src/adapters/chatgpt-web/mcp/turn-coordinator";
 
 function environment(cwd: string): ChatGptTurnEnvironment & { execution: "host-only" } {
   return {
@@ -17,10 +18,39 @@ function environment(cwd: string): ChatGptTurnEnvironment & { execution: "host-o
     sandboxPolicy: { type: "dangerFullAccess" },
     tools: [
       { name: "facts_query", description: "Query host facts", parameters: { type: "object" } },
+      { name: "exec_command", description: "Host command with sessions", parameters: {
+        type: "object", properties: { cmd: { type: "string" }, yield_time_ms: { type: "number" } },
+      } },
       { name: "exec", description: "An exact host tool, not a discovery gateway", parameters: {}, freeform: true },
     ],
   };
 }
+
+test("a freeform host command remains freeform even when named exec_command", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "host-only-freeform-"));
+  const broker = TurnBroker.forSocket(join(cwd, "broker.sock"));
+  const tool = {
+    name: "exec_command",
+    description: "Freeform host command",
+    parameters: { type: "object", properties: { yield_time_ms: { type: "number" } } },
+    freeform: true,
+  };
+  try {
+    const token = await broker.register({ ...environment(cwd), tools: [tool] }, 60_000);
+    const { bindingId } = await callTurnBroker<{ bindingId: string }>(broker.socketPath, {
+      method: "claim", token, contract: "native", activityId: "activity_freeform_host_command_0123456789",
+    });
+    const coordinator = new TurnCoordinator(broker.socketPath, "native");
+    const pending = coordinator.invokeRaw(bindingId, environment(cwd), tool, { input: "long task" });
+    const [request] = await broker.nextToolBatch(token);
+    expect(request).toMatchObject({ wireName: "exec_command", freeform: true, input: "long task" });
+    broker.completeTool(token, request!.callId, { content: [{ type: "text", text: "done" }] });
+    expect((await pending).content).toEqual([{ type: "text", text: "done" }]);
+  } finally {
+    await broker.close();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 test("host-only environment survives owner validation and cannot downgrade or mutate its catalog", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "host-only-identity-"));
@@ -111,6 +141,16 @@ for (const contract of ["native", "safe"] as const) {
       expect(request).toMatchObject({ wireName: "facts_query", arguments: { file: "main.ts" } });
       broker.completeTool(token, request!.callId, { content: [{ type: "text", text: "host-facts-result" }] });
       expect(JSON.stringify((await pending).content)).toContain("host-facts-result");
+      const command = client.callTool({
+        name: "codex_tool_call",
+        arguments: { ...reference, wire_name: "exec_command", arguments: { cmd: "long task", yield_time_ms: 300_000 } },
+      });
+      const [commandRequest] = await broker.nextToolBatch(token);
+      broker.completeTool(token, commandRequest!.callId, {
+        content: [{ type: "text", text: "running" }], structuredContent: { session_id: 42 },
+      });
+      expect(commandRequest!.arguments).toEqual({ cmd: "long task", yield_time_ms: 30_000 });
+      expect((await command).structuredContent).toMatchObject({ session_id: 42 });
       expect(readdirSync(cwd).filter(name => name !== "broker.sock")).toEqual([]);
     } finally {
       await client.close();

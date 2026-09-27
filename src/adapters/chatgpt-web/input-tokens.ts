@@ -4,8 +4,8 @@ import { estimateTokens } from "../../lib/token-estimate";
 import {
   formatChatGptWebMultipartCommit,
   formatChatGptWebMultipartStage,
-  type CompiledChatGptWebPrompt,
-} from "./prompt";
+} from "./prompt/multipart";
+import type { CompiledChatGptWebPrompt } from "./prompt/types";
 
 /**
  * The Free/Luna product accepted measured browser inputs at 25,400 and 28,547 estimated tokens,
@@ -49,9 +49,19 @@ export function estimateCompiledChatGptWebInputTokens(
   compiled: CompiledChatGptWebPrompt,
   modelId: string,
 ): number {
+  return measureCompiledChatGptWebInput(compiled, modelId).inputTokens;
+}
+
+/** Request-local metrics: tokenize each visible message once for total and maximum. */
+export function measureCompiledChatGptWebInput(
+  compiled: CompiledChatGptWebPrompt,
+  modelId: string,
+): { inputTokens: number; maxMessageTokens: number; maxMessageChars: number } {
   const imageTokens = estimateChatGptWebImageTokens(compiled);
-  const messageTokens = compiledChatGptWebMessages(compiled)
-    .reduce((total, message) => total + estimateTokens(message, modelId), 0);
+  const messages = compiledChatGptWebMessages(compiled);
+  const counts = messages.map(message => estimateTokens(message, modelId));
+  const attachments = skillFileTokens(compiled.skillFiles, modelId);
+  const messageTokens = counts.reduce((total, count) => total + count, 0);
   const acknowledgementTokens = compiled.multipart
     ? compiled.multipart.parts.slice(0, -1).reduce((total, payload, index) => total + estimateTokens(
       formatChatGptWebMultipartStage(
@@ -63,7 +73,11 @@ export function estimateCompiledChatGptWebInputTokens(
       modelId,
     ), 0)
     : 0;
-  return CHATGPT_WEB_PLATFORM_RESERVE_TOKENS + messageTokens + acknowledgementTokens + imageTokens + skillFileTokens(compiled.skillFiles, modelId);
+  return {
+    inputTokens: CHATGPT_WEB_PLATFORM_RESERVE_TOKENS + messageTokens + acknowledgementTokens + imageTokens + attachments,
+    maxMessageTokens: Math.max(...counts.map((count, index) => count + (index === counts.length - 1 ? attachments : 0))),
+    maxMessageChars: Math.max(...messages.map(message => message.length)),
+  };
 }
 
 export function estimateChatGptWebImageTokens(compiled: CompiledChatGptWebPrompt): number {

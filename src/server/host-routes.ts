@@ -3,10 +3,17 @@ import { SlidingWindowRateLimiter } from "../adapters/chatgpt-web/rate-limiter";
 import { getConfigDir, type AppConfig } from "../config";
 import { availableChatGptWebModelRoutes, resolveChatGptWebContextLimits } from "../chatgpt-web-models";
 import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
-import { responseRequest, type ChatGptWebAdapterFactory } from "./response-route";
+import {
+  isLongReasoningTurn,
+  responseRequest,
+  routeChatGptWebRequest,
+  type ChatGptWebAdapterFactory,
+} from "./response-route";
+import { parseRequest } from "../responses/parser";
 import { HttpTurnCounter } from "./http-turn-counter";
 import { authorized, digest, HostProtocolError, HostSessionStore, type HostSession, type HostTurn } from "./host-state";
 import { prepareHostRequest, readHostBody } from "./host-request";
+import { assertFirstHostPromptWithinLimits } from "./host-prompt-preflight";
 import { HostRecoveryStore } from "./host-recovery";
 import { inspectHostTurn } from "./host-status";
 
@@ -182,6 +189,41 @@ export class HostHttpRoutes {
     if (body.max_output_tokens !== undefined && (!Number.isSafeInteger(body.max_output_tokens) || Number(body.max_output_tokens) < 1 || Number(body.max_output_tokens) > 32_768)) throw new HostProtocolError(400, "Host output budget must be between 1 and 32768 tokens");
     body.max_output_tokens ??= 32_768;
     const prepared = prepareHostRequest(session, turnId, body);
+    // Reuse the route and parser that the adapter will use. Reject local
+    // preconditions before a durable admission can imply model delivery.
+    let parsed;
+    try {
+      parsed = parseRequest(prepared.body);
+      routeChatGptWebRequest(parsed, this.config);
+    } catch {
+      throw new HostProtocolError(400, "Host request cannot be routed to the selected Web model");
+    }
+    const metadata = (parsed._rawBody as { client_metadata?: Record<string, unknown> } | undefined)?.client_metadata;
+    if (!parsed.stream && !parsed._compactionRequest
+      && !metadata?.["x-codex-turn-metadata"] && isLongReasoningTurn(parsed)) {
+      throw new HostProtocolError(400, "High-reasoning Web turns require streaming before host admission");
+    }
+    // A fresh full-history prompt has no retained browser conversation to rescue it.
+    // Reject a deterministic transport failure before recovery and sequence admission.
+    if (!session.turns.has(turnId) && body.previous_response_id === undefined && !parsed._compactionRequest) {
+      parsed._hostTurn = {
+        sessionId: session.id,
+        turnId,
+        environment: {
+          execution: "host-only",
+          cwd: session.cwd,
+          roots: [],
+          writableRoots: [],
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+          tools: parsed.context.tools ?? [],
+        },
+      };
+      try {
+        assertFirstHostPromptWithinLimits(parsed, this.config);
+      } catch {
+        throw new HostProtocolError(400, "Host request exceeds compiled Web context or transport limits");
+      }
+    }
     if (session.recoveryScope) {
       if (session.turns.has(turnId)) this.recovery.assertAdmitted(session.recoveryScope, turnId);
       else this.recovery.admitTurn(session.recoveryScope, turnId, digest(prepared.body));

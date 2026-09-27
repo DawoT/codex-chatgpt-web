@@ -131,7 +131,23 @@ export class TurnCoordinator {
     signal?: AbortSignal,
     requestedTimeoutMs?: number,
   ) {
-    const timeoutMs = chatGptMcpInvocationTimeout(bound, Date.now(), requestedTimeoutMs);
+    const supportsSessionYield = !tool.namespace && tool.freeform !== true
+      && (tool.name === "exec_command" || tool.name === "write_stdin")
+      && (bound.execution !== "host-only"
+        || Object.hasOwn(tool.parameters.properties ?? {}, "yield_time_ms"));
+    const args = tool.freeform ? undefined : supportsSessionYield
+      ? boundedSessionArguments(tool.name, payload.arguments ?? {})
+      : payload.arguments ?? {};
+    const sessionDeadline = supportsSessionYield
+      ? Number(args!.yield_time_ms) + 15_000
+      : undefined;
+    const timeoutMs = chatGptMcpInvocationTimeout(
+      bound,
+      Date.now(),
+      sessionDeadline === undefined
+        ? requestedTimeoutMs
+        : Math.min(sessionDeadline, requestedTimeoutMs ?? sessionDeadline),
+    );
     try {
       const response = await callTurnBroker<BrokerToolResult>(this.brokerSocketPath, {
         method: "invoke",
@@ -139,9 +155,7 @@ export class TurnCoordinator {
         bindingId,
         wireName: wireName(tool),
         freeform: tool.freeform === true,
-        ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: bound.execution === "host-only" || tool.namespace
-          ? payload.arguments ?? {}
-          : boundedSessionArguments(tool.name, payload.arguments ?? {}) }),
+        ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: args }),
       }, timeoutMs, signal);
       return response;
     } catch (error) {

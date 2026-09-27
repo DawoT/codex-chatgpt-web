@@ -33,9 +33,8 @@ import {
 } from "./model";
 import {
   CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET,
-  compiledChatGptWebMaxMessageChars,
   estimateChatGptWebImageTokens,
-  estimateCompiledChatGptWebMessageTokens,
+  measureCompiledChatGptWebInput,
 } from "./input-tokens";
 import {
   CHATGPT_MAX_INPUT_IMAGES,
@@ -46,7 +45,6 @@ import {
   type ChatGptWebPromptImage,
   type ChatGptWebMultipartStage,
 } from "./prompt";
-import { estimateCompiledChatGptWebInputTokens } from "./input-tokens";
 import {
   assertAuthenticatedChatGptPage,
   assertNewChatPage,
@@ -3204,9 +3202,11 @@ export class ChatGptBrowserWorker {
       const multipartFinalPrompt = prepared.multipart && multipartTransactionId
         ? formatChatGptWebMultipartCommit(prepared.multipart, multipartTransactionId)
         : undefined;
-      const estimatedInputTokens = estimateCompiledChatGptWebInputTokens(prepared, turn.modelId);
-      const estimatedMessageTokens = estimateCompiledChatGptWebMessageTokens(prepared, turn.modelId);
-      const maxMessageChars = compiledChatGptWebMaxMessageChars(prepared);
+      const {
+        inputTokens: estimatedInputTokens,
+        maxMessageTokens: estimatedMessageTokens,
+        maxMessageChars,
+      } = measureCompiledChatGptWebInput(prepared, turn.modelId);
       const maxStageMessageTokens = multipartStages
         ? Math.max(...multipartStages.map(stage => estimateTokens(stage.text, turn.modelId)))
         : undefined;

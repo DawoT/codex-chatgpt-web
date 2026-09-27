@@ -36,3 +36,41 @@ test("structured gateway bounds session polls without changing shell execution d
     expect(received).toEqual(expected);
   }
 });
+
+test("raw exec yields a running cell before one long native call exhausts MCP", async () => {
+  let releaseCommand!: (value: { session_id: number }) => void;
+  const command = new Promise<{ session_id: number }>(resolve => {
+    releaseCommand = resolve;
+  });
+  let watchdog: (() => void) | undefined;
+  let delay: number | undefined;
+  let cleared = false;
+  let yielded = 0;
+  const output: unknown[] = [];
+  const run = new AsyncFunction(
+    "tools", "ALL_TOOLS", "text", "yield_control", "setTimeout", "clearTimeout",
+    transportBoundRawExecProgram("text(await tools.exec_command({ cmd: 'long task' }));", "exec"),
+  )(
+    { exec_command: () => command },
+    [{ name: "exec_command" }],
+    (value: unknown) => output.push(value),
+    () => { yielded += 1; },
+    (callback: () => void, milliseconds: number) => {
+      watchdog = callback;
+      delay = milliseconds;
+      return 7;
+    },
+    (timer: number) => { if (timer === 7) cleared = true; },
+  );
+
+  expect(delay).toBeGreaterThanOrEqual(1_000);
+  expect(delay).toBeLessThan(90_000);
+  expect(watchdog).toBeDefined();
+  watchdog!();
+  await Promise.resolve();
+  expect(yielded).toBe(1);
+  releaseCommand({ session_id: 42 });
+  await run;
+  expect(output).toEqual([{ session_id: 42 }]);
+  expect(cleared).toBe(true);
+});

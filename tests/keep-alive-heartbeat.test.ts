@@ -66,14 +66,14 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
       expect(timeout).toBe(90_000);
     });
 
-    test("does not shrink below default 90s if requested timeout is shorter (e.g. 5s yield)", () => {
+    test("a short native session yield retires a stalled MCP call before the transport deadline", () => {
       const requestedTimeoutMs = 20_000; // 5s yield + 15s grace
       const timeout = chatGptMcpInvocationTimeout(
         dummyEnvironment,
         Date.now(),
         requestedTimeoutMs,
       );
-      expect(timeout).toBe(90_000);
+      expect(timeout).toBe(20_000);
     });
   });
 

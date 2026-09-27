@@ -92,6 +92,31 @@ test("host accepts paired imported history and exact result replay without givin
   } finally { await f.stop(); }
 });
 
+test("invalid continuation content does not commit a tool result or consume its sequence", async () => {
+  const f = await fixture();
+  try {
+    const session = await f.pair();
+    const first = await (await f.request(session, 1)).json() as any;
+    const callId = first.output[0].call_id;
+    const invalid = await f.request(session, 2, {
+      previous_response_id: first.id,
+      input: [{ type: "function_call_output", call_id: callId, output: [{ type: "input_text", text: 123 }] }],
+    });
+    expect(invalid.status).toBe(400);
+    await invalid.text();
+    expect(f.seen.length).toBe(1);
+    const corrected = await f.request(session, 2, {
+      previous_response_id: first.id,
+      input: [{ type: "function_call_output", call_id: callId, output: "corrected source evidence" }],
+    });
+    expect(corrected.status).toBe(200);
+    await corrected.text();
+    expect(f.seen.length).toBe(2);
+  } finally {
+    await f.stop();
+  }
+});
+
 test("host cancellation only aborts its session and preserves honest requested/settled states", async () => {
   const config = { ...defaultConfig("full"), controlToken: "cancel-control" };
   const signals = new Map<string, AbortSignal>();

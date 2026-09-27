@@ -16,7 +16,7 @@ const MAX_MCP_RESULT_BYTES = 1024 * 1024;
 export function chatGptMcpInvocationTimeout(
   environment: ChatGptTurnEnvironment & { expiresAt?: number },
   now = Date.now(),
-  _requestedTimeoutMs?: number,
+  requestedTimeoutMs?: number,
 ): number {
   // A host wait hint cannot extend the transport deadline. Long jobs must yield
   // through host sessions; cancellation here does not prove a command stopped.
@@ -24,7 +24,10 @@ export function chatGptMcpInvocationTimeout(
   const remaining = environment.expiresAt === undefined
     ? baseTimeout
     : Math.max(1, environment.expiresAt - now);
-  return Math.min(baseTimeout, remaining);
+  const requested = requestedTimeoutMs !== undefined
+    && Number.isSafeInteger(requestedTimeoutMs) && requestedTimeoutMs >= 1
+    ? requestedTimeoutMs : baseTimeout;
+  return Math.min(baseTimeout, remaining, requested);
 }
 
 export function sanitizeToolOutputContent(

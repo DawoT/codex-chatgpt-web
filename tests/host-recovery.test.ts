@@ -11,9 +11,10 @@ import { HostRecoveryStore } from "../src/server/host-recovery";
 const scopeA = "a".repeat(64);
 const scopeB = "b".repeat(64);
 
-function host(root: string, onTurn: () => void) {
+function host(root: string, onTurn: () => void, overrides: Partial<ReturnType<typeof defaultConfig>> = {}) {
   const routes = new HostHttpRoutes({
     ...defaultConfig("full"),
+    ...overrides,
     controlToken: "recovery-pairing",
     rateLimitRpm: 0,
   }, new HttpTurnCounter(), () => ({
@@ -40,7 +41,7 @@ function host(root: string, onTurn: () => void) {
     return await response.json() as { session_id: string; token: string; models: Array<{ id: string }> };
   };
   type Session = Awaited<ReturnType<typeof pair>>;
-  const request = (session: Session, turnId: string, sequence = 1) => fetch(`${origin}/host/v1/responses`, {
+  const request = (session: Session, turnId: string, sequence = 1, overrides: Record<string, unknown> = {}) => fetch(`${origin}/host/v1/responses`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${session.token}`,
@@ -48,7 +49,7 @@ function host(root: string, onTurn: () => void) {
       "x-cgw-turn-id": turnId,
       "x-cgw-sequence": String(sequence),
     },
-    body: JSON.stringify({ model: session.models[0]!.id, input: "private prompt", stream: false }),
+    body: JSON.stringify({ model: session.models[0]!.id, input: "private prompt", stream: false, ...overrides }),
   });
   const inspect = (session: Session) => fetch(`${origin}/host/v1/sessions/${session.session_id}/recovery`, {
     headers: { authorization: `Bearer ${session.token}` },
@@ -70,6 +71,101 @@ function host(root: string, onTurn: () => void) {
     },
   };
 }
+
+test("invalid Responses content leaves recovery unobserved and the sequence reusable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "host-invalid-admission-"));
+  let calls = 0;
+  const runtime = host(root, () => { calls += 1; });
+  try {
+    const session = await runtime.pair(scopeA);
+    const invalid = await runtime.request(session, "turn-invalid", 1, {
+      input: [{ role: "user", content: { invalid: "content-shape" } }],
+    });
+    expect(invalid.status).toBe(400);
+    await invalid.text();
+    expect(calls).toBe(0);
+    expect(await (await runtime.inspect(session)).json()).toMatchObject({ state: "unobserved", turn_id: null });
+    const corrected = await runtime.request(session, "turn-invalid", 1);
+    expect(corrected.status).toBe(200);
+    await corrected.text();
+    expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("high-reasoning requests without streaming leave recovery unobserved", async () => {
+  const root = mkdtempSync(join(tmpdir(), "host-stream-admission-"));
+  let calls = 0;
+  const runtime = host(root, () => { calls += 1; }, { solAvailable: true });
+  try {
+    const session = await runtime.pair(scopeA);
+    const high = session.models.find(model => model.id === "chatgpt-web/gpt-5.6-sol");
+    expect(high).toBeDefined();
+    const invalid = await runtime.request(session, "turn-high", 1, {
+      model: high!.id,
+      stream: false,
+    });
+    expect(invalid.status).toBe(400);
+    await invalid.text();
+    expect(calls).toBe(0);
+    expect(await (await runtime.inspect(session)).json()).toMatchObject({ state: "unobserved", turn_id: null });
+    const corrected = await runtime.request(session, "turn-high", 1, {
+      model: high!.id,
+      stream: true,
+    });
+    expect(corrected.status).toBe(200);
+    await corrected.text();
+    expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("oversized first host prompt is rejected before durable recovery admission", async () => {
+  const root = mkdtempSync(join(tmpdir(), "host-compiled-budget-"));
+  let calls = 0;
+  const runtime = host(root, () => { calls += 1; });
+  try {
+    const session = await runtime.pair(scopeA);
+    const oversized = await runtime.request(session, "turn-budget", 1, {
+      input: "evidence ".repeat(50_000),
+    });
+    expect(oversized.status).toBe(400);
+    await oversized.text();
+    expect(calls).toBe(0);
+    expect(await (await runtime.inspect(session)).json()).toMatchObject({ state: "unobserved", turn_id: null });
+    const corrected = await runtime.request(session, "turn-budget", 1);
+    expect(corrected.status).toBe(200);
+    await corrected.text();
+    expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("first host prompt preserves multipart admission when complete records fit", async () => {
+  const root = mkdtempSync(join(tmpdir(), "host-multipart-admission-"));
+  let calls = 0;
+  const runtime = host(root, () => { calls += 1; }, { experimentalBiggerContext: true });
+  try {
+    const session = await runtime.pair(scopeA);
+    const input = Array.from({ length: 12 }, (_, index) => ({
+      role: "user",
+      content: `record ${index}: ${"evidence ".repeat(2_000)}`,
+    }));
+    const response = await runtime.request(session, "turn-multipart", 1, { input });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(calls).toBe(1);
+  } finally {
+    await runtime.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 async function startHostChild(root: string, mode: "held" | "complete") {
   const child = spawn(process.execPath, [join(import.meta.dirname, "support", "host-recovery-child.ts"), root, mode], {

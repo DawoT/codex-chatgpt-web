@@ -134,15 +134,20 @@ export function execGatewayProgram(
 }
 
 /**
- * Preserve the native freeform exec surface while applying the same wait_agent deadline contract
- * as direct calls. The model still owns its JavaScript; only the tool registry it receives is a
- * transparent proxy whose native wait functions validate their transport-bound argument before dispatch.
+ * Preserve the native freeform exec surface. Session waits are bounded in the
+ * proxy, and a long script yields a running cell while its awaited work continues.
+ * This keeps a sequence of short native calls from occupying one MCP request
+ * until the tunnel deadline. The caller must continue the returned cell.
  */
 export function transportBoundRawExecProgram(input: string, blockedExecName: string): string {
   return [
-    "await (async (tools) => {",
+    "const __cgwYieldTimer = typeof yield_control === \"function\"",
+    "  ? setTimeout(() => { void Promise.resolve(yield_control()).catch(() => {}); }, 30_000)",
+    "  : undefined;",
+    "try {",
+    "  await (async (tools) => {",
     input,
-    "})((() => {",
+    "  })((() => {",
     "  const source = tools;",
     `  const boundSession = ${boundedSessionArguments.toString()};`,
     `  const waitNames = new Set(${JSON.stringify([...GATEWAY_AGENT_WAIT_TOOL_NAMES])});`,
@@ -189,7 +194,10 @@ export function transportBoundRawExecProgram(input: string, blockedExecName: str
     "    getPrototypeOf: () => null,",
     "    preventExtensions: () => false,",
     "  });",
-    "})());",
+    "  })());",
+    "} finally {",
+    "  if (__cgwYieldTimer !== undefined) clearTimeout(__cgwYieldTimer);",
+    "}",
   ].join("\n");
 }
 

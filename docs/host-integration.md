@@ -214,3 +214,36 @@ Final fresh-process gates: 1,459 bridge tests passed, 12 skipped and zero failed
 ### Runtime follow-up after admission gates
 
 A subsequent process check found the former visible Pi PID absent. It was restarted in a visible xterm using the project's installed Pi 0.87.1; launcher, daemon and native tunnel were left running. A fresh isolated persistent Pi SDK session completed a real browser/model request and returned `PI_WEB_OK` (`/tmp/global-admission-live-current.log`). The earlier upstream 401 belongs to the native `/v1/models` passthrough and does not establish a Pi host-route failure. This follow-up supersedes the earlier statement that the original Pi process remained continuously running; it does not claim that the native catalog authentication issue is repaired.
+
+For a later catalog 401, run `codex-chatgpt-web doctor` and compare its catalog
+warning with the last successful catalog request in `/healthz`. The 401 is an
+upstream response to the caller's native Codex bearer, separate from the
+embedded ChatGPT browser and Pi host capability. On 2026-09-27 the current
+local Codex token returned 200 through `/v1/models`, while a periodic client
+still returned 401. Reopen the affected Codex client so it reloads credentials;
+if its own fresh request still fails, renew that client's sign-in. Do not copy
+bearers into logs or treat a historical successful catalog count as current
+authentication proof. Socket sampling implicated a tunnel-managed Codex child
+but did not uniquely identify the failing request's process.
+
+### Cross-repository review and compiled admission follow-up
+
+The concurrent MCP session-yield changes were reviewed with focused command
+and raw-exec regressions; the native gateway yields a running cell while a
+long awaited command continues, and structured host command waits are bounded
+only when that tool advertises `yield_time_ms`. A separate host regression
+exposed first-turn compiled context rejection after durable recovery admission.
+The host now compiles a fresh full-history request and checks attachment,
+message, context and multipart transport limits before consuming the sequence.
+The preflight uses a broker-shaped host token and Luna checkpoint option.
+Continuations retain the browser worker's final check because their effective
+prompt can depend on live retained conversation and checkpoint state.
+
+Current source gates: 1,497 bridge tests passed, 12 skipped, zero failed
+(`/tmp/bridge-preflight-full.log`); typecheck, bundle integrity and
+`git diff --check` passed. The composed Pi probe passed two concurrent
+sessions, twenty HTTP rounds, Facts, successful command execution,
+cancellation, reconnection and zero retained sessions
+(`/tmp/pi-host-preflight-review.log`). The probe uses scripted model output;
+it does not establish live browser behavior for these new changes. The
+running installed daemon was not restarted by this review.

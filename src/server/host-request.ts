@@ -1,4 +1,5 @@
 import { toolArgumentsDigest, digest, HostProtocolError, type HostSession, type HostTurn } from "./host-state";
+import { knownInputItemSchema, responsesRequestSchema } from "../responses/schema";
 
 const BODY_KEYS = new Set([
   "model", "input", "instructions", "tools", "tool_choice", "parallel_tool_calls",
@@ -127,6 +128,12 @@ export function prepareHostRequest(session: HostSession, turnId: string, body: R
   }
   const expanded: Record<string, unknown> = { ...body, input: [...prefix, ...rawInput] };
   delete expanded.previous_response_id;
+  // Validate the expanded continuation before accept() commits tool results,
+  // sequence consumption or durable recovery admission. Keep errors content-free.
+  if (!responsesRequestSchema.safeParse(expanded).success
+    || (expanded.input as unknown[]).some(item => !knownInputItemSchema.safeParse(item).success)) {
+    throw new HostProtocolError(400, "Host request does not match the Responses schema");
+  }
   return {
     body: expanded,
     turn,
