@@ -131,6 +131,26 @@ describe("handleReadFile", () => {
     }
   });
 
+  test("rejects invalid limit_lines and negative offset", () => {
+    const root = mkdtempSync(join(tmpdir(), "cgw-read-invalid-"));
+    try {
+      writeFileSync(join(root, "sample.txt"), "line 1\nline 2\n");
+      const res1 = handleReadFile({ path: "sample.txt", limit_lines: 0, cwd: root, roots: [root] });
+      expect(res1.isError).toBe(true);
+      expect(payload(res1).error).toContain("limit_lines must be greater than 0");
+
+      const res2 = handleReadFile({ path: "sample.txt", limit_lines: -5, cwd: root, roots: [root] });
+      expect(res2.isError).toBe(true);
+      expect(payload(res2).error).toContain("limit_lines must be greater than 0");
+
+      const res3 = handleReadFile({ path: "sample.txt", offset: -2, cwd: root, roots: [root] });
+      expect(res3.isError).toBe(true);
+      expect(payload(res3).error).toContain("offset must be greater than 0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("rejects directories, missing files, and binary content", () => {
     const root = mkdtempSync(join(tmpdir(), "cgw-read-edge-"));
     try {
@@ -249,6 +269,17 @@ describe("handleListDir", () => {
       expect(paths).toContain(join("src", "nested"));
       expect(paths).toContain(join("src", "nested", "deep.ts"));
       expect(paths.some(entryPath => entryPath.startsWith(".git"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects limit <= 0", () => {
+    const root = mkdtempSync(join(tmpdir(), "cgw-list-invalid-"));
+    try {
+      const res = handleListDir({ limit: 0, cwd: root, roots: [root] });
+      expect(res.isError).toBe(true);
+      expect(payload(res).error).toContain("limit must be greater than 0");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

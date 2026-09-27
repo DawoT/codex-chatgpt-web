@@ -17,6 +17,12 @@ export function handleReadFile(options: {
   cache?: FastPathWorkspaceCache;
 }): FastPathToolResult {
   const { path, offset = 1, limit_lines = 500 } = options;
+  if (limit_lines !== undefined && limit_lines <= 0) {
+    return result({ error: "limit_lines must be greater than 0" }, true);
+  }
+  if (offset !== undefined && offset <= 0) {
+    return result({ error: "offset must be greater than 0" }, true);
+  }
   const cache = options.cache ?? workspaceFileCache;
   const allowedRoots = [
     ...options.roots,
@@ -215,6 +221,9 @@ export function handleListDir(options: {
   roots: string[];
 }): FastPathToolResult {
   const { path = ".", depth = 1, limit = 100 } = options;
+  if (limit !== undefined && limit <= 0) {
+    return result({ error: "limit must be greater than 0" }, true);
+  }
   const allowedRoots = [
     ...options.roots,
     ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),

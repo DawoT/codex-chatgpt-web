@@ -120,7 +120,7 @@ export async function handleAdminRoute(
     let traceId: string;
     let leaseFailure: "browser_surface_bootstrap_timeout" | "helper_heartbeat_expired" | undefined;
     try {
-      const body = await req.json() as { traceId?: unknown; reason?: unknown };
+      const body = await readJsonRequestBody(req) as { traceId?: unknown; reason?: unknown };
       traceId = typeof body?.traceId === "string" ? body.traceId : "";
       if (!/^[A-Za-z0-9_-]{6,128}$/.test(traceId)) throw new Error("traceId is invalid");
       if (body.reason !== undefined) {
@@ -168,7 +168,7 @@ export async function handleAdminRoute(
     if (!isAuthorized()) return new Response("Unauthorized", { status: 401 });
     let identity: NativeCodexTurnIdentity;
     try {
-      const body = await req.json() as { threadId?: unknown; turnId?: unknown };
+      const body = await readJsonRequestBody(req) as { threadId?: unknown; turnId?: unknown };
       const threadId = typeof body?.threadId === "string" ? body.threadId.trim() : "";
       const turnId = typeof body?.turnId === "string" ? body.turnId.trim() : "";
       if (!/^[A-Za-z0-9_-]{6,128}$/.test(threadId) || !/^[A-Za-z0-9_-]{6,128}$/.test(turnId)) {
