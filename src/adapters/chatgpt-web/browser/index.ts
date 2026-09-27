@@ -7,3 +7,5 @@ export * from "./diagnostics";
 export * from "./payloads";
 export * from "./staging-limits";
 export * from "./prompt-equivalence";
+export * from "./connectors";
+export * from "./composer";

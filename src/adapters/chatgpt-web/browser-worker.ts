@@ -339,6 +339,28 @@ import {
   promptTextEquivalent,
   promptEquivalentPrefixLength,
 } from "./browser/prompt-equivalence";
+export {
+  chatGptSelectedConnectorControl,
+  chatGptConnectorIsSelected,
+  chatGptConnectorMentionRowTitles,
+  chatGptConnectorMentionFailure,
+  type ChatGptConnectorMentionFailureOptions,
+} from "./browser/connectors";
+import {
+  chatGptSelectedConnectorControl,
+  chatGptConnectorIsSelected,
+  chatGptConnectorMentionRowTitles,
+  chatGptConnectorMentionFailure,
+} from "./browser/connectors";
+export {
+  chatGptActiveComposer,
+  chatGptClearComposerState,
+  type ChatGptClearComposerOptions,
+} from "./browser/composer";
+import {
+  chatGptActiveComposer,
+  chatGptClearComposerState,
+} from "./browser/composer";
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
 const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
@@ -982,32 +1004,7 @@ export class ChatGptBrowserWorker {
     timeoutMs = 30_000,
     abortSignal?: AbortSignal,
   ): Promise<Locator> {
-    const composers = page.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true });
-    const deadline = Date.now() + timeoutMs;
-    let count = 0;
-    while (Date.now() < deadline) {
-      throwIfPromptAttachmentAborted(abortSignal);
-      count = await withBrowserTurnAbort(
-        withChatGptBrowserObservationTimeout(
-          composers.count(),
-          Math.max(1, Math.min(CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS, deadline - Date.now())),
-        ),
-        abortSignal,
-      );
-      if (count === 1) return composers.first();
-      // Periodically attempt overlay dismissal if composer is obscured
-      if (count === 0 && (deadline - Date.now()) % 1_500 < 60) {
-        await dismissAllChatGptOverlays(page).catch(() => 0);
-      }
-      await withBrowserTurnAbort(
-        new Promise(resolveSleep => setTimeout(resolveSleep, 50)),
-        abortSignal,
-      );
-    }
-    throw new Error(
-      "ChatGPT composer is unavailable. Reload ChatGPT and retry the task.",
-      { cause: new Error(`Visible ChatGPT composer count was ${count}`) },
-    );
+    return chatGptActiveComposer(page, timeoutMs, abortSignal);
   }
 
   /** Prepare a new conversation; account inspection still uses an empty Temporary Chat. */
@@ -1665,52 +1662,18 @@ export class ChatGptBrowserWorker {
   }
 
   private selectedConnectorControl(composer: Locator): Locator {
-    const slug = this.config.appName.toLowerCase().replace(/\s+/g, "-");
-    return composer
-      .locator(
-        `[data-id^="plugin:"][data-keyword=${JSON.stringify(this.config.appName)}], `
-        + `[app-mention-display-name=${JSON.stringify(this.config.appName)}], `
-        + `[data-prompt-link-label=${JSON.stringify(`$${slug}`)}]`
-      )
-      .filter({ visible: true });
+    return chatGptSelectedConnectorControl(composer, this.config.appName);
   }
 
   private async connectorIsSelected(composer: Locator, abortSignal?: AbortSignal): Promise<boolean> {
-    const selected = this.selectedConnectorControl(composer);
-    const keywords = await withBrowserTurnAbort(
-      withChatGptBrowserObservationTimeout(selected.evaluateAll(elements => (
-        elements.map(element => element.getAttribute("data-keyword")
-          || element.getAttribute("app-mention-display-name")
-          || element.getAttribute("data-prompt-link-label")
-          || "")
-      ))),
-      abortSignal,
-    );
-    const slug = `$${this.config.appName.toLowerCase().replace(/\s+/g, "-")}`;
-    const exactMatches = keywords.filter(k => k === this.config.appName || k === slug).length;
-    if (exactMatches > 1) {
-      throw new Error(`ChatGPT composer exposed duplicate ${JSON.stringify(this.config.appName)} connector selections`);
-    }
-    return exactMatches === 1;
+    return chatGptConnectorIsSelected(composer, this.config.appName, abortSignal);
   }
 
   private async connectorMentionRowTitles(
     menuRows: Locator,
     abortSignal?: AbortSignal,
   ): Promise<string[]> {
-    let texts: string[];
-    try {
-      texts = await withBrowserTurnAbort(
-        withChatGptBrowserObservationTimeout(menuRows.filter({ visible: true }).allInnerTexts()),
-        abortSignal,
-      );
-    } catch (error) {
-      if (abortSignal?.aborted) throw error;
-      texts = [];
-    }
-    return texts
-      .map(text => (text.split("\n")[0] ?? "").replace(/\s+/g, " ").trim())
-      .filter(title => title.length > 0);
+    return chatGptConnectorMentionRowTitles(menuRows, abortSignal);
   }
 
   private async connectorMentionFailure(
@@ -1719,71 +1682,25 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
     page?: Page,
   ): Promise<string> {
-    let isMentionMenuOpen = true;
-    if (page && typeof page.locator === "function") {
-      try {
-        const container = page.locator(
-          '[role="listbox"], [data-testid="mention-menu"], [data-radix-popper-content-wrapper], div.__menu, [class*="suggestionMenu"], .composer-home-top-menu'
-        );
-        if (typeof container?.count === "function") {
-          isMentionMenuOpen = (await container.count().catch(() => 0)) > 0;
-        }
-      } catch {
-        isMentionMenuOpen = true;
-      }
-    }
-
-    const titles = isMentionMenuOpen ? await this.connectorMentionRowTitles(menuRows, abortSignal) : [];
-    if (titles.length === 0 || !isMentionMenuOpen) {
-      return `ChatGPT connector menu did not open after ${triggerAttempts} complete mention trigger attempt(s)`;
-    }
-    const appName = this.config?.appName ?? CHATGPT_CONNECTOR_NAME;
-    if (appName === CHATGPT_CONNECTOR_NAME && titles.includes(DEV_CHATGPT_CONNECTOR_NAME)) {
-      return `ChatGPT exposes the isolated DEV connector ${JSON.stringify(DEV_CHATGPT_CONNECTOR_NAME)},`
-        + ` but production requires a separate connector named ${JSON.stringify(CHATGPT_CONNECTOR_NAME)};`
-        + ` create ${JSON.stringify(CHATGPT_CONNECTOR_NAME)} against the production tunnel and leave the DEV connector unchanged`;
-    }
-    if (appName === CHATGPT_CONNECTOR_NAME && !titles.includes(CHATGPT_CONNECTOR_NAME)) {
-      const legacyName = LEGACY_CHATGPT_CONNECTOR_NAMES.find(name => titles.includes(name));
-      if (legacyName) return legacyChatGptConnectorMigrationMessage(legacyName);
-    }
-    return `ChatGPT connector menu opened but exposed no row named ${JSON.stringify(appName)}`
-      + ` after ${triggerAttempts} complete mention trigger attempt(s)`
-      + `; create a connector with that exact name before retrying`;
+    return chatGptConnectorMentionFailure(menuRows, triggerAttempts, {
+      appName: this.config?.appName,
+      abortSignal,
+      page,
+      fetchRowTitles: typeof this?.connectorMentionRowTitles === "function"
+        ? (rows, signal) => this.connectorMentionRowTitles(rows, signal)
+        : undefined,
+    });
   }
 
   private async clearChatGptComposerState(page: Page): Promise<void> {
-    await runChatGptPersonalizationCleanup(async (deadline, signal) => {
-      await pressChatGptPersonalizationEscape(page, deadline, signal);
-      const timeoutMs = Math.max(1, deadline - Date.now());
-      const composer = await this.activeComposer(page, timeoutMs, signal);
-      await composer.focus({
-        signal,
-        timeout: Math.max(1, Math.min(CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS, deadline - Date.now())),
-      });
-      await composer.press(CHATGPT_COMPOSER_SELECT_ALL_KEY, {
-        signal,
-        timeout: Math.max(1, Math.min(CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS, deadline - Date.now())),
-      });
-      await composer.press("Backspace", {
-        signal,
-        timeout: Math.max(1, Math.min(CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS, deadline - Date.now())),
-      });
-      await waitForChatGptPersonalizationPoll(CHATGPT_UI_SETTLE_MS, signal);
-      const settledComposer = await this.activeComposer(page, Math.max(1, deadline - Date.now()), signal);
-      const remainingMs = Math.max(1, deadline - Date.now());
-      const remainingText = await settledComposer.evaluate(
-        element => element.textContent?.trim() ?? "",
-        undefined,
-        { timeout: remainingMs, signal },
-      );
-      const connectorSelected = await this.connectorIsSelected(settledComposer, signal);
-      if (remainingText.length > 0 || connectorSelected) {
-        throw new Error(
-          `ChatGPT connector cleanup did not produce an empty composer`
-          + ` (visibleCharacters=${remainingText.length}, connectorSelected=${connectorSelected})`,
-        );
-      }
+    return chatGptClearComposerState(page, {
+      appName: this.config?.appName,
+      activeComposer: typeof this?.activeComposer === "function"
+        ? (p, t, s) => this.activeComposer(p, t, s)
+        : undefined,
+      connectorIsSelected: typeof this?.connectorIsSelected === "function"
+        ? (c, s) => this.connectorIsSelected(c, s)
+        : undefined,
     });
   }
 

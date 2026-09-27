@@ -2568,6 +2568,114 @@ test("image attachment readiness uses exact file tiles and not localized remove-
   ]);
 });
 
+test("attachFiles returns early when prompt has no images or skill files", async () => {
+  const attachFiles = (ChatGptBrowserWorker.prototype as unknown as {
+    attachFiles(page: unknown, prompt: unknown): Promise<void>;
+  }).attachFiles;
+
+  let activeComposerCalled = false;
+  await attachFiles.call({
+    activeComposer: async () => {
+      activeComposerCalled = true;
+      return {};
+    },
+  }, {}, { images: [] });
+
+  expect(activeComposerCalled).toBeFalse();
+});
+
+test("attachFiles surfaces alert details when prompt attachments are rejected", async () => {
+  const imageUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const composerForm = {
+    getByRole: () => ({
+      or: () => ({
+        waitFor: async () => {
+          throw new Error("Attachment failed");
+        },
+      }),
+    }),
+  };
+  const composer = {
+    locator: () => composerForm,
+  };
+  const page = {
+    locator: (selector: string) => {
+      if (selector === 'input[data-testid="upload-photos-input"]') {
+        return {
+          waitFor: async () => {},
+          setInputFiles: async () => {},
+        };
+      }
+      if (selector === '[role="alert"]') {
+        return {
+          allInnerTexts: async () => ["The file format is unsupported", "Upload failed"],
+        };
+      }
+      return {};
+    },
+  };
+  const attachFiles = (ChatGptBrowserWorker.prototype as unknown as {
+    attachFiles(page: unknown, prompt: unknown): Promise<void>;
+  }).attachFiles;
+
+  await expect(
+    attachFiles.call({ activeComposer: async () => composer }, page, {
+      images: [{ ref: "codex-input-image-1", imageUrl }],
+    }),
+  ).rejects.toThrow(
+    "ChatGPT did not accept all prompt attachments: The file format is unsupported | Upload failed",
+  );
+});
+
+test("attachFiles throws when send button never becomes enabled within deadline", async () => {
+  const imageUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const send = {
+    first: () => send,
+    isEnabled: async () => false,
+  };
+  const composerForm = {
+    getByRole: () => ({
+      or: () => ({
+        waitFor: async () => {},
+      }),
+    }),
+    locator: () => send,
+    getByTestId: () => send,
+  };
+  const composer = {
+    locator: () => composerForm,
+  };
+  const page = {
+    locator: (selector: string) => {
+      if (selector === 'input[data-testid="upload-photos-input"]') {
+        return {
+          waitFor: async () => {},
+          setInputFiles: async () => {},
+        };
+      }
+      return {};
+    },
+  };
+  const attachFiles = (ChatGptBrowserWorker.prototype as unknown as {
+    attachFiles(page: unknown, prompt: unknown): Promise<void>;
+  }).attachFiles;
+
+  const realDateNow = Date.now;
+  let now = realDateNow();
+  Date.now = () => (now += 35_000);
+  try {
+    await expect(
+      attachFiles.call({ activeComposer: async () => composer }, page, {
+        images: [{ ref: "codex-input-image-1", imageUrl }],
+      }),
+    ).rejects.toThrow(
+      "ChatGPT accepted the prompt attachments but did not make the message ready to send",
+    );
+  } finally {
+    Date.now = realDateNow;
+  }
+});
+
 test("effort slider ARIA state fails closed on malformed and unsupported ranges", () => {
   expect(parseChatGptEffortSliderState("0", "4", "3")).toEqual({ min: 0, max: 4, value: 3 });
   for (const attributes of [
