@@ -80,7 +80,7 @@ export function remainingStageBudgetMs(
 }
 
 export const CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS =
-  Number(process.env.CODEX_CHATGPT_BROWSER_PROBE_TIMEOUT_MS) || 5_000;
+  Number(process.env.CODEX_CHATGPT_BROWSER_PROBE_TIMEOUT_MS) || 15_000;
 export const MAX_CHATGPT_BROWSER_PAGE_REBINDS = 2;
 
 export class ChatGptBrowserObservationTimeoutError extends Error {
