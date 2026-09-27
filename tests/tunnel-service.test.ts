@@ -98,6 +98,26 @@ describe("tunnel launchd ownership", () => {
     expect(tunnelWorkerRuntimeChanged(before, after)).toBe(false);
   });
 
+  test("restarts the long-lived MCP worker when automaticTunnel or manualTunnel configuration changes", () => {
+    const before = defaultConfig("full");
+    before.browserInteractionMode = "automatic";
+    before.automaticTunnel = createTunnelConfig({
+      binaryPath: process.execPath,
+      runtimeKeyFile: "/tmp/runtime.key",
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+    });
+    const after = structuredClone(before);
+    after.automaticTunnel = createTunnelConfig({
+      binaryPath: process.execPath,
+      runtimeKeyFile: "/tmp/runtime.key",
+      tunnelId: "tunnel_fedcba9876543210fedcba9876543210",
+    });
+
+    expect(tunnelWorkerRuntimeChanged(before, after)).toBe(true);
+    after.automaticTunnel = structuredClone(before.automaticTunnel);
+    expect(tunnelWorkerRuntimeChanged(before, after)).toBe(false);
+  });
+
   test("reuses complete full-mode tunnel credentials during setup updates", () => {
     const root = join(tmpdir(), `codex-chatgpt-web-existing-tunnel-${process.pid}-${Date.now()}`);
     roots.push(root);

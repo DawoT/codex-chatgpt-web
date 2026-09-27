@@ -403,6 +403,16 @@ describe("handleGrep", () => {
   test("rejects search targets outside the sandbox", () => {
     expect(() => handleGrep({ query: "needle", path: "../outside", cwd: root, roots: [root] })).toThrow("outside allowed sandbox roots");
   });
+
+  test("rejects empty or whitespace query in handleGrep", () => {
+    const res1 = handleGrep({ query: "", cwd: root, roots: [root] });
+    expect(res1.isError).toBe(true);
+    expect(payload(res1).error).toContain("query must be a non-empty string");
+
+    const res2 = handleGrep({ query: "   ", cwd: root, roots: [root] });
+    expect(res2.isError).toBe(true);
+    expect(payload(res2).error).toContain("query must be a non-empty string");
+  });
 });
 
 test("resolveRgPath retries a cached failure once RG_FAILURE_CACHE_TTL_MS elapses (Sprint C3)", () => {

@@ -68,6 +68,9 @@ export function handleGrep(options: {
   resolveRgPath?: () => string | null;
 }): FastPathToolResult {
   const { query, path = ".", max_results = 50, case_sensitive = false, file_pattern } = options;
+  if (!query || typeof query !== "string" || !query.trim()) {
+    return result({ error: "query must be a non-empty string" }, true);
+  }
   const locateRg = options.resolveRgPath ?? resolveRgPath;
   const rgPath = locateRg();
   if (!rgPath) {

@@ -9,15 +9,28 @@ export class ChatGptTraceFeed {
     if (!normalized) return;
     const normalizedEvent = { ...event, text: normalized };
     this.queued.push(normalizedEvent);
-    const waiter = this.waiters.values().next().value as TraceWaiter | undefined;
-    if (!waiter) return;
-    this.waiters.delete(waiter);
-    if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
-    waiter.resolve();
+    if (this.waiters.size === 0) return;
+    const currentWaiters = [...this.waiters];
+    this.waiters.clear();
+    for (const waiter of currentWaiters) {
+      if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
+      waiter.resolve();
+    }
   }
 
   drain(): ChatGptTraceEvent[] {
     return this.queued.splice(0);
+  }
+
+  close(reason?: Error): void {
+    if (this.waiters.size === 0) return;
+    const currentWaiters = [...this.waiters];
+    this.waiters.clear();
+    for (const waiter of currentWaiters) {
+      if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
+      if (reason) waiter.reject(reason);
+      else waiter.resolve();
+    }
   }
 
   wait(signal?: AbortSignal): Promise<void> {
@@ -47,15 +60,28 @@ export class ChatGptTextFeed {
     if (!delta) return;
     this.text += delta;
     this.queued.push(delta);
-    const waiter = this.waiters.values().next().value as TextWaiter | undefined;
-    if (!waiter) return;
-    this.waiters.delete(waiter);
-    if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
-    waiter.resolve();
+    if (this.waiters.size === 0) return;
+    const currentWaiters = [...this.waiters];
+    this.waiters.clear();
+    for (const waiter of currentWaiters) {
+      if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
+      waiter.resolve();
+    }
   }
 
   drain(): string[] {
     return this.queued.splice(0);
+  }
+
+  close(reason?: Error): void {
+    if (this.waiters.size === 0) return;
+    const currentWaiters = [...this.waiters];
+    this.waiters.clear();
+    for (const waiter of currentWaiters) {
+      if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
+      if (reason) waiter.reject(reason);
+      else waiter.resolve();
+    }
   }
 
   value(): string {

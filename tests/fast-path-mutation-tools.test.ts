@@ -225,6 +225,28 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
       }
     });
 
+    test("fails when target_content is empty and leaves the file untouched", () => {
+      const root = mkdtempSync(join(tmpdir(), "cgw-patch-empty-"));
+      try {
+        const original = "const a = 1;\nconst b = 2;\n";
+        const filePath = join(root, "test.ts");
+        writeFileSync(filePath, original, "utf8");
+
+        const res = handlePatchFile({
+          path: "test.ts",
+          target_content: "",
+          replacement_content: "malicious prepend\n",
+          cwd: root,
+          roots: [root],
+        });
+        expect(res.isError).toBe(true);
+        expect(payload(res).error).toContain("target_content cannot be empty");
+        expect(readFileSync(filePath, "utf8")).toBe(original);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
     test("rejects binary files instead of corrupting them", () => {
       const root = mkdtempSync(join(tmpdir(), "cgw-patch-binary-"));
       try {

@@ -59,17 +59,25 @@ function privateDirectory(path: string): void {
   try { chmodSync(path, 0o700); } catch { /* Windows ACLs are managed by the installer. */ }
 }
 
-function pruneBrowserDiagnostics(root: string): void {
-  const traces = readdirSync(root, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && /^[A-Za-z0-9_-]{6,128}$/.test(entry.name))
-    .map(entry => {
-      const path = join(root, entry.name);
-      return { path, modifiedAt: statSync(path).mtimeMs };
-    })
-    .sort((left, right) => right.modifiedAt - left.modifiedAt);
-  for (const trace of traces.slice(CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT)) {
-    rmSync(trace.path, { recursive: true, force: true });
-  }
+export function pruneBrowserDiagnostics(root: string): void {
+  try {
+    const traces = readdirSync(root, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && /^[A-Za-z0-9_-]{6,128}$/.test(entry.name))
+      .flatMap(entry => {
+        const path = join(root, entry.name);
+        try {
+          return [{ path, modifiedAt: statSync(path).mtimeMs }];
+        } catch {
+          return [];
+        }
+      })
+      .sort((left, right) => right.modifiedAt - left.modifiedAt);
+    for (const trace of traces.slice(CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT)) {
+      try {
+        rmSync(trace.path, { recursive: true, force: true });
+      } catch {}
+    }
+  } catch {}
 }
 
 export class ChatGptBrowserDiagnostics {

@@ -284,6 +284,7 @@ export {
   CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT,
   browserDiagnosticCheckpoint,
   ChatGptBrowserDiagnostics,
+  pruneBrowserDiagnostics,
 } from "./browser/diagnostics";
 import {
   redactChatGptUiDiagnostic,
@@ -291,6 +292,7 @@ import {
   CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT,
   browserDiagnosticCheckpoint,
   ChatGptBrowserDiagnostics,
+  pruneBrowserDiagnostics,
 } from "./browser/diagnostics";
 export {
   setChatGptThinkMode,

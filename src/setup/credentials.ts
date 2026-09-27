@@ -105,9 +105,11 @@ export function meaningfulRuntimeChange(before: AppConfig, after: AppConfig): bo
 
 export function tunnelWorkerRuntimeChanged(before: AppConfig | undefined, after: AppConfig): boolean {
   if (!before || before.mode !== "full" || after.mode !== "full") return false;
+  const beforeTunnel = tunnelConfigForInteractionMode(before, before.browserInteractionMode);
+  const afterTunnel = tunnelConfigForInteractionMode(after, after.browserInteractionMode);
   return before.releaseVersion !== after.releaseVersion
     || JSON.stringify(before.runtimeCommand) !== JSON.stringify(after.runtimeCommand)
     || before.brokerSocketPath !== after.brokerSocketPath
     || before.browserInteractionMode !== after.browserInteractionMode
-    || JSON.stringify(before.tunnel) !== JSON.stringify(after.tunnel);
+    || JSON.stringify(beforeTunnel) !== JSON.stringify(afterTunnel);
 }

@@ -183,6 +183,12 @@ export function handlePatchFile(options: {
       error: "Binary file cannot be patched as text. Rewrite it with codex_write_file or inspect via codex_exec.",
     }, true);
   }
+  if (!target_content || typeof target_content !== "string") {
+    return result({
+      path: relative(options.cwd, resolved) || path,
+      error: "target_content cannot be empty; nothing was written. Provide the exact text to replace.",
+    }, true);
+  }
   const firstIndex = content.indexOf(target_content);
   if (firstIndex < 0) {
     return result({

@@ -590,3 +590,29 @@ test("ChatGptTurnSessions handles rejected physicalSettlement without unhandled 
 
   expect(nextSession).toBeDefined();
 });
+
+test("ChatGptTraceFeed notifies all concurrent waiters and close settles pending waiters", async () => {
+  const feed = new ChatGptTraceFeed();
+  const p1 = feed.wait();
+  const p2 = feed.wait();
+  feed.push({ kind: "commentary", text: "step 1" });
+  await Promise.all([p1, p2]);
+  expect(feed.drain()).toHaveLength(1);
+
+  const pending = feed.wait();
+  feed.close(new Error("turn cancelled"));
+  await expect(pending).rejects.toThrow("turn cancelled");
+});
+
+test("ChatGptTextFeed notifies all concurrent waiters and close settles pending waiters", async () => {
+  const feed = new ChatGptTextFeed();
+  const p1 = feed.wait();
+  const p2 = feed.wait();
+  feed.push("chunk 1");
+  await Promise.all([p1, p2]);
+  expect(feed.drain()).toEqual(["chunk 1"]);
+
+  const pending = feed.wait();
+  feed.close();
+  await expect(pending).resolves.toBeUndefined();
+});
