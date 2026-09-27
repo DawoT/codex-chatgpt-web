@@ -329,26 +329,29 @@ export class ChatGptTurnSessions {
     session.cancel(reason);
     const retirement = session.physicalSettlement;
     this.retirements.set(key, retirement);
-    void retirement.then(() => {
+    const forgetRetirement = () => {
       if (this.retirements.get(key) === retirement) this.retirements.delete(key);
-    });
+    };
+    void retirement.then(forgetRetirement, forgetRetirement);
     if (session.ownerKey) {
-      const previous = this.ownerRetirements.get(session.ownerKey);
+      const ownerKey = session.ownerKey;
+      const previous = this.ownerRetirements.get(ownerKey);
       const ownerRetirement = previous
-        ? Promise.all([previous, retirement]).then(() => undefined)
-        : retirement;
-      this.ownerRetirements.set(session.ownerKey, ownerRetirement);
-      void ownerRetirement.then(() => {
-        if (this.ownerRetirements.get(session.ownerKey!) === ownerRetirement) {
-          this.ownerRetirements.delete(session.ownerKey!);
+        ? Promise.allSettled([previous, retirement]).then(() => undefined)
+        : retirement.then(() => undefined, () => undefined);
+      this.ownerRetirements.set(ownerKey, ownerRetirement);
+      const forgetOwnerRetirement = () => {
+        if (this.ownerRetirements.get(ownerKey) === ownerRetirement) {
+          this.ownerRetirements.delete(ownerKey);
         }
-      });
+      };
+      void ownerRetirement.then(forgetOwnerRetirement, forgetOwnerRetirement);
     }
     if (conversationKey) {
       const previous = this.conversationRetirements.get(conversationKey);
       const conversationRetirement = previous
-        ? Promise.all([previous, retirement]).then(() => undefined)
-        : retirement;
+        ? Promise.allSettled([previous, retirement]).then(() => undefined)
+        : retirement.then(() => undefined, () => undefined);
       this.conversationRetirements.set(conversationKey, conversationRetirement);
       const forgetConversationRetirement = () => {
         if (this.conversationRetirements.get(conversationKey) === conversationRetirement) {

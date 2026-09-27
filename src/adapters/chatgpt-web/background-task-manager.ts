@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, readSync, statSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 
 export interface BackgroundTask {
@@ -289,12 +289,18 @@ export class BackgroundTaskManager {
     if (!existsSync(filePath)) return "";
     try {
       const stats = statSync(filePath);
+      if (stats.size === 0) return "";
       const readSize = Math.min(stats.size, 128 * 1024); // read last 128KB max
+      const position = Math.max(0, stats.size - readSize);
       const fd = openSync(filePath, "r");
       const buffer = Buffer.alloc(readSize);
       try {
-        const bytesRead = readFileSync(filePath, "utf8");
-        const allLines = bytesRead.split("\n");
+        const bytesRead = readSync(fd, buffer, 0, readSize, position);
+        const text = buffer.subarray(0, bytesRead).toString("utf8");
+        const allLines = text.split("\n");
+        if (position > 0 && allLines.length > 1) {
+          allLines.shift();
+        }
         return allLines.slice(-maxLines).join("\n");
       } finally {
         try {

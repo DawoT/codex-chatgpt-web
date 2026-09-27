@@ -113,10 +113,16 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
       } catch {}
     }, timeout);
 
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
       if (stdout.length < 10 * 1024 * 1024) {
         stdout += chunk;
+      } else if (!stdoutTruncated) {
+        stdoutTruncated = true;
+        stdout += "\n[codex_exec: stdout truncated at 10MB limit]";
       }
     });
 
@@ -124,6 +130,9 @@ export async function handleExecCommand(options: HandleExecCommandOptions): Prom
     child.stderr?.on("data", (chunk: string) => {
       if (stderr.length < 10 * 1024 * 1024) {
         stderr += chunk;
+      } else if (!stderrTruncated) {
+        stderrTruncated = true;
+        stderr += "\n[codex_exec: stderr truncated at 10MB limit]";
       }
     });
 

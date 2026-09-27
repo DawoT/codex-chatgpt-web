@@ -46,6 +46,7 @@ export interface AdminRouteContext {
 }
 
 export function controlAuthorized(req: Request, controlToken: string): boolean {
+  if (!controlToken || typeof controlToken !== "string" || controlToken.trim().length === 0) return false;
   const header = req.headers.get("authorization") ?? "";
   const expected = Buffer.from(`Bearer ${controlToken}`);
   const actual = Buffer.from(header);

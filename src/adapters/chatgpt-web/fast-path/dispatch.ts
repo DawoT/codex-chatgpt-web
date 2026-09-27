@@ -36,23 +36,24 @@ export function dispatchFastPathTool(
     cache?: FastPathWorkspaceCache;
   },
 ): FastPathToolResult | Promise<FastPathToolResult> {
+  const safeArgs = (args && typeof args === "object" && !Array.isArray(args)) ? args : {};
   const norm = tool.startsWith("codex_") ? tool : `codex_${tool}`;
   switch (norm) {
     case "codex_read_file":
       return handleReadFile({
-        path: String(args.path ?? ""),
-        offset: typeof args.offset === "number" ? args.offset : undefined,
-        limit_lines: typeof args.limit_lines === "number" ? args.limit_lines : undefined,
+        path: String(safeArgs.path ?? ""),
+        offset: typeof safeArgs.offset === "number" ? safeArgs.offset : undefined,
+        limit_lines: typeof safeArgs.limit_lines === "number" ? safeArgs.limit_lines : undefined,
         cwd: context.cwd,
         roots: context.roots,
         cache: context.cache,
       });
     case "codex_write_file":
       return handleWriteFile({
-        path: String(args.path ?? ""),
-        content: String(args.content ?? ""),
-        overwrite: Boolean(args.overwrite),
-        create_parents: Boolean(args.create_parents),
+        path: String(safeArgs.path ?? ""),
+        content: String(safeArgs.content ?? ""),
+        overwrite: Boolean(safeArgs.overwrite),
+        create_parents: Boolean(safeArgs.create_parents),
         cwd: context.cwd,
         roots: context.roots,
         writableRoots: context.writableRoots,
@@ -60,9 +61,9 @@ export function dispatchFastPathTool(
       });
     case "codex_patch_file":
       return handlePatchFile({
-        path: String(args.path ?? ""),
-        target_content: String(args.target_content ?? ""),
-        replacement_content: String(args.replacement_content ?? ""),
+        path: String(safeArgs.path ?? ""),
+        target_content: String(safeArgs.target_content ?? ""),
+        replacement_content: String(safeArgs.replacement_content ?? ""),
         cwd: context.cwd,
         roots: context.roots,
         writableRoots: context.writableRoots,
@@ -70,27 +71,27 @@ export function dispatchFastPathTool(
       });
     case "codex_list_dir":
       return handleListDir({
-        path: typeof args.path === "string" ? args.path : undefined,
-        depth: typeof args.depth === "number" ? args.depth : undefined,
-        limit: typeof args.limit === "number" ? args.limit : undefined,
+        path: typeof safeArgs.path === "string" ? safeArgs.path : undefined,
+        depth: typeof safeArgs.depth === "number" ? safeArgs.depth : undefined,
+        limit: typeof safeArgs.limit === "number" ? safeArgs.limit : undefined,
         cwd: context.cwd,
         roots: context.roots,
       });
     case "codex_grep":
       return handleGrep({
-        query: String(args.query ?? ""),
-        path: typeof args.path === "string" ? args.path : undefined,
-        max_results: typeof args.max_results === "number" ? args.max_results : undefined,
-        case_sensitive: typeof args.case_sensitive === "boolean" ? args.case_sensitive : undefined,
-        file_pattern: typeof args.file_pattern === "string" ? args.file_pattern : undefined,
+        query: String(safeArgs.query ?? ""),
+        path: typeof safeArgs.path === "string" ? safeArgs.path : undefined,
+        max_results: typeof safeArgs.max_results === "number" ? safeArgs.max_results : undefined,
+        case_sensitive: typeof safeArgs.case_sensitive === "boolean" ? safeArgs.case_sensitive : undefined,
+        file_pattern: typeof safeArgs.file_pattern === "string" ? safeArgs.file_pattern : undefined,
         cwd: context.cwd,
         roots: context.roots,
       });
     case "codex_exec":
       return handleExecCommand({
-        cmd: String(args.cmd ?? ""),
-        workdir: typeof args.workdir === "string" ? args.workdir : undefined,
-        timeout_ms: typeof args.timeout_ms === "number" ? args.timeout_ms : undefined,
+        cmd: String(safeArgs.cmd ?? ""),
+        workdir: typeof safeArgs.workdir === "string" ? safeArgs.workdir : undefined,
+        timeout_ms: typeof safeArgs.timeout_ms === "number" ? safeArgs.timeout_ms : undefined,
         cwd: context.cwd,
         roots: context.roots,
         writableRoots: context.writableRoots,

@@ -226,4 +226,33 @@ describe("BackgroundTaskManager", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("readLogTail efficiently reads tail of large logs exceeding 128KB", async () => {
+    const root = mkdtempSync(join(tmpdir(), "bg-task-large-log-"));
+    const manager = new BackgroundTaskManager();
+
+    try {
+      // Create a dummy task with a large log file (> 200KB)
+      const task = manager.startTask({ cmd: "echo start", cwd: root, roots: [root], writableRoots: [root] });
+      await manager.pollTask(task.id, 2_000, 5);
+
+      // Append 5,000 lines of data to exceed 128KB
+      const logPath = task.fullLogPath;
+      const lines: string[] = [];
+      for (let i = 1; i <= 5000; i++) {
+        lines.push(`log line ${i} with extra padding data to consume bytes in the file`);
+      }
+      const { appendFileSync } = await import("node:fs");
+      appendFileSync(logPath, "\n" + lines.join("\n") + "\n");
+
+      const log = manager.getTaskLog(task.id, 10);
+      expect(log).not.toBeNull();
+      const tailLines = log!.logTail.trim().split("\n");
+      expect(tailLines.length).toBeLessThanOrEqual(10);
+      expect(tailLines.at(-1)).toBe("log line 5000 with extra padding data to consume bytes in the file");
+      expect(tailLines.at(-2)).toBe("log line 4999 with extra padding data to consume bytes in the file");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

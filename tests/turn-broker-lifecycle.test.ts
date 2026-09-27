@@ -547,3 +547,46 @@ test("turn broker waitForClaim resolves immediately upon token claim", async () 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("ChatGptTurnSessions handles rejected physicalSettlement without unhandled rejection or map leak", async () => {
+  const sessions = new ChatGptTurnSessions();
+  const ownerKey = "owner_test_123";
+  let rejectPhysical!: (error: Error) => void;
+  const physicalSettlement = new Promise<void>((_resolve, reject) => {
+    rejectPhysical = reject;
+  });
+
+  const session = sessions.getOrCreate(
+    "turn-failing",
+    () => ({
+      mode: "read-only",
+      browser: Promise.resolve("done"),
+      physicalSettlement,
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: () => {},
+    }),
+    "trace-failing",
+    ownerKey,
+  );
+
+  sessions.retire("turn-failing", session);
+  rejectPhysical(new Error("simulated helper teardown crash"));
+
+  await Bun.sleep(20);
+
+  const nextSession = await sessions.getOrCreateAfterOwnerRetirement(
+    "turn-next",
+    ownerKey,
+    () => ({
+      mode: "read-only",
+      browser: Promise.resolve("done"),
+      physicalSettlement: Promise.resolve(),
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: () => {},
+    }),
+  );
+
+  expect(nextSession).toBeDefined();
+});

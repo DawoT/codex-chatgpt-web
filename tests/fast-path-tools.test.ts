@@ -12,6 +12,7 @@ import {
   RG_FAILURE_CACHE_TTL_MS,
   resetRgPathCache,
   resolveRgPath,
+  dispatchFastPathTool,
   type FastPathToolResult,
   type RgExecution,
 } from "../src/adapters/chatgpt-web/fast-path-handlers";
@@ -344,6 +345,20 @@ describe("handleGrep", () => {
     expect(out.truncated).toBe(false);
   });
 
+  test("correctly parses Windows drive-letter paths with line numbers", () => {
+    const runRg = () => rgExecution({
+      status: 0,
+      stdout: "C:\\projects\\app\\src\\index.ts:42:const needle = 1;",
+    });
+    const res = handleGrep({ query: "needle", cwd: root, roots: [root], runRg });
+    expect(res.isError).toBeUndefined();
+    const out = payload(res);
+    expect(out.matches).toHaveLength(1);
+    const match = (out.matches as Array<{ file: string; line: number; text: string }>)[0]!;
+    expect(match.line).toBe(42);
+    expect(match.text).toBe("const needle = 1;");
+  });
+
   test("surfaces nonzero exit codes with stderr instead of masking them as 0 matches", () => {
     // Regression: exit code 2 with empty stdout (invalid pattern, unreadable target) used to be
     // reported as a successful empty search.
@@ -413,5 +428,17 @@ test("resolveRgPath retries a cached failure once RG_FAILURE_CACHE_TTL_MS elapse
     expect(resolveRgPath({ which: () => null, exists: () => false, now: clock })).toBe("/opt/rg/bin/rg");
   } finally {
     resetRgPathCache();
+  }
+});
+
+test("dispatchFastPathTool handles undefined and null arguments safely", () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-dispatch-safe-"));
+  try {
+    const res1 = dispatchFastPathTool("codex_read_file", undefined as any, { cwd: root, roots: [root] });
+    expect((res1 as any).isError).toBe(true);
+    const res2 = dispatchFastPathTool("codex_list_dir", null as any, { cwd: root, roots: [root] });
+    expect((res2 as any).isError).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

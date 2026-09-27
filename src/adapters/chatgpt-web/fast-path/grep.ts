@@ -115,7 +115,8 @@ export function handleGrep(options: {
   const lines = rg.status === 0 ? rg.stdout.trim().split("\n").filter(Boolean) : [];
   const matches: Array<{ file: string; line: number; text: string }> = [];
   for (const line of lines.slice(0, max_results)) {
-    const firstColon = line.indexOf(":");
+    const colonOffset = /^[a-zA-Z]:[\\/]/.test(line) ? 2 : 0;
+    const firstColon = line.indexOf(":", colonOffset);
     if (firstColon < 0) continue;
     const secondColon = line.indexOf(":", firstColon + 1);
     if (secondColon < 0) continue;
