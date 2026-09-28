@@ -247,3 +247,26 @@ cancellation, reconnection and zero retained sessions
 (`/tmp/pi-host-preflight-review.log`). The probe uses scripted model output;
 it does not establish live browser behavior for these new changes. The
 running installed daemon was not restarted by this review.
+
+### Verification after launcher restart
+
+The user restarted the launcher. `/healthz` then reported a new source-daemon
+PID (1217258), host protocol 1, a ready tunnel and a latest native catalog
+result of HTTP 200. `doctor` reported `ready`. A fresh Pi SDK session reached
+the real browser model and returned `PI_WEB_OK` after a prior run showed the
+model unnecessarily calling `bash` to print that text. This is stochastic
+model tool choice, not a host transport failure; the Pi probe now reports the
+tool name when its no-tools assertion fails. A live HTTP request containing one
+1.8-million-character record returned HTTP 400 before recovery admission;
+inspection remained `unobserved`. An earlier 450,000-character repeated record
+was admitted under the account's current Bigger Context configuration, so
+HTTP 200 alone was not a valid oversized-prompt test. The daemon had zero
+active HTTP/browser turns afterward. The older periodic 401 has not recurred
+in the latest catalog result, but one successful request does not prove that
+the other client has permanently refreshed its credentials.
+
+The Pi probe's reported `usage.input` near 9,600 includes the bridge's fixed
+8,192-token browser platform reserve. It is a conservative admission estimate,
+not measured provider billing or 9,600 visible prompt tokens. Do not use it as
+an ROI baseline without separating that reserve and observing delivered
+payload size and latency.
