@@ -20,6 +20,10 @@ describe("Sprint Q: Structured Compaction Handoff Envelope", () => {
     expect(COMPACT_PROMPT).toContain(COMPACTION_STATE_TAG_END);
     expect(COMPACT_PROMPT).toContain("modified_files:");
     expect(COMPACT_PROMPT).toContain("active_hypothesis:");
+    expect(COMPACT_PROMPT).toContain("verified_achievements:");
+    expect(COMPACT_PROMPT).toContain("decisions_and_invariants:");
+    expect(COMPACT_PROMPT).toContain("pending_obligations:");
+    expect(COMPACT_PROMPT).toContain("Do not convert attempts into achievements");
     expect(COMPACT_PROMPT).toContain("next_actions:");
   });
 
@@ -67,7 +71,10 @@ All 871 tests were passing before compaction.
     const block: CompactionStateBlock = {
       modifiedFiles: ["src/index.ts", "package.json"],
       activeHypothesis: "Refactoring bundle pipeline to optimize startup time.",
+      verifiedAchievements: ["Timeout regression test passes — evidence: bun test timeout.test.ts"],
+      decisionsAndInvariants: ["Never emit a tool call before browser observation"],
       blockersOrTestFailures: ["TypeError in browser worker"],
+      pendingObligations: ["Run the integration suite"],
       nextActions: ["Patch browser worker", "Re-run suite"],
     };
 
@@ -75,12 +82,33 @@ All 871 tests were passing before compaction.
     expect(formatted).toContain(COMPACTION_STATE_TAG_START);
     expect(formatted).toContain("modified_files:\n- src/index.ts\n- package.json");
     expect(formatted).toContain("active_hypothesis: Refactoring bundle pipeline to optimize startup time.");
+    expect(formatted).toContain("verified_achievements:\n- Timeout regression test passes — evidence: bun test timeout.test.ts");
+    expect(formatted).toContain("decisions_and_invariants:\n- Never emit a tool call before browser observation");
     expect(formatted).toContain("blockers_or_test_failures:\n- TypeError in browser worker");
+    expect(formatted).toContain("pending_obligations:\n- Run the integration suite");
     expect(formatted).toContain("next_actions:\n- Patch browser worker\n- Re-run suite");
     expect(formatted).toContain(COMPACTION_STATE_TAG_END);
 
     const roundTrip = parseCompactionState(formatted);
     expect(roundTrip).toEqual(block);
+  });
+
+  test("round-trips a versioned mission checklist with stable requirement IDs", () => {
+    const block: CompactionStateBlock = {
+      version: 2,
+      originalRequestRef: "user message at turn 1",
+      modifiedFiles: ["src/bridge.ts"],
+      activeHypothesis: "Finish bridge delivery",
+      requirements: [
+        { id: "REQ-1", status: "pending", source: "user message at turn 1: deliver bridge" },
+        { id: "REQ-2", status: "verified", source: "user message at turn 1: test bridge", evidence: "bun test bridge.test.ts: 2 pass" },
+      ],
+      closureCriteria: ["All tests pass"],
+      blockersOrTestFailures: [],
+      nextActions: ["Run integration test"],
+    };
+
+    expect(parseCompactionState(formatCompactionStateBlock(block))).toEqual(block);
   });
 
   test("extracts narrative prose and structured state cleanly", () => {

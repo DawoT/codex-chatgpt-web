@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export class HostProtocolError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly code?: string) {
     super(message);
   }
 }
@@ -96,6 +96,7 @@ export class HostSessionStore {
     if (!session || session.expires <= this.now() || !authorized(request, session.token)) {
       throw new HostProtocolError(401, "Invalid or expired host session capability");
     }
+    session.expires = this.now() + this.ttl;
     return session;
   }
 

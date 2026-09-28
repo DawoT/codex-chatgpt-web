@@ -42,7 +42,7 @@ test("multipart selection accounts for whole-record and composer fit before subm
     }
   }
   // Low-token text can still exceed the reasoning model's server character ceiling.
-  // Stage the complete record instead of sending it inline or dropping its contents.
+  // Use the smallest staged transport that fits the complete record.
   const sparsePro = request("x".repeat(600_000));
   expect(resolveBiggerContextMultipartParts(sparsePro, capabilities)).toBe(2);
   const stagedPro = compileChatGptWebPrompt(sparsePro, capabilities, undefined, { experimentalMultipartParts: 2 });

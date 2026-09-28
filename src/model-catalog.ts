@@ -44,8 +44,14 @@ function routedModelPriority(
   template: JsonObject,
   route: ChatGptWebModelRoute,
   config: AppConfig,
+  nativePriorityFloor?: number,
 ): number | undefined {
   const priority = modelPriority(template);
+  if (priority !== undefined && nativePriorityFloor !== undefined) {
+    // The template supplies capabilities, not ranking: its position in /models need not match
+    // priority order. The first Web route should follow the fourth eligible native model.
+    return nativePriorityFloor;
+  }
   if (priority === undefined
     || config.subagentProtocol !== "compatibility-v1"
     || !["chatgpt-web/light", "chatgpt-web/gpt-5.6-sol-instant"].includes(route.slug)) return priority;
@@ -97,6 +103,7 @@ export function buildChatGptWebModel(
   templateValue: unknown,
   route: ChatGptWebModelRoute,
   config: AppConfig,
+  nativePriorityFloor?: number,
 ): JsonObject {
   const template = object(templateValue, "native Codex model template");
   const templateSlug = slug(template);
@@ -114,7 +121,7 @@ export function buildChatGptWebModel(
     }
   }
   const multiAgentVersion = routedSubagentVersion(template, config);
-  const priority = routedModelPriority(template, route, config);
+  const priority = routedModelPriority(template, route, config, nativePriorityFloor);
   const model: JsonObject = {
     ...structuredClone(template),
     slug: route.slug,
@@ -181,6 +188,20 @@ export function augmentNativeModelCatalog(
     }
   }
   const template = selectNativeTemplate(nativeModels, config);
+  // Codex 0.158 advertises only five spawn-agent model overrides, sorted by priority.
+  // Reserve its four leading native rows before appending routed Web rows to the catalog.
+  const nativePriorities = config.subagentProtocol === "native"
+    ? nativeModels
+      .filter(candidate => candidate && typeof candidate === "object" && !Array.isArray(candidate))
+      .filter(candidate => candidate.visibility === "list" && candidate.multi_agent_version !== "disabled")
+      .map(candidate => modelPriority(candidate))
+      .filter((priority): priority is number => priority !== undefined)
+      .toSorted((left, right) => left - right)
+    : [];
+  const fourthNativePriority = nativePriorities[3];
+  const nativePriorityFloor = fourthNativePriority === undefined
+    ? undefined
+    : Math.min(Number.MAX_SAFE_INTEGER, fourthNativePriority + 1);
   if (contextOverride) {
     // model_context_window is a single top-level Codex setting, not a per-model one. Apply its
     // advertised maximum to every native row so switching native models cannot silently clamp the
@@ -200,7 +221,7 @@ export function augmentNativeModelCatalog(
     }
   }
   const webModels = availableChatGptWebModelRoutes(config, true)
-    .map(route => buildChatGptWebModel(template, route, config));
+    .map(route => buildChatGptWebModel(template, route, config, nativePriorityFloor));
   return {
     ...structuredClone(catalog),
     models: [...nativeModels, ...webModels],

@@ -36,7 +36,8 @@ import {
   type ChatGptTurnRuntime,
 } from "./turn-execution";
 import { estimateChatGptWebUsage, resolveBiggerContextMultipartParts } from "./usage";
-import { preparePreflightInput } from "./preflight-budget";
+import { enforcePreflightDeliveryBudget, preparePreflightInput } from "./preflight-budget";
+import { enforceMissionHeadroom, missionRequirements } from "./mission-headroom";
 import { initializeTurnWorkspace } from "./workspace-persistence";
 import { ChatGptThreadEnvironmentStore } from "./thread-environment";
 import {
@@ -180,6 +181,8 @@ export function createChatGptWebAdapter(
     const checkpointInput = captureLunaCheckpoint
       ? lunaCheckpointStore.apply(parsed)
       : { parsed, applied: false };
+    const pendingMissionRequirements = missionRequirements(checkpointInput.parsed.context.messages)
+      ?.some(item => item.status !== "verified") ?? false;
     const isSubagent = isChatGptSubagentTurn(checkpointInput.parsed);
     const conversationKey = !parsed._compactionRequest
       && !freshConversationPerTurn
@@ -196,11 +199,13 @@ export function createChatGptWebAdapter(
     const releaseRetainedConversation = conversationKey && retainedLauncherDescriptor
       ? async () => {
         await releaseLauncherRetainedConversation(retainedLauncherDescriptor, conversationKey);
+        await worker.releaseConversationContextPressure(conversationKey);
       }
       : undefined;
     const compileOptionsFor = (input: CodexParsedRequest, overrides?: Partial<CompileChatGptWebPromptOptions>) => {
       if (manualRequest) return { ...overrides };
       const { input: preflightInput, verdict } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
+      enforcePreflightDeliveryBudget(preflightInput, verdict);
       const shouldPromoteMultipart = experimentalBiggerContext || verdict.actionRequired === "promote_multipart";
       const experimentalMultipartParts = shouldPromoteMultipart
         ? resolveBiggerContextMultipartParts(
@@ -312,15 +317,18 @@ export function createChatGptWebAdapter(
         reasoning: parsed.options.reasoning,
         ...(parsed._chatgptModelFamily ? { modelFamily: parsed._chatgptModelFamily } : {}),
         capabilities: turnCapabilities,
+        pendingMissionRequirements,
         prepare: async () => {
           const { input: preflightInput } = preparePreflightInput(checkpointInput.parsed, turnCapabilities, { experimentalBiggerContext });
+          const compiled = compileChatGptWebPrompt(
+            preflightInput,
+            turnCapabilities,
+            undefined,
+            compileOptionsFor(preflightInput),
+          );
+          if ("effort" in mode) enforceMissionHeadroom(preflightInput, compiled, mode.effort, turnCapabilities);
           return {
-            ...compileChatGptWebPrompt(
-              preflightInput,
-              turnCapabilities,
-              undefined,
-              compileOptionsFor(preflightInput),
-            ),
+            ...compiled,
             release: () => {},
           };
         },
@@ -375,6 +383,7 @@ export function createChatGptWebAdapter(
           turnToken,
           compileOptionsFor(preflightInput, optionsOverrides),
         );
+        if ("effort" in mode) enforceMissionHeadroom(preflightInput, compiled, mode.effort, turnCapabilities);
         observeCapabilityRetirement(turnToken, externalProgress);
         if (typeof broker.waitForClaim === "function") {
           void broker.waitForClaim(turnToken, browserAbort.signal).then(() => {
@@ -401,6 +410,7 @@ export function createChatGptWebAdapter(
       reasoning: parsed.options.reasoning,
       ...(parsed._chatgptModelFamily ? { modelFamily: parsed._chatgptModelFamily } : {}),
       capabilities: turnCapabilities,
+      pendingMissionRequirements,
       prepare: () => prepareWith(checkpointInput.parsed),
       ...(resumeInput ? { prepareResume: () => prepareWith(resumeInput, { continuation: true }) } : {}),
       ...(retainConversation ? { retainConversation: true, conversationKey } : {}),
@@ -654,6 +664,14 @@ export function createChatGptWebAdapter(
                     estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning, toolRequests: outstanding }, turnCapabilities, experimentalBiggerContext, experimentalSkillAttachments),
                     buffer,
                   ));
+                  if (broker.recordToolLifecyclePhase) {
+                    await Promise.all(outstanding.map(request => broker.recordToolLifecyclePhase!(
+                      turnToken!,
+                      request.callId,
+                      "codex_emitted",
+                      "adapter_replayed_tool_call",
+                    )));
+                  }
                   session.completeRound(roundKey);
                   return;
                 }
@@ -707,6 +725,14 @@ export function createChatGptWebAdapter(
                       );
                     }
                     externalProgress.assertToolBatchActive(revision);
+                    if (broker.recordToolLifecyclePhase) {
+                      await Promise.all(requests.map(request => broker.recordToolLifecyclePhase!(
+                        turnToken,
+                        request.callId,
+                        "browser_observed",
+                        "browser_acknowledged_tool_boundary",
+                      )));
+                    }
                   }
                   return { type: "tools" as const, requests };
                 }).catch(error => toolWaitAbort.signal.aborted
@@ -792,6 +818,14 @@ export function createChatGptWebAdapter(
                   estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning: roundReasoning, toolRequests: next.requests }, turnCapabilities, experimentalBiggerContext, experimentalSkillAttachments),
                   buffer,
                 ));
+                if (broker.recordToolLifecyclePhase) {
+                  await Promise.all(next.requests.map(request => broker.recordToolLifecyclePhase!(
+                    turnToken,
+                    request.callId,
+                    "codex_emitted",
+                    "adapter_emitted_tool_call",
+                  )));
+                }
                 session.completeRound(roundKey);
                 return;
               }
@@ -822,6 +856,19 @@ export function createChatGptWebAdapter(
             void session.runtime.token.then(turnToken => broker.revoke(turnToken)).catch(() => {});
           }
           if (handledError instanceof ChatGptWebAdapterError) {
+            if (handledError.code === "context_compaction_required"
+              || handledError.code === "chatgpt_tool_boundary_observation_timeout"
+              || handledError.code === "chatgpt_browser_dom_unresponsive") {
+              emitRoundEvent({
+                type: "milestone",
+                kind: "intervention_required",
+                result: "Browser delivery stopped",
+                evidence: handledError.code,
+                nextStep: handledError.code === "context_compaction_required"
+                  ? "Compact the Codex context, then retry"
+                  : "Inspect the retained browser page before retrying",
+              });
+            }
             emitRoundEvent({
               type: "error",
               message: handledError.message,

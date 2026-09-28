@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  enforcePreflightDeliveryBudget,
   evaluatePreflightBudget,
   PREFLIGHT_SAFE_INLINE_CHAR_LIMIT,
   PREFLIGHT_MAX_STAGE_CHAR_LIMIT,
@@ -59,7 +60,7 @@ describe("Lossless preflight transport planning", () => {
 
 
 
-  test("evaluatePreflightBudget triggers compaction when payload cannot be pruned and exceeds capacity", () => {
+  test("a large inline-only payload is left to measured model limits", () => {
     // Single massive user instruction without tool results to prune
     const unprunableMassivePrompt = "u".repeat(120_000);
     const messages: CodexMessage[] = [
@@ -70,7 +71,7 @@ describe("Lossless preflight transport planning", () => {
     const verdict = evaluatePreflightBudget(request, baseCapabilities, { experimentalBiggerContext: false });
     expect(verdict.safe).toBe(false);
     expect(verdict.prunableToolResultsCount).toBe(0);
-    expect(verdict.actionRequired).toBe("trigger_compaction");
+    expect(verdict.actionRequired).toBe("none");
   });
 
 
@@ -88,5 +89,35 @@ describe("Lossless preflight transport planning", () => {
     const parts = resolveBiggerContextMultipartParts(request, baseCapabilities, false, true);
     expect(parts).toBeDefined();
     expect(parts === 2 || parts === 6).toBe(true);
+  });
+
+  test("promotes a fitting 160k character payload instead of requiring compaction", () => {
+    const request = createMockRequest([
+      { role: "user", content: "x".repeat(160_001), timestamp: 1 },
+    ]);
+
+    const verdict = evaluatePreflightBudget(request, baseCapabilities, {
+      experimentalBiggerContext: true,
+    });
+
+    expect(verdict.estimatedChars).toBe(160_001);
+    expect(verdict.actionRequired).toBe("promote_multipart");
+    expect(verdict.prunableToolResultsCount).toBe(0);
+    expect(verdict.reason).toContain("multipart");
+  });
+
+  test("does not block a 227k character payload before compiled limits are measured", () => {
+    const request = createMockRequest([
+      { role: "user", content: "x".repeat(227_000), timestamp: 1 },
+    ]);
+    const verdict = evaluatePreflightBudget(request, baseCapabilities, {
+      experimentalBiggerContext: true,
+    });
+
+    expect(verdict.actionRequired).toBe("promote_multipart");
+    expect(() => enforcePreflightDeliveryBudget(request, verdict)).not.toThrow();
+
+    const compactRequest = { ...request, _compactionRequest: true };
+    expect(() => enforcePreflightDeliveryBudget(compactRequest, verdict)).not.toThrow();
   });
 });

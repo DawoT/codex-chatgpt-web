@@ -227,6 +227,9 @@ export class LauncherBrowserHelperClient {
         "Launcher browser helper does not support the MCP completion fence; update or restart the launcher",
       );
     }
+    if (turn.pendingMissionRequirements && !this.helperFeatures.has("mission-headroom")) {
+      throw new Error("Launcher browser helper does not support mission headroom; update or restart the launcher");
+    }
     return await new Promise<string>((resolveResult, rejectResult) => {
         if (this.pending.has(turn.traceId)) {
           rejectResult(new Error(`Duplicate launcher browser turn: ${turn.traceId}`));
@@ -291,6 +294,7 @@ export class LauncherBrowserHelperClient {
             ...(turn.requireRetainedConversation ? { requireRetainedConversation: true } : {}),
             ...(turn.conversationKey ? { conversationKey: turn.conversationKey } : {}),
             ...(turn.compaction ? { compaction: true } : {}),
+            ...(turn.pendingMissionRequirements ? { pendingMissionRequirements: true } : {}),
             ...(turn.captureLunaCheckpoint ? { captureLunaCheckpoint: true } : {}),
             ...(turn.externalProgress ? { externalProgress: true } : {}),
           },
@@ -302,6 +306,18 @@ export class LauncherBrowserHelperClient {
           })
           .catch(error => this.finishWithError(turn.traceId, error instanceof Error ? error : new Error(String(error))));
       });
+  }
+
+  async releaseConversationContextPressure(conversationKey: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(conversationKey)) {
+      throw new Error("Launcher browser helper conversation key is invalid");
+    }
+    if (!this.child || !this.ready) return;
+    await this.ready;
+    if (!this.helperFeatures.has("context-pressure-release")) {
+      throw new Error("Launcher browser helper does not support context pressure release; update or restart the launcher");
+    }
+    await this.send({ type: "release_context_pressure", conversationKey });
   }
 
   async close(): Promise<void> {

@@ -1,9 +1,9 @@
 import type { CodexParsedRequest } from "../../types";
+import { chatGptContextCompactionRequiredError } from "./adapter-error";
 import type { ChatGptWebCapabilities } from "./model";
 
 export const PREFLIGHT_SAFE_INLINE_CHAR_LIMIT = 65_000;
 export const PREFLIGHT_MAX_STAGE_CHAR_LIMIT = 45_000;
-export const PREFLIGHT_MAX_TOTAL_CHAR_LIMIT = 240_000;
 
 export type PreflightAction = "none" | "promote_multipart" | "trigger_compaction";
 export type RecommendedTransport = "inline" | "multipart-2" | "multipart-6";
@@ -20,8 +20,15 @@ export interface PreflightBudgetVerdict {
 
 export interface PreflightBudgetOptions {
   safeCharLimit?: number;
-  maxTotalCharLimit?: number;
   experimentalBiggerContext?: boolean;
+}
+
+export function enforcePreflightDeliveryBudget(
+  request: CodexParsedRequest,
+  verdict: PreflightBudgetVerdict,
+): void {
+  if (request._compactionRequest || verdict.actionRequired !== "trigger_compaction") return;
+  throw chatGptContextCompactionRequiredError(verdict.reason);
 }
 
 export function messageContentCharCount(content: unknown): number {
@@ -58,7 +65,6 @@ export function evaluatePreflightBudget(
   options?: PreflightBudgetOptions,
 ): PreflightBudgetVerdict {
   const safeLimit = options?.safeCharLimit ?? PREFLIGHT_SAFE_INLINE_CHAR_LIMIT;
-  const maxTotalLimit = options?.maxTotalCharLimit ?? PREFLIGHT_MAX_TOTAL_CHAR_LIMIT;
 
   const estimatedChars = estimateRequestCharacters(request);
   const estimatedTokens = Math.ceil(estimatedChars / 3.8);
@@ -79,39 +85,26 @@ export function evaluatePreflightBudget(
 
   // Case 2: Exceeds safe inline budget, multipart is supported
   if (multipartSupported) {
-    if (estimatedChars <= maxTotalLimit) {
-      return {
-        safe: false,
-        estimatedChars,
-        estimatedTokens,
-        recommendedTransport: "multipart-6",
-        actionRequired: "promote_multipart",
-        prunableToolResultsCount: 0,
-        reason: `Inline character payload (${estimatedChars.toLocaleString("en-US")}) exceeds safety limit (${safeLimit.toLocaleString("en-US")}). Promoting to multipart-6.`,
-      };
-    }
-
-    // Oversized context requires native compaction, with evidence preserved.
     return {
       safe: false,
       estimatedChars,
       estimatedTokens,
       recommendedTransport: "multipart-6",
-      actionRequired: "trigger_compaction",
+      actionRequired: "promote_multipart",
       prunableToolResultsCount: 0,
-      reason: "Context exceeds the transport planning limit; native compaction is required. Historical evidence is preserved.",
+      reason: `Inline character payload (${estimatedChars.toLocaleString("en-US")}) exceeds safety limit (${safeLimit.toLocaleString("en-US")}). Promoting to multipart-6.`,
     };
   }
 
-  // Case 3: Multipart is not supported (inline only)
+  // Case 3: The compiled inline payload is checked against measured model and composer limits.
   return {
     safe: false,
     estimatedChars,
     estimatedTokens,
     recommendedTransport: "inline",
-    actionRequired: "trigger_compaction",
+    actionRequired: "none",
     prunableToolResultsCount: 0,
-    reason: "Context exceeds the inline planning limit; native compaction is required. Historical evidence is preserved.",
+    reason: "Inline payload requires measured model and composer limit checks.",
   };
 }
 

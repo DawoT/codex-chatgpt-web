@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { dirname, join } from "node:path";
 import { getConfigDir } from "../../config";
 import type { CodexMessage } from "../../types";
+import { extractStructuredCompactionHandoff, type CompactionRequirement } from "../../responses/compaction";
+import { evaluateMissionHeadroom } from "./mission-headroom";
 import {
   type WorkspaceState,
   readWorkspaceState,
@@ -16,6 +18,8 @@ export interface AutonomousCompactionContext {
   capacityTokens: number;
   consecutiveUncompactedTurns?: number;
   actionRequired?: string;
+  requirements?: readonly CompactionRequirement[];
+  growthSamples?: readonly number[];
 }
 
 export interface TurnCheckpoint {
@@ -34,36 +38,26 @@ export interface CompactionQualityVerdict {
   detectedFiles: string[];
 }
 
-export const AUTONOMOUS_COMPACTION_TOKEN_THRESHOLD_RATIO = 0.85;
-export const AUTONOMOUS_COMPACTION_MAX_UNCOMPACTED_TURNS = 20;
 export const DEFAULT_CHECKPOINT_MAX_RETENTION = 5;
 export const MIN_COMPACTION_SUMMARY_LENGTH = 50;
 
 /**
- * Evaluates whether an autonomous background compaction should be triggered based
- * on context window pressure, turn count, or preflight budget recommendations.
+ * Compacts only at a measured hard limit or when pending mission work has sampled
+ * next-turn growth that cannot fit in the remaining window.
  */
 export function evaluateAutonomousCompactionNeeded(context: AutonomousCompactionContext): boolean {
   if (context.actionRequired === "trigger_compaction") {
     return true;
   }
 
-  if (context.capacityTokens > 0) {
-    const ratio = context.estimatedTokens / context.capacityTokens;
-    if (ratio >= AUTONOMOUS_COMPACTION_TOKEN_THRESHOLD_RATIO) {
-      return true;
-    }
-  }
-
-  if (context.consecutiveUncompactedTurns !== undefined) {
-    if (context.consecutiveUncompactedTurns >= AUTONOMOUS_COMPACTION_MAX_UNCOMPACTED_TURNS) {
-      return true;
-    }
-  } else if (context.turnCount >= AUTONOMOUS_COMPACTION_MAX_UNCOMPACTED_TURNS) {
-    return true;
-  }
-
-  return false;
+  if (context.capacityTokens <= 0) return false;
+  if (context.estimatedTokens >= context.capacityTokens) return true;
+  return evaluateMissionHeadroom({
+    inputTokens: context.estimatedTokens,
+    contextWindow: context.capacityTokens,
+    requirements: context.requirements,
+    growthSamples: context.growthSamples ?? [],
+  }).compact;
 }
 
 /**
@@ -217,6 +211,21 @@ export function extractReferencedFilePaths(messages: readonly CodexMessage[]): s
   return Array.from(discovered);
 }
 
+/** Successful patch results are evidence of changed files; incidental prose is not. */
+function extractModifiedFilePaths(messages: readonly CodexMessage[]): string[] {
+  const files = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "toolResult" || message.isError
+      || !["apply_patch", "codex_apply_patch"].includes(message.toolName)) continue;
+    const output = typeof message.content === "string"
+      ? message.content
+      : message.content.map(part => "text" in part && typeof part.text === "string" ? part.text : "").join("\n");
+    if (!/^Success\./m.test(output)) continue;
+    for (const match of output.matchAll(/^[AMD]\s+([^\r\n]+)$/gm)) files.add(match[1]!.trim());
+  }
+  return [...files];
+}
+
 /**
  * Validates the quality of a generated compaction summary against original messages,
  * ensuring no critical file paths or structural context are lost.
@@ -224,6 +233,7 @@ export function extractReferencedFilePaths(messages: readonly CodexMessage[]): s
 export function validateCompactionQuality(
   originalMessages: readonly CodexMessage[],
   summary: string,
+  options?: { requireStructured?: boolean },
 ): CompactionQualityVerdict {
   if (!summary || typeof summary !== "string" || summary.trim().length < MIN_COMPACTION_SUMMARY_LENGTH) {
     return {
@@ -235,12 +245,202 @@ export function validateCompactionQuality(
 
   const detectedFiles = extractReferencedFilePaths(originalMessages);
   const missingInvariants: string[] = [];
+  const messageText = (message: CodexMessage) => typeof message.content === "string"
+    ? message.content
+    : Array.isArray(message.content)
+      ? message.content.map(part => part && typeof part === "object" && "text" in part ? String(part.text) : "").join(" ")
+      : "";
+  const sourceText = originalMessages.map(messageText).join("\n");
+  const normalized = (value: unknown) => typeof value === "string"
+    ? value.toLocaleLowerCase("en-US").replace(/\s+/g, " ").trim()
+    : "";
+  const normalizedSource = normalized(sourceText);
 
-  for (const file of detectedFiles) {
+  for (const file of options?.requireStructured ? [] : detectedFiles) {
     // Check if filename (or path) appears in summary
     const basename = file.split("/").pop() ?? file;
     if (!summary.includes(file) && !summary.includes(basename)) {
       missingInvariants.push(`Missing reference to modified or referenced file: ${file}`);
+    }
+  }
+
+  const structured = extractStructuredCompactionHandoff(summary).state;
+  if (options?.requireStructured) {
+    if (!structured) {
+      missingInvariants.push("Missing structured compaction state");
+    } else {
+      if (!structured.activeHypothesis) missingInvariants.push("Missing active objective or hypothesis");
+      if (structured.version !== 2) missingInvariants.push("Checkpoint requires mission checklist version 2");
+      if (!structured.originalRequestRef) missingInvariants.push("Missing original request reference");
+      if (!structured.requirements?.length) missingInvariants.push("Missing mission requirements");
+      if (!structured.closureCriteria?.length) missingInvariants.push("Missing closure criteria");
+      if (structured.nextActions.length !== 1) missingInvariants.push("Checkpoint requires one clear next action");
+      for (const section of [
+        "modified_files",
+        "requirements",
+        "closure_criteria",
+        "verified_achievements",
+        "decisions_and_invariants",
+        "blockers_or_test_failures",
+        "pending_obligations",
+        "next_actions",
+      ]) {
+        if (!new RegExp(`^${section}:`, "m").test(summary)) {
+          missingInvariants.push(`Missing ${section} section`);
+        }
+      }
+      for (const [section, values] of [
+        ["verified_achievements", structured.verifiedAchievements ?? []],
+        ["decisions_and_invariants", structured.decisionsAndInvariants ?? []],
+        ["blockers_or_test_failures", structured.blockersOrTestFailures],
+        ["pending_obligations", structured.pendingObligations ?? []],
+      ] as const) {
+        const unique = new Set(values.map(normalized));
+        if (unique.size !== values.length) missingInvariants.push(`Duplicate ${section} entries`);
+      }
+      const ids = new Set<string>();
+      for (const requirement of structured.requirements ?? []) {
+        if (typeof requirement.id !== "string" || !/^[-A-Za-z0-9_]+$/.test(requirement.id)) {
+          missingInvariants.push("Mission requirement has an invalid stable ID");
+        }
+        if (ids.has(requirement.id)) missingInvariants.push(`Duplicate requirement ID: ${requirement.id}`);
+        ids.add(requirement.id);
+        if (typeof requirement.source !== "string" || !requirement.source.trim()) {
+          missingInvariants.push(`Missing source for requirement ${requirement.id}`);
+        }
+        if (!["pending", "blocked", "verified"].includes(requirement.status)) {
+          missingInvariants.push(`Invalid status for requirement ${requirement.id}`);
+        }
+        if (requirement.status === "verified" && (typeof requirement.evidence !== "string" || !requirement.evidence.trim())) {
+          missingInvariants.push(`Verified requirement ${requirement.id} lacks evidence`);
+        }
+      }
+      for (const file of extractModifiedFilePaths(originalMessages)) {
+        if (!structured.modifiedFiles.includes(file)) {
+          missingInvariants.push(`Missing modified file from successful patch: ${file}`);
+        }
+      }
+    }
+  }
+  const toolCommand = (toolCallId: string, toolName: string): string | undefined => {
+    for (const message of originalMessages) {
+      if (message.role !== "assistant") continue;
+      const call = message.content.find(part => part.type === "toolCall"
+        && part.id === toolCallId && part.name === toolName);
+      if (call?.type !== "toolCall") continue;
+      if (typeof call.arguments.cmd === "string") return call.arguments.cmd;
+      if (toolName !== "write_stdin" && toolName !== "codex_write_stdin") continue;
+      const sessionId = call.arguments.session_id;
+      if (!Number.isSafeInteger(sessionId)) continue;
+      for (const prior of originalMessages) {
+        if (prior.role !== "toolResult" || prior.isError || prior.toolName !== "exec_command") continue;
+        const priorText = messageText(prior);
+        const match = /"session_id"\s*:\s*(\d+)/.exec(priorText);
+        if (match && Number(match[1]) === sessionId) {
+          return toolCommand(prior.toolCallId, prior.toolName);
+        }
+      }
+    }
+    return undefined;
+  };
+  const observedEvidence = (evidence: unknown, requirement: unknown): boolean => typeof evidence === "string"
+    && evidence.trim().length > 0 && originalMessages.some(message => {
+    const content = messageText(message);
+    if (!normalized(content).includes(normalized(evidence))) return false;
+    if (message.role === "toolResult") {
+      const testInvocation = /\b(?:bun test|npm test|pnpm test|yarn test|pytest|cargo test|go test)\b[^:\n]*/i.exec(evidence)?.[0]?.trim();
+      const requirementAction = typeof requirement === "string"
+        ? requirement.replace(/^user turn [^:]+:\s*/i, "").trim() : "";
+      const requiresTestExecution = /^(?:test|pytest)\b|^(?:run|execute|rerun|verify)\b[^\n]*\b(?:test|tests|pytest)\b/i
+        .test(requirementAction);
+      if (message.toolName === "apply_patch") {
+        const callBound = originalMessages.some(prior => prior.role === "assistant"
+          && prior.content.some(part => part.type === "toolCall" && part.id === message.toolCallId
+            && part.name === "apply_patch"));
+        const changedLines = /^([AM])\s+([^\n]+)$/gm;
+        return message.isError !== true && !requiresTestExecution && callBound
+          && /^Success\. Updated the following files:\s*\n/.test(content)
+          && [...content.matchAll(changedLines)].some(match => normalized(match[0]) === normalized(evidence)
+            && typeof requirement === "string" && normalized(requirement).includes(normalized(match[2]!)));
+      }
+      const command = toolCommand(message.toolCallId, message.toolName);
+      let directCommand = command?.trim().replace(/^set\s+-o\s+pipefail\s*;\s*/, "");
+      // Permit only inert, explicit wrappers around a test invocation. Arbitrary shell prefixes
+      // (including echoing a saved result) must never prove that the test actually ran.
+      for (let index = 0; directCommand !== undefined && index < 4; index++) {
+        const wrapper = /^(?:cd\s+(?:[A-Za-z0-9_./-]+|'[^'$`\n]+'|"[^"$`\n]+")\s*&&\s*|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]+\s+)+|timeout\s+[1-9][0-9]*(?:s|m|h)?\s+)/.exec(directCommand);
+        if (!wrapper) break;
+        directCommand = directCommand.slice(wrapper[0].length);
+      }
+      return message.isError !== true
+        && ["exec_command", "write_stdin", "codex_exec", "codex_write_stdin"].includes(message.toolName)
+        && directCommand !== undefined
+        && (!testInvocation || normalized(directCommand).startsWith(normalized(testInvocation)))
+        && (!requiresTestExecution || /^(?:(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|pytest\b|node\s+--test\b)/i.test(directCommand))
+        && /"exit_code"\s*:\s*0\b/.test(content)
+        && !/(?:"exit_code"\s*:\s*[1-9]|\b\d+\s+fail(?:ed)?\b)/i.test(content);
+    }
+    if (message.role !== "user" || message.origin !== "compaction_summary") return false;
+    const prior = extractStructuredCompactionHandoff(content).state;
+    return Boolean(prior?.requirements?.some(item => item.status === "verified"
+      && normalized(item.evidence ?? "") === normalized(evidence)))
+      || Boolean(prior?.verifiedAchievements?.some(item => normalized(item).includes(normalized(evidence))));
+  });
+  for (const requirement of structured?.requirements ?? []) {
+    if (requirement.status === "verified" && requirement.evidence
+      && !observedEvidence(requirement.evidence, requirement.source)) {
+      missingInvariants.push(`Verified requirement ${requirement.id} has no completed observation`);
+    }
+  }
+  if (structured?.verifiedAchievements) {
+    for (const achievement of structured.verifiedAchievements) {
+      const evidence = /\bevidence\s*:\s*(.+)$/i.exec(achievement)?.[1]?.trim();
+      if (!evidence) {
+        missingInvariants.push(`Verified achievement lacks observable evidence: ${achievement}`);
+      } else if (evidence.length < 8 || !normalizedSource.includes(normalized(evidence))) {
+        missingInvariants.push(`Verified achievement evidence is not present in source: ${achievement}`);
+      } else if (!observedEvidence(evidence, achievement)) {
+        missingInvariants.push(`Verified achievement evidence is not a completed observation: ${achievement}`);
+      }
+    }
+  }
+  for (const message of originalMessages) {
+    if (message.role !== "user" || message.origin !== "compaction_summary") continue;
+    const content = messageText(message);
+    const prior = extractStructuredCompactionHandoff(content).state;
+    if (!prior) continue;
+    if (options?.requireStructured) {
+      if (prior.originalRequestRef && structured?.originalRequestRef !== prior.originalRequestRef) {
+        missingInvariants.push("Checkpoint original request reference changed");
+      }
+      for (const priorFile of prior.modifiedFiles) {
+        if (!structured?.modifiedFiles.includes(priorFile)) {
+          missingInvariants.push(`Missing modified file from prior checkpoint: ${priorFile}`);
+        }
+      }
+      for (const requirement of prior.requirements ?? []) {
+        const next = structured?.requirements?.find(item => item.id === requirement.id);
+        if (!next) {
+          missingInvariants.push(`Missing prior requirement ${requirement.id}`);
+        } else if (requirement.status === "verified" && next.status !== "verified") {
+          missingInvariants.push(`Verified requirement ${requirement.id} regressed`);
+        } else if (next.source !== requirement.source) {
+          missingInvariants.push(`Requirement ${requirement.id} changed its source`);
+        }
+      }
+    }
+    for (const [label, values, retained] of [
+      ["decision or invariant", prior.decisionsAndInvariants ?? [], structured?.decisionsAndInvariants ?? []],
+      ["blocker or test failure", prior.blockersOrTestFailures, structured?.blockersOrTestFailures ?? []],
+      ["pending obligation", prior.version === 2 && prior.requirements?.length
+        ? [] : prior.pendingObligations ?? [], structured?.pendingObligations ?? []],
+    ] as const) {
+      for (const value of values) {
+        if (normalized(value) === "none") continue;
+        if (!retained.some(item => normalized(item).includes(normalized(value)))) {
+          missingInvariants.push(`Missing ${label} from prior checkpoint: ${value}`);
+        }
+      }
     }
   }
 

@@ -28,6 +28,6 @@ for (const multipart of [false, true]) {
     }, { experimentalBiggerContext: multipart });
     expect(result.input).toEqual(original);
     expect(request).toEqual(original);
-    expect(result.verdict.actionRequired).toBe(multipart ? "promote_multipart" : "trigger_compaction");
+    expect(result.verdict.actionRequired).toBe(multipart ? "promote_multipart" : "none");
   });
 }

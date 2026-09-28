@@ -44,7 +44,7 @@ export type CodexMessage =
 export interface CodexUserMessage {
   role: "user";
   /** Native Responses metadata, never inferred from message text. */
-  origin?: "codex_skill";
+  origin?: "codex_skill" | "compaction_summary";
   content: string | CodexContentPart[];
   timestamp: number;
 }
@@ -193,6 +193,13 @@ export interface CodexProviderContinuationState {
 
 export type AdapterEvent =
   | { type: "heartbeat" }
+  | {
+      type: "milestone";
+      kind: "verified_achievement" | "checkpoint_completed" | "intervention_required";
+      result: string;
+      evidence: string;
+      nextStep: string;
+    }
   | { type: "text_delta"; text: string; phase?: CodexMessagePhase }
   | { type: "thinking_delta"; thinking: string }
   // Opaque signed-reasoning metadata preserved when it appears in a Codex history.

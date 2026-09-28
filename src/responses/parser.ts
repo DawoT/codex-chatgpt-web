@@ -349,6 +349,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         pendingReasoning.length = 0;
         messages.push({
           role: "user",
+          origin: "compaction_summary",
           content: compactionItemToText(typeof encrypted === "string" ? encrypted : undefined),
           timestamp: now,
         });

@@ -49,6 +49,52 @@ function source(): Record<string, unknown> {
 }
 
 describe("native /models augmentation", () => {
+  test("Codex 0.158 retains its four leading native models in the bounded override roster", () => {
+    const config = defaultConfig("full");
+    config.subagentProtocol = "native";
+    config.extraHighAvailable = true;
+    config.proAvailable = true;
+    const fixture = source();
+    const template = structuredClone((fixture.models as Record<string, unknown>[])[1]!);
+    const native = [
+      ["gpt-6-astra", 1], ["gpt-6-sol", 2], ["gpt-6-luna", 3],
+      ["gpt-5.6-sol", 4], ["gpt-5.6-terra", 7],
+    ].map(([model, priority]) => ({ ...template, slug: model, priority }));
+    const models = augmentNativeModelCatalog({ models: native }, config).models as Array<Record<string, unknown>>;
+    const advertised = models
+      .filter(model => model.visibility === "list" && model.supported_in_api === true)
+      .toSorted((left, right) => Number(left.priority) - Number(right.priority))
+      .slice(0, 5)
+      .map(model => model.slug);
+
+    expect(advertised.slice(0, 4)).toEqual([
+      "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol",
+    ]);
+    expect(advertised[4]).toBe("chatgpt-web/gpt-5.6-sol-instant");
+    expect(models.slice(0, native.length)).toEqual(native);
+  });
+
+  test("reserves the fifth override for Web even when catalog order differs from priority order", () => {
+    const config = defaultConfig("full");
+    config.subagentProtocol = "native";
+    const template = structuredClone((source().models as Record<string, unknown>[])[1]!);
+    const native = [
+      ["gpt-5.6-terra", 8], ["gpt-6-astra", 1], ["gpt-6-sol", 2],
+      ["gpt-6-luna", 3], ["gpt-5.6-sol", 4], ["gpt-5.6-luna", 7],
+    ].map(([model, priority]) => ({ ...template, slug: model, priority }));
+    const models = augmentNativeModelCatalog({ models: native }, config).models as Array<Record<string, unknown>>;
+    const advertised = models
+      .filter(model => model.visibility === "list")
+      .toSorted((left, right) => Number(left.priority) - Number(right.priority))
+      .slice(0, 5)
+      .map(model => model.slug);
+
+    expect(advertised).toEqual([
+      "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol",
+      "chatgpt-web/gpt-5.6-sol-instant",
+    ]);
+  });
+
   test("preserves native models, groups supported efforts, and retains hidden legacy metadata", () => {
     const native = source();
     const nativeSnapshot = structuredClone(native);

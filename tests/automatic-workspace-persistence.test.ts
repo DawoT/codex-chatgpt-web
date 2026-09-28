@@ -92,7 +92,25 @@ for (const scenario of ["read-only", "outside-writable", "symlink", "checkpoint-
         _rawBody: { input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Compact" }], internal_chat_message_metadata_passthrough: { turn_id: "compact" } }] },
       };
       const key = `${root}:${chatGptTurnExecutionKey(parsed)}`;
-      await runStructuredCompactionOnce(key, { ownerKey: root, traceIds: [] }, async () => "Recorded checkpoint preserving every invariant and the next concrete task action.");
+      await runStructuredCompactionOnce(key, { ownerKey: root, traceIds: [] }, async () => `Recorded checkpoint preserving every invariant and the next concrete task action.
+<compaction_state>
+version: 2
+original_request_ref: user request "Compact"
+modified_files:
+active_hypothesis: Preserve workspace authority.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user request: Compact"}
+closure_criteria:
+- The task is continued to completion
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue the task
+next_actions:
+- Continue the task
+</compaction_state>`);
       const events: unknown[] = [];
       await executeCompactionFlow({
         parsed, environment: scenario === "missing-environment" ? undefined : env,

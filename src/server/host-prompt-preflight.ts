@@ -2,7 +2,8 @@ import type { AppConfig } from "../config";
 import type { CodexParsedRequest } from "../types";
 import { estimateTokens } from "../lib/token-estimate";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "../adapters/chatgpt-web/model";
-import { preparePreflightInput } from "../adapters/chatgpt-web/preflight-budget";
+import { enforcePreflightDeliveryBudget, preparePreflightInput } from "../adapters/chatgpt-web/preflight-budget";
+import { enforceMissionHeadroom } from "../adapters/chatgpt-web/mission-headroom";
 import { resolveBiggerContextMultipartParts } from "../adapters/chatgpt-web/usage";
 import { compileChatGptWebPrompt, formatChatGptWebMultipartCommit, formatChatGptWebMultipartStage } from "../adapters/chatgpt-web/prompt";
 import { estimateChatGptWebImageTokens, measureCompiledChatGptWebInput } from "../adapters/chatgpt-web/input-tokens";
@@ -29,6 +30,7 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
   const { input, verdict } = preparePreflightInput(parsed, capabilities, {
     experimentalBiggerContext: config.experimentalBiggerContext === true,
   });
+  enforcePreflightDeliveryBudget(input, verdict);
   const multipartParts = config.experimentalBiggerContext || verdict.actionRequired === "promote_multipart"
     ? resolveBiggerContextMultipartParts(
       input,
@@ -42,6 +44,7 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
     experimentalSkillAttachments: config.experimentalSkillAttachments === true,
     ...(multipartParts !== undefined ? { experimentalMultipartParts: multipartParts } : {}),
   });
+  enforceMissionHeadroom(input, compiled, mode.effort, capabilities);
   assertChatGptPromptAttachments(compiled);
   const metrics = measureCompiledChatGptWebInput(compiled, parsed.modelId);
   if (!compiled.multipart) {

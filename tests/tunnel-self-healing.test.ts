@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig, TunnelConfig } from "../src/config";
@@ -22,12 +22,18 @@ function createMockTunnelConfig(): TunnelConfig {
 function createMockAppConfig(mode: "full" | "browser-only" = "full"): AppConfig {
   const base = defaultConfig(mode);
   const root = mkdtempSync(join(tmpdir(), "cgw-mock-tunnel-"));
+  const tunnel = mode === "full" ? { ...createMockTunnelConfig(), profileDir: root } : undefined;
+  if (tunnel) {
+    const healthUrlFile = join(root, "health.url");
+    writeFileSync(healthUrlFile, "http://127.0.0.1:19999");
+    writeFileSync(join(root, `${tunnel.profileName}.yaml`), JSON.stringify({ health: { url_file: healthUrlFile } }));
+  }
   return {
     ...base,
     port: 0,
     brokerSocketPath: defaultBrokerEndpoint(root),
     controlToken: "test-control-token",
-    tunnel: mode === "full" ? createMockTunnelConfig() : undefined,
+    tunnel,
   };
 }
 

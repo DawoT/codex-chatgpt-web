@@ -1,5 +1,6 @@
 import { isAbsolute, join } from "node:path";
 import { SlidingWindowRateLimiter } from "../adapters/chatgpt-web/rate-limiter";
+import { ChatGptWebAdapterError } from "../adapters/chatgpt-web/adapter-error";
 import { getConfigDir, type AppConfig } from "../config";
 import { availableChatGptWebModelRoutes, resolveChatGptWebContextLimits } from "../chatgpt-web-models";
 import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
@@ -150,7 +151,11 @@ export class HostHttpRoutes {
       throw new HostProtocolError(404, "Unknown host endpoint");
     } catch (error) {
       const status = error instanceof HostProtocolError ? error.status : 500;
-      return Response.json({ error: { type: "host_protocol_error", message: error instanceof HostProtocolError ? error.message : "Host request failed" } }, { status, headers: { "cache-control": "no-store" } });
+      return Response.json({ error: {
+        type: "host_protocol_error",
+        message: error instanceof HostProtocolError ? error.message : "Host request failed",
+        ...(error instanceof HostProtocolError && error.code ? { code: error.code } : {}),
+      } }, { status, headers: { "cache-control": "no-store" } });
     }
   }
 
@@ -220,7 +225,10 @@ export class HostHttpRoutes {
       };
       try {
         assertFirstHostPromptWithinLimits(parsed, this.config);
-      } catch {
+      } catch (error) {
+        if (error instanceof ChatGptWebAdapterError && error.code === "context_compaction_required") {
+          throw new HostProtocolError(400, error.message, error.code);
+        }
         throw new HostProtocolError(400, "Host request exceeds compiled Web context or transport limits");
       }
     }

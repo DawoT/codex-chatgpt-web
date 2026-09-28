@@ -196,16 +196,24 @@ test("response caching rechecks CSS visibility without requiring a DOM mutation"
         MutationObserver: class { observe() {} },
       });
       const evaluationErrors: string[] = [];
+      const page = {
+        isClosed: () => false,
+        evaluate: async (callback: Function) => runInContext(`(${callback.toString()})`, context)(),
+      };
       const locator = {
         evaluate: async (callback: Function, options: unknown) => {
           try { return runInContext(`(${callback.toString()})`, context)(window.document.getElementById("turn"), options); }
           catch (error) { evaluationErrors.push((error as Error).stack ?? String(error)); throw error; }
         },
-        page: () => ({ isClosed: () => false }),
+        page: () => page,
       };
       const worker = Object.create(ChatGptBrowserWorker.prototype) as {
         responseDomSnapshot(locator: unknown, cache: object): Promise<{ visibleText: string; completionActionVisible: boolean }>;
+        lastDomMeasurementByPage: WeakMap<object, number>;
+        contextPressureByPage: WeakMap<object, unknown>;
       };
+      worker.lastDomMeasurementByPage = new WeakMap();
+      worker.contextPressureByPage = new WeakMap();
       const cache = {} as { fullScans?: number; cacheHits?: number };
       const first = await worker.responseDomSnapshot(locator, cache);
       expect(evaluationErrors).toEqual([]);
@@ -781,7 +789,10 @@ test("two-part saved chats re-prove unchanged effort after the first message cre
   const composer = { locator: () => ({ locator: () => controls }), isEditable: async () => true };
   const page = Object.assign(new EventEmitter(), {
     url: () => url, isClosed: () => false,
-    evaluate: async () => { throw new Error("No real browser in the transport fixture"); },
+    evaluate: async (callback: unknown) => {
+      if (String(callback).includes("document.documentElement?.innerHTML.length")) return 0;
+      throw new Error("No real browser in the transport fixture");
+    },
   });
   let sends = 0;
   const finished = new Error("final send reached with a current effort proof");
@@ -3524,6 +3535,8 @@ test("browser preflight separates model context from one-message transport limit
     "90,000-token context window",
   );
   expect(() => assertChatGptWebInputWithinLimits(100_000, 100_000, "gpt-5.6-sol", "xhigh", pro)).not.toThrow();
+  // Synthetic long-session fixtures must be admitted when their compiled payload fits.
+  expect(() => assertChatGptWebInputWithinLimits(92_000, 83_808, "gpt-5.6-sol", "xhigh", pro, 300_000)).not.toThrow();
   expect(() => assertChatGptWebInputWithinLimits(100_000, 100_000, "gpt-5.6-sol", "max", pro)).not.toThrow();
   expect(() => assertChatGptWebInputWithinLimits(28_000, 19_808, "gpt-5.6-luna", "low", luna)).not.toThrow();
   expect(() => assertChatGptWebInputWithinLimits(28_001, 19_809, "gpt-5.6-luna", "low", luna)).toThrow(
@@ -3672,6 +3685,15 @@ test("Bigger Context preflight expands only the total context ceiling and keeps 
   };
   expect(() => assertChatGptWebMultipartInputWithinLimits(
     333_578,
+    95_000,
+    "gpt-5.6-sol",
+    "high",
+    pro,
+    500_000,
+    6,
+  )).not.toThrow();
+  expect(() => assertChatGptWebMultipartInputWithinLimits(
+    227_000,
     95_000,
     "gpt-5.6-sol",
     "high",

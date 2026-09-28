@@ -78,6 +78,26 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
   });
 
   describe("SSE Keep-Alive Stream Framing", () => {
+    test("checkpoint milestones are distinct from transport heartbeats", async () => {
+      async function* events(): AsyncGenerator<AdapterEvent> {
+        yield { type: "heartbeat" };
+        yield {
+          type: "milestone",
+          kind: "checkpoint_completed",
+          result: "Checkpoint validated",
+          evidence: "structured_state_and_source_invariants",
+          nextStep: "Continue the task",
+        };
+        yield { type: "done", endTurn: true };
+      }
+
+      const body = await new Response(bridgeToResponsesSSE(events(), "chatgpt-web/test")).text();
+      expect(body).toContain("event: response.heartbeat");
+      expect(body).toContain("event: response.milestone");
+      expect(body).toContain("Checkpoint validated");
+      expect(body).not.toContain("response.output_text.delta");
+    });
+
     test("adapter heartbeat events emit raw SSE comment : keep-alive and response.heartbeat", async () => {
       async function* heartbeatStream(): AsyncGenerator<AdapterEvent> {
         yield { type: "heartbeat" };

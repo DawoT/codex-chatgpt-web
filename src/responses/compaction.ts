@@ -20,10 +20,24 @@ export const BRIDGE_COMPACTION_PREFIX = "ocx1:";
 export const COMPACTION_STATE_TAG_START = "<compaction_state>";
 export const COMPACTION_STATE_TAG_END = "</compaction_state>";
 
+export interface CompactionRequirement {
+  id: string;
+  status: "pending" | "blocked" | "verified";
+  source: string;
+  evidence?: string;
+}
+
 export interface CompactionStateBlock {
+  version?: number;
+  originalRequestRef?: string;
   modifiedFiles: string[];
   activeHypothesis?: string;
+  requirements?: CompactionRequirement[];
+  closureCriteria?: string[];
+  verifiedAchievements?: string[];
+  decisionsAndInvariants?: string[];
   blockersOrTestFailures: string[];
+  pendingObligations?: string[];
   nextActions: string[];
 }
 
@@ -50,23 +64,40 @@ export function isNativeTextCompaction(body: unknown): boolean {
 export const COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 
 Include:
-- Current progress, modified files, and key architectural decisions made
-- Important context, constraints, subagent results, or user preferences
-- What remains to be done (clear, prioritized next steps)
-- Any critical data, error diagnostics, failed tests, or references needed to continue
+- The current objective and working hypothesis
+- Verified achievements only, each paired with concrete evidence (tests, file state, command output, or other observable proof)
+- Key decisions and invariants that must remain true
+- Blockers, failed attempts, failed tests, and unresolved diagnostics
+- Pending obligations and one clear next action
+- Modified files and references needed to continue
+
+Do not convert attempts into achievements. A step is a verified achievement only when the source conversation contains observable evidence that it completed successfully. Preserve unresolved failures and obligations even when they are inconvenient or repetitive.
+Deduplicate repeated state. Replace long tool output with a precise, recoverable source reference and the observed result; do not silently drop evidence.
 
 STRUCTURED HANDOFF REQUIREMENT:
 At the beginning or end of your summary, include a <compaction_state> XML block:
 <compaction_state>
+version: 2
+original_request_ref: Exact reference to the original user request.
 modified_files:
 - path/to/modified_file1
 - path/to/modified_file2
 active_hypothesis: One concise sentence describing the current working hypothesis or task goal.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"original user request: exact requirement"}
+- {"id":"REQ-2","status":"verified","source":"original user request: exact requirement","evidence":"observable successful result from source conversation"}
+closure_criteria:
+- Criterion that proves the mission is complete
+verified_achievements:
+- Achievement — evidence: exact test, command, file state, or observation proving it
+decisions_and_invariants:
+- Decision or invariant that must survive the handoff
 blockers_or_test_failures:
 - Specific failed test or blocker (or None)
+pending_obligations:
+- Unfinished requirement or follow-up that must not be dropped
 next_actions:
-- Concrete next step 1
-- Concrete next step 2
+- The single best concrete next action
 </compaction_state>
 
 Be concise, structured, and focused on helping the next LLM seamlessly continue the work without losing file paths or test state.`;
@@ -108,14 +139,40 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
   const lines = rawBlock.split(/\r?\n/).map(line => line.trim());
 
   const modifiedFiles: string[] = [];
+  const requirements: CompactionRequirement[] = [];
+  const closureCriteria: string[] = [];
+  const verifiedAchievements: string[] = [];
+  const decisionsAndInvariants: string[] = [];
   const blockersOrTestFailures: string[] = [];
+  const pendingObligations: string[] = [];
   const nextActions: string[] = [];
   let activeHypothesis: string | undefined;
+  let version: number | undefined;
+  let originalRequestRef: string | undefined;
 
-  let currentSection: "modified_files" | "blockers" | "next_actions" | "none" = "none";
+  let currentSection:
+    | "modified_files"
+    | "requirements"
+    | "closure_criteria"
+    | "verified_achievements"
+    | "decisions_and_invariants"
+    | "blockers"
+    | "pending_obligations"
+    | "next_actions"
+    | "none" = "none";
 
   for (const line of lines) {
     if (!line) continue;
+    if (line.startsWith("version:")) {
+      currentSection = "none";
+      version = Number(line.slice("version:".length).trim());
+      continue;
+    }
+    if (line.startsWith("original_request_ref:")) {
+      currentSection = "none";
+      originalRequestRef = line.slice("original_request_ref:".length).trim();
+      continue;
+    }
     if (line.startsWith("modified_files:")) {
       currentSection = "modified_files";
       continue;
@@ -126,8 +183,28 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
       if (rest) activeHypothesis = rest;
       continue;
     }
+    if (line.startsWith("requirements:")) {
+      currentSection = "requirements";
+      continue;
+    }
+    if (line.startsWith("closure_criteria:")) {
+      currentSection = "closure_criteria";
+      continue;
+    }
+    if (line.startsWith("verified_achievements:")) {
+      currentSection = "verified_achievements";
+      continue;
+    }
+    if (line.startsWith("decisions_and_invariants:")) {
+      currentSection = "decisions_and_invariants";
+      continue;
+    }
     if (line.startsWith("blockers_or_test_failures:") || line.startsWith("blockers:")) {
       currentSection = "blockers";
+      continue;
+    }
+    if (line.startsWith("pending_obligations:")) {
+      currentSection = "pending_obligations";
       continue;
     }
     if (line.startsWith("next_actions:") || line.startsWith("next_steps:")) {
@@ -140,8 +217,25 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
       if (!item || item.toLowerCase() === "none" || item.toLowerCase() === "none.") continue;
       if (currentSection === "modified_files") {
         modifiedFiles.push(item);
+      } else if (currentSection === "requirements") {
+        try {
+          const parsed: unknown = JSON.parse(item);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            requirements.push(parsed as CompactionRequirement);
+          }
+        } catch {
+          requirements.push({ id: "", status: "pending", source: item });
+        }
+      } else if (currentSection === "closure_criteria") {
+        closureCriteria.push(item);
+      } else if (currentSection === "verified_achievements") {
+        verifiedAchievements.push(item);
+      } else if (currentSection === "decisions_and_invariants") {
+        decisionsAndInvariants.push(item);
       } else if (currentSection === "blockers") {
         blockersOrTestFailures.push(item);
+      } else if (currentSection === "pending_obligations") {
+        pendingObligations.push(item);
       } else if (currentSection === "next_actions") {
         nextActions.push(item);
       }
@@ -149,9 +243,16 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
   }
 
   return {
+    ...(version !== undefined ? { version } : {}),
+    ...(originalRequestRef ? { originalRequestRef } : {}),
     modifiedFiles,
     ...(activeHypothesis ? { activeHypothesis } : {}),
+    ...(version !== undefined || requirements.length > 0 ? { requirements } : {}),
+    ...(version !== undefined || closureCriteria.length > 0 ? { closureCriteria } : {}),
+    ...(verifiedAchievements.length > 0 ? { verifiedAchievements } : {}),
+    ...(decisionsAndInvariants.length > 0 ? { decisionsAndInvariants } : {}),
     blockersOrTestFailures,
+    ...(pendingObligations.length > 0 ? { pendingObligations } : {}),
     nextActions,
   };
 }
@@ -159,6 +260,9 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
 /** Formats a structured state block into canonical XML. */
 export function formatCompactionStateBlock(block: CompactionStateBlock): string {
   const parts: string[] = [COMPACTION_STATE_TAG_START];
+
+  if (block.version !== undefined) parts.push(`version: ${block.version}`);
+  if (block.originalRequestRef) parts.push(`original_request_ref: ${block.originalRequestRef}`);
   parts.push("modified_files:");
   if (block.modifiedFiles.length === 0) {
     parts.push("- None");
@@ -170,11 +274,41 @@ export function formatCompactionStateBlock(block: CompactionStateBlock): string 
     parts.push(`active_hypothesis: ${block.activeHypothesis}`);
   }
 
+  if (block.requirements) {
+    parts.push("requirements:");
+    if (block.requirements.length === 0) parts.push("- None");
+    else for (const requirement of block.requirements) parts.push(`- ${JSON.stringify(requirement)}`);
+  }
+
+  if (block.closureCriteria) {
+    parts.push("closure_criteria:");
+    if (block.closureCriteria.length === 0) parts.push("- None");
+    else for (const criterion of block.closureCriteria) parts.push(`- ${criterion}`);
+  }
+
+  if (block.verifiedAchievements) {
+    parts.push("verified_achievements:");
+    if (block.verifiedAchievements.length === 0) parts.push("- None");
+    else for (const achievement of block.verifiedAchievements) parts.push(`- ${achievement}`);
+  }
+
+  if (block.decisionsAndInvariants) {
+    parts.push("decisions_and_invariants:");
+    if (block.decisionsAndInvariants.length === 0) parts.push("- None");
+    else for (const decision of block.decisionsAndInvariants) parts.push(`- ${decision}`);
+  }
+
   parts.push("blockers_or_test_failures:");
   if (block.blockersOrTestFailures.length === 0) {
     parts.push("- None");
   } else {
     for (const b of block.blockersOrTestFailures) parts.push(`- ${b}`);
+  }
+
+  if (block.pendingObligations) {
+    parts.push("pending_obligations:");
+    if (block.pendingObligations.length === 0) parts.push("- None");
+    else for (const obligation of block.pendingObligations) parts.push(`- ${obligation}`);
   }
 
   parts.push("next_actions:");

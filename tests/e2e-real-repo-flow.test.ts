@@ -243,7 +243,7 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
     expect(allSubagents).toContain(subagentId);
   });
 
-  it("Step 5: Preflight retains evidence while requesting native compaction", () => {
+  it("Step 5: Preflight retains evidence without an unmeasured rejection", () => {
     // Construct a mock Codex request containing 5 sequential tool outputs that sum to 120k chars
     const messages: CodexMessage[] = [
       { role: "user", content: "Analyze these 5 large log dumps", timestamp: 1 },
@@ -278,12 +278,12 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
       request,
       mockCapabilities,
       {
-        experimentalBiggerContext: false, // inline transport requires compaction above its limit
+        experimentalBiggerContext: false, // compiled model and composer limits decide admission
       },
     );
 
     expect(initialVerdict.safe).toBe(false);
-    expect(initialVerdict.actionRequired).toBe("trigger_compaction");
+    expect(initialVerdict.actionRequired).toBe("none");
     expect(initialVerdict.prunableToolResultsCount).toBe(0); // No historical result is automatically disposable
 
     // Apply preflight preparation
@@ -295,7 +295,7 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
       },
     );
 
-    expect(preparedVerdict.actionRequired).toBe("trigger_compaction");
+    expect(preparedVerdict.actionRequired).toBe("none");
 
     expect(preparedRequest).toEqual(request);
 
@@ -308,7 +308,7 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
       estimatedTokens: 90_000,
       capacityTokens: 100_000,
     });
-    expect(needed).toBe(true);
+    expect(needed).toBe(false);
 
     // 2. Save turn checkpoint
     const currentState = readWorkspaceState(realRepoDir);

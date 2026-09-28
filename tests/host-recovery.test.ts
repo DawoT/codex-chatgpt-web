@@ -147,6 +147,25 @@ test("oversized first host prompt is rejected before durable recovery admission"
   }
 });
 
+test("a viable 160k character first host prompt is admitted", async () => {
+  const root = mkdtempSync(join(tmpdir(), "host-preventive-budget-"));
+  let calls = 0;
+  const runtime = host(root, () => { calls += 1; }, { experimentalBiggerContext: true });
+  try {
+    const session = await runtime.pair(scopeA);
+    const response = await runtime.request(session, "turn-preventive", 1, {
+      input: "evidence ".repeat(19_000),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(calls).toBe(1);
+    expect(await (await runtime.inspect(session)).json()).not.toMatchObject({ state: "unobserved", turn_id: null });
+  } finally {
+    await runtime.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("first host prompt preserves multipart admission when complete records fit", async () => {
   const root = mkdtempSync(join(tmpdir(), "host-multipart-admission-"));
   let calls = 0;
@@ -155,7 +174,7 @@ test("first host prompt preserves multipart admission when complete records fit"
     const session = await runtime.pair(scopeA);
     const input = Array.from({ length: 12 }, (_, index) => ({
       role: "user",
-      content: `record ${index}: ${"evidence ".repeat(2_000)}`,
+      content: `record ${index}: ${"evidence ".repeat(1_000)}`,
     }));
     const response = await runtime.request(session, "turn-multipart", 1, { input });
     expect(response.status).toBe(200);

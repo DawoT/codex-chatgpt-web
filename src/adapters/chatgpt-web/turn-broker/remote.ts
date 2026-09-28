@@ -2,6 +2,7 @@ import type { ChatGptTurnEnvironment } from "../environment";
 import { callTurnBroker } from "./client";
 import { assertSurfaceNonce } from "./helpers";
 import type { BrokerToolRequest, BrokerToolResult, TurnBrokerOwner } from "./types";
+import type { ToolDeliveryPhase } from "../tool-delivery-lifecycle";
 
 /**
  * Outer-harness client for a broker already owned by the live launcher runtime. It lets a
@@ -21,7 +22,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
         + ` (${error instanceof Error ? error.message : String(error)})`,
       );
     }
-    if (status.protocolVersion !== 5) {
+    if (status.protocolVersion !== 6) {
       throw new Error(`Unsupported DEV turn-owner protocol version: ${String(status.protocolVersion)}`);
     }
     if (status.acceptingExternalOwners !== true) {
@@ -138,6 +139,21 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       callId,
       toolResult: result,
     }, null);
+  }
+
+  async recordToolLifecyclePhase(
+    token: string,
+    callId: string,
+    phase: ToolDeliveryPhase,
+    evidence?: string,
+  ): Promise<void> {
+    await callTurnBroker(this.socketPath, {
+      method: "owner_tool_phase",
+      token,
+      callId,
+      lifecyclePhase: phase,
+      ...(evidence ? { lifecycleEvidence: evidence } : {}),
+    });
   }
 
   async waitForSafeStart(token: string, signal?: AbortSignal): Promise<void> {

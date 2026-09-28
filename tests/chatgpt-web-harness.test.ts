@@ -2324,7 +2324,26 @@ describe("ChatGPT outer-native harness v4", () => {
             method: "submit_compaction_handoff",
             token: controlToken,
             handoffId,
-            summary: "The project was inspected and the pending command completed.",
+            summary: `The project was inspected and the pending command completed.
+<compaction_state>
+version: 2
+original_request_ref: original repository task
+modified_files:
+active_hypothesis: Continue the repository task.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"original repository task: continue the task"}
+closure_criteria:
+- Complete the repository task
+verified_achievements:
+- Working directory observed — evidence: ${tempRoot}
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue the repository task
+next_actions:
+- Check repository status
+</compaction_state>`,
           });
           originalBrowserStopped = true;
           return "Structured checkpoint submitted";
@@ -2441,6 +2460,16 @@ describe("ChatGPT outer-native harness v4", () => {
       const compactEvents: AdapterEvent[] = [];
       await adapter.runTurn!(compactRequest, { headers: new Headers() }, event => compactEvents.push(event));
       expect(compactEvents.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
+      expect(compactEvents.filter(event => event.type === "milestone" && event.kind === "checkpoint_completed"))
+        .toHaveLength(1);
+      expect(compactEvents.filter(event => event.type === "milestone" && event.kind === "verified_achievement"))
+        .toEqual([{
+          type: "milestone",
+          kind: "verified_achievement",
+          result: "Working directory observed",
+          evidence: tempRoot,
+          nextStep: "Check repository status",
+        }]);
       expect(originalBrowserStopped).toBe(true);
       expect(originalBrowserReceivedToolResult).toBe(true);
       expect(retainedCompactionMessages).toBe(1);
@@ -3748,6 +3777,22 @@ test("mirrored turn progress carries broker claim status and maintains liveness"
     lastProgressAt: 1_000,
   });
   expect(chatGptExternalProgressIsLive(mirror.snapshot(), 100_000, 60_000)).toBeTrue();
+});
+
+test("tool-boundary observation fails closed before the MCP request deadline", async () => {
+  const progress = new ChatGptExternalTurnProgress();
+  const revision = progress.recordToolBatch(1, 1_000);
+
+  const error = await Promise.race([
+    progress.waitForToolBatchObservation(revision, undefined, 20).then(() => undefined, failure => failure),
+    Bun.sleep(200).then(() => new Error("tool-boundary observation did not enforce its own deadline")),
+  ]);
+
+  expect(error).toBeInstanceOf(ChatGptWebAdapterError);
+  expect((error as ChatGptWebAdapterError).code).toBe("chatgpt_tool_boundary_observation_timeout");
+  expect(String(error)).toContain("ChatGPT did not observe Codex tool boundary within 20ms");
+
+  expect(progress.snapshot().activeToolCalls).toBe(1);
 });
 
 test("mirrored turn progress ignores replayed frames and rejects malformed ones", async () => {

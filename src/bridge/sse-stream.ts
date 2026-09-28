@@ -342,9 +342,21 @@ export function bridgeToResponsesSSE(
             }
             continue;
           }
-          if (event.type !== "done" && event.type !== "incomplete" && event.type !== "error") continue;
+          if (event.type !== "done" && event.type !== "incomplete"
+            && event.type !== "error" && event.type !== "milestone") continue;
         }
         switch (event.type) {
+          case "milestone": {
+            emit("response.milestone", {
+              milestone: {
+                kind: event.kind,
+                result: event.result,
+                evidence: event.evidence,
+                next_step: event.nextStep,
+              },
+            });
+            break;
+          }
           case "heartbeat": {
             try {
               controller.enqueue(heartbeatFrame);

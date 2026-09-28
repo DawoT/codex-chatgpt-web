@@ -129,6 +129,8 @@ export function buildResponseJSON(
 
   for (const e of events) {
     switch (e.type) {
+      case "milestone":
+        break;
       case "assistant_boundary":
         flushText();
         flushSummaryReasoning();

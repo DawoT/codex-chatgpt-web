@@ -9,6 +9,7 @@ import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError, chatGptRetain
 import {
   MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
   cancelAllStructuredCompactions,
+  canonicalizeCompactionHandoff,
   cancelStructuredCompactionNativeTurn,
   cancelStructuredCompactionTrace,
   existingStructuredCompactionRun,
@@ -86,6 +87,71 @@ function request(compaction = false): CodexParsedRequest {
       },
     },
   };
+}
+
+test("canonical handoff preserves the first user request across later checkpoints", () => {
+  const first = request(true);
+  const checkpoint = canonicalizeCompactionHandoff(first, missionCheckpoint("Continue the task."));
+  expect(checkpoint).toContain('CODEX_ORIGINAL_USER_REQUEST_JSON\n{"sha256":');
+  expect(checkpoint).toContain('"text":"Original task"');
+  expect(checkpoint).toMatch(/original_request_ref: sha256:[a-f0-9]{64}/);
+
+  const later = request(true);
+  later.context.messages = [
+    { role: "user", origin: "compaction_summary", content: checkpoint, timestamp: 4 },
+    { role: "user", content: "A later instruction", timestamp: 5 },
+  ];
+  const next = canonicalizeCompactionHandoff(later, missionCheckpoint("Continue the task."));
+  expect(next).toContain('"text":"Original task"');
+  expect(next).not.toContain('"text":"A later instruction"');
+  expect(next.match(/original_request_ref: sha256:[a-f0-9]{64}/)?.[0])
+    .toBe(checkpoint.match(/original_request_ref: sha256:[a-f0-9]{64}/)?.[0]);
+  later.context.messages[0] = {
+    role: "user",
+    origin: "compaction_summary",
+    content: checkpoint.replace('"text":"Original task"', '"text":"Another task"'),
+    timestamp: 4,
+  };
+  expect(() => canonicalizeCompactionHandoff(later, missionCheckpoint("Continue the task.")))
+    .toThrow("original-request marker");
+});
+
+test("canonical handoff finds the latest validated original request after legacy checkpoints", () => {
+  const checkpoint = canonicalizeCompactionHandoff(request(true), missionCheckpoint("First checkpoint"));
+  const later = request(true);
+  later.context.messages = [
+    { role: "user", origin: "compaction_summary", content: "Legacy checkpoint without an original-request marker", timestamp: 4 },
+    { role: "user", origin: "compaction_summary", content: checkpoint, timestamp: 5 },
+    { role: "user", content: "A later instruction", timestamp: 6 },
+  ];
+
+  expect(canonicalizeCompactionHandoff(later, missionCheckpoint("Next checkpoint")))
+    .toContain('"text":"Original task"');
+  later.context.messages.splice(1, 1);
+  expect(() => canonicalizeCompactionHandoff(later, missionCheckpoint("Next checkpoint")))
+    .toThrow("no recoverable original-request marker");
+});
+
+function missionCheckpoint(narrative: string): string {
+  return `${narrative}
+<compaction_state>
+version: 2
+original_request_ref: user turn turn_source
+modified_files:
+active_hypothesis: Continue the original task.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user turn turn_source: Continue with the next step"}
+closure_criteria:
+- Complete the next step
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue with the next step
+next_actions:
+- Continue with the next step
+</compaction_state>`;
 }
 
 function controlBinding(instruction: string): { token: string; handoffId: string } {
@@ -1114,7 +1180,7 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
       method: "submit_compaction_handoff",
       token: binding.token,
       handoffId: binding.handoffId,
-      summary: "Adapter retained checkpoint",
+      summary: missionCheckpoint("Adapter retained checkpoint"),
     });
     return "Checkpoint submitted through MCP";
   };
@@ -1155,6 +1221,148 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
     expect(chatGptTurnSessions.find(compactedSourceKey)!.conversationKey()).toBeUndefined();
     expect(chatGptTurnSessions.findConversationHead(conversationKey)).toBeUndefined();
     expect(releases).toBe(1);
+  } finally {
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+    chatGptTurnSessions.clear();
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("invalid checkpoint keeps the retained source and does not send a second prompt without repair time", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-invalid-checkpoint-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://invalid-checkpoint-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      appName: "Codex Native DEV",
+      localToolsEnabled: true,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+      turnTimeoutMs: 1_000,
+    },
+  };
+  const broker = TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!);
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  const sourceRequest = request(false);
+  const namespace = chatGptWebExecutionNamespace(provider);
+  const sourceKey = `${namespace}:${chatGptTurnExecutionKey(sourceRequest)}`;
+  const conversationKey = chatGptConversationKey(sourceRequest, namespace)!;
+  let releases = 0;
+  let browserMessages = 0;
+  chatGptTurnSessions.getOrCreate(sourceKey, () => ({
+    mode: "read-only",
+    browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(),
+    trace: new ChatGptTraceFeed(),
+    text: new ChatGptTextFeed(),
+    conversationKey,
+    releaseRetainedConversation: async () => { releases += 1; },
+    cancel() {},
+  }));
+  await chatGptTurnSessions.find(sourceKey)!.browserOutcome;
+  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+    browserMessages += 1;
+    const prepared = await turn.prepareResume!();
+    const binding = controlBinding(prepared.text);
+    prepared.release();
+    await callTurnBroker(provider.chatgptWeb!.brokerSocketPath!, {
+      method: "submit_compaction_handoff",
+      token: binding.token,
+      handoffId: binding.handoffId,
+      summary: "This checkpoint omits the mission checklist and cannot replace the source history.",
+    });
+    return "submitted";
+  };
+  const compact = structuredClone(sourceRequest);
+  compact._compactionRequest = true;
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(compact, { headers: new Headers() }, event => events.push(event));
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+    expect(browserMessages).toBe(1);
+    expect(releases).toBe(0);
+    expect(chatGptTurnSessions.findConversationHead(conversationKey)).toBeDefined();
+  } finally {
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+    chatGptTurnSessions.clear();
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.each([true, false])("an invalid retained checkpoint gets one repair without losing source history (repair succeeds=%s)", async repaired => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-checkpoint-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-checkpoint-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      appName: "Codex Native DEV",
+      localToolsEnabled: true,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const broker = TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!);
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  const sourceRequest = request(false);
+  const namespace = chatGptWebExecutionNamespace(provider);
+  const sourceKey = `${namespace}:${chatGptTurnExecutionKey(sourceRequest)}`;
+  const conversationKey = chatGptConversationKey(sourceRequest, namespace)!;
+  let releases = 0;
+  let browserMessages = 0;
+  chatGptTurnSessions.getOrCreate(sourceKey, () => ({
+    mode: "read-only",
+    browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(),
+    trace: new ChatGptTraceFeed(),
+    text: new ChatGptTextFeed(),
+    conversationKey,
+    releaseRetainedConversation: async () => { releases += 1; },
+    cancel() {},
+  }));
+  await chatGptTurnSessions.find(sourceKey)!.browserOutcome;
+  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+    browserMessages += 1;
+    const prepared = await turn.prepareResume!();
+    const binding = controlBinding(prepared.text);
+    if (browserMessages === 2) expect(prepared.text).toContain("Repair that draft once");
+    prepared.release();
+    await callTurnBroker(provider.chatgptWeb!.brokerSocketPath!, {
+      method: "submit_compaction_handoff",
+      token: binding.token,
+      handoffId: binding.handoffId,
+      summary: browserMessages === 1 || !repaired
+        ? "Incomplete checkpoint without a mission checklist."
+        : missionCheckpoint("Repaired retained checkpoint"),
+    });
+    return "submitted";
+  };
+  const compact = structuredClone(sourceRequest);
+  compact._compactionRequest = true;
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(compact, { headers: new Headers() }, event => events.push(event));
+    expect(browserMessages).toBe(2);
+    expect(releases).toBe(repaired ? 1 : 0);
+    if (repaired) {
+      expect(events.some(event => event.type === "text_delta" && event.text.includes("Repaired retained checkpoint"))).toBeTrue();
+      expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
+    } else {
+      expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+      expect(chatGptTurnSessions.findConversationHead(conversationKey)).toBeDefined();
+    }
   } finally {
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     chatGptTurnSessions.clear();
@@ -1215,7 +1423,7 @@ test("a compact HTTP observer can reconnect without sending a second retained-ch
       method: "submit_compaction_handoff",
       token: binding.token,
       handoffId: binding.handoffId,
-      summary: "Reconnect-safe checkpoint",
+      summary: missionCheckpoint("Reconnect-safe checkpoint"),
     });
     return "Checkpoint submitted through MCP";
   };
@@ -1251,6 +1459,8 @@ test("a compact HTTP observer can reconnect without sending a second retained-ch
     expect(releases).toBe(1);
     expect(events.some(event => event.type === "text_delta"
       && event.text.includes("Reconnect-safe checkpoint"))).toBeTrue();
+    expect(events.filter(event => event.type === "milestone" && event.kind === "checkpoint_completed"))
+      .toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
   } finally {
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
@@ -1292,7 +1502,7 @@ test.each([false, true])("structured compact rebuilds canonical context when its
     const lastRecord = prepared.multipart!.parts.flatMap(part => JSON.parse(part).records).at(-1);
     expect(lastRecord.message.content).toBe(compact.context.messages.at(-1)!.content);
     prepared.release();
-    return "Fallback checkpoint from canonical Codex context";
+    return missionCheckpoint("Fallback checkpoint from canonical Codex context");
   };
   const compact = request(true);
   const events: AdapterEvent[] = [];
@@ -1342,7 +1552,7 @@ test.each([false, true])("configured fresh compaction waits for cleanup and pres
   const worker = ChatGptBrowserWorker.forProvider(provider);
   const originalRun = worker.run;
   let starts = 0;
-  worker.run = async () => { starts += 1; return "Fresh checkpoint"; };
+  worker.run = async () => { starts += 1; return missionCheckpoint("Fresh checkpoint"); };
   const events: AdapterEvent[] = [];
   let pending: Promise<void> | undefined;
   try {
@@ -1398,7 +1608,7 @@ test.each([false, true])("fresh multipart compaction preserves phase budgets wit
     turn.onSubmitted!();
     mock?.timers?.tick?.(25);
     expect(turn.abortSignal?.aborted).toBeFalse();
-    return "Fallback checkpoint after separately bounded phases";
+    return missionCheckpoint("Fallback checkpoint after separately bounded phases");
   };
   const events: AdapterEvent[] = [];
   mock?.timers?.enable?.({ apis: ["setTimeout"] });
@@ -1502,7 +1712,7 @@ test("a timed-out fresh compaction retains its owner until helper cleanup comple
     started();
     turn.abortSignal!.addEventListener("abort", () => { cancelled = true; }, { once: true });
     await physicalSettlement;
-    return "Browser released after cancellation";
+    return missionCheckpoint("Browser released after cancellation");
   };
   const adapter = createChatGptWebAdapter(provider);
   const events: AdapterEvent[] = [];
@@ -1586,7 +1796,7 @@ test.each([false, true])("structured compact rebuild after retained browser loss
     if (rateLimited) throw new ChatGptWebAdapterError("ChatGPT rate limit: too many requests.", {
       status: 429, errorType: "rate_limit_error", code: "rate_limit_exceeded", retryable: false,
     });
-    return "Fallback checkpoint after retained browser loss";
+    return missionCheckpoint("Fallback checkpoint after retained browser loss");
   };
   const events: AdapterEvent[] = [];
   try {

@@ -49,9 +49,13 @@ async function snapshot(html: string): Promise<Snapshot> {
         try { return runInContext(`(${callback.toString()})`, context)(window.document.getElementById("turn"), options); }
         catch (error) { errors.push(error); throw error; }
       },
-      page: () => ({ isClosed: () => false }),
+      page: () => ({ isClosed: () => false, evaluate: async () => html.length }),
     } as unknown as Locator;
-    const worker = Object.create(ChatGptBrowserWorker.prototype) as {
+    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+      lastDomMeasurementByPage: new WeakMap(),
+      contextPressureByConversation: new Map(),
+      contextPressureByPage: new WeakMap(),
+    }) as {
       responseDomSnapshot(locator: Locator): Promise<Snapshot>;
     };
     const result = await worker.responseDomSnapshot(locator);

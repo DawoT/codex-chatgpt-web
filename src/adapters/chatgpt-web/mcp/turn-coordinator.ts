@@ -24,13 +24,28 @@ export class TurnCoordinator {
     extra: McpRequestExtra,
   ): Promise<ClaimedTurn> {
     console.error(`[chatgpt-web-mcp] ${toolName} scope=${requestScopeSummary(extra)}`);
+    const status = await callTurnBroker<{ protocolVersion?: unknown }>(
+      this.brokerSocketPath,
+      { method: "owner_status" },
+      5_000,
+      extra.signal,
+    );
+    if (status.protocolVersion !== 6) {
+      throw new Error(`Unsupported Codex Native broker protocol version: ${String(status.protocolVersion)}`);
+    }
     const activityId = `activity_${randomBytes(18).toString("base64url")}`;
     try {
       // Chat-First never claims turns (its tools take no turn reference), so the broker contract
       // value only ever observes native/safe here; the mapping keeps the wire type narrow.
       const claimed = await callTurnBroker<Omit<ClaimedTurn, "activityId">>(
         this.brokerSocketPath,
-        { method: "claim", token: turnToken, activityId, contract: this.contract === "chat-first" ? "native" : this.contract },
+        {
+          method: "claim",
+          token: turnToken,
+          activityId,
+          observationId: currentMcpTrace(),
+          contract: this.contract === "chat-first" ? "native" : this.contract,
+        },
         this.contract === "safe" ? null : 5_000,
         extra.signal,
       );

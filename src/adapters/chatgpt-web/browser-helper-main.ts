@@ -34,6 +34,7 @@ interface RunMessage {
     requireRetainedConversation?: boolean;
     conversationKey?: string;
     compaction?: boolean;
+    pendingMissionRequirements?: boolean;
     captureLunaCheckpoint?: boolean;
     externalProgress?: boolean;
   };
@@ -76,6 +77,7 @@ type InputMessage = RunMessage
   | { type: "completion_fence_commit_ack"; id: string; requestId: number; committed: boolean }
   | { type: "progress"; id: string; snapshot: ChatGptExternalTurnProgressSnapshot }
   | { type: "abort"; id: string; reason?: "compaction_handoff_accepted" }
+  | { type: "release_context_pressure"; conversationKey: string }
   | { type: "shutdown" };
 
 let outputFailure: Error | undefined;
@@ -180,6 +182,10 @@ async function run(message: RunMessage): Promise<void> {
   if (message.turn.compaction !== undefined && typeof message.turn.compaction !== "boolean") {
     throw new Error("Browser helper compaction flag is invalid");
   }
+  if (message.turn.pendingMissionRequirements !== undefined
+    && typeof message.turn.pendingMissionRequirements !== "boolean") {
+    throw new Error("Browser helper pending mission flag is invalid");
+  }
   if (message.turn.captureLunaCheckpoint !== undefined && typeof message.turn.captureLunaCheckpoint !== "boolean") {
     throw new Error("Browser helper Luna checkpoint flag is invalid");
   }
@@ -230,6 +236,7 @@ async function run(message: RunMessage): Promise<void> {
     ...(message.turn.conversationKey ? { conversationKey: message.turn.conversationKey } : {}),
     abortSignal: abortController.signal,
     ...(message.turn.compaction ? { compaction: true } : {}),
+    ...(message.turn.pendingMissionRequirements ? { pendingMissionRequirements: true } : {}),
     ...(progress ? {
       externalProgress: progress,
       completionFence: {
@@ -495,6 +502,13 @@ input.on("line", line => {
     completionFenceCommitWaiters.delete(message.id);
     commitWaiter?.reject(new DOMException("Browser helper turn aborted before completion-fence commit", "AbortError"));
   }
+  else if (message.type === "release_context_pressure") {
+    if (!/^[a-f0-9]{64}$/.test(message.conversationKey)) {
+      writeProtocol({ type: "error", id: "unknown", message: "Browser helper conversation key is invalid" });
+    } else {
+      ChatGptBrowserWorker.releaseContextPressureForConversation(message.conversationKey);
+    }
+  }
   else if (message.type === "shutdown") {
     void requestShutdown();
   } else if (message.type === "verify") {
@@ -535,4 +549,4 @@ process.once("SIGTERM", () => {
 });
 
 // Advertise the optional frames this helper understands so the daemon can negotiate them explicitly.
-writeProtocol({ type: "ready", features: ["progress", "tool-boundary-ack", "completion-fence", "multipart-stage-ack", "skill-attachments"] });
+writeProtocol({ type: "ready", features: ["progress", "tool-boundary-ack", "completion-fence", "multipart-stage-ack", "skill-attachments", "mission-headroom", "context-pressure-release"] });

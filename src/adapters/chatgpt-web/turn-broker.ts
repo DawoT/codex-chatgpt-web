@@ -3,6 +3,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { dirname } from "node:path";
 import { isWindowsPipeEndpoint } from "../../config";
 import { McpTelemetry } from "./mcp-telemetry";
+import { ToolDeliveryLifecycle, type ToolDeliveryPhase } from "./tool-delivery-lifecycle";
 import {
   CompactionTransactionStore,
   type CompactionTransactionHandle,
@@ -342,10 +343,39 @@ export class TurnBroker implements TurnBrokerOwner {
     if (!channel.deliveredCallIds.delete(callId)) {
       throw new Error(`tool call was completed before it was delivered: ${callId}`);
     }
+    if (invocation.lifecycle.current() === "codex_emitted") {
+      this.recordToolLifecyclePhase(token, callId, "host_started", "proven_by_result_arrival");
+    }
+    if (invocation.lifecycle.current() === "host_started") {
+      invocation.lifecycle.mark("result_received");
+      this.recordToolObservation(
+        invocation.request,
+        "result_received",
+        result.isError === true,
+        invocation.observedStarted,
+        "tool_result",
+      );
+    }
     channel.invocations.delete(callId);
     this.recordToolObservation(invocation.request, "broker_result_received", result.isError === true, invocation.observedStarted);
     console.info(`[chatgpt-web] broker trace=${channel.traceId} completed call=${callId.slice(0, 17)} pending=${channel.invocations.size}`);
     invocation.resolve(result);
+  }
+
+  recordToolLifecyclePhase(
+    token: string,
+    callId: string,
+    phase: ToolDeliveryPhase,
+    evidence?: string,
+  ): void {
+    this.prune();
+    const channel = this.channels.get(token);
+    if (!channel) throw new Error("turn token is invalid or expired");
+    const invocation = channel.invocations.get(callId);
+    if (!invocation) throw new Error(`tool call is not pending: ${callId}`);
+    if (invocation.lifecycle.mark(phase)) {
+      this.recordToolObservation(invocation.request, phase, false, invocation.observedStarted, evidence);
+    }
   }
 
   /**
@@ -803,7 +833,7 @@ export class TurnBroker implements TurnBrokerOwner {
     if (!request || typeof request !== "object" || typeof request.id !== "string" || request.id.length === 0 || request.id.length > 256) {
       throw new Error("turn broker request id is invalid");
     }
-    if (!["claim", "resolve", "release", "invoke", "owner_status", "owner_register", "owner_register_safe", "owner_register_alias", "owner_touch_activity", "owner_update", "owner_safe_sent", "owner_next", "owner_complete", "owner_completion_fence_begin", "owner_completion_fence_commit", "owner_wait_retirement", "owner_revoke", "owner_safe_wait_start", "owner_safe_wait_completion", "owner_request_compaction", "owner_compaction_delivery_count", "safe_start", "safe_complete", "activity_complete", "submit_compaction_handoff"].includes(request.method)) {
+    if (!["claim", "resolve", "release", "invoke", "owner_status", "owner_register", "owner_register_safe", "owner_register_alias", "owner_touch_activity", "owner_update", "owner_safe_sent", "owner_next", "owner_complete", "owner_tool_phase", "owner_completion_fence_begin", "owner_completion_fence_commit", "owner_wait_retirement", "owner_revoke", "owner_safe_wait_start", "owner_safe_wait_completion", "owner_request_compaction", "owner_compaction_delivery_count", "safe_start", "safe_complete", "activity_complete", "submit_compaction_handoff"].includes(request.method)) {
       throw new Error("turn broker method is invalid");
     }
   }
@@ -839,7 +869,7 @@ export class TurnBroker implements TurnBrokerOwner {
       return { submitted: true };
     }
     if (request.method === "owner_status") {
-      return { protocolVersion: 5, acceptingExternalOwners: this.acceptingExternalOwners };
+      return { protocolVersion: 6, acceptingExternalOwners: this.acceptingExternalOwners };
     }
     if (request.method === "owner_register_alias") {
       if (!request.token) throw new Error("old token is required");
@@ -898,6 +928,21 @@ export class TurnBroker implements TurnBrokerOwner {
       }
       this.completeTool(request.token, request.callId, request.toolResult);
       return { completed: true };
+    }
+    if (request.method === "owner_tool_phase") {
+      if (!request.token) throw new Error("turn owner token is required");
+      if (!request.callId) throw new Error("turn owner call id is required");
+      if (!request.lifecyclePhase) throw new Error("turn owner lifecycle phase is required");
+      if (request.lifecyclePhase !== "browser_observed" && request.lifecyclePhase !== "codex_emitted") {
+        throw new Error("turn owner may only record browser observation or Codex emission");
+      }
+      this.recordToolLifecyclePhase(
+        request.token,
+        request.callId,
+        request.lifecyclePhase,
+        request.lifecycleEvidence,
+      );
+      return { recorded: true };
     }
     if (request.method === "owner_completion_fence_begin") {
       if (!request.token) throw new Error("turn owner token is required");
@@ -999,6 +1044,7 @@ export class TurnBroker implements TurnBrokerOwner {
           throw new Error("turn token binding state is inconsistent");
         }
         resolveSafeWaiters(activeChannel.claimWaiters, undefined);
+        this.recordBrokerClaim(request.observationId);
         return { bindingId: activeChannel.bindingId, activityId, environment: activeChannel.environment, traceId: activeChannel.traceId };
       }
       this.pending.delete(effectiveToken);
@@ -1006,6 +1052,7 @@ export class TurnBroker implements TurnBrokerOwner {
       activeChannel.bindingId = bindingId;
       this.bindings.set(bindingId, { token: effectiveToken, channel: activeChannel });
       resolveSafeWaiters(activeChannel.claimWaiters, undefined);
+      this.recordBrokerClaim(request.observationId);
       return { bindingId, activityId, environment: activeChannel.environment, traceId: activeChannel.traceId };
     }
 
@@ -1082,7 +1129,13 @@ export class TurnBroker implements TurnBrokerOwner {
       ...(request.freeform === true ? { input: request.input ?? "" } : { arguments: request.arguments ?? {} }),
     };
     return new Promise<BrokerToolResult>((resolveInvoke, rejectInvoke) => {
-      binding.channel.invocations.set(callId, { request: toolRequest, resolve: resolveInvoke, reject: rejectInvoke, observedStarted: performance.now() });
+      binding.channel.invocations.set(callId, {
+        request: toolRequest,
+        resolve: resolveInvoke,
+        reject: rejectInvoke,
+        observedStarted: performance.now(),
+        lifecycle: new ToolDeliveryLifecycle(),
+      });
       this.recordToolObservation(toolRequest, "broker_queued");
       binding.channel.queuedCallIds.push(callId);
       console.info(
@@ -1102,20 +1155,36 @@ export class TurnBroker implements TurnBrokerOwner {
 
   private logToolDelivery(channel: TurnChannel, batch: BrokerToolRequest[], path: "immediate" | "waiter" | "replay"): void {
     for (const request of batch) {
-      this.recordToolObservation(request, "broker_delivered");
+      this.recordToolObservation(request, "broker_delivered", false, undefined, "handed_to_adapter_only");
       console.info(
         `[chatgpt-web] broker trace=${channel.traceId} delivered call=${request.callId.slice(0, 17)} path=${path} replay=${path === "replay"}`,
       );
     }
   }
 
-  private recordToolObservation(request: BrokerToolRequest, event: string, isError = false, started?: number): void {
+  private recordBrokerClaim(observationId: string | undefined): void {
+    if (typeof observationId !== "string" || !/^[a-f0-9-]{36}$/.test(observationId)) return;
+    this.telemetry.write({
+      trace_id: observationId,
+      event: "broker_claimed",
+      evidence: "broker_claim_succeeded",
+    });
+  }
+
+  private recordToolObservation(
+    request: BrokerToolRequest,
+    event: string,
+    isError = false,
+    started?: number,
+    evidence?: string,
+  ): void {
     if (!request.observationId) return;
     this.telemetry.write({
       trace_id: request.observationId,
       broker_call_id: request.callId,
       event,
       is_error: isError,
+      ...(evidence ? { evidence } : {}),
       ...(started !== undefined ? { elapsed_ms: Math.round(performance.now() - started) } : {}),
     });
   }

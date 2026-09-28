@@ -1,4 +1,3 @@
-import type { Page } from "playwright-core";
 import { activateChatGptEffortMenu, parseChatGptEffortSliderState } from "../../chatgpt-session";
 import type { ChatGptWebAdapterEffort, ChatGptWebModelFamily } from "../../chatgpt-web-models";
 import { ChatGptWebAdapterError } from "./adapter-error";
@@ -24,10 +23,9 @@ function familyOption(menu: EffortMenu, family: ChatGptWebModelFamily) {
 
 /** Model and effort are separate browser controls; a generic Pro label proves neither family. */
 export async function selectChatGptModelFamily(
-  page: Page,
   menu: EffortMenu,
   family: ChatGptWebModelFamily,
-  reopen: () => Promise<EffortMenu>,
+  activate: () => Promise<EffortMenu>,
 ): Promise<EffortMenu> {
   try {
     const option = familyOption(menu, family);
@@ -49,8 +47,9 @@ export async function selectChatGptModelFamily(
     }
     await option.waitFor({ state: "visible", timeout: 5_000 });
     await option.click({ timeout: 5_000 });
-    await page.keyboard.press("Escape");
-    const selected = await reopen();
+    // Family selection returns to the slider in the same open picker. Closing and immediately
+    // reopening it races the old menu's exit animation and can discard the new selection.
+    const selected = await activate();
     const deadline = Date.now() + 1_000;
     do {
       const current = familyOption(selected, family);

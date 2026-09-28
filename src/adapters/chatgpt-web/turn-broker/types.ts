@@ -1,4 +1,5 @@
 import type { ChatGptTurnEnvironment } from "../environment";
+import type { ToolDeliveryLifecycle, ToolDeliveryPhase } from "../tool-delivery-lifecycle";
 
 export interface PendingTurn extends ChatGptTurnEnvironment {
   expiresAt?: number;
@@ -23,6 +24,7 @@ export interface BrokerToolResult {
 export interface PendingInvocation {
   observedStarted?: number;
   request: BrokerToolRequest;
+  lifecycle: ToolDeliveryLifecycle;
   resolve: (result: BrokerToolResult) => void;
   reject: (error: Error) => void;
 }
@@ -97,6 +99,7 @@ export interface BrokerRequest {
     | "owner_safe_sent"
     | "owner_next"
     | "owner_complete"
+    | "owner_tool_phase"
     | "owner_completion_fence_begin"
     | "owner_completion_fence_commit"
     | "owner_wait_retirement"
@@ -123,6 +126,8 @@ export interface BrokerRequest {
   callId?: string;
   activityId?: string;
   revision?: number;
+  lifecyclePhase?: ToolDeliveryPhase;
+  lifecycleEvidence?: string;
   toolResult?: BrokerToolResult;
   handoffId?: string;
   summary?: string;
@@ -162,6 +167,12 @@ export interface TurnBrokerOwner {
     surfaceNonce: string,
   ): { confirmed: true; duplicate: boolean } | Promise<{ confirmed: true; duplicate: boolean }>;
   nextToolBatch(token: string, signal?: AbortSignal): Promise<BrokerToolRequest[]>;
+  recordToolLifecyclePhase?(
+    token: string,
+    callId: string,
+    phase: ToolDeliveryPhase,
+    evidence?: string,
+  ): void | Promise<void>;
   completeTool(token: string, callId: string, result: BrokerToolResult): void | Promise<void>;
   waitForSafeStart(token: string, signal?: AbortSignal): Promise<void>;
   waitForSafeCompletion(token: string, signal?: AbortSignal): Promise<string>;

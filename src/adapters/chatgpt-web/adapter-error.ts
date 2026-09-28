@@ -22,6 +22,20 @@ export class ChatGptWebAdapterError extends Error {
   }
 }
 
+export function chatGptContextCompactionRequiredError(reason?: string): ChatGptWebAdapterError {
+  return new ChatGptWebAdapterError(
+    "Native context compaction is required before browser delivery. "
+      + `${reason ? `${reason} ` : ""}`
+      + "Compact the Codex context and retry this turn; the oversized prompt was not sent to ChatGPT.",
+    {
+      status: 413,
+      errorType: "invalid_request_error",
+      code: "context_compaction_required",
+      retryable: false,
+    },
+  );
+}
+
 // Only the compaction owner may signal this after the broker accepts its one-shot handoff.
 // It cancels browser observation, while the accepted summary remains the native result.
 export class ChatGptCompactionHandoffAccepted extends DOMException {

@@ -73,3 +73,18 @@ export function structuredCompactionHandoffInstruction(
     "If the call is rejected or fails, stop and report its actual error. Do not retry through another tool or claim the summary was submitted without submitted=true.",
   ].join("\n");
 }
+
+export function structuredCompactionRepairInstruction(
+  transaction: CompactionTransactionHandle,
+  missingInvariants: readonly string[],
+): string {
+  return [
+    "The previous checkpoint was rejected. Its complete draft remains in this retained conversation.",
+    "Repair that draft once. Preserve all requirements, evidence, blockers, decisions, modified files and the original request reference.",
+    "Missing or invalid items:",
+    ...missingInvariants.map(item => `- ${item}`),
+    "Submit one complete corrected version 2 <compaction_state> checkpoint. Do not claim a requirement is verified without an observed successful result.",
+    ...compactionControlBinding(transaction),
+    "After submitted=true, call no more tools.",
+  ].join("\n");
+}

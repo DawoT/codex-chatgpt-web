@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { AdapterEvent, CodexParsedRequest } from "../../../types";
+import { extractStructuredCompactionHandoff } from "../../../responses/compaction";
+import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
+import { checkpointRepairPromptFits, shouldRepairCheckpoint } from "../compaction-repair";
 import type { ChatGptBrowserWorker } from "../browser-worker";
 import {
   validateCompactionQuality,
@@ -16,7 +19,8 @@ import {
 } from "../compaction-handoff";
 import { chatGptConversationKey } from "../conversation-key";
 import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity } from "../environment";
-import { CHATGPT_WEB_LUNA_MODEL_ID, type ChatGptWebCapabilities } from "../model";
+import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "../model";
+import { structuredCompactionRepairInstruction } from "../native-compaction-control";
 import { chatGptWebTurnRetryPolicy } from "../retry-policy";
 import { TurnBroker, type TurnBrokerOwner } from "../turn-broker";
 import {
@@ -31,6 +35,8 @@ import { estimateChatGptWebUsage } from "../usage";
 import { persistTurnCompaction } from "../workspace-persistence";
 import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
+
+const observedRepairDurationsMs: number[] = [];
 
 export interface CompactionFlowContext {
   worker: ChatGptBrowserWorker;
@@ -146,9 +152,11 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             },
           );
           let handoffTimer: ReturnType<typeof setTimeout> | undefined;
+          let handoffDeadlineAt = 0;
           const armHandoffDeadline = (): void => {
             if (handoffDeadline.signal.aborted) return;
             if (handoffTimer) clearTimeout(handoffTimer);
+            handoffDeadlineAt = Date.now() + handoffTimeoutMs;
             handoffTimer = setTimeout(
               () => handoffDeadline.abort(handoffTimeoutError),
               handoffTimeoutMs,
@@ -186,6 +194,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           };
           let source: ChatGptTurnSession | undefined;
           let preserveFinalResponse = false;
+          let repairAttempted = false;
           try {
             if (freshConversationPerTurn) {
               // Full native history is the compaction input. Release an unfinished
@@ -275,7 +284,54 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 handoffTimeoutMs,
               );
             }
-            const summary = canonicalizeCompactionHandoff(parsed, rawSummary);
+            let summary = canonicalizeCompactionHandoff(parsed, rawSummary);
+            let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+            console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=false`);
+            if (!quality.valid && !manualRequest && structuredBroker) {
+              const probe = structuredCompactionRepairInstruction({
+                token: `control_${"0".repeat(32)}`,
+                handoffId: `handoff_${"0".repeat(32)}`,
+              }, quality.missingInvariants);
+              const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, configuredCapabilities).effort;
+              const transportFits = checkpointRepairPromptFits(
+                probe,
+                parsed.modelId as ChatGptWebBackendModel,
+                effort,
+                configuredCapabilities,
+              );
+              if (shouldRepairCheckpoint({
+                remainingMs: handoffDeadlineAt - Date.now(),
+                transportFits,
+                observedDurationsMs: observedRepairDurationsMs,
+              })) {
+                repairAttempted = true;
+                const repairStarted = Date.now();
+                const repaired = await requestRetainedCompactionHandoff(
+                  worker,
+                  parsed,
+                  source,
+                  structuredBroker,
+                  configuredCapabilities,
+                  `${handoffTraceId}_repair`,
+                  operationSignal,
+                  handoffDeadlineAt - Date.now(),
+                  quality.missingInvariants,
+                );
+                observedRepairDurationsMs.push(Date.now() - repairStarted);
+                if (observedRepairDurationsMs.length > 100) observedRepairDurationsMs.shift();
+                summary = canonicalizeCompactionHandoff(parsed, repaired);
+                quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+                console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=true`);
+              }
+            }
+            if (!quality.valid) {
+              throw new ChatGptWebAdapterError("Context checkpoint failed validation; original history remains available", {
+                status: 409,
+                errorType: "invalid_response_error",
+                code: "context_checkpoint_validation_failed",
+                retryable: false,
+              });
+            }
             await withAbort(
               preserveFinalResponse
                 ? chatGptTurnSessions.retireConversationPreservingFinalResponse(
@@ -288,6 +344,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             );
             return summary;
           } catch (error) {
+            if (repairAttempted || (error instanceof ChatGptWebAdapterError
+              && error.code === "context_checkpoint_validation_failed")) throw error;
             const retainedKey = source?.conversationKey();
             if (!retainedKey) throw error;
             let handoffError = error instanceof Error ? error : new Error(String(error));
@@ -345,15 +403,58 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       });
       return true;
     }
+    const rejectCheckpoint = (reason: string): boolean => {
+      emit({
+        type: "milestone",
+        kind: "intervention_required",
+        result: "Checkpoint rejected",
+        evidence: "context_checkpoint_validation_failed",
+        nextStep: "Review the checkpoint and retry compaction explicitly",
+      });
+      emit({
+        type: "error",
+        message: `Context checkpoint failed validation: ${reason}`,
+        status: 409,
+        errorType: "invalid_response_error",
+        code: "context_checkpoint_validation_failed",
+        retryable: false,
+      });
+      return true;
+    };
+    let quality: ReturnType<typeof validateCompactionQuality>;
     try {
-      const quality = validateCompactionQuality(parsed.context.messages, summary);
-      if (!quality.valid) {
-        console.warn(`[chatgpt-web] Compaction quality warning: ${quality.missingInvariants.join("; ")}`);
-      }
+      quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+    } catch {
+      return rejectCheckpoint("validator could not inspect the source history");
+    }
+    if (!quality.valid) return rejectCheckpoint(quality.missingInvariants.join("; "));
+    console.info(`[chatgpt-web] checkpoint_validation valid=true missingCount=0 accepted=true`);
+    try {
       persistTurnCompaction(environment, parsed.context.messages, summary);
     } catch (checkpointError) {
       console.warn("[chatgpt-web] Failed to record turn checkpoint:", checkpointError);
     }
+    const checkpoint = extractStructuredCompactionHandoff(summary).state!;
+    for (const achievement of checkpoint.verifiedAchievements ?? []) {
+      const evidenceMarker = /\bevidence\s*:\s*/i.exec(achievement);
+      if (!evidenceMarker) continue;
+      const result = achievement.slice(0, evidenceMarker.index).replace(/[\s—–:-]+$/, "").trim();
+      const evidence = achievement.slice(evidenceMarker.index + evidenceMarker[0].length).trim();
+      emit({
+        type: "milestone",
+        kind: "verified_achievement",
+        result,
+        evidence,
+        nextStep: checkpoint.nextActions[0]!,
+      });
+    }
+    emit({
+      type: "milestone",
+      kind: "checkpoint_completed",
+      result: "Checkpoint validated",
+      evidence: "structured_state_and_source_invariants",
+      nextStep: checkpoint.nextActions[0]!,
+    });
     emit({ type: "text_delta", text: summary, phase: "final_answer" });
     emitBrowserCompletion(
       { type: "final", answer: summary },

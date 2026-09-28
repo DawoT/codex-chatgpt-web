@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { parseDataUrl } from "../image";
 import type {
   CodexContentPart,
@@ -12,12 +13,17 @@ import type { ChatGptWebCapabilities } from "./model";
 import {
   activeCompactionToolResultInstruction,
   structuredCompactionHandoffInstruction,
+  structuredCompactionRepairInstruction,
   zeroRiskActiveCompactionToolResultInstruction,
 } from "./native-compaction-control";
 import type { BrokerToolResult, TurnBroker, TurnBrokerOwner } from "./turn-broker";
 import type { ChatGptTurnSession } from "./turn-execution";
+import { checkpointRepairPromptFits } from "./compaction-repair";
+import { resolveChatGptWebModelMode } from "./model";
+import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
 
 export const LATEST_USER_PROMPT_MARKER = "CODEX_LATEST_USER_PROMPT_JSON";
+export const ORIGINAL_USER_REQUEST_MARKER = "CODEX_ORIGINAL_USER_REQUEST_JSON";
 
 function brokerContent(content: string | CodexContentPart[]): unknown[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
@@ -104,13 +110,69 @@ export function canonicalizeCompactionHandoff(
   if (latestUserPrompt === undefined) {
     throw new Error("ChatGPT compaction source has no canonical latest user prompt");
   }
-  const appendix = `${LATEST_USER_PROMPT_MARKER}\n${JSON.stringify(latestUserPrompt)}`;
-  const markerOffset = normalized.lastIndexOf(`\n${LATEST_USER_PROMPT_MARKER}\n`);
-  if (markerOffset < 0) return `${normalized}\n\n${appendix}`;
-  if (normalized.slice(markerOffset + 1).trimEnd() !== appendix) {
-    throw new Error("ChatGPT compaction handoff contains a conflicting latest-user marker");
+  const latestAppendix = `${LATEST_USER_PROMPT_MARKER}\n${JSON.stringify(latestUserPrompt)}`;
+  const latestOffset = normalized.lastIndexOf(`\n${LATEST_USER_PROMPT_MARKER}\n`);
+  let body = normalized;
+  if (latestOffset >= 0) {
+    if (normalized.slice(latestOffset + 1).trimEnd() !== latestAppendix) {
+      throw new Error("ChatGPT compaction handoff contains a conflicting latest-user marker");
+    }
+    body = normalized.slice(0, latestOffset).trimEnd();
   }
-  return normalized;
+
+  const previous = parsed.context.messages.filter(message => message.role === "user"
+    && message.origin === "compaction_summary");
+  let originalRequest: string | undefined;
+  if (previous.length > 0) {
+    for (const checkpoint of previous.toReversed()) {
+      const priorText = userPromptText(checkpoint.content) ?? "";
+      const marker = new RegExp(`(?:^|\\n)${ORIGINAL_USER_REQUEST_MARKER}\\n([^\\n]+)`).exec(priorText);
+      if (!marker) continue;
+      try {
+        const record = JSON.parse(marker[1]!) as { sha256?: unknown; text?: unknown };
+        if (typeof record.text === "string" && typeof record.sha256 === "string"
+          && createHash("sha256").update(record.text).digest("hex") === record.sha256) {
+          originalRequest = record.text;
+        }
+      } catch {
+        // The format check below rejects a malformed trusted checkpoint without promoting it.
+      }
+      if (originalRequest === undefined) {
+        throw new Error("Trusted compaction summary has an invalid original-request marker");
+      }
+      break;
+    }
+    if (originalRequest === undefined) {
+      throw new Error("Trusted compaction summaries have no recoverable original-request marker");
+    }
+  } else {
+    const firstUser = parsed.context.messages.find(message => message.role === "user"
+      && message.origin !== "codex_skill");
+    originalRequest = firstUser ? userPromptText(firstUser.content) : undefined;
+  }
+  if (originalRequest !== undefined) {
+    const digest = createHash("sha256").update(originalRequest).digest("hex");
+    const originalAppendix = `${ORIGINAL_USER_REQUEST_MARKER}\n${JSON.stringify({ sha256: digest, text: originalRequest })}`;
+    const originalOffset = body.lastIndexOf(`\n${ORIGINAL_USER_REQUEST_MARKER}\n`);
+    if (originalOffset >= 0) {
+      if (body.slice(originalOffset + 1).trimEnd() !== originalAppendix) {
+        throw new Error("ChatGPT compaction handoff contains a conflicting original-request marker");
+      }
+      body = body.slice(0, originalOffset).trimEnd();
+    }
+    const stateStart = body.indexOf("<compaction_state>");
+    const stateEnd = body.indexOf("</compaction_state>", stateStart);
+    if (stateStart >= 0 && stateEnd > stateStart) {
+      const before = body.slice(0, stateStart);
+      const state = body.slice(stateStart, stateEnd).replace(
+        /^original_request_ref:[^\n]*$/m,
+        `original_request_ref: sha256:${digest}`,
+      );
+      body = before + state + body.slice(stateEnd);
+    }
+    return `${body}\n\n${originalAppendix}\n\n${latestAppendix}`;
+  }
+  return `${body}\n\n${latestAppendix}`;
 }
 
 function currentToolResults(
@@ -283,6 +345,7 @@ export async function requestRetainedCompactionHandoff(
   traceId: string,
   signal?: AbortSignal,
   timeoutMs = MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
+  repairIssues?: readonly string[],
 ): Promise<string> {
   const conversationKey = source.conversationKey();
   if (!conversationKey) throw new Error("The completed ChatGPT source has no retained conversation identity");
@@ -310,7 +373,22 @@ export async function requestRetainedCompactionHandoff(
       }
     }, () => {});
     transaction = await withCompactionAbort(transactionPromise, operationSignal);
-    const instruction = structuredCompactionHandoffInstruction(transaction);
+    const instruction = repairIssues
+      ? structuredCompactionRepairInstruction(transaction, repairIssues)
+      : structuredCompactionHandoffInstruction(transaction);
+    if (repairIssues && !checkpointRepairPromptFits(
+      instruction,
+      parsed.modelId as ChatGptWebBackendModel,
+      resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort,
+      capabilities,
+    )) {
+      throw new ChatGptWebAdapterError("Checkpoint repair exceeds the measured browser transport budget", {
+        status: 413,
+        errorType: "invalid_request_error",
+        code: "compaction_repair_transport_limit",
+        retryable: false,
+      });
+    }
     const prepare = async () => ({ text: instruction, images: [], release: () => {} });
     browser = worker.run({
       traceId,

@@ -75,6 +75,28 @@ function request(turnId: string): CodexParsedRequest {
   };
 }
 
+function missionCheckpoint(narrative: string): string {
+  return `${narrative}
+<compaction_state>
+version: 2
+original_request_ref: user request "Inspect the Zero Risk transport."
+modified_files:
+active_hypothesis: Continue the Zero Risk task.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user request: Inspect the Zero Risk transport."}
+closure_criteria:
+- Complete the Zero Risk transport inspection
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue the task
+next_actions:
+- Continue the task
+</compaction_state>`;
+}
+
 function binding(prompt: string): { request_id: string } {
   const match = prompt.match(/<codex_zero_risk_request_json>\n(\{[^\n]+\})\n<\/codex_zero_risk_request_json>/);
   if (!match) throw new Error("Zero Risk prompt did not expose its request id");
@@ -168,7 +190,7 @@ for (const scenario of [
       host.markManualTurnStarted(owner.traceId, owner.helperPid);
       const token = bindings.get(owner.traceId)!;
       if (starts.length > 1) {
-        broker.completeSafeTurn(token, "Final answer after compaction");
+        broker.completeSafeTurn(token, missionCheckpoint("Final answer after compaction"));
         return;
       }
       modelAction = (async () => {
@@ -183,7 +205,7 @@ for (const scenario of [
         await callTurnBroker(socket, { method: "activity_complete", token, activityId: claim.activityId });
         broker.completeSafeTurn(token, scenario.finalWins
           ? "Ordinary final answer before compaction"
-          : "Checkpoint: the command finished; continue the task.");
+          : missionCheckpoint("Checkpoint: the command finished; continue the task."));
       })();
     },
     async end(_path, activity) {
@@ -230,7 +252,7 @@ for (const scenario of [
     expect(starts).toHaveLength(2);
     expect(starts[1]).not.toBe(starts[0]);
     const expectedFinal = scenario.finalWins ? "Ordinary final answer before compaction" : "Final answer after compaction";
-    expect(final.some(event => event.type === "text_delta" && event.text === expectedFinal)).toBeTrue();
+    expect(final.some(event => event.type === "text_delta" && event.text.includes(expectedFinal))).toBeTrue();
     const replay: AdapterEvent[] = [];
     await adapter.runTurn!(continuation, { headers: new Headers() }, event => replay.push(event));
     expect(starts).toHaveLength(2); // exact reconnect replays, it must not submit again
@@ -537,7 +559,7 @@ test("Zero Risk compaction uses a fresh manual checkpoint without leaking guide 
     async markStarted() {
       broker.completeSafeTurn(
         exactBinding!.request_id,
-        "Zero Risk checkpoint summary",
+        missionCheckpoint("Zero Risk checkpoint summary"),
       );
     },
     async end() {},
@@ -558,7 +580,9 @@ test("Zero Risk compaction uses a fresh manual checkpoint without leaking guide 
     expect(manualCompaction).toBeTrue();
     expect(deltas.every(event => event.phase === "final_answer")).toBeTrue();
     expect(deltas.map(event => event.text).join(""))
-      .toContain("Zero Risk checkpoint summary\n\nCODEX_LATEST_USER_PROMPT_JSON");
+      .toContain("Zero Risk checkpoint summary");
+    expect(deltas.map(event => event.text).join(""))
+      .toContain("CODEX_LATEST_USER_PROMPT_JSON");
     expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
   } finally {
     chatGptTurnSessions.clear();
