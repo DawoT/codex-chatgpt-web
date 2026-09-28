@@ -2,7 +2,7 @@ import { isAbsolute, join } from "node:path";
 import { SlidingWindowRateLimiter } from "../adapters/chatgpt-web/rate-limiter";
 import { ChatGptWebAdapterError } from "../adapters/chatgpt-web/adapter-error";
 import { getConfigDir, type AppConfig } from "../config";
-import { availableChatGptWebModelRoutes, resolveChatGptWebContextLimits } from "../chatgpt-web-models";
+import { availableChatGptWebModelRoutes, chatGptWebRouteEfforts, resolveChatGptWebContextLimits } from "../chatgpt-web-models";
 import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import {
   isLongReasoningTurn,
@@ -44,7 +44,7 @@ export class HostHttpRoutes {
       name: route.displayName,
       reasoning: true,
       reasoningEffort: route.codexEffort,
-      supportedReasoningEfforts: route.supportedCodexEfforts ?? [route.codexEffort],
+      supportedReasoningEfforts: chatGptWebRouteEfforts(route, this.config),
       contextWindow: resolveChatGptWebContextLimits(route.backendModel, route.adapterEffort, this.config).contextWindow,
       // Host output admission budget, not an upstream model capacity claim.
       maxTokens: 32_768,

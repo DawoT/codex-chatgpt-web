@@ -173,6 +173,45 @@ test("host capabilities expire and session quota fails without evicting another 
   } finally { await routes.close(); }
 });
 
+test("host pairing advertises only reasoning efforts available to this account", async () => {
+  for (const extraHighAvailable of [false, true]) {
+    const routes = new HostHttpRoutes({
+      ...defaultConfig("full"),
+      controlToken: "effort-control",
+      solAvailable: true,
+      extraHighAvailable,
+    }, new HttpTurnCounter());
+    try {
+      const response = await routes.handle(new Request("http://127.0.0.1/host/v1/sessions", {
+        method: "POST",
+        headers: { authorization: "Bearer effort-control" },
+        body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
+      }));
+      expect(response?.status).toBe(200);
+      const session = await response!.json() as { models: Array<{ id: string; supportedReasoningEfforts: string[] }> };
+      const sol = session.models.find(model => model.id === "chatgpt-web/gpt-5.6-sol");
+      expect(sol?.supportedReasoningEfforts).toEqual(extraHighAvailable
+        ? ["medium", "high", "xhigh"]
+        : ["medium", "high"]);
+    } finally {
+      await routes.close();
+    }
+  }
+});
+
+test("host capability rejection identifies a pre-admission 401", async () => {
+  const f = await fixture();
+  try {
+    const session = await f.pair();
+    const response = await f.request({ ...session, token: "invalid-capability" }, 1);
+    expect(response.status).toBe(401);
+    expect((await response.json() as any).error.code).toBe("host_capability_invalid");
+    expect(f.seen).toHaveLength(0);
+  } finally {
+    await f.stop();
+  }
+});
+
 test("host rejects catalog duplicates, foreign identity, unavailable models and excessive output budgets", async () => {
   const f = await fixture();
   try {
