@@ -94,7 +94,7 @@ export class HostSessionStore {
   authenticate(request: Request, id: string): HostSession {
     const session = this.sessions.get(id);
     if (!session || session.expires <= this.now() || !authorized(request, session.token)) {
-      throw new HostProtocolError(401, "Invalid or expired host session capability");
+      throw new HostProtocolError(401, "Invalid or expired host session capability", "host_capability_invalid");
     }
     session.expires = this.now() + this.ttl;
     return session;
