@@ -53,9 +53,10 @@ export class CompactionTransactionStore {
       throw new Error("compaction handoff id does not match the pending transaction");
     }
     const normalized = summary.trim();
-    if (!normalized) throw new Error("compaction handoff summary is empty");
+    // An empty control submission is still a completed one-shot handoff. The
+    // checkpoint validator can then request one bounded repair or reject it.
     transaction.summary = normalized;
-    console.info(`[chatgpt-web] broker trace=${transaction.traceId} accepted structured compaction handoff`);
+    console.info(`[chatgpt-web] broker trace=${transaction.traceId} accepted compaction handoff chars=${normalized.length}`);
     if (transaction.timer) clearTimeout(transaction.timer);
     transaction.timer = undefined;
     if (transaction.waiter) this.consume(transaction);

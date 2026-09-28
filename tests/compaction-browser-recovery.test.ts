@@ -55,7 +55,8 @@ test.each([[true, false, true], [false, false, true], [true, true, true], [true,
       // Context ingestion cannot mistake tool activity for acknowledgement of a part.
       expect(args[4]).toBe(stage === "send" ? progress : undefined);
       const lifecycle = args[5] as { onSendActivated(): Promise<void>; onSubmitted?: () => void };
-      if (stage !== "send") expect(lifecycle.onSubmitted).toBeUndefined();
+      // Every physical multipart stage now has an acceptance-only payload meter.
+      expect(lifecycle.onSubmitted).toBeDefined();
       await lifecycle.onSendActivated();
       if (cancellationCase) {
         // An observed size rejection must not replace the user's explicit tab-close verdict.
@@ -68,6 +69,7 @@ test.each([[true, false, true], [false, false, true], [true, true, true], [true,
       }
       recoveryCallbacks.push(args[7]);
       actions.push("send");
+      lifecycle.onSubmitted?.();
       return "user_turn";
     },
     waitForNewAssistantTurn: async (...args: unknown[]) => {

@@ -5,6 +5,7 @@ import type { Locator } from "playwright-core";
 import { ChatGptBrowserWorker, ChatGptCompletionTracker, CHATGPT_COMPLETION_SETTLE_MS } from "../src/adapters/chatgpt-web/browser-worker";
 import { ChatGptMarkdownBuffer, type ChatGptMarkdownSegment } from "../src/adapters/chatgpt-web/markdown";
 import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
+import { parseCompactionState } from "../src/responses/compaction";
 
 const smokeHtml = readFileSync(new URL("./fixtures/chatgpt-dil-smoke.html", import.meta.url), "utf8");
 const powerCompleteHtml = readFileSync(new URL("./fixtures/chatgpt-power-complete.html", import.meta.url), "utf8");
@@ -111,6 +112,46 @@ test("captured DIL smoke response reaches Markdown delivery and stable completio
       { kind: "answer", text: "CODEX WEB GPT READY" },
     ]);
   }
+});
+
+test("DOM checkpoint markers split across inline spans remain parseable", async () => {
+  const response = await snapshot([
+    '<section id="turn"><div class="markdown">',
+    '<p><span>&lt;compaction</span><span>_state&gt;</span></p>',
+    '<p>version: 2</p>',
+    '<p>original_request_ref: user turn 1</p>',
+    '<p>active_hypothesis: Finish the task.</p>',
+    '<p>requirements:</p>',
+    '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
+    '<p>&lt;/compaction_state&gt;</p>',
+    '</div><button data-testid="copy-turn-action-button"></button></section>',
+  ].join(""));
+  const buffer = new ChatGptMarkdownBuffer(undefined, 0);
+  buffer.observe(response.markdownSegments, 0);
+  expect(parseCompactionState(buffer.finish().markdown)?.requirements?.[0]?.id).toBe("REQ-1");
+});
+
+test("a compaction-only inline-code marker is accepted without rewriting ordinary code", async () => {
+  const response = await snapshot([
+    '<section id="turn"><div class="markdown">',
+    '<p><code>&lt;compaction_state&gt;</code></p>',
+    '<p>version: 2</p>',
+    '<p>original_request_ref: user turn 1</p>',
+    '<p>active_hypothesis: Finish the task.</p>',
+    '<p>requirements:</p>',
+    '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
+    '<p><code>&lt;/compaction_state&gt;</code></p>',
+    '</div><button data-testid="copy-turn-action-button"></button></section>',
+  ].join(""));
+  const ordinary = new ChatGptMarkdownBuffer(undefined, 0);
+  ordinary.observe(response.markdownSegments, 0);
+  expect(parseCompactionState(ordinary.finish().markdown)).toBeNull();
+  const checkpoint = new ChatGptMarkdownBuffer(undefined, {
+    stabilityMs: 0,
+    compactionCheckpoint: true,
+  });
+  checkpoint.observe(response.markdownSegments, 0);
+  expect(parseCompactionState(checkpoint.finish().markdown)?.requirements?.[0]?.id).toBe("REQ-1");
 });
 
 test("captured power UI excludes the user footer during streaming and completes the assistant answer", async () => {

@@ -21,6 +21,7 @@ import type { ChatGptTurnSession } from "./turn-execution";
 import { checkpointRepairPromptFits } from "./compaction-repair";
 import { resolveChatGptWebModelMode } from "./model";
 import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
+import { locateCompactionStateBounds } from "../../responses/compaction";
 
 export const LATEST_USER_PROMPT_MARKER = "CODEX_LATEST_USER_PROMPT_JSON";
 export const ORIGINAL_USER_REQUEST_MARKER = "CODEX_ORIGINAL_USER_REQUEST_JSON";
@@ -160,15 +161,14 @@ export function canonicalizeCompactionHandoff(
       }
       body = body.slice(0, originalOffset).trimEnd();
     }
-    const stateStart = body.indexOf("<compaction_state>");
-    const stateEnd = body.indexOf("</compaction_state>", stateStart);
-    if (stateStart >= 0 && stateEnd > stateStart) {
-      const before = body.slice(0, stateStart);
-      const state = body.slice(stateStart, stateEnd).replace(
+    const bounds = locateCompactionStateBounds(body);
+    if (bounds) {
+      const before = body.slice(0, bounds.startTagStart);
+      const state = body.slice(bounds.startTagStart, bounds.closingStart).replace(
         /^original_request_ref:[^\n]*$/m,
         `original_request_ref: sha256:${digest}`,
       );
-      body = before + state + body.slice(stateEnd);
+      body = before + state + body.slice(bounds.closingStart);
     }
     return `${body}\n\n${originalAppendix}\n\n${latestAppendix}`;
   }

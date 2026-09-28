@@ -67,6 +67,40 @@ All 871 tests were passing before compaction.
     expect(parseCompactionState(legacySummary)).toBeNull();
   });
 
+  test("reads a legacy checkpoint tag after narrative on the same line", () => {
+    const checkpoint = "Summary text <compaction_state>\nversion: 2\nmodified_files:\n- src/legacy.ts\n</compaction_state>";
+    expect(parseCompactionState(checkpoint)?.modifiedFiles).toEqual(["src/legacy.ts"]);
+    expect(extractStructuredCompactionHandoff(checkpoint).narrative).toBe("Summary text");
+  });
+
+  test("reads a legacy inline state block without treating backticked examples as state", () => {
+    const checkpoint = "<compaction_state>modified_files:\n- src/inline.ts\n</compaction_state>";
+    expect(parseCompactionState(checkpoint)?.modifiedFiles).toEqual(["src/inline.ts"]);
+    expect(parseCompactionState("`<compaction_state>modified_files: - example.ts</compaction_state>`"))
+      .toBeNull();
+  });
+
+  test("extracts the parsed block rather than a fenced example with identical tags", () => {
+    const checkpoint = [
+      "Example:",
+      "```xml",
+      "<compaction_state>",
+      "modified_files:",
+      "- example.ts",
+      "</compaction_state>",
+      "```",
+      "Actual checkpoint:",
+      "<compaction_state>",
+      "modified_files:",
+      "- src/real.ts",
+      "</compaction_state>",
+    ].join("\n");
+    const extracted = extractStructuredCompactionHandoff(checkpoint);
+    expect(extracted.state?.modifiedFiles).toEqual(["src/real.ts"]);
+    expect(extracted.narrative).toContain("- example.ts");
+    expect(extracted.narrative).not.toContain("src/real.ts");
+  });
+
   test("formats compaction state block canonically and round-trips", () => {
     const block: CompactionStateBlock = {
       modifiedFiles: ["src/index.ts", "package.json"],

@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
-import type { AdapterEvent, CodexParsedRequest } from "../../../types";
-import { extractStructuredCompactionHandoff } from "../../../responses/compaction";
+import type { AdapterEvent, CodexParsedRequest, CodexToolCall } from "../../../types";
+import { COMPACT_PROMPT, extractStructuredCompactionHandoff } from "../../../responses/compaction";
 import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
-import { checkpointRepairPromptFits, shouldRepairCheckpoint } from "../compaction-repair";
+import {
+  checkpointCompiledRepairFits,
+  checkpointRepairPromptFits,
+  recordRepairDuration,
+  shouldRepairCheckpoint,
+} from "../compaction-repair";
 import type { ChatGptBrowserWorker } from "../browser-worker";
 import {
   validateCompactionQuality,
@@ -12,13 +17,14 @@ import {
   canonicalizeCompactionHandoff,
   existingStructuredCompactionRun,
   MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
+  ORIGINAL_USER_REQUEST_MARKER,
   requestRetainedCompactionHandoff,
   runStructuredCompactionOnce,
   settleActiveCompactionSource,
   settleActiveZeroRiskCompactionSource,
 } from "../compaction-handoff";
 import { chatGptConversationKey } from "../conversation-key";
-import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity } from "../environment";
+import { extractChatGptCompactionSourceRevision, extractChatGptTurnEnvironment, extractChatGptTurnIdentity } from "../environment";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "../model";
 import { structuredCompactionRepairInstruction } from "../native-compaction-control";
 import { chatGptWebTurnRetryPolicy } from "../retry-policy";
@@ -37,6 +43,63 @@ import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
 
 const observedRepairDurationsMs: number[] = [];
+
+function checkpointText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.flatMap(part => part && typeof part === "object" && !Array.isArray(part)
+    && (part.type === "text" || part.type === "input_text") && typeof part.text === "string"
+    ? [part.text]
+    : []).join("\n");
+}
+
+function recentRepairObservations(parsed: CodexParsedRequest): Array<{
+  toolCallId: string;
+  toolName: string;
+  isError: boolean;
+  command?: string;
+  output: string;
+  outputSha256?: string;
+}> {
+  return parsed.context.messages.filter(message => message.role === "toolResult")
+    .slice(-4)
+    .map(message => {
+      const output = checkpointText(message.content);
+      const call = parsed.context.messages.find(prior => prior.role === "assistant"
+        && prior.content.some(part => part.type === "toolCall" && part.id === message.toolCallId));
+      const command = call?.role === "assistant"
+        ? call.content.find((part): part is CodexToolCall => part.type === "toolCall"
+          && part.id === message.toolCallId)?.arguments.cmd
+        : undefined;
+      return {
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+        isError: message.isError,
+        ...(typeof command === "string" && command.length <= 200 ? { command } : {}),
+        output: output.length <= 1_200
+          ? output
+          : `${output.slice(0, 600)}\n[output excerpt; recover full text from toolCallId]\n${output.slice(-600)}`,
+        ...(output.length > 1_200
+          ? { outputSha256: createHash("sha256").update(output).digest("hex") }
+          : {}),
+      };
+    });
+}
+
+function originalRequestFromCanonicalSummary(summary: string): string {
+  const marker = `\n${ORIGINAL_USER_REQUEST_MARKER}\n`;
+  const start = summary.lastIndexOf(marker);
+  if (start < 0) return "";
+  const raw = summary.slice(start + marker.length).split("\n", 1)[0];
+  try {
+    const record: unknown = JSON.parse(raw!);
+    return record && typeof record === "object" && "text" in record && typeof record.text === "string"
+      ? record.text
+      : "";
+  } catch {
+    return "";
+  }
+}
 
 export interface CompactionFlowContext {
   worker: ChatGptBrowserWorker;
@@ -128,6 +191,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             compactionTraceId,
             handoffTraceId,
             freshCompactionTraceId,
+            `${freshCompactionTraceId}_repair`,
           ],
           ...(compactionNativeIdentity.threadId
             ? { nativeThreadId: compactionNativeIdentity.threadId }
@@ -184,7 +248,99 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             try {
               const rawSummary = await withAbort(fallbackRuntime.browser, operationSignal);
               await withAbort(fallbackRuntime.physicalSettlement, operationSignal);
-              return canonicalizeCompactionHandoff(parsed, rawSummary);
+              // Keep empty output in the validation/repair path; a fabricated draft
+              // can never satisfy the structured checkpoint validator.
+              let summary = canonicalizeCompactionHandoff(
+                parsed,
+                rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
+              );
+              let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+              console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=false`);
+              if (!quality.valid && !manualRequest) {
+                const previousCheckpoint = parsed.context.messages.findLast(message => message.role === "user"
+                  && message.origin === "compaction_summary");
+                const priorState = previousCheckpoint
+                  ? extractStructuredCompactionHandoff(checkpointText(previousCheckpoint.content)).state
+                  : null;
+                const originalRequest = originalRequestFromCanonicalSummary(summary);
+                const latestRequest = checkpointText(extractChatGptCompactionSourceRevision(parsed).content);
+                const checkpointIndex = previousCheckpoint
+                  ? parsed.context.messages.lastIndexOf(previousCheckpoint)
+                  : -1;
+                const otherUserRequests = [...new Set(parsed.context.messages.slice(checkpointIndex + 1)
+                  .filter(message => message.role === "user" && message.origin !== "codex_skill")
+                  .map(message => checkpointText(message.content))
+                  .filter(value => value && value !== COMPACT_PROMPT
+                    && value !== originalRequest && value !== latestRequest))];
+                const repairPrompt = [
+                  "Repair the previous context checkpoint exactly once. This is a correction, not a new task turn.",
+                  "Return one complete version 2 <compaction_state> checkpoint with all still-open requirements, verified evidence, blockers, decisions, and one next action.",
+                  "Do not claim verification without an observed result. Do not call tools or redo the original task.",
+                  "Validation issues:",
+                  ...quality.missingInvariants.map(issue => `- ${issue}`),
+                  "Original user request:",
+                  JSON.stringify(originalRequest),
+                  "Latest user request:",
+                  JSON.stringify(latestRequest),
+                  "Other user requests since previous checkpoint:",
+                  JSON.stringify(otherUserRequests),
+                  "Previous mission checkpoint state:",
+                  JSON.stringify(priorState ?? {}),
+                  "Recent observed tool results (do not infer success from an error or an excerpt):",
+                  JSON.stringify(recentRepairObservations(parsed)),
+                  "Rejected draft:",
+                  rawSummary,
+                ].join("\n");
+                const repairParsed: CodexParsedRequest = {
+                  ...parsed,
+                  context: {
+                    messages: [
+                      { role: "user", content: repairPrompt, timestamp: Date.now() },
+                    ],
+                  },
+                };
+                if (shouldRepairCheckpoint({
+                  remainingMs: handoffDeadlineAt - Date.now(),
+                  transportFits: checkpointCompiledRepairFits(repairParsed, turnCapabilities, {
+                    experimentalBiggerContext,
+                    experimentalSkillAttachments,
+                  }),
+                  observedDurationsMs: observedRepairDurationsMs,
+                })) {
+                  const repairStarted = Date.now();
+                  const repairRuntime = startRuntime(
+                    repairParsed,
+                    undefined,
+                    `${freshCompactionTraceId}_repair`,
+                    turnCapabilities,
+                    { onHeartbeat: () => emit({ type: "heartbeat" }) },
+                  );
+                  retainOwnershipUntil(repairRuntime.physicalSettlement);
+                  let repairOutcome: "succeeded" | "failed" = "failed";
+                  try {
+                    const repaired = await withAbort(repairRuntime.browser, operationSignal);
+                    await withAbort(repairRuntime.physicalSettlement, operationSignal);
+                    repairOutcome = "succeeded";
+                    summary = canonicalizeCompactionHandoff(
+                      parsed,
+                      repaired.trim() ? repaired : "Empty checkpoint draft",
+                    );
+                    quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+                    console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=true`);
+                  } catch (error) {
+                    repairRuntime.cancel(error instanceof Error ? error : new Error(String(error)));
+                    throw error;
+                  } finally {
+                    recordRepairDuration(
+                      observedRepairDurationsMs,
+                      repairStarted,
+                      Date.now(),
+                      operatorSignal.aborted ? "operator_cancelled" : repairOutcome,
+                    );
+                  }
+                }
+              }
+              return summary;
             } catch (error) {
               fallbackRuntime.cancel(error instanceof Error ? error : new Error(String(error)));
               // The shared owner retains physical settlement independently of this error.
@@ -284,7 +440,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 handoffTimeoutMs,
               );
             }
-            let summary = canonicalizeCompactionHandoff(parsed, rawSummary);
+            let summary = canonicalizeCompactionHandoff(
+              parsed,
+              rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
+            );
             let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
             console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=false`);
             if (!quality.valid && !manualRequest && structuredBroker) {
@@ -306,20 +465,33 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               })) {
                 repairAttempted = true;
                 const repairStarted = Date.now();
-                const repaired = await requestRetainedCompactionHandoff(
-                  worker,
+                let repaired: string;
+                let repairOutcome: "succeeded" | "failed" = "failed";
+                try {
+                  repaired = await requestRetainedCompactionHandoff(
+                    worker,
+                    parsed,
+                    source,
+                    structuredBroker,
+                    configuredCapabilities,
+                    `${handoffTraceId}_repair`,
+                    operationSignal,
+                    handoffDeadlineAt - Date.now(),
+                    quality.missingInvariants,
+                  );
+                  repairOutcome = "succeeded";
+                } finally {
+                  recordRepairDuration(
+                    observedRepairDurationsMs,
+                    repairStarted,
+                    Date.now(),
+                    operatorSignal.aborted ? "operator_cancelled" : repairOutcome,
+                  );
+                }
+                summary = canonicalizeCompactionHandoff(
                   parsed,
-                  source,
-                  structuredBroker,
-                  configuredCapabilities,
-                  `${handoffTraceId}_repair`,
-                  operationSignal,
-                  handoffDeadlineAt - Date.now(),
-                  quality.missingInvariants,
+                  repaired.trim() ? repaired : "Empty checkpoint draft",
                 );
-                observedRepairDurationsMs.push(Date.now() - repairStarted);
-                if (observedRepairDurationsMs.length > 100) observedRepairDurationsMs.shift();
-                summary = canonicalizeCompactionHandoff(parsed, repaired);
                 quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
                 console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=true`);
               }

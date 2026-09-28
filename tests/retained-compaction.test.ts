@@ -27,7 +27,7 @@ import {
   chatGptWebExecutionNamespace,
   createChatGptWebAdapter,
 } from "../src/adapters/chatgpt-web/index";
-import { SUMMARY_PREFIX } from "../src/responses/compaction";
+import { COMPACT_PROMPT, SUMMARY_PREFIX } from "../src/responses/compaction";
 import {
   ChatGptTextFeed,
   ChatGptTraceFeed,
@@ -114,6 +114,24 @@ test("canonical handoff preserves the first user request across later checkpoint
   };
   expect(() => canonicalizeCompactionHandoff(later, missionCheckpoint("Continue the task.")))
     .toThrow("original-request marker");
+});
+
+test("canonical handoff rewrites the real state rather than an earlier fenced example", () => {
+  const draft = [
+    "Example:",
+    "```xml",
+    "<compaction_state>",
+    "original_request_ref: example only",
+    "</compaction_state>",
+    "```",
+    missionCheckpoint("Real checkpoint"),
+  ].join("\n");
+  const canonical = canonicalizeCompactionHandoff(request(true), draft);
+  expect(canonical).toContain("original_request_ref: example only");
+  expect(canonical).toMatch(/original_request_ref: sha256:[a-f0-9]{64}/);
+  expect(canonical.indexOf("original_request_ref: sha256:")).toBeGreaterThan(
+    canonical.indexOf("```\n"),
+  );
 });
 
 test("canonical handoff finds the latest validated original request after legacy checkpoints", () => {
@@ -218,6 +236,16 @@ test("compaction capability is one-shot and structurally bound to its handoff id
   store.submit(transaction.token, transaction.handoffId, "  exact checkpoint  ");
   await expect(store.wait(transaction.token)).resolves.toBe("exact checkpoint");
   expect(() => store.submit(transaction.token, transaction.handoffId, "again")).toThrow("invalid, expired, or consumed");
+  store.close();
+});
+
+test("an empty control handoff consumes its capability for validation and repair", async () => {
+  const store = new CompactionTransactionStore();
+  const transaction = store.begin("trace_empty_handoff", 1_000);
+  store.submit(transaction.token, transaction.handoffId, "  \n  ");
+  await expect(store.wait(transaction.token)).resolves.toBe("");
+  expect(() => store.submit(transaction.token, transaction.handoffId, "later"))
+    .toThrow("invalid, expired, or consumed");
   store.close();
 });
 
@@ -1296,6 +1324,71 @@ test("invalid checkpoint keeps the retained source and does not send a second pr
   }
 });
 
+test("an empty retained handoff is repaired once before replacing its source", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-retained-empty-repair-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://retained-empty-repair-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      appName: "Codex Native DEV",
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const broker = TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!);
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  const sourceRequest = request(false);
+  const namespace = chatGptWebExecutionNamespace(provider);
+  const sourceKey = `${namespace}:${chatGptTurnExecutionKey(sourceRequest)}`;
+  const conversationKey = chatGptConversationKey(sourceRequest, namespace)!;
+  chatGptTurnSessions.getOrCreate(sourceKey, () => ({
+    mode: "read-only",
+    browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(),
+    trace: new ChatGptTraceFeed(),
+    text: new ChatGptTextFeed(),
+    conversationKey,
+    cancel() {},
+  }));
+  await chatGptTurnSessions.find(sourceKey)!.browserOutcome;
+  let browserMessages = 0;
+  worker.run = async turn => {
+    browserMessages += 1;
+    const prepared = await turn.prepareResume!();
+    const binding = controlBinding(prepared.text);
+    prepared.release();
+    await callTurnBroker(provider.chatgptWeb!.brokerSocketPath!, {
+      method: "submit_compaction_handoff",
+      token: binding.token,
+      handoffId: binding.handoffId,
+      summary: browserMessages === 1 ? "" : missionCheckpoint("Repaired retained checkpoint"),
+    });
+    return "submitted";
+  };
+  const compact = structuredClone(sourceRequest);
+  compact._compactionRequest = true;
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      compact,
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
+  } finally {
+    worker.run = originalRun;
+    chatGptTurnSessions.clear();
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test.each([true, false])("an invalid retained checkpoint gets one repair without losing source history (repair succeeds=%s)", async repaired => {
   const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-checkpoint-"));
   const provider: CodexProviderConfig = {
@@ -1524,7 +1617,7 @@ test.each([false, true])("structured compact rebuilds canonical context when its
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, { timeout: 20_000 });
 
 test.each([false, true])("configured fresh compaction waits for cleanup and preserves committed final=%s", async committed => {
   const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-fresh-owner-"));
@@ -1624,6 +1717,413 @@ test.each([false, true])("fresh multipart compaction preserves phase budgets wit
   } finally {
     mock?.timers?.reset?.();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a malformed fresh fallback is rejected without a second original-history submission", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-invalid-fresh-checkpoint-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://invalid-fresh-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 1_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    return "Narrative only; the mission checklist was omitted.";
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      request(true),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+    expect(browserMessages).toBe(1);
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an invalid fresh fallback receives one bounded draft repair, not a replay of the original history", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-fresh-checkpoint-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-fresh-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  const draft = "Narrative only; the mission checklist was omitted.";
+  const compact = request(true);
+  compact.context.messages[0] = {
+    role: "user",
+    content: [
+      { type: "text", text: "Original task" },
+      { type: "image", imageUrl: "data:image/png;base64,SHOULD_NOT_COPY", detail: "high" },
+    ],
+    timestamp: 1,
+  };
+  compact.context.messages.push({ role: "user", content: COMPACT_PROMPT, timestamp: 4 });
+  let browserMessages = 0;
+  let repairPrompt = "";
+  worker.run = async turn => {
+    browserMessages += 1;
+    if (browserMessages === 1) return draft;
+    const prepared = await turn.prepare();
+    repairPrompt = prepared.text;
+    prepared.release();
+    return missionCheckpoint("Repaired fresh checkpoint");
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      compact,
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(2);
+    expect(repairPrompt).toContain(draft);
+    expect(repairPrompt).toContain("Missing structured compaction state");
+    expect(repairPrompt).not.toContain("Work completed");
+    expect(repairPrompt).not.toContain("SHOULD_NOT_COPY");
+    expect(repairPrompt).toContain("Latest user request:\\n\\\"Continue with the next step\\\"");
+    expect(repairPrompt).not.toContain("STRUCTURED HANDOFF REQUIREMENT");
+    expect(events.some(event => event.type === "text_delta"
+      && event.text.includes("Repaired fresh checkpoint"))).toBeTrue();
+    expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an invalid fresh repair is rejected after exactly one correction attempt", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-fresh-rejected-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-fresh-rejected-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    return browserMessages === 1 ? "Incomplete checkpoint without a mission checklist." : "";
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      request(true),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty fresh checkpoint receives one repair when the deadline permits", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-empty-checkpoint-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-empty-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    return browserMessages === 1 ? "  \n  " : missionCheckpoint("Recovered empty checkpoint");
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      request(true),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty fresh checkpoint without repair time preserves history and reports validation failure", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-empty-no-time-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-empty-no-time-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 1_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    return "";
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      request(true),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(1);
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fresh repair uses compiled multipart capacity beyond the raw Instant composer boundary", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-compiled-budget-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-compiled-budget-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      proAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const compact = request(true);
+  compact.options.reasoning = "low";
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    return browserMessages === 1 ? "A".repeat(560_000) : missionCheckpoint("Repaired large draft");
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      compact,
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, { timeout: 20_000 });
+
+test("fresh repair keeps the original history when its compiled payload cannot fit", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-compiled-reject-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-compiled-reject-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      experimentalBiggerContext: false,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const compact = request(true);
+  compact.options.reasoning = "low";
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    return "A".repeat(300_000);
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      compact,
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(browserMessages).toBe(1);
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, { timeout: 20_000 });
+
+test("fresh repair after a prior checkpoint retains original request and prior mission state", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-prior-checkpoint-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-prior-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const prior = canonicalizeCompactionHandoff(request(true), missionCheckpoint("Prior checkpoint")
+    .replace("modified_files:\n", "modified_files:\n- src/important.ts\n")
+    .replace("decisions_and_invariants:\n", "decisions_and_invariants:\n- Never resend an accepted prompt\n")
+    .replace("blockers_or_test_failures:\n- None", "blockers_or_test_failures:\n- Network test failed"));
+  const compact = request(true);
+  compact.context.messages = [
+    { role: "user", origin: "compaction_summary", content: prior, timestamp: 4 },
+    { role: "user", content: "Keep the approval constraint", timestamp: 5 },
+    { role: "user", content: "New requirement after checkpoint", timestamp: 6 },
+    { role: "assistant", content: [{
+      type: "toolCall",
+      id: "call_verified_test",
+      name: "exec_command",
+      arguments: { cmd: "bun test tests/bridge.test.ts" },
+    }], timestamp: 6 },
+    { role: "toolResult", toolCallId: "call_verified_test", toolName: "exec_command",
+      content: '{"exit_code":0,"output":"bun test tests/bridge.test.ts: 2 pass"}',
+      isError: false, timestamp: 6 },
+    { role: "user", content: COMPACT_PROMPT, timestamp: 7 },
+  ];
+  const raw = compact._rawBody as { input: Array<{ content: Array<{ text: string }> }> };
+  raw.input[0]!.content[0]!.text = "New requirement after checkpoint";
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let repairPrompt = "";
+  let browserMessages = 0;
+  worker.run = async turn => {
+    browserMessages += 1;
+    if (browserMessages === 1) return "Draft omitted the mission checklist.";
+    const prepared = await turn.prepare();
+    repairPrompt = prepared.text;
+    prepared.release();
+    return "Still incomplete.";
+  };
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(compact, { headers: new Headers() }, () => {});
+    expect(browserMessages).toBe(2);
+    expect(repairPrompt).toContain("Original task");
+    expect(repairPrompt).toContain("New requirement after checkpoint");
+    expect(repairPrompt).toContain("Keep the approval constraint");
+    expect(repairPrompt).toContain("src/important.ts");
+    expect(repairPrompt).toContain("Never resend an accepted prompt");
+    expect(repairPrompt).toContain("Network test failed");
+    expect(repairPrompt).toContain("bun test tests/bridge.test.ts: 2 pass");
+    expect(repairPrompt).toContain("call_verified_test");
+    expect(repairPrompt).not.toContain("STRUCTURED HANDOFF REQUIREMENT");
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cancelling a fresh repair revokes its turn and prevents a third submission", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-fresh-cancel-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-fresh-cancel-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  let repairStarted!: (traceId: string) => void;
+  const repairTrace = new Promise<string>(resolve => { repairStarted = resolve; });
+  let repairAborted = false;
+  worker.run = async turn => {
+    browserMessages += 1;
+    if (browserMessages === 1) return "Incomplete checkpoint without a mission checklist.";
+    repairStarted(turn.traceId);
+    return new Promise<string>((_resolve, reject) => {
+      turn.abortSignal?.addEventListener("abort", () => {
+        repairAborted = true;
+        reject(turn.abortSignal?.reason);
+      }, { once: true });
+    });
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    const run = createChatGptWebAdapter(provider).runTurn!(
+      request(true),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    const traceId = await repairTrace;
+    expect(await cancelStructuredCompactionTrace(traceId, new Error("operator cancelled repair"))).toBe(1);
+    await run;
+    expect(repairAborted).toBeTrue();
+    expect(browserMessages).toBe(2);
+    expect(events.at(-1)?.type).toBe("error");
+  } finally {
+    worker.run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
   }

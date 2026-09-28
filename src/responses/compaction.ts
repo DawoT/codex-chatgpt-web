@@ -126,16 +126,74 @@ export function decodeCompactionSummary(encryptedContent: string): string | null
   }
 }
 
+interface CompactionStateBounds {
+  startTagStart: number;
+  openingEnd: number;
+  closingStart: number;
+  endTagEnd: number;
+}
+
+function outsideInlineCode(line: string, index: number): boolean {
+  let activeTicks = 0;
+  for (let cursor = 0; cursor < index;) {
+    if (line[cursor] !== "`") {
+      cursor += 1;
+      continue;
+    }
+    let end = cursor + 1;
+    while (line[end] === "`") end += 1;
+    const ticks = end - cursor;
+    activeTicks = activeTicks === 0 ? ticks : activeTicks === ticks ? 0 : activeTicks;
+    cursor = end;
+  }
+  return activeTicks === 0;
+}
+
+export function locateCompactionStateBounds(summary: string): CompactionStateBounds | null {
+  let startTagStart = -1;
+  let openingEnd = -1;
+  let fence: { marker: string; length: number } | undefined;
+  const sourceLines = summary.split("\n");
+  let offset = 0;
+  for (const line of sourceLines) {
+    const fenceRun = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (fenceRun?.[0] === fence.marker && fenceRun.length >= fence.length
+        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+        fence = undefined;
+      }
+    } else if (fenceRun) {
+      fence = { marker: fenceRun[0]!, length: fenceRun.length };
+    } else {
+      if (startTagStart < 0) {
+        const index = line.indexOf(COMPACTION_STATE_TAG_START);
+        if (index >= 0 && outsideInlineCode(line, index)) {
+          startTagStart = offset + index;
+          openingEnd = startTagStart + COMPACTION_STATE_TAG_START.length;
+        }
+      }
+      const searchFrom = Math.max(0, openingEnd - offset);
+      const index = startTagStart >= 0 ? line.indexOf(COMPACTION_STATE_TAG_END, searchFrom) : -1;
+      if (index >= 0 && outsideInlineCode(line, index)) {
+        const closingStart = offset + index;
+        return {
+          startTagStart,
+          openingEnd,
+          closingStart,
+          endTagEnd: closingStart + COMPACTION_STATE_TAG_END.length,
+        };
+      }
+    }
+    offset += line.length + 1;
+  }
+  return null;
+}
+
 /** Parses a <compaction_state> XML block from summary text, if present. */
 export function parseCompactionState(summary: string): CompactionStateBlock | null {
-  if (!summary.includes(COMPACTION_STATE_TAG_START) || !summary.includes(COMPACTION_STATE_TAG_END)) {
-    return null;
-  }
-  const startIndex = summary.indexOf(COMPACTION_STATE_TAG_START) + COMPACTION_STATE_TAG_START.length;
-  const endIndex = summary.indexOf(COMPACTION_STATE_TAG_END, startIndex);
-  if (endIndex === -1) return null;
-
-  const rawBlock = summary.slice(startIndex, endIndex).trim();
+  const bounds = locateCompactionStateBounds(summary);
+  if (!bounds) return null;
+  const rawBlock = summary.slice(bounds.openingEnd, bounds.closingStart).trim();
   const lines = rawBlock.split(/\r?\n/).map(line => line.trim());
 
   const modifiedFiles: string[] = [];
@@ -330,10 +388,9 @@ export function extractStructuredCompactionHandoff(summary: string): {
   const state = parseCompactionState(summary);
   if (!state) return { narrative: summary.trim(), state: null };
 
-  const startTag = summary.indexOf(COMPACTION_STATE_TAG_START);
-  const endTag = summary.indexOf(COMPACTION_STATE_TAG_END) + COMPACTION_STATE_TAG_END.length;
-  const before = summary.slice(0, startTag).trim();
-  const after = summary.slice(endTag).trim();
+  const bounds = locateCompactionStateBounds(summary)!;
+  const before = summary.slice(0, bounds.startTagStart).trim();
+  const after = summary.slice(bounds.endTagEnd).trim();
   const narrative = [before, after].filter(Boolean).join("\n\n");
   return { narrative, state };
 }

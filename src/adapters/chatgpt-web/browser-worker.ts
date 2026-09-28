@@ -33,7 +33,9 @@ import {
 } from "./model";
 import {
   CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET,
+  createBrowserPayloadAcceptanceRecorder,
   estimateChatGptWebImageTokens,
+  measureCompiledBrowserPayload,
   measureCompiledChatGptWebInput,
 } from "./input-tokens";
 import {
@@ -3255,11 +3257,15 @@ export class ChatGptBrowserWorker {
       const multipartFinalPrompt = prepared.multipart && multipartTransactionId
         ? formatChatGptWebMultipartCommit(prepared.multipart, multipartTransactionId)
         : undefined;
+      const selectedMessages = multipartStages && multipartFinalPrompt
+        ? [...multipartStages.map(stage => stage.text), multipartFinalPrompt]
+        : [prepared.text];
+      const browserPayload = measureCompiledBrowserPayload(prepared, turn.modelId, selectedMessages);
       const {
         inputTokens: estimatedInputTokens,
         maxMessageTokens: estimatedMessageTokens,
         maxMessageChars,
-      } = measureCompiledChatGptWebInput(prepared, turn.modelId);
+      } = measureCompiledChatGptWebInput(prepared, turn.modelId, browserPayload);
       const maxStageMessageTokens = multipartStages
         ? Math.max(...multipartStages.map(stage => estimateTokens(stage.text, turn.modelId)))
         : undefined;
@@ -3305,6 +3311,16 @@ export class ChatGptBrowserWorker {
           maxMessageChars,
         );
       }
+      // The provider exposes no token-cache read/write accounting through this browser surface.
+      // Record only the selected physical payload, and only once the respective Send is accepted.
+      const recordAcceptedPayload = createBrowserPayloadAcceptanceRecorder(browserPayload, {
+        retainedConversation: reuseConversation,
+        compaction: turn.compaction === true,
+      }, metric => {
+        console.info(`[chatgpt-web] browser turn ${turn.traceId} accepted_payload=${JSON.stringify(
+          metric,
+        )}`);
+      });
       const deadline = this.config.turnTimeoutMs === undefined
         ? undefined
         : Date.now() + this.config.turnTimeoutMs;
@@ -3582,7 +3598,10 @@ export class ChatGptBrowserWorker {
               checkpoint => diagnostics.capture(page, `multipart-${index + 1}-${checkpoint}`),
               turn.abortSignal ? AbortSignal.any([stageSignal, turn.abortSignal]) : stageSignal,
               undefined,
-              { onSubmitted: recordStageUsage, onSendActivated: async () => {
+              { onSubmitted: () => {
+                recordStageUsage?.();
+                recordAcceptedPayload(index);
+              }, onSendActivated: async () => {
                 await this.assertSelectedEffort(page, mode);
                 submissionRejection.begin(page);
                 stageSendActivatedAt = performance.now();
@@ -3753,6 +3772,7 @@ export class ChatGptBrowserWorker {
           turn.externalProgress,
           { ...turn, onSubmitted: () => {
             recordFinalUsage?.();
+            recordAcceptedPayload(browserPayload.messageCount - 1);
             return turn.onSubmitted?.();
           }, onSendActivated: async () => {
             await this.assertSelectedEffort(page, mode);
@@ -3804,6 +3824,7 @@ export class ChatGptBrowserWorker {
         adaptive: true,
         proseStabilityMs: 350,
         toolStabilityMs: 0,
+        compactionCheckpoint: turn.compaction === true,
       });
       const checkpointStream = turn.captureLunaCheckpoint
         ? new ChatGptLunaCheckpointStream()

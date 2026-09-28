@@ -16,6 +16,22 @@ test("DEV harness configuration cannot bind a Responses listener", () => {
   expect(() => startServer(config)).toThrow("cannot start a Responses listener");
 });
 
+test("health reports local contract assembly cache without implying provider token-cache hits", async () => {
+  const server = startServer({ ...defaultConfig("browser-only"), port: 0 });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.port}/healthz`);
+    const health = await response.json() as Record<string, unknown>;
+    expect(health.contract_assembly_cache).toMatchObject({
+      hits: expect.any(Number),
+      misses: expect.any(Number),
+      capacity: expect.any(Number),
+    });
+    expect(health).not.toHaveProperty("prompt_cache");
+  } finally {
+    await server.stop(true);
+  }
+});
+
 async function waitForTurnCount(turns: HttpTurnCounter, expected: number): Promise<void> {
   const deadline = Date.now() + 1_000;
   while (turns.count() !== expected && Date.now() < deadline) await Bun.sleep(5);

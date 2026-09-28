@@ -204,5 +204,29 @@ describe("Sprint H: Conversation State Fingerprinting & LRU Prompt Assembly Cach
       compileChatGptWebPrompt(subagentReq, caps, "turn_12345678901234567890123456789012");
       expect(defaultPromptContractCache.getStats().hits).toBe(1);
     });
+
+    test("stable inline contract precedes changing task history across turns", () => {
+      const caps = {
+        localToolsEnabled: false,
+        solAvailable: true,
+        extraHighAvailable: true,
+        proAvailable: false,
+      };
+      const base = {
+        modelId: CHATGPT_WEB_MODEL_ID,
+        stream: false,
+        options: { reasoning: "high" as const },
+        context: { messages: [{ role: "user" as const, content: "First task", timestamp: 1 }] },
+      };
+      const first = compileChatGptWebPrompt(base, caps);
+      const second = compileChatGptWebPrompt({
+        ...base,
+        context: { messages: [{ role: "user" as const, content: "Different task", timestamp: 2 }] },
+      }, caps);
+      const prefix = (text: string) => text.split("<codex_context_json>", 1)[0];
+      expect(prefix(first.text)).toBe(prefix(second.text));
+      expect(first.text).not.toBe(second.text);
+      expect(defaultPromptContractCache.getStats().hits).toBeGreaterThan(0);
+    });
   });
 });

@@ -171,7 +171,7 @@ export function startServer(
     active_browser_turns: chatGptTurnSessions.activeCount() + (turnBroker?.externalOwnerActiveCount() ?? 0),
     active_subagents: defaultSubagentGovernor.active,
     queued_subagents: defaultSubagentGovernor.queued,
-    prompt_cache: defaultPromptContractCache.getStats(),
+    contract_assembly_cache: defaultPromptContractCache.getStats(),
   });
 
   const adminContext: AdminRouteContext = {

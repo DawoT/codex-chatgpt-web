@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { ProviderAdapter } from "../src/adapters/base";
 import { defaultConfig } from "../src/config";
 import { COMPACT_PROMPT, SUMMARY_PREFIX, decodeCompactionSummary, encodeCompactionSummary } from "../src/responses/compaction";
@@ -7,9 +9,91 @@ import type { CodexProviderConfig } from "../src/types";
 import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity, extractChatGptTurnUserRevision } from "../src/adapters/chatgpt-web/environment";
 import { chatGptCompactionSourceExecutionKey, chatGptTurnExecutionKey } from "../src/adapters/chatgpt-web/turn-execution";
 import { parseRequest } from "../src/responses/parser";
+import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
+import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { defaultBrokerEndpoint } from "../src/config";
 
 const model = "chatgpt-web/high";
 const summary = "The repository was inspected. Continue by implementing the bounded Web context contract.";
+
+test("HTTP /responses runs a real fresh checkpoint repair without manually appending the compact prompt", async () => {
+  const root = mkdtempSync(join(process.platform === "win32" ? process.env.TEMP! : "/tmp", "cgw-http-repair-"));
+  const config = defaultConfig("full");
+  config.browserHost = "launcher";
+  config.browserHostDescriptorPath = join(root, "launcher.json");
+  config.brokerSocketPath = defaultBrokerEndpoint(root);
+  config.experimentalFreshConversationPerTurn = true;
+  const source = {
+    type: "message",
+    role: "user",
+    content: [{ type: "input_text", text: "Continue with the next step" }],
+    internal_chat_message_metadata_passthrough: { turn_id: "turn_source_http_repair" },
+  };
+  const body = {
+    model,
+    stream: false,
+    input: [
+      { type: "message", role: "user", content: [{ type: "input_text", text: "Original task" }] },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "Work completed" }] },
+      source,
+      { type: "compaction_trigger" },
+    ],
+    client_metadata: {
+      "x-codex-turn-metadata": JSON.stringify({ thread_id: "thread_http_repair", turn_id: "turn_compact_http_repair" }),
+    },
+  };
+  let worker: ChatGptBrowserWorker | undefined;
+  let originalRun: ChatGptBrowserWorker["run"] | undefined;
+  let browserMessages = 0;
+  try {
+    const response = await responseRequest(new Request("http://127.0.0.1/v1/responses", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }), config, provider => {
+      worker = ChatGptBrowserWorker.forProvider(provider);
+      originalRun = worker.run.bind(worker);
+      worker.run = async () => {
+        browserMessages += 1;
+        return browserMessages === 1 ? "" : `Recovered checkpoint
+<compaction_state>
+version: 2
+original_request_ref: user turn turn_source_http_repair
+modified_files:
+active_hypothesis: Continue the original task.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user turn turn_source_http_repair: Continue with the next step"}
+closure_criteria:
+- Complete the next step
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue with the next step
+next_actions:
+- Continue with the next step
+</compaction_state>`;
+      };
+      return createChatGptWebAdapter(provider);
+    });
+    expect(browserMessages).toBe(2);
+    expect(response.status).toBe(200);
+    const result = await response.json() as {
+      status: string;
+      output: Array<{ type: string; encrypted_content?: string }>;
+    };
+    expect(result.status).toBe("completed");
+    expect(result.output).toHaveLength(1);
+    expect(result.output[0]?.type).toBe("compaction");
+    expect(decodeCompactionSummary(result.output[0]?.encrypted_content ?? ""))
+      .toContain("Recovered checkpoint");
+  } finally {
+    if (worker && originalRun) worker.run = originalRun;
+    await TurnBroker.forSocket(config.brokerSocketPath).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("native responses/memento compaction returns assistant text, not an encrypted compaction item", async () => {
   const metadata = {

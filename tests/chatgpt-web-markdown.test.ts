@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { chatGptHtmlToMarkdown } from "../src/adapters/chatgpt-web/markdown";
+import { chatGptHtmlToMarkdown, ChatGptMarkdownBuffer } from "../src/adapters/chatgpt-web/markdown";
+import { parseCompactionState } from "../src/responses/compaction";
 
 test("turns observed inline file path formats into Markdown links", () => {
   const cases = [
@@ -119,4 +120,135 @@ test("preserving plan markers does not rewrite mentions or literal code", () => 
     "`<proposed_plan>` `</proposed_plan>`", "",
     "```", "<proposed\\_plan>", "</proposed\\_plan>", "```",
   ].join("\n"));
+});
+
+test("preserves a compaction checklist rendered as ordinary paragraphs", () => {
+  const markdown = chatGptHtmlToMarkdown([
+    "<p>&lt;compaction_state&gt;</p>",
+    "<p>version: 2</p>",
+    "<p>original_request_ref: user turn 1</p>",
+    "<p>modified_files:</p>",
+    "<p>active_hypothesis: Finish the task.</p>",
+    "<p>requirements:</p>",
+    '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
+    "<p>closure_criteria:</p>",
+    "<p>verified_achievements:</p>",
+    "<p>decisions_and_invariants:</p>",
+    "<p>blockers_or_test_failures:</p>",
+    "<p>pending_obligations:</p>",
+    "<p>next_actions:</p>",
+    "<ul><li>Finish the task.</li></ul>",
+    "<p>&lt;/compaction_state&gt;</p>",
+  ].join(""));
+
+  expect(markdown).toContain("<compaction_state>\n");
+  expect(markdown).toContain("original_request_ref: user turn 1");
+  expect(markdown).toContain("modified_files:");
+  expect(markdown).toContain("blockers_or_test_failures:");
+  expect(markdown).toContain("</compaction_state>");
+});
+
+test("does not reinterpret escaped compaction syntax inside a fenced example", () => {
+  const markdown = chatGptHtmlToMarkdown([
+    "<pre><code>&lt;compaction\\_state&gt;\n",
+    "original\\_request\\_ref: example\n",
+    "&lt;/compaction\\_state&gt;</code></pre>",
+    "<p>ordinary_field: remains ordinary.</p>",
+  ].join(""));
+
+  expect(markdown).toContain("<compaction\\_state>\noriginal\\_request\\_ref: example\n</compaction\\_state>");
+  expect(markdown).toContain("ordinary\\_field: remains ordinary.");
+});
+
+test("a segmented browser response retains parseable compaction fields", () => {
+  const blocks = [
+    "&lt;compaction_state&gt;",
+    "version: 2",
+    "original_request_ref: user turn 1",
+    "modified_files:",
+    "active_hypothesis: Finish the task.",
+    "requirements:",
+    "closure_criteria:",
+    "verified_achievements:",
+    "decisions_and_invariants:",
+    "blockers_or_test_failures:",
+    "pending_obligations:",
+    "next_actions:",
+    "&lt;/compaction_state&gt;",
+  ];
+  const buffer = new ChatGptMarkdownBuffer();
+  buffer.observe(blocks.map((block, index) => ({
+    key: `block-${index}`,
+    tag: "p",
+    html: `<p>${block}</p>`,
+    text: block,
+    streamable: index < blocks.length - 1,
+  })), 0);
+
+  const state = parseCompactionState(buffer.finish().markdown);
+  expect(state?.version).toBe(2);
+  expect(state?.originalRequestRef).toBe("user turn 1");
+  expect(state?.activeHypothesis).toBe("Finish the task.");
+});
+
+test("preserves an actual compaction_state DOM element rather than dropping its boundary", () => {
+  const markdown = chatGptHtmlToMarkdown(
+    "<compaction_state><p>version: 2</p><p>original_request_ref: user turn 1</p></compaction_state>",
+  );
+
+  expect(markdown).toContain("<compaction_state>");
+  expect(markdown).toContain("original_request_ref: user turn 1");
+  expect(markdown).toContain("</compaction_state>");
+});
+
+test("a rendered requirement keeps JSON evidence with Markdown punctuation parseable", () => {
+  const markdown = chatGptHtmlToMarkdown([
+    "<p>&lt;compaction_state&gt;</p>",
+    "<p>version: 2</p>",
+    "<p>requirements:</p>",
+    '<ul><li>{"id":"REQ-1","status":"verified","source":"user: foo_bar [x] *","evidence":"bun test: 1 pass"}</li></ul>',
+    "<p>&lt;/compaction_state&gt;</p>",
+  ].join(""));
+
+  expect(parseCompactionState(markdown)?.requirements).toEqual([{
+    id: "REQ-1",
+    status: "verified",
+    source: "user: foo_bar [x] *",
+    evidence: "bun test: 1 pass",
+  }]);
+});
+
+test("a rendered requirement preserves literal Windows path backslashes", () => {
+  const source = String.raw`user: inspect C:\temp\foo_bar.ts`;
+  const requirement = JSON.stringify({ id: "REQ-1", status: "pending", source });
+  const markdown = chatGptHtmlToMarkdown([
+    "<p>&lt;compaction_state&gt;</p>",
+    "<p>requirements:</p>",
+    `<ul><li>${requirement}</li></ul>`,
+    "<p>&lt;/compaction_state&gt;</p>",
+  ].join(""));
+
+  expect(parseCompactionState(markdown)?.requirements?.[0]?.source).toBe(source);
+});
+
+test("segmented checklist JSON preserves literal path and punctuation", () => {
+  const source = String.raw`user: inspect C:\temp\foo_bar.ts [x] and pattern \*`;
+  const requirement = JSON.stringify({ id: "REQ-1", status: "pending", source });
+  const blocks = [
+    "&lt;compaction_state&gt;",
+    "version: 2",
+    "requirements:",
+    `<ul><li>${requirement}</li></ul>`,
+    "&lt;/compaction_state&gt;",
+  ];
+  const buffer = new ChatGptMarkdownBuffer();
+  buffer.observe(blocks.map((block, index) => ({
+    key: `path-block-${index}`,
+    tag: "p",
+    html: block.startsWith("<ul>") ? block : `<p>${block}</p>`,
+    text: block,
+    streamable: index < blocks.length - 1,
+  })), 0);
+
+  expect(parseCompactionState(buffer.finish().markdown)?.requirements?.[0]?.source).toBe(source);
 });

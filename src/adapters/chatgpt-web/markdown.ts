@@ -30,6 +30,10 @@ turndown.addRule("preserveCodexPlanBlockTags", {
     return `\n\n${paragraph}\n\n`;
   },
 });
+turndown.addRule("preserveCompactionStateElement", {
+  filter: node => node.nodeName.toLowerCase() === "compaction_state",
+  replacement: content => `\n\n<compaction_state>\n${content.trim()}\n</compaction_state>\n\n`,
+});
 turndown.addRule("linkInlineFilePaths", {
   filter: node => inlineFilePath(node) !== undefined,
   replacement: (_content, node) => {
@@ -139,9 +143,51 @@ function linkObsidianWikiLinks(markdown: string): string {
   }).join("\n");
 }
 
-export function chatGptHtmlToMarkdown(html: string): string {
+interface CompactionMarkdownState {
+  inCompactionState: boolean;
+  fence?: string;
+}
+
+function restoreCompactionMarkdown(
+  markdown: string,
+  state: CompactionMarkdownState,
+  compactionCheckpoint = false,
+): string {
+  return markdown.split("\n").map(line => {
+    if (state.fence) {
+      if (new RegExp(`^ {0,3}${state.fence[0]}{${state.fence.length},}[ \\t]*$`).test(line)) {
+        state.fence = undefined;
+      }
+      return line;
+    }
+    const openingFence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (openingFence) {
+      state.fence = openingFence[1];
+      return line;
+    }
+    if (compactionCheckpoint && /^`<\/?compaction(?:_|\\_)state>`$/.test(line.trim())) {
+      line = line.trim().slice(1, -1);
+    }
+    if (["<compaction_state>", "<compaction\\_state>"].includes(line.trim())) {
+      state.inCompactionState = true;
+      return line.replace("compaction\\_state", "compaction_state");
+    }
+    if (["</compaction_state>", "</compaction\\_state>"].includes(line.trim())) {
+      state.inCompactionState = false;
+      return line.replace("compaction\\_state", "compaction_state");
+    }
+    if (!state.inCompactionState) return line;
+    return line.replace(/\\([\\`*_{}\[\]()#+\-.!>|])/g, "$1");
+  }).join("\n");
+}
+
+function htmlToMarkdownRaw(html: string): string {
   if (!html.trim()) return "";
   return linkObsidianWikiLinks(preserveObsidianWikiLinks(turndown.turndown(html))).trim();
+}
+
+export function chatGptHtmlToMarkdown(html: string): string {
+  return restoreCompactionMarkdown(htmlToMarkdownRaw(html), { inCompactionState: false });
 }
 
 export interface ChatGptMarkdownSegment {
@@ -190,6 +236,7 @@ export interface ChatGptMarkdownBufferOptions {
   proseStabilityMs?: number;
   toolStabilityMs?: number;
   adaptive?: boolean;
+  compactionCheckpoint?: boolean;
 }
 
 /**
@@ -209,10 +256,12 @@ export class ChatGptMarkdownBuffer {
   private markdown = "";
   private lastGroup: string | undefined;
   private consistencyError: ChatGptMarkdownConsistencyError | undefined;
+  private readonly compactionMarkdownState: CompactionMarkdownState = { inCompactionState: false };
   private readonly defaultStabilityMs: number;
   private readonly proseStabilityMs: number;
   private readonly toolStabilityMs: number;
   private readonly adaptive: boolean;
+  private readonly compactionCheckpoint: boolean;
 
   constructor(
     private readonly transform: (markdown: string) => string = markdown => markdown,
@@ -226,6 +275,7 @@ export class ChatGptMarkdownBuffer {
       this.proseStabilityMs = stabilityOption;
       this.toolStabilityMs = Math.min(stabilityOption, 100);
       this.adaptive = false;
+      this.compactionCheckpoint = false;
     } else {
       const opts = stabilityOption ?? {};
       const def = opts.stabilityMs ?? 750;
@@ -236,6 +286,7 @@ export class ChatGptMarkdownBuffer {
       this.proseStabilityMs = opts.proseStabilityMs ?? 350;
       this.toolStabilityMs = opts.toolStabilityMs ?? 0;
       this.adaptive = opts.adaptive ?? true;
+      this.compactionCheckpoint = opts.compactionCheckpoint ?? false;
     }
   }
 
@@ -454,7 +505,11 @@ export class ChatGptMarkdownBuffer {
   }
 
   private commit(segment: ChatGptMarkdownSegment): string {
-    const block = this.transform(chatGptHtmlToMarkdown(segment.html));
+    const block = this.transform(restoreCompactionMarkdown(
+      htmlToMarkdownRaw(segment.html),
+      this.compactionMarkdownState,
+      this.compactionCheckpoint,
+    ));
     if (!block) return "";
     const separator = this.markdown
       ? segment.group !== undefined && segment.group === this.lastGroup ? "\n" : "\n\n"
