@@ -2173,14 +2173,21 @@ test("an invalid fresh fallback receives one bounded draft repair, not a replay 
     expect(repairPrompt).not.toContain("Work completed");
     expect(repairPrompt).not.toContain("SHOULD_NOT_COPY");
     expect(repairPrompt).toContain("Latest user request:\\n\\\"Continue with the next step\\\"");
-    expect(repairPrompt).not.toContain("STRUCTURED HANDOFF REQUIREMENT");
+    expect(repairPrompt).toContain("version: 2");
+    expect(repairPrompt).toContain("original_request_ref:");
+    expect(repairPrompt).toContain("requirements:");
+    expect(repairPrompt).toContain("blockers_or_test_failures:");
+    expect(repairPrompt).toContain("next_actions:");
     const repairContext = JSON.parse(repairPrompt.match(/<codex_context_json>\n([\s\S]*?)\n<\/codex_context_json>/)![1]!) as {
       messages: Array<{ content: string }>;
     };
     expect(repairContext.messages[0]!.content.trimEnd()).toEndWith(
-      "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint, including every required section and exactly one next action. Do not return only a narrative summary or a fenced example.",
+      "Return only the complete checkpoint block. No preface, narrative summary, Markdown fence, or trailing text.",
     );
     expect(repairContext.messages[0]!.content).toContain("do not wrap them in Markdown code fences");
+    expect(repairContext.messages[0]!.content).toContain(
+      "Begin your answer with a literal <compaction_state> line and end it with a literal </compaction_state> line.",
+    );
     expect(events.some(event => event.type === "text_delta"
       && event.text.includes("Repaired fresh checkpoint"))).toBeTrue();
     expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
@@ -2210,7 +2217,9 @@ test("an invalid fresh repair is rejected after exactly one correction attempt",
   let browserMessages = 0;
   worker.run = async () => {
     browserMessages += 1;
-    return browserMessages === 1 ? "Incomplete checkpoint without a mission checklist." : "";
+    return browserMessages === 1
+      ? "Incomplete checkpoint without a mission checklist."
+      : "version: 2\nrequirements:\n- pending requirement\nnext_actions:\n- Continue\n</compaction_state>";
   };
   const events: AdapterEvent[] = [];
   const logs: string[] = [];
@@ -2229,7 +2238,7 @@ test("an invalid fresh repair is rejected after exactly one correction attempt",
       && line.includes('"repaired":true'));
     expect(repairedValidation).toBeDefined();
     expect(JSON.parse(repairedValidation!.slice("[chatgpt-web] checkpoint_validation ".length)))
-      .toMatchObject({ valid: false, missingState: true, openingTags: 0, closingTags: 0 });
+      .toMatchObject({ valid: false, missingState: true, openingTags: 0, closingTags: 1 });
   } finally {
     logger.mockRestore();
     worker.run = originalRun;

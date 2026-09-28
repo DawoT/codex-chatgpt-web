@@ -319,8 +319,21 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   JSON.stringify(recentRepairObservations(parsed)),
                   "Rejected draft:",
                   rawSummary,
-                  "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint,"
-                    + " including every required section and exactly one next action. Do not return only a narrative summary or a fenced example.",
+                  "The previous draft is reference material only. Do not copy this schema or invent evidence.",
+                  "Begin your answer with a literal <compaction_state> line and end it with a literal </compaction_state> line.",
+                  "Include these fields in the block, in this order, using real values from the supplied history:",
+                  "version: 2",
+                  "original_request_ref:",
+                  "modified_files:",
+                  "active_hypothesis:",
+                  "requirements: (each item is JSON with id, status pending|blocked|verified, source, and evidence only when verified)",
+                  "closure_criteria:",
+                  "verified_achievements:",
+                  "decisions_and_invariants:",
+                  "blockers_or_test_failures:",
+                  "pending_obligations:",
+                  "next_actions: (exactly one concrete action)",
+                  "Return only the complete checkpoint block. No preface, narrative summary, Markdown fence, or trailing text.",
                 ].join("\n");
                 const repairParsed: CodexParsedRequest = {
                   ...parsed,

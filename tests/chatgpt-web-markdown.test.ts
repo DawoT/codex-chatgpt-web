@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { chatGptHtmlToMarkdown, ChatGptMarkdownBuffer } from "../src/adapters/chatgpt-web/markdown";
+import {
+  chatGptHtmlToMarkdown,
+  ChatGptMarkdownBuffer,
+  inspectCompactionResponseSurface,
+} from "../src/adapters/chatgpt-web/markdown";
 import { parseCompactionState } from "../src/responses/compaction";
 
 test("turns observed inline file path formats into Markdown links", () => {
@@ -146,6 +150,22 @@ test("preserves a compaction checklist rendered as ordinary paragraphs", () => {
   expect(markdown).toContain("modified_files:");
   expect(markdown).toContain("blockers_or_test_failures:");
   expect(markdown).toContain("</compaction_state>");
+});
+
+test("checkpoint surface diagnostics distinguish a renderer boundary from Markdown loss without content", () => {
+  const diagnostic = inspectCompactionResponseSurface({
+    visibleText: "<compaction_state>\nversion: 2\n</compaction_state>",
+    fullHtml: "<p>&lt;compaction_state&gt;</p><p>version: 2</p><p>&lt;/compaction_state&gt;</p>",
+  }, "version: 2\n</compaction_state>");
+
+  expect(diagnostic).toEqual({
+    visibleOpeningTags: 1,
+    visibleClosingTags: 1,
+    htmlOpeningTags: 1,
+    htmlClosingTags: 1,
+    markdownOpeningTags: 0,
+    markdownClosingTags: 1,
+  });
 });
 
 test("does not reinterpret escaped compaction syntax inside a fenced example", () => {

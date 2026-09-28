@@ -1,5 +1,6 @@
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { inspectCompactionStateFormat } from "../../responses/compaction";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -188,6 +189,32 @@ function htmlToMarkdownRaw(html: string): string {
 
 export function chatGptHtmlToMarkdown(html: string): string {
   return restoreCompactionMarkdown(htmlToMarkdownRaw(html), { inCompactionState: false });
+}
+
+/** Content-free counts to locate tag loss across the rendered DOM and serializer boundary. */
+export function inspectCompactionResponseSurface(
+  response: { visibleText: string; fullHtml: string },
+  markdown: string,
+): {
+  visibleOpeningTags: number;
+  visibleClosingTags: number;
+  htmlOpeningTags: number;
+  htmlClosingTags: number;
+  markdownOpeningTags: number;
+  markdownClosingTags: number;
+} {
+  const visible = inspectCompactionStateFormat(response.visibleText);
+  const serialized = inspectCompactionStateFormat(markdown);
+  const htmlOpen = response.fullHtml.match(/(?:<compaction_state>|&lt;compaction_state&gt;)/gi);
+  const htmlClose = response.fullHtml.match(/(?:<\/compaction_state>|&lt;\/compaction_state&gt;)/gi);
+  return {
+    visibleOpeningTags: visible.openingTags,
+    visibleClosingTags: visible.closingTags,
+    htmlOpeningTags: htmlOpen?.length ?? 0,
+    htmlClosingTags: htmlClose?.length ?? 0,
+    markdownOpeningTags: serialized.openingTags,
+    markdownClosingTags: serialized.closingTags,
+  };
 }
 
 export interface ChatGptMarkdownSegment {

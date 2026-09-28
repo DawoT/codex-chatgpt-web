@@ -22,6 +22,7 @@ import { parseDataUrl } from "../image";
 import {
   ChatGptMarkdownBuffer,
   ChatGptMarkdownConsistencyError,
+  inspectCompactionResponseSurface,
   type ChatGptMarkdownSegment,
 } from "./markdown";
 import {
@@ -4091,6 +4092,12 @@ export class ChatGptBrowserWorker {
                 return throwMarkdownConsistencyError(error);
               }
             })();
+            if (turn.compaction) {
+              console.info(
+                `[chatgpt-web] browser turn ${turn.traceId} checkpoint_surface `
+                + JSON.stringify(inspectCompactionResponseSurface(snapshot, final.markdown)),
+              );
+            }
             if (!final.markdown && snapshot.visibleText) {
               throw new Error("ChatGPT completed with visible text that could not be serialized as Markdown");
             }
