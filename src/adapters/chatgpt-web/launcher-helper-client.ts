@@ -230,6 +230,9 @@ export class LauncherBrowserHelperClient {
     if (turn.pendingMissionRequirements && !this.helperFeatures.has("mission-headroom")) {
       throw new Error("Launcher browser helper does not support mission headroom; update or restart the launcher");
     }
+    if (turn.compaction && !this.helperFeatures.has("checkpoint-markdown-v2")) {
+      throw new Error("Launcher browser helper does not support the checkpoint Markdown protocol; update or restart the launcher");
+    }
     return await new Promise<string>((resolveResult, rejectResult) => {
         if (this.pending.has(turn.traceId)) {
           rejectResult(new Error(`Duplicate launcher browser turn: ${turn.traceId}`));

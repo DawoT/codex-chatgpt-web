@@ -43,6 +43,18 @@ export function cancellableBrowserTurn(
     rejectCancellation = reject;
   });
   let cancellationRejected = false;
+  const rejectTypedAbort = (): void => {
+    const reason = controller.signal.reason;
+    if (!(reason instanceof ChatGptWebAdapterError) || cancellationRejected) return;
+    cancellationRejected = true;
+    rejectCancellation(reason);
+  };
+  controller.signal.addEventListener("abort", rejectTypedAbort, { once: true });
+  if (controller.signal.aborted) rejectTypedAbort();
+  void run.then(
+    () => controller.signal.removeEventListener("abort", rejectTypedAbort),
+    () => controller.signal.removeEventListener("abort", rejectTypedAbort),
+  );
   return {
     // Cancellation wins immediately even while the detached Playwright helper is still unwinding.
     // The helper keeps the same abort signal and remains responsible for its normal end/cleanup

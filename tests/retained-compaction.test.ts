@@ -1810,6 +1810,12 @@ test("an invalid fresh fallback receives one bounded draft repair, not a replay 
     expect(repairPrompt).not.toContain("SHOULD_NOT_COPY");
     expect(repairPrompt).toContain("Latest user request:\\n\\\"Continue with the next step\\\"");
     expect(repairPrompt).not.toContain("STRUCTURED HANDOFF REQUIREMENT");
+    const repairContext = JSON.parse(repairPrompt.match(/<codex_context_json>\n([\s\S]*?)\n<\/codex_context_json>/)![1]!) as {
+      messages: Array<{ content: string }>;
+    };
+    expect(repairContext.messages[0]!.content.trimEnd()).toEndWith(
+      "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint, including every required section and exactly one next action. Do not return only a narrative summary.",
+    );
     expect(events.some(event => event.type === "text_delta"
       && event.text.includes("Repaired fresh checkpoint"))).toBeTrue();
     expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });

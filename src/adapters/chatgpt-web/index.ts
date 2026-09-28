@@ -4,7 +4,11 @@ import { expandUserPath } from "../../config";
 import { releaseLauncherRetainedConversation } from "../../launcher-browser-host";
 import type { AdapterEvent, CodexParsedRequest, CodexProviderConfig } from "../../types";
 import type { ProviderAdapter } from "../base";
-import { ChatGptWebAdapterError } from "./adapter-error";
+import {
+  ChatGptWebAdapterError,
+  codexTurnBindingObservationFailedError,
+  codexTurnBindingRetiredError,
+} from "./adapter-error";
 import { ChatGptBrowserWorker } from "./browser-worker";
 import {
   extractChatGptThreadSpawnLineage,
@@ -260,14 +264,12 @@ export function createChatGptWebAdapter(
       observedCapabilityTokens.add(turnToken);
       void broker.waitForRetirement(turnToken).then(
         () => {
-          const retirement = new Error("Codex Native retired the turn binding before its tool work completed");
+          const retirement = codexTurnBindingRetiredError();
           externalProgress.retire(retirement);
           if (!browserOwnerSettled && !browserAbort.signal.aborted) browserAbort.abort(retirement);
         },
         error => {
-          const failure = new Error("ChatGPT could not observe Codex Native turn retirement", {
-            cause: error,
-          });
+          const failure = codexTurnBindingObservationFailedError(error);
           externalProgress.retire(failure);
           if (!browserAbort.signal.aborted) browserAbort.abort(failure);
         },

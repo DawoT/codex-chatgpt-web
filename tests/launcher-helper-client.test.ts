@@ -265,6 +265,7 @@ test("launcher helper protocol preserves multipart context and the compaction fl
   const internal = client as unknown as {
     pending: Map<string, { resolve(value: string): void }>;
     child?: unknown;
+    helperFeatures: Set<string>;
     ensureChild(): Promise<void>;
     send(message: Record<string, unknown>): Promise<void>;
     finish(id: string): void;
@@ -272,6 +273,7 @@ test("launcher helper protocol preserves multipart context and the compaction fl
   };
   const child = {};
   internal.child = child;
+  internal.helperFeatures = new Set(["checkpoint-markdown-v2"]);
   internal.ensureChild = async () => {};
   internal.send = async message => {
     sent.push(message);
@@ -372,6 +374,42 @@ test("an abort dispatched during run submission cannot overtake the run frame", 
 
   expect(messages).toEqual(["run", "abort"]);
   expect(released).toBe(false);
+});
+
+test("a stale helper cannot accept a fresh compaction before checkpoint Markdown support is confirmed", async () => {
+  const client = new LauncherBrowserHelperClient({
+    appName: "Codex Native",
+    browserHost: "launcher",
+    browserHostDescriptorPath: "/durable/launcher.json",
+    storageStatePath: "/durable/unused-state.json",
+    chromeExecutablePath: "/durable/unused-chrome",
+    turnTimeoutMs: 60_000,
+    headed: true,
+    autoApproveToolCalls: false,
+    useSavedChats: false,
+  });
+  const sent: string[] = [];
+  const internal = client as unknown as {
+    ensureChild(): Promise<void>;
+    helperFeatures: Set<string>;
+    send(message: { type: string }): Promise<void>;
+  };
+  internal.ensureChild = async () => {};
+  internal.helperFeatures = new Set(["multipart-stage-ack", "skill-attachments"]);
+  internal.send = async message => {
+    sent.push(message.type);
+    throw new Error("A stale helper was allowed to receive the compaction turn");
+  };
+
+  await expect(client.run({
+    traceId: "stale-compaction-helper",
+    modelId: "gpt-5.6-sol",
+    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+    compaction: true,
+    prepare: async () => ({ text: "checkpoint", images: [], release() {} }),
+    onTextDelta() {},
+  })).rejects.toThrow("checkpoint Markdown protocol");
+  expect(sent).toEqual([]);
 });
 
 test("structured helper errors preserve the ChatGPT adapter failure contract", async () => {

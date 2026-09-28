@@ -12,6 +12,7 @@ import { ChatGptBrowserWorker, type BrowserTurn } from "../src/adapters/chatgpt-
 import { chatGptConversationKey } from "../src/adapters/chatgpt-web/conversation-key";
 import { CHATGPT_TURN_REVISION_CONFLICT_MESSAGE, extractChatGptTurnEnvironment, extractChatGptTurnIdentity, extractChatGptTurnUserRevision, priorChatGptAbortedTurnIds } from "../src/adapters/chatgpt-web/environment";
 import { CHATGPT_WEB_ADAPTER_HEARTBEAT_MS, chatGptWebExecutionNamespace, chatGptWebTraceId, createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
+import { cancellableBrowserTurn } from "../src/adapters/chatgpt-web/adapter/cancellation";
 import { chatGptHtmlToMarkdown, ChatGptMarkdownBuffer } from "../src/adapters/chatgpt-web/markdown";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import {
@@ -32,6 +33,29 @@ import type { AdapterEvent, CodexParsedRequest, CodexProviderConfig, CodexTool }
 const tempRoot = join(tmpdir(), `codex-chatgpt-web-harness-${process.pid}-${Date.now()}`);
 mkdirSync(tempRoot, { recursive: true });
 afterAll(() => rmSync(tempRoot, { recursive: true, force: true }));
+
+test("typed native retirement survives a helper that drops its abort reason without settling physical ownership", async () => {
+  const controller = new AbortController();
+  let rejectHelper!: (error: Error) => void;
+  const helper = new Promise<string>((_resolve, reject) => { rejectHelper = reject; });
+  const turn = cancellableBrowserTurn(helper, controller);
+  const retirement = new ChatGptWebAdapterError("native binding retired", {
+    status: 409,
+    errorType: "invalid_request_error",
+    code: "codex_turn_binding_retired",
+    retryable: false,
+  });
+  let physicallySettled = false;
+  void turn.physicalSettlement.then(() => { physicallySettled = true; });
+
+  controller.abort(retirement);
+  await expect(turn.browser).rejects.toBe(retirement);
+  expect(physicallySettled).toBeFalse();
+
+  rejectHelper(new DOMException("helper aborted", "AbortError"));
+  await turn.physicalSettlement;
+  expect(physicallySettled).toBeTrue();
+});
 
 test("current-turn MCP progress tracks active calls without claiming completion", async () => {
   const progress = new ChatGptExternalTurnProgress();
@@ -3534,9 +3558,11 @@ next_actions:
     const originalRun = worker.run.bind(worker);
     let retiredProgress: ReturnType<ChatGptExternalTurnProgress["snapshot"]> | undefined;
     let lateAcknowledgementError: Error | undefined;
+    let browserStarts = 0;
     let markRetirementObserved!: () => void;
     const retirementObserved = new Promise<void>(resolve => { markRetirementObserved = resolve; });
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+      browserStarts += 1;
       const prepared = await turn.prepare();
       try {
         const token = prepared.text.match(/turn_token (turn_[A-Za-z0-9_-]+)/)?.[1];
@@ -3576,7 +3602,7 @@ next_actions:
         markRetirementObserved();
 
         return await new Promise<string>((_resolve, reject) => {
-          const rejectAborted = () => reject(turn.abortSignal?.reason ?? new DOMException("test browser aborted", "AbortError"));
+          const rejectAborted = () => reject(new DOMException("test browser aborted", "AbortError"));
           if (turn.abortSignal?.aborted) rejectAborted();
           else turn.abortSignal?.addEventListener("abort", rejectAborted, { once: true });
         });
@@ -3598,10 +3624,80 @@ next_actions:
       expect(events.some(event => event.type === "tool_call_start")).toBeFalse();
       expect(events.at(-1)).toMatchObject({
         type: "error",
-        code: "chatgpt_submitted_turn_failed",
+        code: "codex_turn_binding_retired",
       });
+      const replayEvents: AdapterEvent[] = [];
+      await createChatGptWebAdapter(provider, { broker }).runTurn!(
+        rawWireRequest(environmentXml),
+        { headers: new Headers() },
+        event => replayEvents.push(event),
+      );
+      expect(replayEvents.at(-1)).toMatchObject({
+        type: "error",
+        code: "codex_turn_binding_retired",
+      });
+      expect(browserStarts).toBe(1);
     } finally {
       (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+      chatGptTurnSessions.clear();
+      await broker.close();
+    }
+  }, 10_000);
+
+  test("retirement observation failure stays distinct from a ChatGPT stream failure after acceptance", async () => {
+    const socketPath = brokerTestEndpoint(`cgw-retirement-observation-${process.pid}-${Date.now()}`);
+    const provider: CodexProviderConfig = {
+      adapter: "chatgpt-web",
+      baseUrl: `browser://retirement-observation-${Date.now()}`,
+      chatgptWeb: {
+        brokerSocketPath: socketPath,
+        localToolsEnabled: true,
+        solAvailable: true,
+        extraHighAvailable: true,
+        proAvailable: true,
+      },
+    };
+    const broker = TurnBroker.forSocket(socketPath);
+    const worker = ChatGptBrowserWorker.forProvider(provider);
+    const originalRun = worker.run.bind(worker);
+    const originalWait = broker.waitForRetirement.bind(broker);
+    let browserStarts = 0;
+    let rejectObservation!: (error: Error) => void;
+    const observation = new Promise<void>((_resolve, reject) => { rejectObservation = reject; });
+    (broker as unknown as { waitForRetirement: typeof broker.waitForRetirement }).waitForRetirement = async () => observation;
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+      browserStarts += 1;
+      const prepared = await turn.prepare();
+      try {
+        turn.onSubmitted?.();
+        expect(turn.abortSignal?.aborted).toBeFalse();
+        rejectObservation(new Error("test observer failure"));
+        return await new Promise<string>((_resolve, reject) => {
+          const rejectAborted = () => reject(new DOMException("helper aborted", "AbortError"));
+          if (turn.abortSignal?.aborted) rejectAborted();
+          else turn.abortSignal?.addEventListener("abort", rejectAborted, { once: true });
+        });
+      } finally {
+        prepared.release();
+      }
+    };
+
+    try {
+      const adapter = createChatGptWebAdapter(provider, { broker });
+      const events: AdapterEvent[] = [];
+      await adapter.runTurn!(rawWireRequest(environmentXml), { headers: new Headers() }, event => events.push(event));
+      expect(events.at(-1)).toMatchObject({
+        type: "error",
+        code: "codex_turn_binding_observation_failed",
+        retryable: false,
+      });
+      const replay: AdapterEvent[] = [];
+      await adapter.runTurn!(rawWireRequest(environmentXml), { headers: new Headers() }, event => replay.push(event));
+      expect(replay.at(-1)).toMatchObject({ type: "error", code: "codex_turn_binding_observation_failed" });
+      expect(browserStarts).toBe(1);
+    } finally {
+      (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+      (broker as unknown as { waitForRetirement: typeof broker.waitForRetirement }).waitForRetirement = originalWait;
       chatGptTurnSessions.clear();
       await broker.close();
     }

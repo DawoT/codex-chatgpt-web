@@ -290,6 +290,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   JSON.stringify(recentRepairObservations(parsed)),
                   "Rejected draft:",
                   rawSummary,
+                  "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint,"
+                    + " including every required section and exactly one next action. Do not return only a narrative summary.",
                 ].join("\n");
                 const repairParsed: CodexParsedRequest = {
                   ...parsed,

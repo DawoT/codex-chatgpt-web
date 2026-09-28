@@ -1,0 +1,888 @@
+schema_version: "1.0"
+
+roadmap:
+  id: "refactor-monoliths"
+  title: "Monolith Refactor Roadmap"
+  status: "planned"
+  owner_mode: "ODD"
+  purpose: >
+    Incrementally decompose the repository's highest-risk monoliths into cohesive
+    collaborators while preserving public behavior, protocol contracts, recovery
+    semantics, and reviewability.
+  planning_only: true
+  implementation_authorized_by_this_file: false
+
+source_context:
+  repository: "codex-chatgpt-web"
+  package_manager: "bun@1.4.0"
+  declared_test_command: "bun test ./tests"
+  declared_typecheck_command: "bun run typecheck"
+  declared_build_command: "bun run build"
+  declared_verify_command: "bun run verify"
+  launcher_test_command: "bun run launcher:test"
+  launcher_typecheck_command: "bun run launcher:typecheck"
+  launcher_build_command: "bun run launcher:build"
+  priority_order:
+    - "src/bridge/sse-stream.ts"
+    - "src/adapters/chatgpt-web/index.ts"
+    - "launcher/electron/runtime-supervisor.cjs"
+    - "launcher/electron/runtime.cjs"
+    - "launcher/src/App.tsx + launcher/electron/main.cjs"
+    - "launcher/electron/browser-host.cjs"
+    - "src/adapters/chatgpt-web/browser-worker.ts"
+    - "src/adapters/chatgpt-web/turn-broker.ts"
+  rationale:
+    - "Start with bounded seams whose public facade can remain stable."
+    - "Delay browser and broker state machines until lower-risk seams are proven."
+    - "Treat file size as a signal, not a refactor requirement by itself."
+
+non_goals:
+  - "No big-bang rewrite."
+  - "No public API redesign unless a separately authorized change requires it."
+  - "No protocol format changes under the label of refactoring."
+  - "No behavior, timeout, retry, recovery, authentication, or persistence changes unless separately specified and tested."
+  - "No speculative framework introduction."
+  - "No refactor of launcher/src/i18n.ts based only on file length."
+  - "No simultaneous extraction of unrelated responsibilities merely to reduce LOC."
+  - "No commit, push, pull request, merge, release, or deployment authorization is granted by this roadmap."
+
+global_invariants:
+  public_facade:
+    - "Existing exported adapter, bridge, host, worker, supervisor, runtime, and broker entry points remain callable with the same externally observable contract during extraction."
+    - "Consumers migrate behind the existing facade first; facade removal requires a later explicit migration plan."
+  behavior:
+    - "Observable event ordering must not change."
+    - "Cancellation, abort, timeout, heartbeat, retry, and recovery semantics must not change."
+    - "No new background work may survive a cancelled or retired turn."
+    - "No change may weaken authentication, passkey, capability, or environment trust boundaries."
+    - "No shared-state or concurrency invariant may be weakened."
+    - "No Electron IPC privilege boundary may be broadened."
+  data_and_protocol:
+    - "Serialized request/response shapes remain stable unless a dedicated contract change is approved."
+    - "SSE terminal semantics remain exactly one terminal response followed by stream completion."
+    - "Turn/broker identity, ownership, retirement, completion-fence, and tool-batch invariants remain preserved."
+  reviewability:
+    - "One responsibility extraction per work unit whenever practical."
+    - "Every work unit has a bounded rollback that does not revert unrelated work."
+    - "Prefer review slices at or below 400 changed lines when cohesive; use a documented size exception instead of artificial splitting."
+  anti_overengineering:
+    - "Use only the roles, artifacts, and checks required by the actual SHS cell."
+    - "Do not repeat a review round without new technical evidence."
+    - "Do not create cryptographic ledger entries for non-R2 work."
+    - "Do not create new abstractions unless they remove an identified responsibility from a monolith."
+
+odd_workflow:
+  required_sequence:
+    - "authorize"
+    - "explore"
+    - "resolve_uncertainty"
+    - "classify"
+    - "track"
+    - "implement"
+    - "check"
+    - "close"
+  rules:
+    - "Explore current implementation and tests before editing."
+    - "Classify risk and size before production writes."
+    - "Track substantial work before the first production write."
+    - "Use the smallest safe delegation path; mandatory delegation triggers still apply."
+    - "Close each work unit only after its acceptance criteria and verification evidence are observed."
+    - "If implementation reveals a new trigger domain, immediately reclassify upward and do not continue under the old ceremony."
+
+shs_policy:
+  dimensions:
+    risk:
+      R0: "Trivial/non-production changes only."
+      R1: "Production logic without a sensitive trigger domain."
+      R2: "Touches a trigger domain or an equivalent critical boundary."
+    size:
+      S: "One narrow change with little coordination."
+      M: "Multiple meaningful steps or moderate coordination."
+      L: "Cross-cutting or high-volume work requiring explicit orchestration."
+  trigger_domains_for_this_roadmap:
+    - "authentication and passkeys"
+    - "capability and trusted-environment boundaries"
+    - "shared concurrency or mutable turn/session state"
+    - "Electron privileged IPC and process control"
+    - "runtime lifecycle, recovery, restart, drain, and rollback"
+    - "broker ownership, retirement, tool batching, completion fences, and compaction"
+  separation_invariant: "For R2 work, R != A and R != V: the implementer must be distinct from the approver and verifier, with isolation demonstrable in the active harness."
+  role_policy:
+    R0xS: "Single implementer; normal structural verification."
+    R1xS: "Single implementer with L1 self-check."
+    R1xM: "Implementer plus independent read-only reviewer."
+    R1xL: "Spec lead, implementer, and reviewer without role inflation."
+    R2xS: "Implementer plus demonstrably separate approver and verifier."
+    R2xM: "Implementer plus independent reviewer/approver and verifier with verified isolation."
+    R2xL: "Spec lead, implementer, reviewer/approver, verifier, plus only domain roles justified by detected triggers."
+  escalation:
+    - "Risk may only move upward within an active work unit unless new evidence justifies a fresh classification."
+    - "If role isolation required by the cell cannot be demonstrated, stop before approval."
+    - "If the SHS adapter or append-only ledger required for R2 is unavailable, stop and resolve/bootstrap it; never fabricate ledger evidence."
+
+tdd_policy:
+  default_cycle:
+    baseline:
+      requirement: "Run the nearest existing behavior/characterization tests before editing and record the result."
+      expected: "GREEN or an explicitly documented pre-existing failure."
+    red:
+      requirement: >
+        Add a contract-focused test for the intended collaborator/seam before the
+        production extraction. Observe failure for the expected missing seam or
+        unmet contract, not for an environment/configuration error.
+      evidence:
+        - "test command"
+        - "failing assertion or missing-seam reason"
+        - "candidate identity or commit boundary when available"
+    green:
+      requirement: "Implement the smallest extraction that satisfies the new seam contract."
+      evidence:
+        - "same focused test command now passing"
+        - "unchanged characterization tests passing"
+    refactor:
+      requirement: "Clean up only while focused tests stay GREEN."
+      evidence:
+        - "focused tests"
+        - "typecheck/build where relevant"
+  no_meaningful_red_exception:
+    allowed_when:
+      - "The change is a pure move/rename with no meaningful executable seam contract."
+      - "The relevant runner is unavailable for a reason outside the candidate."
+    required_record:
+      - "why a meaningful RED cannot be produced"
+      - "structural readback/diff verification"
+      - "existing characterization coverage"
+      - "independent verifier approval when the SHS cell requires it"
+    prohibition: "Never manufacture a meaningless failing test merely to satisfy ceremony."
+
+evidence_model:
+  per_work_unit:
+    required:
+      - "classification: risk, size, trigger domains, rationale"
+      - "scope: allowed edit surfaces"
+      - "baseline evidence"
+      - "RED evidence or an approved no-meaningful-RED record"
+      - "GREEN evidence"
+      - "post-refactor focused verification"
+      - "diff readback confirming scope and contract preservation"
+      - "rollback description"
+      - "L1 self-check or independent review evidence required by the SHS cell"
+    R2_additions:
+      - "ADR/Agent Note required by harness policy"
+      - "verified role isolation"
+      - "append-only ledger evidence if the active harness adapter requires it"
+      - "domain-specific verification; concurrency chaos only when shared concurrency is genuinely changed"
+  boundaries:
+    work_unit_commit:
+      policy: >
+        Each work unit defines a Conventional Commit boundary and keeps tests/docs
+        with behavior. Creating a commit remains subject to current repository and
+        user authorization; this roadmap does not authorize it.
+      examples:
+        - "refactor(bridge): extract SSE item state"
+        - "refactor(chatgpt-web): extract turn runtime factory"
+        - "refactor(launcher): extract runtime recovery coordinator"
+    native_review:
+      policy: >
+        When the user-owned native review/RDD switch is enabled, run the candidate
+        through the provider-owned review lifecycle before reporting it complete.
+        Review approval is informational authority for that candidate only.
+    delivery:
+      policy: "Commit, push, PR, merge, release, and deploy remain separate decisions under repository policy."
+
+verification_gates:
+  focused_first:
+    rule: "Run the narrowest deterministic test set that proves the work unit contract before full-suite gates."
+  repository_phase_boundary:
+    commands:
+      - "bun test ./tests"
+      - "bun run typecheck"
+      - "bun run build"
+      - "bun run verify"
+  launcher_phase_boundary:
+    commands:
+      - "bun run launcher:test"
+      - "bun run launcher:typecheck"
+      - "bun run launcher:build"
+  final_integration:
+    commands:
+      - "bun test ./tests"
+      - "bun run typecheck"
+      - "bun run build"
+      - "bun run verify"
+      - "bun run launcher:test"
+      - "bun run launcher:typecheck"
+      - "bun run launcher:build"
+  output_quality:
+    - "No newly introduced warnings in executed checks."
+    - "No skipped failing test may be described as GREEN."
+    - "Environment failures must be recorded separately from candidate failures."
+
+stop_and_escalate:
+  conditions:
+    - "A public or serialized contract must change to continue."
+    - "Observed event ordering, cancellation, retry, timeout, or recovery behavior changes unexpectedly."
+    - "A focused test is flaky or nondeterministic and cannot establish trustworthy evidence."
+    - "More than three GREEN attempts fail without new diagnostic evidence."
+    - "The change escapes the declared work-unit surfaces."
+    - "A new R2 trigger domain is discovered."
+    - "Required R2 role isolation, ledger capability, or verifier access is unavailable."
+    - "A cohesive review slice cannot stay near the review budget without mixing responsibilities."
+    - "A pre-existing failure prevents distinguishing baseline from regression."
+  action:
+    - "Stop the current work unit."
+    - "Preserve observed evidence."
+    - "Reclassify upward when required."
+    - "Split scope or create a separate authorized behavior-change task."
+    - "Do not silently weaken checks or alter acceptance criteria."
+
+phase_dag:
+  - id: "P0"
+    depends_on: []
+  - id: "P1"
+    depends_on: ["P0"]
+  - id: "P2"
+    depends_on: ["P1"]
+  - id: "P3"
+    depends_on: ["P2"]
+  - id: "P4"
+    depends_on: ["P3"]
+  - id: "P5"
+    depends_on: ["P4"]
+  - id: "P6"
+    depends_on: ["P5"]
+  - id: "P7"
+    depends_on: ["P6"]
+  - id: "P8"
+    depends_on: ["P7"]
+  - id: "P9"
+    depends_on: ["P8"]
+
+phases:
+  - id: "P0"
+    name: "Baseline contracts and harness evidence"
+    classification:
+      risk: "R1"
+      size: "M"
+      cell: "R1xM"
+      rationale: "Adds/refines executable characterization around production contracts without changing production behavior."
+    objective: "Establish trustworthy regression boundaries before moving code."
+    target_files:
+      production: []
+      tests: ["tests/**", "launcher/**/test*", "launcher/**/__tests__/**"]
+    preserved_contracts:
+      - "All currently passing behavior remains the baseline."
+      - "Existing public APIs and protocol fixtures are authoritative unless separately superseded."
+    extraction_seams: []
+    work_units:
+      - id: "P0-W1"
+        title: "Inventory nearest tests per monolith"
+        actions:
+          - "Map each target file to its direct and integration tests."
+          - "Record gaps without changing production code."
+        tdd: "baseline-only"
+      - id: "P0-W2"
+        title: "Add missing black-box characterization where required"
+        actions:
+          - "Add only behavior-focused tests necessary to freeze event ordering, cancellation, recovery, IPC, auth, and broker invariants."
+          - "Prefer existing public seams over testing private implementation details."
+        tdd: "RED only for genuinely uncovered behavior or harnessed seam; otherwise record baseline evidence."
+      - id: "P0-W3"
+        title: "Record phase-specific focused commands"
+        actions:
+          - "Store the exact focused test selectors discovered for P1-P8 in task evidence before each phase starts."
+    verification:
+      focused: ["bun test ./tests"]
+      boundary:
+        - "bun test ./tests"
+        - "bun run typecheck"
+        - "bun run build"
+        - "bun run launcher:test"
+        - "bun run launcher:typecheck"
+    rollback:
+      - "Revert only new characterization tests that are invalid; never weaken production behavior to satisfy a test."
+    exit_criteria:
+      - "Every P1-P8 target has an identified regression test path or an explicit documented gap."
+      - "Baseline failures are separated from candidate regressions."
+      - "Independent read-only review completed for the R1xM planning/test delta."
+
+  - id: "P1"
+    name: "Decompose Responses SSE bridge"
+    target_files:
+      primary: ["src/bridge/sse-stream.ts"]
+      allowed_new_modules:
+        - "src/bridge/**"
+      tests: ["tests/**"]
+    classification:
+      risk: "R2"
+      size: "M"
+      cell: "R2xM"
+      triggers: ["shared async stream state", "backpressure", "cancellation", "terminal lifecycle"]
+      rationale: "Behavior-preserving extraction still touches concurrency-sensitive stream termination and cancellation semantics."
+    objective: "Make bridgeToResponsesSSE a small orchestration facade over cohesive stream-state collaborators."
+    preserved_contracts:
+      - "SSE frame names, sequence numbers, output indexes, and response snapshots."
+      - "Exactly one terminal response path."
+      - "Heartbeat and upstream stall semantics."
+      - "Client cancellation and iterator cleanup."
+      - "Windows push-driven transport workaround and non-Windows pull semantics."
+      - "Compaction emits exactly one synthetic compaction item."
+      - "Reasoning envelope round-trip behavior."
+    extraction_seams:
+      - "ResponsesEventEmitter"
+      - "MessageAccumulator"
+      - "ReasoningAccumulator"
+      - "ToolCallAccumulator"
+      - "TerminalController"
+      - "StreamPump"
+    work_units:
+      - id: "P1-W1"
+        title: "Extract response/frame emission primitives"
+        seams: ["ResponsesEventEmitter"]
+        acceptance:
+          - "Sequence-number and frame encoding behavior remains byte-compatible where fixtures exist."
+          - "bridgeToResponsesSSE signature remains unchanged."
+      - id: "P1-W2"
+        title: "Extract message and reasoning item state"
+        seams: ["MessageAccumulator", "ReasoningAccumulator"]
+        acceptance:
+          - "Item ordering, encrypted reasoning, hidden reasoning, and output indexes remain unchanged."
+      - id: "P1-W3"
+        title: "Extract tool call state"
+        seams: ["ToolCallAccumulator"]
+        acceptance:
+          - "Function/custom/tool-search call serialization remains unchanged."
+          - "Empty arguments still normalize to {} where required."
+      - id: "P1-W4"
+        title: "Extract terminal and iterator lifecycle"
+        seams: ["TerminalController"]
+        acceptance:
+          - "done, incomplete, error, adapter EOF, and cancel each terminate exactly once."
+      - id: "P1-W5"
+        title: "Extract pump, backpressure, heartbeat, and stall handling"
+        seams: ["StreamPump"]
+        acceptance:
+          - "No change to Windows special handling."
+          - "No leaked timer or iterator after cancellation/termination."
+    tdd:
+      per_unit:
+        - "Baseline nearest bridge tests."
+        - "Add seam contract test first and observe expected RED."
+        - "Minimal extraction to GREEN."
+        - "Run bridge regression tests after cleanup."
+    verification:
+      focused: ["bun test ./tests --filter '<bridge/sse focused selector discovered in P0>'"]
+      boundary:
+        - "bun test ./tests"
+        - "bun run typecheck"
+        - "bun run build"
+        - "bun run verify"
+    rollback:
+      - "Each extracted collaborator remains behind bridgeToResponsesSSE, allowing one-unit reversion."
+    exit_criteria:
+      - "bridgeToResponsesSSE is predominantly orchestration."
+      - "No protocol or terminal semantic changed."
+      - "R2 role isolation and required review evidence are complete."
+
+  - id: "P2"
+    name: "Decompose ChatGPT Web adapter factory"
+    target_files:
+      primary: ["src/adapters/chatgpt-web/index.ts"]
+      allowed_new_modules: ["src/adapters/chatgpt-web/**"]
+      tests: ["tests/**"]
+    classification:
+      risk: "R2"
+      size: "M"
+      cell: "R2xM"
+      triggers: ["turn lifecycle", "tool orchestration", "cancellation", "retry state", "trusted environment"]
+      rationale: "The factory coordinates mutable turn state and trusted tool-capable execution."
+    objective: "Reduce createChatGptWebAdapter to composition while preserving adapter behavior."
+    preserved_contracts:
+      - "Adapter name and runTurn contract."
+      - "Manual/Zero Risk route mismatch behavior."
+      - "Trusted environment resolution."
+      - "Luna checkpoint capture/commit semantics."
+      - "Retained conversation ownership."
+      - "Tool-batch round replay and result delivery."
+      - "Retry policy, cancellation, heartbeat, and subagent governor behavior."
+    extraction_seams:
+      - "prepareTurn"
+      - "createTurnRuntime"
+      - "runToolRounds"
+      - "finalizeTurn"
+    work_units:
+      - id: "P2-W1"
+        title: "Extract turn preparation and environment resolution"
+        seams: ["prepareTurn"]
+      - id: "P2-W2"
+        title: "Extract runtime construction"
+        seams: ["createTurnRuntime"]
+      - id: "P2-W3"
+        title: "Extract tool-round coordinator"
+        seams: ["runToolRounds"]
+      - id: "P2-W4"
+        title: "Extract finalization and retry/error mapping"
+        seams: ["finalizeTurn"]
+      - id: "P2-W5"
+        title: "Collapse adapter factory into composition"
+        acceptance:
+          - "Factory exposes no new public API."
+          - "Existing consumers require no migration."
+    tdd:
+      per_unit:
+        - "Contract test for intended extracted seam first."
+        - "Preserve existing adapter integration tests before and after."
+    verification:
+      focused: ["bun test ./tests --filter '<chatgpt-web adapter focused selector discovered in P0>'"]
+      boundary:
+        - "bun test ./tests"
+        - "bun run typecheck"
+        - "bun run build"
+        - "bun run verify"
+    rollback:
+      - "Keep all extracted behavior reachable through the original adapter factory so one work unit can be reverted independently."
+    exit_criteria:
+      - "createChatGptWebAdapter primarily wires dependencies and delegates lifecycle stages."
+      - "No trusted-environment, retry, tool-round, or cancellation semantics changed."
+
+  - id: "P3"
+    name: "Decompose Electron RuntimeSupervisor"
+    target_files:
+      primary: ["launcher/electron/runtime-supervisor.cjs"]
+      allowed_new_modules: ["launcher/electron/**"]
+      tests: ["launcher/**"]
+    classification:
+      risk: "R2"
+      size: "L"
+      cell: "R2xL"
+      triggers: ["process control", "shared lifecycle state", "restart/recovery", "tunnel monitoring", "drain/shutdown"]
+      rationale: "Failure can leak processes, restart incorrectly, or corrupt recovery state."
+    objective: "Keep RuntimeSupervisor as a stable facade over explicit runtime lifecycle services."
+    preserved_contracts:
+      - "Daemon spawn/stop/restart behavior."
+      - "Tunnel discovery and health monitoring."
+      - "Recovery and restart policy."
+      - "Drain and shutdown ordering."
+      - "Control HTTP behavior and state persistence."
+    extraction_seams:
+      - "RuntimeStateRepository"
+      - "DaemonSupervisor"
+      - "TunnelController"
+      - "RecoveryCoordinator"
+    work_units:
+      - id: "P3-W1"
+        title: "Extract runtime state persistence"
+        seams: ["RuntimeStateRepository"]
+      - id: "P3-W2"
+        title: "Extract daemon process lifecycle"
+        seams: ["DaemonSupervisor"]
+      - id: "P3-W3"
+        title: "Extract tunnel health and monitoring"
+        seams: ["TunnelController"]
+      - id: "P3-W4"
+        title: "Extract recovery/restart policy"
+        seams: ["RecoveryCoordinator"]
+      - id: "P3-W5"
+        title: "Reduce supervisor to facade and ordering coordinator"
+    tdd:
+      per_unit:
+        - "RED test for collaborator contract or state transition before extraction."
+        - "Use fake clocks/process seams only where deterministic; do not replace critical lifecycle tests with mock-only assertions."
+    verification:
+      focused: ["bun run launcher:test -- '<runtime-supervisor focused selector discovered in P0>'"]
+      boundary:
+        - "bun run launcher:test"
+        - "bun run launcher:typecheck"
+        - "bun run launcher:build"
+    rollback:
+      - "Maintain facade methods and state schema so each collaborator can be inlined/reverted independently."
+    exit_criteria:
+      - "Supervisor no longer owns persistence, daemon internals, tunnel internals, and recovery policy simultaneously."
+      - "Lifecycle tests prove stop/restart/drain ordering."
+      - "R2xL role, isolation, ADR/ledger, and domain evidence are complete."
+
+  - id: "P4"
+    name: "Decompose Electron RuntimeHost"
+    target_files:
+      primary: ["launcher/electron/runtime.cjs"]
+      allowed_new_modules: ["launcher/electron/**"]
+      tests: ["launcher/**"]
+    classification:
+      risk: "R2"
+      size: "L"
+      cell: "R2xL"
+      triggers: ["passkey/auth", "setup rollback", "configuration migration", "command execution"]
+      rationale: "RuntimeHost combines security-sensitive login with transactional setup and mutation."
+    objective: "Separate command execution and transactional setup from feature-specific runtime operations."
+    preserved_contracts:
+      - "Setup command sequence and error mapping."
+      - "Rollback/checkpoint semantics."
+      - "Passkey login behavior."
+      - "Runtime/MCP configuration behavior."
+      - "Bridge and uninstall behavior."
+      - "Existing feature preference semantics."
+    extraction_seams:
+      - "RuntimeCommandRunner"
+      - "SetupTransaction"
+      - "PasskeyRuntimeService"
+      - "RuntimeFeatureOperations"
+    work_units:
+      - id: "P4-W1"
+        title: "Extract command execution"
+        seams: ["RuntimeCommandRunner"]
+      - id: "P4-W2"
+        title: "Extract setup/checkpoint/rollback transaction"
+        seams: ["SetupTransaction"]
+      - id: "P4-W3"
+        title: "Extract passkey runtime operations"
+        seams: ["PasskeyRuntimeService"]
+      - id: "P4-W4"
+        title: "Move feature preference operations behind cohesive service"
+        seams: ["RuntimeFeatureOperations"]
+      - id: "P4-W5"
+        title: "Reduce RuntimeHost to composition and transaction orchestration"
+    tdd:
+      per_unit:
+        - "RED contract test before each service extraction."
+        - "Rollback and auth failure-path tests are mandatory."
+    verification:
+      focused: ["bun run launcher:test -- '<runtime host focused selector discovered in P0>'"]
+      boundary:
+        - "bun run launcher:test"
+        - "bun run launcher:typecheck"
+        - "bun run launcher:build"
+    rollback:
+      - "Do not alter persisted config schema in this refactor; schema changes require a separate migration task."
+    exit_criteria:
+      - "Command execution, transactional setup, auth, and feature operations are distinct responsibilities."
+      - "Failure-path tests prove rollback and passkey behavior."
+
+  - id: "P5"
+    name: "Split launcher UI surfaces and Electron IPC composition"
+    target_files:
+      primary:
+        - "launcher/src/App.tsx"
+        - "launcher/electron/main.cjs"
+      allowed_new_modules:
+        - "launcher/src/**"
+        - "launcher/electron/**"
+      tests: ["launcher/**"]
+    classification:
+      risk: "R2"
+      size: "M"
+      cell: "R2xM"
+      triggers: ["Electron privileged IPC boundary"]
+      rationale: "UI extraction is mostly R1, but main.cjs IPC registration crosses a privileged process boundary, so the phase defaults upward."
+    objective: "Make App.tsx and main.cjs composition roots rather than collections of unrelated surfaces and handlers."
+    preserved_contracts:
+      - "Launcher navigation and visible behavior."
+      - "IPC channel names, payload validation, and privilege boundaries."
+      - "Startup ordering and browser/runtime integration."
+    extraction_seams:
+      - "BrowserSurface"
+      - "SetupSurface"
+      - "McpSurface"
+      - "ActivitySurface"
+      - "SettingsSurface"
+      - "useLauncherState"
+      - "useBrowserSession"
+      - "useRuntimeSettings"
+      - "browserIpcRegistrar"
+      - "runtimeIpcRegistrar"
+      - "settingsIpcRegistrar"
+      - "updatesIpcRegistrar"
+    work_units:
+      - id: "P5-W1"
+        title: "Extract presentational launcher surfaces"
+        classification_override: "R1xM"
+      - id: "P5-W2"
+        title: "Extract launcher state/session hooks"
+        classification_override: "R1xM"
+      - id: "P5-W3"
+        title: "Extract browser/runtime/settings/update IPC registrars"
+        classification_override: "R2xM"
+      - id: "P5-W4"
+        title: "Reduce App.tsx and main.cjs to composition roots"
+        classification_override: "R2xM"
+    tdd:
+      per_unit:
+        - "UI: contract-focused component/hook tests where deterministic."
+        - "IPC: RED tests for exact channel/payload/authorization behavior before moving handlers."
+    verification:
+      focused:
+        - "bun run launcher:test -- '<App/main focused selector discovered in P0>'"
+      boundary:
+        - "bun run launcher:test"
+        - "bun run launcher:typecheck"
+        - "bun run launcher:build"
+    rollback:
+      - "Extract registrars without renaming channels; revert one registrar independently if needed."
+    exit_criteria:
+      - "App.tsx contains shell/composition rather than all surfaces."
+      - "main.cjs contains startup/composition rather than every IPC implementation."
+      - "No IPC privilege or payload contract changed."
+
+  - id: "P6"
+    name: "Decompose BrowserHost"
+    target_files:
+      primary: ["launcher/electron/browser-host.cjs"]
+      allowed_new_modules: ["launcher/electron/**"]
+      tests: ["launcher/**"]
+    classification:
+      risk: "R2"
+      size: "L"
+      cell: "R2xL"
+      triggers: ["auth/session", "Electron views", "turn lifecycle", "manual Zero Risk control", "shared mutable browser state"]
+      rationale: "BrowserHost coordinates privileged UI/browser lifecycle and authentication-sensitive state."
+    objective: "Extract internal collaborators without changing the BrowserHost public API."
+    preserved_contracts:
+      - "View and tab lifecycle."
+      - "Navigation behavior."
+      - "Authentication and passkey/session behavior."
+      - "Automatic and manual/Zero Risk turn control."
+      - "Suspension/lease behavior."
+      - "Viewport, smoke test, connector verification, and descriptor persistence."
+    extraction_seams:
+      - "BrowserViewManager"
+      - "TurnTabManager"
+      - "ManualTurnController"
+      - "AuthSessionController"
+    work_units:
+      - id: "P6-W1"
+        title: "Extract BrowserViewManager"
+      - id: "P6-W2"
+        title: "Extract TurnTabManager"
+      - id: "P6-W3"
+        title: "Extract ManualTurnController"
+      - id: "P6-W4"
+        title: "Extract AuthSessionController"
+      - id: "P6-W5"
+        title: "Reduce BrowserHost to facade/coordinator"
+    tdd:
+      per_unit:
+        - "Write collaborator contract tests first."
+        - "Preserve lifecycle integration tests; never rely solely on mocks for WebContentsView cleanup."
+    verification:
+      focused: ["bun run launcher:test -- '<browser-host focused selector discovered in P0>'"]
+      boundary:
+        - "bun run launcher:test"
+        - "bun run launcher:typecheck"
+        - "bun run launcher:build"
+    rollback:
+      - "Keep BrowserHost API and ownership of top-level sequencing stable throughout."
+    exit_criteria:
+      - "Each extracted collaborator owns one lifecycle domain."
+      - "No session/auth/manual-turn regression."
+      - "No leaked views, tabs, timers, or leases."
+
+  - id: "P7"
+    name: "Decompose ChatGptBrowserWorker"
+    target_files:
+      primary: ["src/adapters/chatgpt-web/browser-worker.ts"]
+      allowed_new_modules: ["src/adapters/chatgpt-web/**"]
+      tests: ["tests/**"]
+    classification:
+      risk: "R2"
+      size: "L"
+      cell: "R2xL"
+      triggers: ["browser session lifecycle", "submission/cancellation", "DOM observation", "shared turn state"]
+      rationale: "This is the largest behavioral monolith and has many consumers; extraction must be staged behind the facade."
+    objective: "Turn ChatGptBrowserWorker into an orchestration facade over browser/session, controls, composer, observers, and diagnostics."
+    preserved_contracts:
+      - "Browser/page lifecycle."
+      - "Model and reasoning effort selection."
+      - "Composer preparation and attachment behavior."
+      - "Prompt submission activation/acceptance semantics."
+      - "Multipart and compaction behavior."
+      - "DOM observation and response extraction."
+      - "Retry/diagnostic behavior and exclusive execution."
+    extraction_seams:
+      - "BrowserSession"
+      - "ChatGptModelControls"
+      - "ComposerController"
+      - "SubmissionObserver"
+      - "ResponseObserver"
+      - "TurnDiagnostics"
+    work_units:
+      - id: "P7-W1"
+        title: "Extract BrowserSession lifecycle"
+      - id: "P7-W2"
+        title: "Extract model and effort controls"
+      - id: "P7-W3"
+        title: "Extract ComposerController"
+      - id: "P7-W4"
+        title: "Extract SubmissionObserver"
+      - id: "P7-W5"
+        title: "Extract ResponseObserver"
+      - id: "P7-W6"
+        title: "Extract TurnDiagnostics"
+      - id: "P7-W7"
+        title: "Reduce ChatGptBrowserWorker to orchestration facade"
+    tdd:
+      per_unit:
+        - "Add seam contract test first and observe expected RED."
+        - "Run existing browser-worker integration tests after every extraction."
+        - "Use deterministic DOM fixtures or controlled browser tests; do not replace behavior with snapshot-only tests."
+    verification:
+      focused: ["bun test ./tests --filter '<browser-worker focused selector discovered in P0>'"]
+      boundary:
+        - "bun test ./tests"
+        - "bun run typecheck"
+        - "bun run build"
+        - "bun run verify"
+    rollback:
+      - "Do not change the ChatGptBrowserWorker constructor/public methods while collaborators are introduced."
+    exit_criteria:
+      - "Worker delegates browser/session, composer, submission, response, controls, and diagnostics responsibilities."
+      - "Consumer migration is unnecessary because facade remains stable."
+      - "No regression in submission acceptance, compaction, DOM observation, or cancellation."
+
+  - id: "P8"
+    name: "Decompose TurnBroker"
+    target_files:
+      primary: ["src/adapters/chatgpt-web/turn-broker.ts"]
+      allowed_new_modules: ["src/adapters/chatgpt-web/**"]
+      tests: ["tests/**"]
+    classification:
+      risk: "R2"
+      size: "L"
+      cell: "R2xL"
+      triggers: ["shared concurrency", "capability tokens", "turn ownership", "tool queues", "retirement", "completion fences", "compaction"]
+      rationale: "Broker invariants are concurrency-sensitive and widely consumed; state and protocol must be separated without semantic drift."
+    objective: "Separate protocol dispatch from channel/state management before extracting secondary lifecycle concerns."
+    preserved_contracts:
+      - "Register/update/revoke behavior."
+      - "Alias and lineage semantics."
+      - "Channel lifecycle and retirement."
+      - "Zero Risk/manual control."
+      - "Parallel tool batching and result completion."
+      - "Completion-fence revisions."
+      - "Compaction and activity leases."
+      - "Socket protocol request/response semantics."
+    extraction_seams:
+      - "BrokerRequestRouter"
+      - "TurnChannelStore"
+      - "CompactionCoordinator"
+      - "ActivityLeaseManager"
+      - "CompletionFenceManager"
+    work_units:
+      - id: "P8-W1"
+        title: "Extract BrokerRequestRouter without changing protocol"
+      - id: "P8-W2"
+        title: "Extract TurnChannelStore"
+      - id: "P8-W3"
+        title: "Extract activity lease lifecycle"
+        seams: ["ActivityLeaseManager"]
+      - id: "P8-W4"
+        title: "Extract completion fence lifecycle"
+        seams: ["CompletionFenceManager"]
+      - id: "P8-W5"
+        title: "Extract compaction coordination"
+        seams: ["CompactionCoordinator"]
+      - id: "P8-W6"
+        title: "Reduce TurnBroker to protocol/state orchestration"
+    tdd:
+      per_unit:
+        - "Use state-machine and concurrency contract tests."
+        - "RED must demonstrate a missing seam/contract, not timing noise."
+        - "For any concurrency change, add targeted schedule/retirement/queue interleaving coverage."
+    verification:
+      focused: ["bun test ./tests --filter '<turn-broker focused selector discovered in P0>'"]
+      boundary:
+        - "bun test ./tests"
+        - "bun run typecheck"
+        - "bun run build"
+        - "bun run verify"
+    rollback:
+      - "Protocol route extraction must precede channel-store extraction so each state migration has a narrow revert boundary."
+    exit_criteria:
+      - "Protocol routing and mutable channel state are independently testable."
+      - "No lost, duplicated, or reordered tool batches."
+      - "Retirement and completion-fence invariants remain proven."
+      - "Concurrency-specific verifier evidence is complete."
+
+  - id: "P9"
+    name: "Cross-cutting integration and closure"
+    target_files:
+      production: []
+      tests: ["tests/**", "launcher/**"]
+    classification:
+      risk: "R2"
+      size: "M"
+      cell: "R2xM"
+      rationale: "No new behavior is intended, but integration validates all R2-sensitive lifecycle boundaries together."
+    objective: "Prove the cumulative refactor remains behavior-preserving across bridge, adapter, launcher, browser, and broker boundaries."
+    work_units:
+      - id: "P9-W1"
+        title: "Run full repository gates"
+      - id: "P9-W2"
+        title: "Run full launcher gates"
+      - id: "P9-W3"
+        title: "Review cross-boundary cancellation/recovery/auth/concurrency evidence"
+      - id: "P9-W4"
+        title: "Confirm public facade stability and absence of deferred compatibility shims"
+      - id: "P9-W5"
+        title: "Prepare delivery slices and size exceptions if needed"
+    verification:
+      required:
+        - "bun test ./tests"
+        - "bun run typecheck"
+        - "bun run build"
+        - "bun run verify"
+        - "bun run launcher:test"
+        - "bun run launcher:typecheck"
+        - "bun run launcher:build"
+    rollback:
+      - "If a regression cannot be localized to one work unit, do not merge the integration slice; bisect/revert by work-unit boundary."
+    exit_criteria:
+      - "All required commands pass or every pre-existing failure is independently proven and documented."
+      - "No unresolved R2 review finding remains."
+      - "No public contract changed unintentionally."
+      - "Every deferred behavior change has its own explicit follow-up task."
+      - "Final native review, if enabled, has a candidate-scoped recorded outcome."
+      - "Delivery remains pending explicit repository/user authorization."
+
+deferred_and_out_of_scope:
+  - item: "launcher/src/i18n.ts"
+    reason: "Dominated by translation tables; file size alone does not prove mixed responsibilities."
+  - item: "src/config.ts"
+    reason: "More cohesive than prioritized monoliths; only targeted cleanup if new evidence appears."
+  - item: "src/responses/parser.ts"
+    reason: "Not currently prioritized over identified orchestration monoliths."
+  - item: "src/cli.ts"
+    reason: "Not currently prioritized over identified orchestration monoliths."
+  - item: "Public API redesign"
+    reason: "Requires separate product/compatibility decision."
+  - item: "Behavior changes discovered during refactor"
+    reason: "Must become separate authorized bug/feature work with independent acceptance criteria."
+
+metrics:
+  preferred:
+    - name: "facade_stability"
+      target: "100% of planned phases preserve the named public facade until an explicit migration."
+    - name: "responsibility_cohesion"
+      target: "Each extracted collaborator owns one named lifecycle/domain responsibility."
+    - name: "contract_test_coverage"
+      target: "Every extracted seam has focused executable contract evidence or a documented no-meaningful-RED exception."
+    - name: "regression_count"
+      target: "0 candidate-caused regressions at phase boundaries."
+    - name: "rollback_granularity"
+      target: "Every work unit can be reverted without reverting unrelated phases."
+    - name: "review_slice_cohesion"
+      target: "One responsibility per work-unit/review slice whenever practical."
+  prohibited_as_success_metrics:
+    - "lines removed"
+    - "number of files created"
+    - "number of classes created"
+    - "percentage reduction in monolith LOC without cohesion evidence"
+    - "test count growth without contract value"
+
+definition_of_done:
+  roadmap_level:
+    - "P0 through P9 exit criteria are satisfied in dependency order."
+    - "Every production extraction has baseline, RED/GREEN or approved exception, post-refactor, and review evidence."
+    - "All R2 work has the role isolation and governance evidence required by the active harness."
+    - "Full repository and launcher gates pass at final integration or pre-existing failures are independently documented."
+    - "No hidden public/protocol/auth/concurrency behavior change is bundled into the refactor."
+    - "No deferred item is represented as completed."
+    - "Delivery authorization remains separate from technical completion."

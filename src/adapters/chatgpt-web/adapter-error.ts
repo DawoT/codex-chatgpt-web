@@ -63,6 +63,31 @@ export function chatGptTurnSupersededError(): ChatGptWebAdapterError {
   );
 }
 
+export function codexTurnBindingRetiredError(): ChatGptWebAdapterError {
+  return new ChatGptWebAdapterError(
+    "Codex Native retired the turn binding before its tool work completed. The accepted ChatGPT turn cannot safely be replayed.",
+    {
+      status: 409,
+      errorType: "invalid_request_error",
+      code: "codex_turn_binding_retired",
+      retryable: false,
+    },
+  );
+}
+
+export function codexTurnBindingObservationFailedError(cause: unknown): ChatGptWebAdapterError {
+  return new ChatGptWebAdapterError(
+    "The bridge could not observe Codex Native turn retirement. Check the existing ChatGPT turn before continuing.",
+    {
+      status: 502,
+      errorType: "server_error",
+      code: "codex_turn_binding_observation_failed",
+      retryable: false,
+      cause,
+    },
+  );
+}
+
 export function chatGptStoppedThinkingError(): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
     "ChatGPT displayed 'Stopped thinking' and could not continue this response. "
