@@ -21,3 +21,6 @@ notes.md
 *.AppImage
 pnpm-lock.yaml
 .agents/
+# Local Pi runtime state
+.atl/
+.pi/
