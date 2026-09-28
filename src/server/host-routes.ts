@@ -155,7 +155,12 @@ export class HostHttpRoutes {
         type: "host_protocol_error",
         message: error instanceof HostProtocolError ? error.message : "Host request failed",
         ...(error instanceof HostProtocolError && error.code ? { code: error.code } : {}),
-      } }, { status, headers: { "cache-control": "no-store" } });
+      } }, { status, headers: {
+        "cache-control": "no-store",
+        ...(error instanceof HostProtocolError && error.code === "host_capability_invalid"
+          ? { "x-cgw-admission": "rejected" }
+          : {}),
+      } });
     }
   }
 

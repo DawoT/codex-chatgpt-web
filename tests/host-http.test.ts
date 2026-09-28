@@ -205,6 +205,7 @@ test("host capability rejection identifies a pre-admission 401", async () => {
     const session = await f.pair();
     const response = await f.request({ ...session, token: "invalid-capability" }, 1);
     expect(response.status).toBe(401);
+    expect(response.headers.get("x-cgw-admission")).toBe("rejected");
     expect((await response.json() as any).error.code).toBe("host_capability_invalid");
     expect(f.seen).toHaveLength(0);
   } finally {
