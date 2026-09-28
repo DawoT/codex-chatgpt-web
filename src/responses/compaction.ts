@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * Remote compaction v2 support for ROUTED providers.
  *
@@ -19,6 +21,35 @@ export const BRIDGE_COMPACTION_PREFIX = "ocx1:";
 
 export const COMPACTION_STATE_TAG_START = "<compaction_state>";
 export const COMPACTION_STATE_TAG_END = "</compaction_state>";
+export const LATEST_USER_PROMPT_MARKER = "CODEX_LATEST_USER_PROMPT_JSON";
+export const ORIGINAL_USER_REQUEST_MARKER = "CODEX_ORIGINAL_USER_REQUEST_JSON";
+
+/** Exclude trusted replay appendices when judging what the model actually generated. */
+export function compactionDraftText(summary: string): string {
+  const latestMarker = `\n\n${LATEST_USER_PROMPT_MARKER}\n`;
+  const latestOffset = summary.lastIndexOf(latestMarker);
+  if (latestOffset < 0) return summary;
+  try {
+    if (typeof JSON.parse(summary.slice(latestOffset + latestMarker.length)) !== "string") return summary;
+  } catch {
+    return summary;
+  }
+
+  const beforeLatest = summary.slice(0, latestOffset);
+  const originalMarker = `\n\n${ORIGINAL_USER_REQUEST_MARKER}\n`;
+  const originalOffset = beforeLatest.lastIndexOf(originalMarker);
+  if (originalOffset < 0) return beforeLatest;
+  try {
+    const record: unknown = JSON.parse(beforeLatest.slice(originalOffset + originalMarker.length));
+    if (!record || typeof record !== "object" || Array.isArray(record)) return beforeLatest;
+    const { text, sha256 } = record as { text?: unknown; sha256?: unknown };
+    if (typeof text !== "string" || typeof sha256 !== "string"
+      || createHash("sha256").update(text).digest("hex") !== sha256) return beforeLatest;
+  } catch {
+    return beforeLatest;
+  }
+  return beforeLatest.slice(0, originalOffset);
+}
 
 export interface CompactionRequirement {
   id: string;
@@ -76,6 +107,7 @@ Deduplicate repeated state. Replace long tool output with a precise, recoverable
 
 STRUCTURED HANDOFF REQUIREMENT:
 At the beginning or end of your summary, include a <compaction_state> XML block:
+Do not wrap the <compaction_state> block in a Markdown code fence or inline backticks. The opening and closing tags must be literal standalone lines.
 <compaction_state>
 version: 2
 original_request_ref: Exact reference to the original user request.
@@ -119,8 +151,13 @@ export function encodeCompactionSummary(summary: string): string {
 /** Decode an `ocx1:` envelope; returns null for real (OpenAI-encrypted) blobs or garbage. */
 export function decodeCompactionSummary(encryptedContent: string): string | null {
   if (!encryptedContent.startsWith(BRIDGE_COMPACTION_PREFIX)) return null;
+  const encoded = encryptedContent.slice(BRIDGE_COMPACTION_PREFIX.length);
+  if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
   try {
-    return Buffer.from(encryptedContent.slice(BRIDGE_COMPACTION_PREFIX.length), "base64").toString("utf-8");
+    const bytes = Buffer.from(encoded, "base64");
+    if (bytes.length === 0 || bytes.toString("base64") !== encoded) return null;
+    const summary = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return Buffer.from(summary, "utf-8").equals(bytes) && summary.trim() ? summary : null;
   } catch {
     return null;
   }
@@ -187,6 +224,37 @@ export function locateCompactionStateBounds(summary: string): CompactionStateBou
     offset += line.length + 1;
   }
   return null;
+}
+
+/** Safe, content-free diagnostics for distinguishing omitted tags from Markdown fencing. */
+export function inspectCompactionStateFormat(summary: string): {
+  openingTags: number;
+  closingTags: number;
+  usableUnfencedBlock: boolean;
+  fencedTag: boolean;
+} {
+  let fencedTag = false;
+  let fence: { marker: string; length: number } | undefined;
+  for (const line of summary.split("\n")) {
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (line.includes(COMPACTION_STATE_TAG_START) || line.includes(COMPACTION_STATE_TAG_END)) {
+        fencedTag = true;
+      }
+      if (run?.[0] === fence.marker && run.length >= fence.length
+        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+        fence = undefined;
+      }
+    } else if (run) {
+      fence = { marker: run[0]!, length: run.length };
+    }
+  }
+  return {
+    openingTags: summary.split(COMPACTION_STATE_TAG_START).length - 1,
+    closingTags: summary.split(COMPACTION_STATE_TAG_END).length - 1,
+    usableUnfencedBlock: locateCompactionStateBounds(summary) !== null,
+    fencedTag,
+  };
 }
 
 /** Parses a <compaction_state> XML block from summary text, if present. */

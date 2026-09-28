@@ -56,8 +56,35 @@ export function recoverCompactionInstruction(
   parsed: CodexParsedRequest,
   identity: ChatGptTurnIdentity,
 ): { source: ChatGptTurnUserRevision; summaryIndex: number } | undefined {
-  const accepted = acceptedCheckpoint(parsed, identity);
+  const accepted = acceptedCheckpoint(parsed, identity)
+    ?? (parsed._compactionRequest ? acceptedCheckpointAcrossModes(parsed, identity) : undefined);
   return accepted ? { source: structuredClone(accepted.checkpoint.source), summaryIndex: accepted.summaryIndex } : undefined;
+}
+
+/** Only an exact previously accepted checkpoint may open another compact epoch in this turn. */
+export function acceptedCompactionEpoch(
+  parsed: CodexParsedRequest,
+  identity: ChatGptTurnIdentity,
+): string | undefined {
+  const exact = acceptedCheckpoint(parsed, identity);
+  if (exact) return exact.checkpoint.summaryHash;
+  // A model/effort switch must not authorize a normal task continuation, but a checkpoint
+  // actually returned for this same native turn still identifies its compact epoch.
+  return acceptedCheckpointAcrossModes(parsed, identity)?.checkpoint.summaryHash;
+}
+
+function acceptedCheckpointAcrossModes(
+  parsed: CodexParsedRequest,
+  identity: ChatGptTurnIdentity,
+): { checkpoint: CompletedCheckpoint; summaryIndex: number } | undefined {
+  if (!identity.threadId || !identity.turnId) return undefined;
+  for (const [key, checkpoint] of checkpoints) {
+    const candidate: unknown = JSON.parse(key);
+    if (!Array.isArray(candidate) || candidate[0] !== identity.threadId || candidate[1] !== identity.turnId) continue;
+    const accepted = acceptedCheckpointForKey(parsed, identity, key, checkpoint);
+    if (accepted) return accepted;
+  }
+  return undefined;
 }
 
 function acceptedCheckpoint(
@@ -67,6 +94,15 @@ function acceptedCheckpoint(
   const key = scope(parsed, identity);
   const checkpoint = key ? checkpoints.get(key) : undefined;
   if (!key || !checkpoint) return undefined;
+  return acceptedCheckpointForKey(parsed, identity, key, checkpoint);
+}
+
+function acceptedCheckpointForKey(
+  parsed: CodexParsedRequest,
+  identity: ChatGptTurnIdentity,
+  key: string,
+  checkpoint: CompletedCheckpoint,
+): { checkpoint: CompletedCheckpoint; summaryIndex: number } | undefined {
   const input = (parsed._rawBody as { input?: unknown[] } | undefined)?.input;
   if (!Array.isArray(input)) return undefined;
   for (let index = input.length - 1; index >= 0; index -= 1) {

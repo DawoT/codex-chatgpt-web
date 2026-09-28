@@ -2,7 +2,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSyn
 import { dirname, join } from "node:path";
 import { getConfigDir } from "../../config";
 import type { CodexMessage } from "../../types";
-import { extractStructuredCompactionHandoff, type CompactionRequirement } from "../../responses/compaction";
+import {
+  compactionDraftText,
+  extractStructuredCompactionHandoff,
+  type CompactionRequirement,
+} from "../../responses/compaction";
 import { evaluateMissionHeadroom } from "./mission-headroom";
 import {
   type WorkspaceState,
@@ -235,7 +239,8 @@ export function validateCompactionQuality(
   summary: string,
   options?: { requireStructured?: boolean },
 ): CompactionQualityVerdict {
-  if (!summary || typeof summary !== "string" || summary.trim().length < MIN_COMPACTION_SUMMARY_LENGTH) {
+  const draft = typeof summary === "string" ? compactionDraftText(summary) : "";
+  if (draft.trim().length < MIN_COMPACTION_SUMMARY_LENGTH) {
     return {
       valid: false,
       missingInvariants: [`Summary is too short or empty (minimum ${MIN_COMPACTION_SUMMARY_LENGTH} chars required)`],
@@ -259,12 +264,12 @@ export function validateCompactionQuality(
   for (const file of options?.requireStructured ? [] : detectedFiles) {
     // Check if filename (or path) appears in summary
     const basename = file.split("/").pop() ?? file;
-    if (!summary.includes(file) && !summary.includes(basename)) {
+    if (!draft.includes(file) && !draft.includes(basename)) {
       missingInvariants.push(`Missing reference to modified or referenced file: ${file}`);
     }
   }
 
-  const structured = extractStructuredCompactionHandoff(summary).state;
+  const structured = extractStructuredCompactionHandoff(draft).state;
   if (options?.requireStructured) {
     if (!structured) {
       missingInvariants.push("Missing structured compaction state");
@@ -285,7 +290,7 @@ export function validateCompactionQuality(
         "pending_obligations",
         "next_actions",
       ]) {
-        if (!new RegExp(`^${section}:`, "m").test(summary)) {
+        if (!new RegExp(`^${section}:`, "m").test(draft)) {
           missingInvariants.push(`Missing ${section} section`);
         }
       }
@@ -353,6 +358,8 @@ export function validateCompactionQuality(
         ? requirement.replace(/^user turn [^:]+:\s*/i, "").trim() : "";
       const requiresTestExecution = /^(?:test|pytest)\b|^(?:run|execute|rerun|verify)\b[^\n]*\b(?:test|tests|pytest)\b/i
         .test(requirementAction);
+      const requiresDeployment = /\b(?:deploy|deployed|deployment|publish|published|release)\b/i
+        .test(requirementAction);
       if (message.toolName === "apply_patch") {
         const callBound = originalMessages.some(prior => prior.role === "assistant"
           && prior.content.some(part => part.type === "toolCall" && part.id === message.toolCallId
@@ -372,11 +379,16 @@ export function validateCompactionQuality(
         if (!wrapper) break;
         directCommand = directCommand.slice(wrapper[0].length);
       }
+      const deploymentCommand = directCommand !== undefined
+        && /^(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:deploy|publish|release)|(?:wrangler|vercel|netlify|firebase)\s+deploy)\b(?:\s+[-\w./:=]+)*$/i.test(directCommand)
+        && !/(?:^|\s)(?:-h\b|--(?:help|version|dry[-_]?run|plan|check|preview)\b)/i.test(directCommand)
+        && !/\bUsage:\s/i.test(content);
       return message.isError !== true
         && ["exec_command", "write_stdin", "codex_exec", "codex_write_stdin"].includes(message.toolName)
         && directCommand !== undefined
         && (!testInvocation || normalized(directCommand).startsWith(normalized(testInvocation)))
         && (!requiresTestExecution || /^(?:(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|pytest\b|node\s+--test\b)/i.test(directCommand))
+        && (!requiresDeployment || deploymentCommand)
         && /"exit_code"\s*:\s*0\b/.test(content)
         && !/(?:"exit_code"\s*:\s*[1-9]|\b\d+\s+fail(?:ed)?\b)/i.test(content);
     }

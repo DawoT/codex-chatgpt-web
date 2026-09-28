@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, toNamespacedPath } from "node:path";
 import { chatGptTurnUserRevisionHistory, extractChatGptCompactionSourceRevision, extractChatGptTurnEnvironment, extractChatGptTurnIdentity, extractChatGptTurnUserRevision } from "../src/adapters/chatgpt-web/environment";
 import { chatGptTurnExecutionKey } from "../src/adapters/chatgpt-web/turn-execution";
-import { rememberCompactionContinuation } from "../src/adapters/chatgpt-web/compaction-continuation";
+import { acceptedCompactionEpoch, rememberCompactionContinuation } from "../src/adapters/chatgpt-web/compaction-continuation";
 import { encodeCompactionSummary, SUMMARY_PREFIX } from "../src/responses/compaction";
 import { parseRequest } from "../src/responses/parser";
 import { ChatGptThreadEnvironmentStore } from "../src/adapters/chatgpt-web/thread-environment";
@@ -218,6 +218,47 @@ describe("trusted current Codex environment envelope", () => {
         expect(() => extractChatGptTurnEnvironment(invalid)).toThrow();
       }
     }
+  });
+
+  test("compaction epoch advances only for an exact checkpoint returned by this daemon", () => {
+    const request = currentWire({ threadId: "thread_epoch_authentication" });
+    const identity = extractChatGptTurnIdentity(request);
+    const body = request._rawBody as { input: Array<Record<string, unknown>> };
+    expect(acceptedCompactionEpoch(request, identity)).toBeUndefined();
+    const source = { content: body.input[1]!.content, itemId: String(body.input[1]!.id) };
+    const summary = "A completed context checkpoint with a stable mission checklist.";
+    rememberCompactionContinuation({ ...request, _compactionRequest: true }, identity, [source], summary);
+    expect(acceptedCompactionEpoch(request, identity)).toBeUndefined();
+    body.input.push({ type: "compaction", encrypted_content: encodeCompactionSummary(summary) });
+    const accepted = acceptedCompactionEpoch(request, identity);
+    expect(accepted).toMatch(/^[a-f0-9]{64}$/);
+    const changedEffort = structuredClone(request);
+    changedEffort.options.reasoning = "medium";
+    expect(acceptedCompactionEpoch(changedEffort, identity)).toBe(accepted);
+    body.input.push({ type: "function_call_output", call_id: "call_later", output: "later result" });
+    expect(acceptedCompactionEpoch(request, identity)).toBe(accepted);
+    const forged = structuredClone(request);
+    (forged._rawBody as typeof body).input.at(-2)!.encrypted_content = encodeCompactionSummary("A different checkpoint");
+    expect(acceptedCompactionEpoch(forged, identity)).toBeUndefined();
+  });
+
+  test("a compact request recovers its source across an effort switch when only its accepted checkpoint remains", () => {
+    const request = currentWire({ threadId: "thread_checkpoint_only_effort_switch" });
+    const identity = extractChatGptTurnIdentity(request);
+    const body = request._rawBody as { input: Array<Record<string, unknown>> };
+    const source = { content: body.input[1]!.content, itemId: String(body.input[1]!.id) };
+    const summary = "An accepted checkpoint preserving the active task and its source instruction.";
+    rememberCompactionContinuation({ ...request, _compactionRequest: true }, identity, [source], summary);
+
+    body.input = [{ type: "compaction", encrypted_content: encodeCompactionSummary(summary) }];
+    request.options.reasoning = "medium";
+    request._compactionRequest = true;
+
+    expect(acceptedCompactionEpoch(request, identity)).toMatch(/^[a-f0-9]{64}$/);
+    expect(extractChatGptCompactionSourceRevision(request)).toEqual(source);
+
+    const normalTurn = { ...request, _compactionRequest: false };
+    expect(() => extractChatGptTurnUserRevision(normalTurn)).toThrow("current-turn user message");
   });
 
   test("accepts the v0.146 split envelope when workspace and sandbox metadata agree", () => {

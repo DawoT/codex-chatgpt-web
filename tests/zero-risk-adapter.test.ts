@@ -35,8 +35,7 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function request(turnId: string): CodexParsedRequest {
-  const threadId = "thread_safe_adapter";
+function request(turnId: string, threadId = "thread_safe_adapter"): CodexParsedRequest {
   const environment = `<environment_context>
   <cwd>${root}</cwd>
   <filesystem><workspace_roots><root>${root}</root></workspace_roots><permission_profile type="disabled"><file_system type="unrestricted" /></permission_profile></filesystem>
@@ -214,7 +213,10 @@ for (const scenario of [
     async cancel(_path, owner) { host.cancelManualTurn(owner.traceId, owner.helperPid); },
   };
   const adapter = createChatGptWebAdapter(config, { broker, zeroRiskManualControl: control });
-  const source = request("turn_safe_active_compaction");
+  const source = request(
+    "turn_safe_active_compaction",
+    `thread_safe_adapter_${scenario.format}_${scenario.finalWins}`,
+  );
   source.context.tools = [{ name: "exec_command", description: "Run a command", parameters: { type: "object" } }];
   const events: AdapterEvent[] = [];
   try {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -386,6 +387,46 @@ next_actions:
       expect(validateCompactionQuality(failed, summary, { requireStructured: true }).valid).toBe(false);
     });
 
+    it("does not promote an echoed deployment claim to a verified requirement", () => {
+      const checkpoint = `<compaction_state>
+version: 2
+original_request_ref: user turn 1
+modified_files:
+active_hypothesis: Deploy the bridge.
+requirements:
+- {"id":"REQ-1","status":"verified","source":"user turn 1: deploy the bridge","evidence":"deployed to staging"}
+closure_criteria:
+- Staging deployment completed
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+next_actions:
+- Report deployment
+</compaction_state>`;
+      const toolResult = {
+        role: "toolResult" as const,
+        toolCallId: "call_deploy",
+        toolName: "exec_command",
+        content: '{"exit_code":0,"output":"deployed to staging"}',
+        isError: false,
+        timestamp: 3,
+      };
+      const messages: CodexMessage[] = [
+        { role: "user", content: "Deploy the bridge", timestamp: 1 },
+        { role: "assistant", content: [{ type: "toolCall", id: "call_deploy", name: "exec_command", arguments: { cmd: "echo deployed to staging" } }], timestamp: 2 },
+        toolResult,
+      ];
+      expect(validateCompactionQuality(messages, checkpoint, { requireStructured: true }).valid).toBe(false);
+      messages[1] = { role: "assistant", content: [{ type: "toolCall", id: "call_deploy", name: "exec_command", arguments: { cmd: "bun run deploy" } }], timestamp: 2 };
+      expect(validateCompactionQuality(messages, checkpoint, { requireStructured: true }).valid).toBe(true);
+      const informational = checkpoint.replaceAll("deployed to staging", "Usage: wrangler deploy");
+      messages[1] = { role: "assistant", content: [{ type: "toolCall", id: "call_deploy", name: "exec_command", arguments: { cmd: "wrangler deploy --help" } }], timestamp: 2 };
+      messages[2] = { ...toolResult, content: '{"exit_code":0,"output":"Usage: wrangler deploy"}' };
+      expect(validateCompactionQuality(messages, informational, { requireStructured: true }).valid).toBe(false);
+    });
+
     it("rejects a verified achievement sourced only from a user's success claim", () => {
       const messages: CodexMessage[] = [{
         role: "user",
@@ -635,6 +676,64 @@ next_actions:
 
       expect(verdict.valid).toBe(false);
       expect(verdict.missingInvariants).toContain("Missing structured compaction state");
+    });
+
+    it("does not treat checkpoint tags quoted in the original-request appendix as generated state", () => {
+      const original = "Investigate <compaction_state> and </compaction_state> tags";
+      const messages: CodexMessage[] = [{ role: "user", content: original, timestamp: 1 }];
+      const summary = [
+        "ChatGPT returned only a narrative about the ongoing investigation and no mission checklist.",
+        "",
+        "CODEX_ORIGINAL_USER_REQUEST_JSON",
+        JSON.stringify({ sha256: createHash("sha256").update(original).digest("hex"), text: original }),
+        "",
+        "CODEX_LATEST_USER_PROMPT_JSON",
+        JSON.stringify(original),
+      ].join("\n");
+
+      const verdict = validateCompactionQuality(messages, summary, { requireStructured: true });
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants).toContain("Missing structured compaction state");
+    });
+
+    it("does not count a trusted appendix toward the generated draft's minimum length", () => {
+      const original = "Continue work on src/foo.ts and preserve every outstanding obligation.";
+      const summary = [
+        "Done.",
+        "",
+        "CODEX_ORIGINAL_USER_REQUEST_JSON",
+        JSON.stringify({ sha256: createHash("sha256").update(original).digest("hex"), text: original }),
+        "",
+        "CODEX_LATEST_USER_PROMPT_JSON",
+        JSON.stringify(original),
+      ].join("\n");
+
+      const verdict = validateCompactionQuality(
+        [{ role: "user", content: original, timestamp: 1 }],
+        summary,
+      );
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants[0]).toContain("Summary is too short");
+    });
+
+    it("does not satisfy a legacy file reference using only the original-request appendix", () => {
+      const original = "Continue work on src/foo.ts and preserve every outstanding obligation.";
+      const summary = [
+        "The mission remains open. Inspect the implementation and run the relevant tests before closing it.",
+        "",
+        "CODEX_ORIGINAL_USER_REQUEST_JSON",
+        JSON.stringify({ sha256: createHash("sha256").update(original).digest("hex"), text: original }),
+        "",
+        "CODEX_LATEST_USER_PROMPT_JSON",
+        JSON.stringify(original),
+      ].join("\n");
+
+      const verdict = validateCompactionQuality(
+        [{ role: "user", content: original, timestamp: 1 }],
+        summary,
+      );
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants).toContain("Missing reference to modified or referenced file: src/foo.ts");
     });
 
     it("does not promote a planned command into a verified achievement", () => {

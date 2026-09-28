@@ -9,6 +9,7 @@ import {
   extractStructuredCompactionHandoff,
   formatCompactionStateBlock,
   isReadableCompactionSummaryText,
+  inspectCompactionStateFormat,
   parseCompactionState,
   SUMMARY_PREFIX,
   type CompactionStateBlock,
@@ -101,6 +102,23 @@ All 871 tests were passing before compaction.
     expect(extracted.narrative).not.toContain("src/real.ts");
   });
 
+  test("reports checkpoint tag shape without exposing checkpoint content", () => {
+    const fenced = "```xml\n<compaction_state>\nsecret: do not log\n</compaction_state>\n```";
+    expect(inspectCompactionStateFormat(fenced)).toEqual({
+      openingTags: 1,
+      closingTags: 1,
+      usableUnfencedBlock: false,
+      fencedTag: true,
+    });
+    expect(JSON.stringify(inspectCompactionStateFormat(fenced))).not.toContain("secret");
+    expect(inspectCompactionStateFormat("No checkpoint block")).toEqual({
+      openingTags: 0,
+      closingTags: 0,
+      usableUnfencedBlock: false,
+      fencedTag: false,
+    });
+  });
+
   test("formats compaction state block canonically and round-trips", () => {
     const block: CompactionStateBlock = {
       modifiedFiles: ["src/index.ts", "package.json"],
@@ -176,4 +194,12 @@ Second paragraph of narrative summary.`;
     expect(isReadableCompactionSummaryText(replayed)).toBe(true);
     expect(replayed).toBe(`${SUMMARY_PREFIX}\n\n${originalSummary}`);
   });
+
+  test.each(["ocx1:", "ocx1:!!!", "ocx1:a", "ocx1:////", "ocx1:SGVsbG8=garbage"])(
+    "rejects malformed bridge checkpoint envelope %s instead of replaying corrupt history",
+    envelope => {
+      expect(decodeCompactionSummary(envelope)).toBeNull();
+      expect(isReadableCompactionSummaryText(compactionItemToText(envelope))).toBeFalse();
+    },
+  );
 });

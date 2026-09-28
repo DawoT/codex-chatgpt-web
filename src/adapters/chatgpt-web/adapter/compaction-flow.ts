@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import type { AdapterEvent, CodexParsedRequest, CodexToolCall } from "../../../types";
-import { COMPACT_PROMPT, extractStructuredCompactionHandoff } from "../../../responses/compaction";
+import {
+  COMPACT_PROMPT,
+  compactionDraftText,
+  extractStructuredCompactionHandoff,
+  inspectCompactionStateFormat,
+} from "../../../responses/compaction";
 import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
+import { acceptedCompactionEpoch } from "../compaction-continuation";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
 import {
   checkpointCompiledRepairFits,
@@ -43,6 +49,22 @@ import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
 
 const observedRepairDurationsMs: number[] = [];
+
+function logCheckpointValidation(
+  summary: string,
+  quality: ReturnType<typeof validateCompactionQuality>,
+  repaired: boolean,
+): void {
+  const format = inspectCompactionStateFormat(compactionDraftText(summary));
+  const missingState = !format.usableUnfencedBlock;
+  console.info(`[chatgpt-web] checkpoint_validation ${JSON.stringify({
+    valid: quality.valid,
+    missingCount: quality.missingInvariants.length,
+    missingState,
+    repaired,
+    ...format,
+  })}`);
+}
 
 function checkpointText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -181,12 +203,18 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       .slice(0, 12);
     const freshCompactionTraceId = `${handoffTraceId}_${freshConversationPerTurn ? "fresh" : "fallback"}`;
     const compactionNativeIdentity = extractChatGptTurnIdentity(parsed);
+    const revisionScopeKey = JSON.stringify([
+      compactionNativeIdentity.threadId,
+      compactionNativeIdentity.turnId,
+      acceptedCompactionEpoch(parsed, compactionNativeIdentity) ?? "initial",
+    ]);
     let sharedSummary = existingStructuredCompactionRun(compactionExecutionKey);
     if (!sharedSummary) {
       sharedSummary = runStructuredCompactionOnce(
         compactionExecutionKey,
         {
           ownerKey: `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`,
+          revisionScopeKey,
           traceIds: [
             compactionTraceId,
             handoffTraceId,
@@ -255,7 +283,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
               );
               let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
-              console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=false`);
+              logCheckpointValidation(summary, quality, false);
               if (!quality.valid && !manualRequest) {
                 const previousCheckpoint = parsed.context.messages.findLast(message => message.role === "user"
                   && message.origin === "compaction_summary");
@@ -275,6 +303,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 const repairPrompt = [
                   "Repair the previous context checkpoint exactly once. This is a correction, not a new task turn.",
                   "Return one complete version 2 <compaction_state> checkpoint with all still-open requirements, verified evidence, blockers, decisions, and one next action.",
+                  "Write literal <compaction_state> and </compaction_state> on their own lines; do not wrap them in Markdown code fences or inline backticks.",
                   "Do not claim verification without an observed result. Do not call tools or redo the original task.",
                   "Validation issues:",
                   ...quality.missingInvariants.map(issue => `- ${issue}`),
@@ -291,7 +320,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   "Rejected draft:",
                   rawSummary,
                   "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint,"
-                    + " including every required section and exactly one next action. Do not return only a narrative summary.",
+                    + " including every required section and exactly one next action. Do not return only a narrative summary or a fenced example.",
                 ].join("\n");
                 const repairParsed: CodexParsedRequest = {
                   ...parsed,
@@ -328,7 +357,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                       repaired.trim() ? repaired : "Empty checkpoint draft",
                     );
                     quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
-                    console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=true`);
+                    logCheckpointValidation(summary, quality, true);
                   } catch (error) {
                     repairRuntime.cancel(error instanceof Error ? error : new Error(String(error)));
                     throw error;
@@ -447,7 +476,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
             );
             let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
-            console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=false`);
+            logCheckpointValidation(summary, quality, false);
             if (!quality.valid && !manualRequest && structuredBroker) {
               const probe = structuredCompactionRepairInstruction({
                 token: `control_${"0".repeat(32)}`,
@@ -495,7 +524,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   repaired.trim() ? repaired : "Empty checkpoint draft",
                 );
                 quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
-                console.info(`[chatgpt-web] checkpoint_validation valid=${quality.valid} missingCount=${quality.missingInvariants.length} repaired=true`);
+                logCheckpointValidation(summary, quality, true);
               }
             }
             if (!quality.valid) {

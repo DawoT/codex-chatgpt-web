@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, spyOn, test } from "bun:test";
 import { mock } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,6 +59,15 @@ function shortSocketTempRoot(): string {
   return process.platform === "win32" ? tmpdir() : "/tmp";
 }
 
+let nativeFixtureId = 0;
+beforeEach(() => {
+  nativeFixtureId += 1;
+});
+
+function nativeThreadId(): string {
+  return `thread_retained_compaction_${nativeFixtureId}`;
+}
+
 function request(compaction = false): CodexParsedRequest {
   return {
     modelId: "gpt-5.6-sol",
@@ -81,7 +90,7 @@ function request(compaction = false): CodexParsedRequest {
       }],
       client_metadata: {
         "x-codex-turn-metadata": JSON.stringify({
-          thread_id: "thread_retained_compaction",
+          thread_id: nativeThreadId(),
           turn_id: compaction ? "turn_compact" : "turn_source",
         }),
       },
@@ -190,7 +199,7 @@ test("one browser conversation spans native turns and rotates only at compaction
   const nextTurn = structuredClone(before);
   (nextTurn._rawBody as { client_metadata: Record<string, unknown> }).client_metadata = {
     "x-codex-turn-metadata": JSON.stringify({
-      thread_id: "thread_retained_compaction",
+      thread_id: nativeThreadId(),
       turn_id: "turn_next",
     }),
   };
@@ -599,6 +608,271 @@ test("a failed exact compaction replays its failure instead of reopening the bro
     return "operator-started checkpoint";
   })).resolves.toBe("operator-started checkpoint");
   expect(starts).toBe(2);
+});
+
+test("a changed compaction revision in the same native epoch cannot start a second browser", async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const owner = {
+    ownerKey: `owner-revision-${suffix}`,
+    revisionScopeKey: `thread-turn-epoch-${suffix}`,
+    traceIds: [`trace-revision-${suffix}`],
+    nativeThreadId: `thread-${suffix}`,
+    nativeTurnId: `turn-${suffix}`,
+  };
+  let release!: (value: string) => void;
+  const firstBrowser = new Promise<string>(resolve => { release = resolve; });
+  let starts = 0;
+  const first = runStructuredCompactionOnce(`revision-a-${suffix}`, owner, async () => {
+    starts += 1;
+    return firstBrowser;
+  });
+  try {
+    await Bun.sleep(0);
+    const changed = runStructuredCompactionOnce(`revision-b-${suffix}`, owner, async () => {
+      starts += 1;
+      return "duplicate browser";
+    });
+    const outcome = await Promise.race([
+      changed.then(() => "started", error => (error as { code?: string }).code ?? "other_error"),
+      Bun.sleep(25).then(() => "pending"),
+    ]);
+    expect(outcome).toBe("compaction_revision_conflict");
+    expect(starts).toBe(1);
+  } finally {
+    release("first checkpoint");
+    await first;
+  }
+});
+
+test("a consumed checkpoint epoch permits a later compaction in the same native turn", async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const owner = {
+    ownerKey: `owner-epoch-${suffix}`,
+    revisionScopeKey: `thread-turn-initial-${suffix}`,
+    traceIds: [`trace-epoch-${suffix}`],
+    nativeThreadId: `thread-${suffix}`,
+    nativeTurnId: `turn-${suffix}`,
+  };
+  let starts = 0;
+  await runStructuredCompactionOnce(`epoch-a-${suffix}`, owner, async () => {
+    starts += 1;
+    return "first checkpoint";
+  });
+  await expect(runStructuredCompactionOnce(`epoch-b-${suffix}`, {
+    ...owner,
+    revisionScopeKey: `thread-turn-accepted-checkpoint-${suffix}`,
+  }, async () => {
+    starts += 1;
+    return "later checkpoint";
+  })).resolves.toBe("later checkpoint");
+  expect(starts).toBe(2);
+});
+
+test("expired replay cache never reopens a completed native compact epoch", async () => {
+  const suffix = `${Date.now()}-${Math.random()}`;
+  const key = `expired-epoch-${suffix}`;
+  const owner = {
+    ownerKey: `owner-expired-${suffix}`,
+    revisionScopeKey: `scope-expired-${suffix}`,
+    traceIds: [`trace-expired-${suffix}`],
+    nativeThreadId: `thread-${suffix}`,
+    nativeTurnId: `turn-${suffix}`,
+  };
+  const actualNow = Date.now;
+  let now = actualNow();
+  let starts = 0;
+  try {
+    Date.now = () => now;
+    await runStructuredCompactionOnce(key, owner, async () => {
+      starts += 1;
+      return "completed checkpoint";
+    });
+    await Bun.sleep(0);
+    now += 31 * 60_000;
+    await expect(runStructuredCompactionOnce(key, owner, async () => {
+      starts += 1;
+      return "duplicate checkpoint";
+    })).rejects.toMatchObject({ code: "checkpoint_result_unavailable" });
+    expect(starts).toBe(1);
+  } finally {
+    Date.now = actualNow;
+  }
+});
+
+test("adapter rejects a changed native compact payload before a second browser submission", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-compact-revision-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://compact-revision-${root}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      experimentalFreshConversationPerTurn: true,
+    },
+  };
+  const firstRequest = request(true);
+  const revisedRequest = structuredClone(firstRequest);
+  (revisedRequest._rawBody as { input: unknown[] }).input.push({
+    type: "function_call_output",
+    call_id: "call_later",
+    output: "An additional result arrived",
+  });
+  expect(chatGptTurnExecutionKey(firstRequest)).not.toBe(chatGptTurnExecutionKey(revisedRequest));
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run;
+  let release!: (value: string) => void;
+  const browser = new Promise<string>(resolve => { release = resolve; });
+  let starts = 0;
+  worker.run = async () => {
+    starts += 1;
+    return browser;
+  };
+  const adapter = createChatGptWebAdapter(provider);
+  const firstEvents: AdapterEvent[] = [];
+  const secondEvents: AdapterEvent[] = [];
+  let firstTurn: Promise<void> | undefined;
+  let secondTurn: Promise<void> | undefined;
+  try {
+    firstTurn = adapter.runTurn!(firstRequest, { headers: new Headers() }, event => firstEvents.push(event));
+    for (let index = 0; index < 50 && starts === 0; index += 1) await Bun.sleep(1);
+    expect(starts).toBe(1);
+    secondTurn = adapter.runTurn!(revisedRequest, { headers: new Headers() }, event => secondEvents.push(event));
+    const outcome = await Promise.race([
+      secondTurn.then(() => "settled"),
+      Bun.sleep(50).then(() => "pending"),
+    ]);
+    expect(outcome).toBe("settled");
+    expect(secondEvents.some(event => event.type === "error"
+      && event.code === "compaction_revision_conflict")).toBeTrue();
+    expect(starts).toBe(1);
+  } finally {
+    release(missionCheckpoint("First checkpoint"));
+    await firstTurn;
+    await secondTurn;
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("adapter keeps one compact epoch when native Codex changes reasoning effort", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-compact-effort-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://compact-effort-${root}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      experimentalFreshConversationPerTurn: true,
+    },
+  };
+  const firstRequest = request(true);
+  const revisedRequest = structuredClone(firstRequest);
+  revisedRequest.options.reasoning = "medium";
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run;
+  let release!: (value: string) => void;
+  const browser = new Promise<string>(resolve => { release = resolve; });
+  let starts = 0;
+  worker.run = async () => {
+    starts += 1;
+    return browser;
+  };
+  const adapter = createChatGptWebAdapter(provider);
+  const firstEvents: AdapterEvent[] = [];
+  const secondEvents: AdapterEvent[] = [];
+  let firstTurn: Promise<void> | undefined;
+  let secondTurn: Promise<void> | undefined;
+  try {
+    firstTurn = adapter.runTurn!(firstRequest, { headers: new Headers() }, event => firstEvents.push(event));
+    for (let index = 0; index < 50 && starts === 0; index += 1) await Bun.sleep(1);
+    expect(starts).toBe(1);
+    secondTurn = adapter.runTurn!(revisedRequest, { headers: new Headers() }, event => secondEvents.push(event));
+    const outcome = await Promise.race([
+      secondTurn.then(() => "settled"),
+      Bun.sleep(50).then(() => "pending"),
+    ]);
+    expect(outcome).toBe("settled");
+    expect(secondEvents.some(event => event.type === "error"
+      && event.code === "compaction_revision_conflict")).toBeTrue();
+    expect(starts).toBe(1);
+  } finally {
+    release(missionCheckpoint("First checkpoint"));
+    await firstTurn;
+    await secondTurn;
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("adapter keeps one native compact epoch across a provider configuration refresh", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-compact-provider-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://compact-provider-${root}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      experimentalFreshConversationPerTurn: true,
+    },
+  };
+  const refreshed: CodexProviderConfig = {
+    ...provider,
+    chatgptWeb: { ...provider.chatgptWeb!, turnTimeoutMs: 240_000 },
+  };
+  expect(chatGptWebExecutionNamespace(provider)).not.toBe(chatGptWebExecutionNamespace(refreshed));
+  const firstWorker = ChatGptBrowserWorker.forProvider(provider);
+  const secondWorker = ChatGptBrowserWorker.forProvider(refreshed);
+  const firstRun = firstWorker.run;
+  const secondRun = secondWorker.run;
+  let release!: (value: string) => void;
+  const browser = new Promise<string>(resolve => { release = resolve; });
+  let starts = 0;
+  firstWorker.run = async () => {
+    starts += 1;
+    return browser;
+  };
+  secondWorker.run = async () => {
+    starts += 1;
+    return missionCheckpoint("Duplicate provider checkpoint");
+  };
+  const compact = request(true);
+  const firstEvents: AdapterEvent[] = [];
+  const secondEvents: AdapterEvent[] = [];
+  let firstTurn: Promise<void> | undefined;
+  let secondTurn: Promise<void> | undefined;
+  try {
+    firstTurn = createChatGptWebAdapter(provider).runTurn!(compact, { headers: new Headers() }, event => firstEvents.push(event));
+    for (let index = 0; index < 50 && starts === 0; index += 1) await Bun.sleep(1);
+    expect(starts).toBe(1);
+    secondTurn = createChatGptWebAdapter(refreshed).runTurn!(compact, { headers: new Headers() }, event => secondEvents.push(event));
+    const outcome = await Promise.race([
+      secondTurn.then(() => "settled"),
+      Bun.sleep(50).then(() => "pending"),
+    ]);
+    expect(outcome).toBe("settled");
+    expect(secondEvents.some(event => event.type === "error"
+      && event.code === "compaction_revision_conflict")).toBeTrue();
+    expect(starts).toBe(1);
+  } finally {
+    release(missionCheckpoint("First provider checkpoint"));
+    await firstTurn;
+    await secondTurn;
+    firstWorker.run = firstRun;
+    secondWorker.run = secondRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("a failed compact request retains its replay and owner gate until browser cleanup", async () => {
@@ -1313,7 +1587,7 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
   }];
   (compact._rawBody as { client_metadata: Record<string, unknown> }).client_metadata = {
     "x-codex-turn-metadata": JSON.stringify({
-      thread_id: "thread_retained_compaction",
+      thread_id: nativeThreadId(),
       turn_id: "turn_compact",
     }),
   };
@@ -1614,7 +1888,7 @@ test("a compact HTTP observer can reconnect without sending a second retained-ch
   compact._compactionRequest = true;
   (compact._rawBody as { client_metadata: Record<string, unknown> }).client_metadata = {
     "x-codex-turn-metadata": JSON.stringify({
-      thread_id: "thread_retained_compaction",
+      thread_id: nativeThreadId(),
       turn_id: "turn_compact_reconnect",
     }),
   };
@@ -1904,8 +2178,9 @@ test("an invalid fresh fallback receives one bounded draft repair, not a replay 
       messages: Array<{ content: string }>;
     };
     expect(repairContext.messages[0]!.content.trimEnd()).toEndWith(
-      "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint, including every required section and exactly one next action. Do not return only a narrative summary.",
+      "The previous draft is reference material only. Now return the complete version 2 <compaction_state> checkpoint, including every required section and exactly one next action. Do not return only a narrative summary or a fenced example.",
     );
+    expect(repairContext.messages[0]!.content).toContain("do not wrap them in Markdown code fences");
     expect(events.some(event => event.type === "text_delta"
       && event.text.includes("Repaired fresh checkpoint"))).toBeTrue();
     expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
@@ -1938,6 +2213,10 @@ test("an invalid fresh repair is rejected after exactly one correction attempt",
     return browserMessages === 1 ? "Incomplete checkpoint without a mission checklist." : "";
   };
   const events: AdapterEvent[] = [];
+  const logs: string[] = [];
+  const logger = spyOn(console, "info").mockImplementation((...args) => {
+    logs.push(args.join(" "));
+  });
   try {
     await createChatGptWebAdapter(provider).runTurn!(
       request(true),
@@ -1946,7 +2225,13 @@ test("an invalid fresh repair is rejected after exactly one correction attempt",
     );
     expect(browserMessages).toBe(2);
     expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+    const repairedValidation = logs.find(line => line.startsWith("[chatgpt-web] checkpoint_validation ")
+      && line.includes('"repaired":true'));
+    expect(repairedValidation).toBeDefined();
+    expect(JSON.parse(repairedValidation!.slice("[chatgpt-web] checkpoint_validation ".length)))
+      .toMatchObject({ valid: false, missingState: true, openingTags: 0, closingTags: 0 });
   } finally {
+    logger.mockRestore();
     worker.run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
@@ -2068,6 +2353,55 @@ test("an empty fresh checkpoint without repair time preserves history and report
     expect(browserMessages).toBe(1);
     expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
   } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint format telemetry describes the generated draft, not tags in the original request", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-checkpoint-format-log-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://checkpoint-format-log-${root}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 1_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run;
+  const logs: string[] = [];
+  const logger = spyOn(console, "info").mockImplementation((...args) => {
+    logs.push(args.join(" "));
+  });
+  const compact = request(true);
+  compact.context.messages[0]!.content = "Investigate <compaction_state> and </compaction_state> tags";
+  worker.run = async () => "ChatGPT returned only a narrative about the ongoing investigation and no mission checklist.";
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(
+      compact,
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    const validation = logs.find(line => line.startsWith("[chatgpt-web] checkpoint_validation "));
+    expect(validation).toBeDefined();
+    const shape = JSON.parse(validation!.slice("[chatgpt-web] checkpoint_validation ".length));
+    expect(shape).toMatchObject({
+      valid: false,
+      missingState: true,
+      openingTags: 0,
+      closingTags: 0,
+      usableUnfencedBlock: false,
+    });
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+  } finally {
+    logger.mockRestore();
     worker.run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });

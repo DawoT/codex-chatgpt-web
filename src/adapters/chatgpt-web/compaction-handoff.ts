@@ -21,10 +21,13 @@ import type { ChatGptTurnSession } from "./turn-execution";
 import { checkpointRepairPromptFits } from "./compaction-repair";
 import { resolveChatGptWebModelMode } from "./model";
 import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
-import { locateCompactionStateBounds } from "../../responses/compaction";
+import {
+  LATEST_USER_PROMPT_MARKER,
+  ORIGINAL_USER_REQUEST_MARKER,
+  locateCompactionStateBounds,
+} from "../../responses/compaction";
 
-export const LATEST_USER_PROMPT_MARKER = "CODEX_LATEST_USER_PROMPT_JSON";
-export const ORIGINAL_USER_REQUEST_MARKER = "CODEX_ORIGINAL_USER_REQUEST_JSON";
+export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
 
 function brokerContent(content: string | CodexContentPart[]): unknown[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
@@ -451,6 +454,7 @@ interface CachedCompactionRun {
   settledAt?: number;
   failed: boolean;
   ownerKey: string;
+  revisionScopeKey?: string;
   traceIds: ReadonlySet<string>;
   nativeThreadId?: string;
   nativeTurnId?: string;
@@ -467,6 +471,8 @@ interface StructuredCompactionInterruption {
 
 export interface StructuredCompactionOwner {
   ownerKey: string;
+  /** Authenticated native turn and checkpoint epoch; a different request revision may not reuse it. */
+  revisionScopeKey?: string;
   /** Every externally addressable browser trace owned by this structured compaction. */
   traceIds: readonly string[];
   /** Exact native Codex owner, when supplied by the current Responses request. */
@@ -476,6 +482,7 @@ export interface StructuredCompactionOwner {
 
 const structuredCompactionRuns = new Map<string, CachedCompactionRun>();
 const structuredCompactionOwners = new Map<string, Promise<void>>();
+const structuredCompactionRevisionScopes = new Map<string, string>();
 const structuredCompactionInterruptions = new Map<string, StructuredCompactionInterruption>();
 const STRUCTURED_COMPACTION_RUN_TTL_MS = 30 * 60_000;
 
@@ -540,6 +547,22 @@ export function runStructuredCompactionOnce(
   if (existing) return existing.promise;
   const interrupted = structuredCompactionInterruption(owner);
   if (interrupted) return Promise.reject(interrupted);
+  const scopeOwner = owner.revisionScopeKey
+    ? structuredCompactionRevisionScopes.get(owner.revisionScopeKey)
+    : undefined;
+  if (scopeOwner) {
+    return Promise.reject(new ChatGptWebAdapterError(
+      scopeOwner === key
+        ? "The completed checkpoint result is no longer available for replay; the native turn must not be resubmitted"
+        : "A different compact request revision already owns this native turn and checkpoint epoch",
+      {
+        status: 409,
+        errorType: "invalid_request_error",
+        code: scopeOwner === key ? "checkpoint_result_unavailable" : "compaction_revision_conflict",
+        retryable: false,
+      },
+    ));
+  }
   const abort = new AbortController();
   const previousOwner = structuredCompactionOwners.get(owner.ownerKey);
   const physicalSettlements: Promise<void>[] = previousOwner ? [previousOwner] : [];
@@ -561,11 +584,15 @@ export function runStructuredCompactionOnce(
     }
     if (failed && abort.signal.aborted && structuredCompactionRuns.get(key) === run) {
       structuredCompactionRuns.delete(key);
+      if (run.revisionScopeKey && structuredCompactionRevisionScopes.get(run.revisionScopeKey) === key) {
+        structuredCompactionRevisionScopes.delete(run.revisionScopeKey);
+      }
     }
   });
   const run: CachedCompactionRun = {
     failed: false,
     ownerKey: owner.ownerKey,
+    ...(owner.revisionScopeKey ? { revisionScopeKey: owner.revisionScopeKey } : {}),
     traceIds: new Set(owner.traceIds),
     ...(owner.nativeThreadId ? { nativeThreadId: owner.nativeThreadId } : {}),
     ...(owner.nativeTurnId ? { nativeTurnId: owner.nativeTurnId } : {}),
@@ -575,6 +602,7 @@ export function runStructuredCompactionOnce(
     settlement: ownerSettlement,
   };
   structuredCompactionRuns.set(key, run);
+  if (owner.revisionScopeKey) structuredCompactionRevisionScopes.set(owner.revisionScopeKey, key);
   structuredCompactionOwners.set(owner.ownerKey, ownerSettlement);
   return promise;
 }
@@ -586,7 +614,12 @@ function beginCancelStructuredCompactionRuns(
   const runs = [...structuredCompactionRuns.entries()].filter(([, run]) => matches(run));
   const active = runs.filter(([, run]) => run.active).map(([, run]) => run);
   for (const [key, run] of runs) {
-    if (!run.active && run.failed) structuredCompactionRuns.delete(key);
+    if (!run.active && run.failed) {
+      structuredCompactionRuns.delete(key);
+      if (run.revisionScopeKey && structuredCompactionRevisionScopes.get(run.revisionScopeKey) === key) {
+        structuredCompactionRevisionScopes.delete(run.revisionScopeKey);
+      }
+    }
   }
   for (const run of active) {
     if (!run.abort.signal.aborted) run.abort.abort(reason);
