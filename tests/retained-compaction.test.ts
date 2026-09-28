@@ -574,25 +574,115 @@ test("retained compaction deadline bounds browser settlement after the control h
   expect(transactionAborted).toBeTrue();
 });
 
-test("a rejected exact compaction run is evicted while a successful run remains replayable", async () => {
+test("a failed exact compaction replays its failure instead of reopening the browser", async () => {
   const key = `exact-retry-${Date.now()}-${Math.random()}`;
   const owner = { ownerKey: `owner-${key}`, traceIds: [`trace-${key}`] };
   let starts = 0;
-  await expect(runStructuredCompactionOnce(key, owner, async () => {
+  const failed = runStructuredCompactionOnce(key, owner, async () => {
     starts += 1;
     throw new Error("first handoff failed");
-  })).rejects.toThrow("first handoff failed");
+  });
+  await expect(failed).rejects.toThrow("first handoff failed");
   await Bun.sleep(0);
-  expect(existingStructuredCompactionRun(key)).toBeUndefined();
+  expect(existingStructuredCompactionRun(key)).toBe(failed);
 
   const retry = runStructuredCompactionOnce(key, owner, async () => {
     starts += 1;
-    return "recovered checkpoint";
+    return "must not submit a second handoff";
   });
-  expect(runStructuredCompactionOnce(key, owner, async () => "must not start")).toBe(retry);
-  await expect(retry).resolves.toBe("recovered checkpoint");
-  await expect(existingStructuredCompactionRun(key)).resolves.toBe("recovered checkpoint");
+  expect(retry).toBe(failed);
+  await expect(retry).rejects.toThrow("first handoff failed");
+  expect(starts).toBe(1);
+
+  await expect(runStructuredCompactionOnce(`${key}-new-turn`, owner, async () => {
+    starts += 1;
+    return "operator-started checkpoint";
+  })).resolves.toBe("operator-started checkpoint");
   expect(starts).toBe(2);
+});
+
+test("a failed compact request retains its replay and owner gate until browser cleanup", async () => {
+  const key = `failed-cleanup-${Date.now()}-${Math.random()}`;
+  const owner = { ownerKey: `owner-${key}`, traceIds: [`trace-${key}`] };
+  let releasePhysical!: () => void;
+  const physicalSettlement = new Promise<void>(resolve => { releasePhysical = resolve; });
+  let starts = 0;
+  const first = runStructuredCompactionOnce(key, owner, async (_signal, retainOwnershipUntil) => {
+    starts += 1;
+    retainOwnershipUntil(physicalSettlement);
+    throw new Error("checkpoint repair failed");
+  });
+  try {
+    await expect(first).rejects.toThrow("checkpoint repair failed");
+    const replay = runStructuredCompactionOnce(key, owner, async () => {
+      starts += 1;
+      return "must not rerun the failed request";
+    });
+    expect(replay).toBe(first);
+    await expect(replay).rejects.toThrow("checkpoint repair failed");
+
+    const next = runStructuredCompactionOnce(`${key}-next`, owner, async () => {
+      starts += 1;
+      return "next native turn";
+    });
+    await Bun.sleep(0);
+    expect(starts).toBe(1);
+    releasePhysical();
+    await expect(next).resolves.toBe("next native turn");
+    expect(starts).toBe(2);
+  } finally {
+    releasePhysical();
+  }
+});
+
+test("an explicit trace cancellation clears a settled failed compaction for operator retry", async () => {
+  const key = `failed-operator-retry-${Date.now()}-${Math.random()}`;
+  const traceId = `trace-${key}`;
+  const owner = { ownerKey: `owner-${key}`, traceIds: [traceId] };
+  let starts = 0;
+  await expect(runStructuredCompactionOnce(key, owner, async () => {
+    starts += 1;
+    throw new Error("checkpoint repair failed");
+  })).rejects.toThrow("checkpoint repair failed");
+  await Bun.sleep(0);
+
+  expect(await cancelStructuredCompactionTrace(traceId, new Error("operator requested retry"))).toBe(0);
+  await expect(runStructuredCompactionOnce(key, owner, async () => {
+    starts += 1;
+    return "operator retry checkpoint";
+  })).resolves.toBe("operator retry checkpoint");
+  expect(starts).toBe(2);
+});
+
+test("a long compact run remains replayable for 30 minutes after physical settlement", async () => {
+  const key = `long-compact-replay-${Date.now()}-${Math.random()}`;
+  const owner = { ownerKey: `owner-${key}`, traceIds: [`trace-${key}`] };
+  const actualNow = Date.now;
+  let now = actualNow();
+  let finish!: (summary: string) => void;
+  const browser = new Promise<string>(resolve => { finish = resolve; });
+  let starts = 0;
+  try {
+    Date.now = () => now;
+    const first = runStructuredCompactionOnce(key, owner, async () => {
+      starts += 1;
+      return browser;
+    });
+    now += 31 * 60_000;
+    finish("checkpoint from a long browser run");
+    await expect(first).resolves.toBe("checkpoint from a long browser run");
+    await Bun.sleep(0);
+
+    const replay = runStructuredCompactionOnce(key, owner, async () => {
+      starts += 1;
+      return "must not rerun";
+    });
+    expect(replay).toBe(first);
+    expect(starts).toBe(1);
+  } finally {
+    Date.now = actualNow;
+    finish("cleanup");
+  }
 });
 
 test("operator cancellation aborts the shared structured compaction owner", async () => {
@@ -1856,6 +1946,53 @@ test("an invalid fresh repair is rejected after exactly one correction attempt",
     );
     expect(browserMessages).toBe(2);
     expect(events.at(-1)).toMatchObject({ type: "error", code: "context_checkpoint_validation_failed" });
+  } finally {
+    worker.run = originalRun;
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed fresh repair cannot trigger another original-history submission for the same compact request", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-repair-fresh-failure-replay-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://repair-fresh-failure-replay-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      turnTimeoutMs: 130_000,
+    },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  let browserMessages = 0;
+  worker.run = async () => {
+    browserMessages += 1;
+    if (browserMessages === 1) return "Incomplete checkpoint without a mission checklist.";
+    throw new ChatGptWebAdapterError("ChatGPT final DOM could not be aligned with text already streamed to Codex", {
+      status: 502,
+      errorType: "server_error",
+      code: "browser_stream_inconsistent",
+      retryable: false,
+    });
+  };
+  const compact = request(true);
+  const adapter = createChatGptWebAdapter(provider);
+  const firstEvents: AdapterEvent[] = [];
+  const replayEvents: AdapterEvent[] = [];
+  try {
+    await adapter.runTurn!(compact, { headers: new Headers() }, event => firstEvents.push(event));
+    expect(browserMessages).toBe(2);
+    expect(firstEvents.at(-1)).toMatchObject({ type: "error", code: "browser_stream_inconsistent" });
+
+    await Bun.sleep(0);
+    await adapter.runTurn!(compact, { headers: new Headers() }, event => replayEvents.push(event));
+    expect(browserMessages).toBe(2);
+    expect(replayEvents.at(-1)).toMatchObject({ type: "error", code: "browser_stream_inconsistent" });
   } finally {
     worker.run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();

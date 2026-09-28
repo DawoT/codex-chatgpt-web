@@ -448,7 +448,8 @@ export async function requestRetainedCompactionHandoff(
 }
 
 interface CachedCompactionRun {
-  createdAt: number;
+  settledAt?: number;
+  failed: boolean;
   ownerKey: string;
   traceIds: ReadonlySet<string>;
   nativeThreadId?: string;
@@ -516,7 +517,9 @@ function pruneStructuredCompactionRuns(): void {
   const now = Date.now();
   const cutoff = now - STRUCTURED_COMPACTION_RUN_TTL_MS;
   for (const [candidate, run] of structuredCompactionRuns) {
-    if (!run.active && run.createdAt < cutoff) structuredCompactionRuns.delete(candidate);
+    if (run.settledAt !== undefined && run.settledAt < cutoff) {
+      structuredCompactionRuns.delete(candidate);
+    }
   }
   pruneStructuredCompactionInterruptions(now);
 }
@@ -545,18 +548,23 @@ export function runStructuredCompactionOnce(
     if (abort.signal.aborted) throw abortReason(abort.signal);
     return start(abort.signal, settlement => { physicalSettlements.push(settlement); });
   });
-  // Return a deadline failure promptly, while its physical browser owner still blocks retries
-  // and cancel-all completion. A cancelled queued run must also retain its predecessor's gate.
+  // Return a deadline failure promptly while the physical owner still blocks new work.
+  // Replay a failed exact request instead of resubmitting the original history to ChatGPT.
+  // Explicit cancellation releases the key; settled replays also expire after the cache TTL.
   const ownerSettlement = promise.then(() => false, () => true).then(async failed => {
+    run.failed = failed;
     await Promise.allSettled(physicalSettlements);
     run.active = false;
+    run.settledAt = Date.now();
     if (structuredCompactionOwners.get(owner.ownerKey) === ownerSettlement) {
       structuredCompactionOwners.delete(owner.ownerKey);
     }
-    if (failed && structuredCompactionRuns.get(key) === run) structuredCompactionRuns.delete(key);
+    if (failed && abort.signal.aborted && structuredCompactionRuns.get(key) === run) {
+      structuredCompactionRuns.delete(key);
+    }
   });
   const run: CachedCompactionRun = {
-    createdAt: Date.now(),
+    failed: false,
     ownerKey: owner.ownerKey,
     traceIds: new Set(owner.traceIds),
     ...(owner.nativeThreadId ? { nativeThreadId: owner.nativeThreadId } : {}),
@@ -575,11 +583,15 @@ function beginCancelStructuredCompactionRuns(
   matches: (run: CachedCompactionRun) => boolean,
   reason: Error,
 ): { cancelled: number; settlement: Promise<void> } {
-  const runs = [...structuredCompactionRuns.values()].filter(run => run.active && matches(run));
-  for (const run of runs) {
+  const runs = [...structuredCompactionRuns.entries()].filter(([, run]) => matches(run));
+  const active = runs.filter(([, run]) => run.active).map(([, run]) => run);
+  for (const [key, run] of runs) {
+    if (!run.active && run.failed) structuredCompactionRuns.delete(key);
+  }
+  for (const run of active) {
     if (!run.abort.signal.aborted) run.abort.abort(reason);
   }
-  return { cancelled: runs.length, settlement: Promise.allSettled(runs.map(run => run.settlement)).then(() => undefined) };
+  return { cancelled: active.length, settlement: Promise.allSettled(active.map(run => run.settlement)).then(() => undefined) };
 }
 
 /** Begin cancelling the structured compaction owned by one exact native Codex turn. */
