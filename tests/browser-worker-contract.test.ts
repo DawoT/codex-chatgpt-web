@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import type { Page } from "playwright-core";
 import { CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS, CHATGPT_COMPLETION_SETTLE_MS, CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS, CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS, ChatGptCompletionTracker, chatGptExternalProgressSuppressesDomHealth, CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS, ChatGptPendingToolEvidenceTracker, CHATGPT_RESPONSE_DOM_GRACE_MS, MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS, CHATGPT_COMPOSER_DOCUMENT_END_KEY, CHATGPT_COMPOSER_SELECT_ALL_KEY, ChatGptBrowserObservationTimeoutError, ChatGptBrowserWorker, ChatGptSubmissionRejectionObserver, ChatGptPromptAttachmentIntegrityError, ChatGptTurnDomHealthTracker, ChatGptVisibleTraceTracker, MAX_CHATGPT_BROWSER_PAGE_REBINDS, MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS, CHATGPT_ATTACHMENT_INPUT_SELECTOR, assertChatGptWebInputWithinLimits, assertChatGptWebMultipartInputWithinLimits, browserDiagnosticCheckpoint, chatGptConnectorAttachmentMode, chatGptNewTurnIdentity, chatGptReboundTurnIdentity, chatGptSubmissionEvidence, connectAfterClosingBrowserConnection, dismissChatGptTemporaryChatOnboarding, isChatGptTraceControl, redactChatGptUiDiagnostic, resolveBrowserConfig, resolveChatGptToolConfirmation, resolveChatGptWebMultipartStagingMode, sanitizeChatGptBrowserDiagnosticState, setChatGptThinkMode, stripChatGptTraceControlSuffix, throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert, throwIfChatGptTerminalErrorAlert, withChatGptBrowserObservationTimeout, CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS, browserStageTimeouts, ChatGptSuspensionClock, remainingStageBudgetMs, pruneBrowserDiagnostics } from "../src/adapters/chatgpt-web/browser-worker";
+import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
 import { ensureChatGptPersonalizedConnectorAccess, chatGptUnavailableProDetail, normalizePromptForComparison } from "../src/adapters/chatgpt-web/browser-worker";
 import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter-error";
 import { CHATGPT_STOPPED_THINKING_LABELS } from "../src/adapters/chatgpt-web/ui-labels";
@@ -209,10 +210,10 @@ test("response caching rechecks CSS visibility without requiring a DOM mutation"
       };
       const worker = Object.create(ChatGptBrowserWorker.prototype) as {
         responseDomSnapshot(locator: unknown, cache: object): Promise<{ visibleText: string; completionActionVisible: boolean }>;
-        lastDomMeasurementByPage: WeakMap<object, number>;
+        pageDomObserver: ChatGptPageDomObserver;
         contextPressureByPage: WeakMap<object, unknown>;
       };
-      worker.lastDomMeasurementByPage = new WeakMap();
+      worker.pageDomObserver = new ChatGptPageDomObserver();
       worker.contextPressureByPage = new WeakMap();
       const cache = {} as { fullScans?: number; cacheHits?: number };
       const first = await worker.responseDomSnapshot(locator, cache);
@@ -1581,10 +1582,48 @@ test("repeated connector verification reuses its selected pill before clearing t
     config: { appName: "Codex Native2 DEV" },
     activeComposer: async () => selectedComposer,
     connectorIsSelected: async () => true,
+    attachedPromptText: async () => "",
   }, page, async checkpoint => { checkpoints.push(checkpoint); })).resolves.toBe(selectedComposer);
 
   expect(fillCalls).toBe(0);
   expect(checkpoints).toEqual(["personalization-already-enabled", "connector-already-selected"]);
+});
+
+test("selected connector with stale draft is cleared and reselected", async () => {
+  let selected = true;
+  const events: string[] = [];
+  const composer = {
+    fill: async () => {},
+    focus: async () => {},
+    pressSequentially: async () => {},
+    press: async (key: string) => {
+      if (key === "Enter") selected = true;
+    },
+  };
+  const row = {
+    waitFor: async () => {},
+    count: async () => 1,
+    getAttribute: async () => "true",
+  };
+  const page = {
+    url: () => "https://chatgpt.com/",
+    getByText: () => ({}),
+    locator: () => ({ filter: () => row }),
+  };
+  const selectConnector = (ChatGptBrowserWorker.prototype as unknown as {
+    selectConnector(page: unknown): Promise<unknown>;
+  }).selectConnector;
+  const result = await selectConnector.call({
+    config: { appName: CHATGPT_CONNECTOR_NAME },
+    activeComposer: async () => composer,
+    connectorIsSelected: async () => selected,
+    attachedPromptText: async () => "stale draft",
+    clearChatGptComposerState: async () => { events.push("clear"); selected = false; },
+    selectedConnectorControl: () => ({ waitFor: async () => {} }),
+  }, page);
+  expect(result).toBe(composer);
+  expect(events).toEqual(["clear"]);
+  expect(selected).toBeTrue();
 });
 
 test("connector selection retriggers the complete mention after a fresh-page hydration miss", async () => {
@@ -2362,6 +2401,7 @@ test("selectConnector safely handles empty or non-standard page URLs without thr
     config: { appName: CHATGPT_CONNECTOR_NAME },
     activeComposer: async () => composer,
     connectorIsSelected: async () => true,
+    attachedPromptText: async () => "",
     clearChatGptComposerState: async () => {},
   }, page);
   expect(result).toBeDefined();
@@ -2429,12 +2469,52 @@ test("retained tool turns insert into the connector-bound composer without selec
   };
   await attachPrompt.call({
     activeComposer: async () => composer,
+    attachedPromptText: async () => "",
     connectorIsSelected: async () => true,
     selectConnector: async () => { throw new Error("retained connector must not be selected again"); },
     insertPromptText: async (_page: unknown, text: string) => { expect(text).toBe(" retained context"); calls.push("insert"); },
     assertPromptAttached: async () => { calls.push("assert"); },
   }, dialogPage("").page, "retained context", true, undefined, undefined, false, undefined, true);
   expect(calls).toEqual(["focus", `press:${CHATGPT_COMPOSER_DOCUMENT_END_KEY}`, "insert", "assert"]);
+});
+
+test("retained connector with a stale draft is cleared and reselected before attaching", async () => {
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(page: unknown, prompt: string, localTools: boolean, capture?: unknown, signal?: AbortSignal, refresh?: boolean, budget?: unknown, reuse?: boolean): Promise<void>;
+  }).attachPrompt;
+  const calls: string[] = [];
+  const composer = {
+    focus: async () => { calls.push("focus"); },
+    press: async () => { calls.push("end"); },
+  };
+  await attachPrompt.call({
+    activeComposer: async () => composer,
+    connectorIsSelected: async () => true,
+    attachedPromptText: async () => "old unsent draft",
+    clearChatGptComposerState: async () => { calls.push("clear"); },
+    selectConnector: async () => { calls.push("select"); return composer; },
+    insertPromptText: async () => { calls.push("insert"); },
+    assertPromptAttached: async () => { calls.push("assert"); },
+  }, dialogPage("").page, "new prompt", true, undefined, undefined, false, undefined, true);
+  expect(calls).toEqual(["clear", "select", "focus", "end", "insert", "assert"]);
+});
+
+test("failed stale-draft cleanup refuses prompt insertion and connector reselection", async () => {
+  const attachPrompt = (ChatGptBrowserWorker.prototype as unknown as {
+    attachPrompt(page: unknown, prompt: string, localTools: boolean, capture?: unknown, signal?: AbortSignal, refresh?: boolean, budget?: unknown, reuse?: boolean): Promise<void>;
+  }).attachPrompt;
+  let inserted = false;
+  let reselected = false;
+  await expect(attachPrompt.call({
+    activeComposer: async () => ({}),
+    connectorIsSelected: async () => true,
+    attachedPromptText: async () => "stale draft",
+    clearChatGptComposerState: async () => { throw new Error("cleanup failed"); },
+    selectConnector: async () => { reselected = true; return {}; },
+    insertPromptText: async () => { inserted = true; },
+  }, dialogPage("").page, "new prompt", true, undefined, undefined, false, undefined, true)).rejects.toThrow("composer state could not be cleared");
+  expect(inserted).toBeFalse();
+  expect(reselected).toBeFalse();
 });
 
 test("retained tool turns re-select the connector if the composer lost its binding", async () => {
@@ -2811,6 +2891,7 @@ test("Think attachment runs after fresh connector selection and rechecks retaine
     const worker = {
       activeComposer: async () => ui.composer,
       connectorIsSelected: async () => ui.state.connectors.includes("Codex Native2"),
+      attachedPromptText: async () => ui.state.draft,
       selectConnector: async () => { connectorSelections += 1; ui.state.connectors = ["Codex Native2"]; return ui.composer; },
       insertPromptText: async () => { submitted.push(ui.state.pressed); },
       assertPromptAttached: async () => {}, clearChatGptComposerState: async () => { ui.state.draft = ""; ui.state.connectors = []; },
@@ -4113,7 +4194,7 @@ test("browser DOM health fails closed on a vanished or empty ChatGPT response", 
   const missing = new ChatGptTurnDomHealthTracker(1_000, 500);
   const absent = {
     responsePresent: false,
-    running: true,
+    running: false,
     currentText: "",
     completionActionVisible: false,
   };
@@ -4185,7 +4266,7 @@ test("suspending DOM health for proven MCP progress restarts the missing-respons
   const tracker = new ChatGptTurnDomHealthTracker(1_000, 500);
   const absent = {
     responsePresent: false,
-    running: true,
+    running: false,
     currentText: "",
     completionActionVisible: false,
   };
@@ -4210,7 +4291,7 @@ test("clearing the missing-response window preserves whether a response was ever
     currentText: "partial",
     completionActionVisible: false,
   };
-  const absent = { ...present, responsePresent: false, currentText: "" };
+  const absent = { ...present, responsePresent: false, running: false, currentText: "" };
 
   expect(tracker.update(present, 1_000)).toBeUndefined();
   expect(tracker.update(absent, 1_500)).toBeUndefined();
@@ -4281,7 +4362,7 @@ test("live external progress still records that a response DOM was observed", ()
   const tracker = new ChatGptTurnDomHealthTracker(1_000, 500);
   const absent = {
     responsePresent: false,
-    running: true,
+    running: false,
     currentText: "",
     completionActionVisible: false,
   };
@@ -4297,6 +4378,21 @@ test("live external progress still records that a response DOM was observed", ()
   // The turn is reported as vanished rather than never created, so `sawResponse` survived.
   expect(tracker.update(absent, 2_000)).toBeUndefined();
   expect(tracker.update(absent, 3_000)).toContain("response DOM disappeared");
+});
+
+test("visible Stop suspends missing-response health until generation stops", () => {
+  const tracker = new ChatGptTurnDomHealthTracker(1_000, 500);
+  const running = {
+    responsePresent: false,
+    running: true,
+    currentText: "",
+    completionActionVisible: false,
+  };
+  expect(tracker.update(running, 1_000)).toBeUndefined();
+  expect(tracker.update(running, 10_000)).toBeUndefined();
+  expect(tracker.update({ ...running, running: false }, 10_100)).toBeUndefined();
+  expect(tracker.update({ ...running, running: false }, 11_099)).toBeUndefined();
+  expect(tracker.update({ ...running, running: false }, 11_100)).toContain("did not create a response DOM");
 });
 
 test("an accepted turn survives internal observation faults instead of being torn down", () => {

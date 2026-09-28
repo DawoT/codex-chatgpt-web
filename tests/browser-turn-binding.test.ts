@@ -2,13 +2,22 @@ import { expect, test } from "bun:test";
 import { chromium, type Locator, type Page } from "playwright-core";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { readFileSync } from "node:fs";
+import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
+
+function createDomWorker(): ChatGptBrowserWorker {
+  const worker = Object.create(ChatGptBrowserWorker.prototype) as Record<string, unknown>;
+  worker.contextPressureByConversation = new Map();
+  worker.contextPressureByPage = new WeakMap();
+  worker.pageDomObserver = new ChatGptPageDomObserver();
+  return worker as unknown as ChatGptBrowserWorker;
+}
 
 test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("activity tone and collapsed content invalidate the response cache", async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHATGPT_DOM_TEST_BROWSER, headless: true });
   try {
     const page = await browser.newPage();
     await page.setContent(readFileSync(new URL("./fixtures/chatgpt-activity-summaries.html", import.meta.url), "utf8"));
-    const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+    const worker = createDomWorker() as any;
     const cache = {};
     const turn = page.locator("#turn");
     const observe = () => worker.responseDomSnapshot(turn, cache);
@@ -33,7 +42,7 @@ test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("activity tone and collapsed 
 test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("preserves the accepted user identity across Activity's temporary fallback group", async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHATGPT_DOM_TEST_BROWSER, headless: true });
   try {
-    const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+    const worker = createDomWorker() as any;
     const prompt = "Read first.txt.\n\nReturn its contents.";
     // Captured on the installed launcher: the user group appears at Send, disappears
     // during Activity, then returns with the same ID and a rich-text user bubble.
@@ -72,7 +81,7 @@ test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("preserves the accepted user 
 test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("completed exchange rekeys only with the exact submitted prompt and no competing turn", async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHATGPT_DOM_TEST_BROWSER, headless: true });
   try {
-    const worker = Object.create(ChatGptBrowserWorker.prototype) as {
+    const worker = createDomWorker() as unknown as {
       captureSubmissionBaseline(page: Page, submittedText?: string): Promise<unknown>;
       waitForNewAssistantTurn(page: Page, baseline: unknown, deadline: number): Promise<Binding>;
       reconcileAssistantTurnBinding(page: Page, baseline: unknown, binding: Binding): Promise<Binding>;
@@ -117,7 +126,7 @@ test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)("binds captured Activity befo
   const browser = await chromium.launch({ executablePath: process.env.CHATGPT_DOM_TEST_BROWSER, headless: true });
   try {
     const page = await browser.newPage();
-    const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+    const worker = createDomWorker() as any;
     await page.setContent('<main></main>');
     const baseline = await worker.captureSubmissionBaseline(page, "Prompt");
     const html = readFileSync(new URL("./fixtures/chatgpt-power-activity.html", import.meta.url), "utf8");

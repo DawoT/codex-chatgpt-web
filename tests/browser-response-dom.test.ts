@@ -4,6 +4,7 @@ import { createContext, runInContext } from "node:vm";
 import type { Locator } from "playwright-core";
 import { ChatGptBrowserWorker, ChatGptCompletionTracker, CHATGPT_COMPLETION_SETTLE_MS } from "../src/adapters/chatgpt-web/browser-worker";
 import { ChatGptMarkdownBuffer, type ChatGptMarkdownSegment } from "../src/adapters/chatgpt-web/markdown";
+import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
 
 const smokeHtml = readFileSync(new URL("./fixtures/chatgpt-dil-smoke.html", import.meta.url), "utf8");
 const powerCompleteHtml = readFileSync(new URL("./fixtures/chatgpt-power-complete.html", import.meta.url), "utf8");
@@ -52,7 +53,7 @@ async function snapshot(html: string): Promise<Snapshot> {
       page: () => ({ isClosed: () => false, evaluate: async () => html.length }),
     } as unknown as Locator;
     const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-      lastDomMeasurementByPage: new WeakMap(),
+      pageDomObserver: new ChatGptPageDomObserver(),
       contextPressureByConversation: new Map(),
       contextPressureByPage: new WeakMap(),
     }) as {

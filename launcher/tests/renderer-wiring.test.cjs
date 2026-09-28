@@ -126,6 +126,7 @@ test("startup failure stays visible on another launch and Retry exits the failed
   const sandbox = {
     mainWindow: window, mainWindowReadyToShow: false, mainWindowShowRequested: false,
     startupFailed: false, quitting: false,
+    runtimeStartupGate: { revoke: error => events.push(["revoke", error.message]) },
     browserHost: { destroy: () => events.push("destroy") },
     browserControl: { close: async () => events.push("control closed") },
     start: async () => { throw new Error("Browser idle document did not commit within 10000ms"); },
@@ -154,7 +155,9 @@ test("startup failure stays visible on another launch and Retry exits the failed
   vm.runInContext(source, sandbox);
   await dialogOpened;
   assert.equal(visible, true, "the failed startup must expose its error owner without renderer readiness");
-  assert.deepEqual(events.slice(0, 2), ["destroy", "control closed"]);
+  assert.equal(events[0][0], "revoke");
+  assert.match(events[0][1], /Launcher startup failed: .*Browser idle document did not commit within 10000ms/);
+  assert.deepEqual(events.slice(1, 3), ["destroy", "control closed"]);
   visible = false;
   sandbox.showMainWindow();
   assert.equal(visible, true, "a second launch must restore the existing startup error window");

@@ -9,6 +9,29 @@ permissions:
   contents: read
 
 jobs:
+  browser-and-codex-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Install deterministic DOM browser
+        run: bunx --no-install playwright-core install --with-deps chromium
+      - name: Exercise browser DOM contracts
+        run: |
+          CHATGPT_DOM_TEST_BROWSER="$(bun -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')" \
+            bun test tests/chatgpt-effort-browser.test.ts tests/browser-turn-binding.test.ts tests/chatgpt-limits-browser.test.ts
+      - name: Install Codex 0.158.0
+        run: |
+          bun add --global @openai/codex@0.158.0
+          test "$(codex --version)" = "codex-cli 0.158.0"
+      - name: Verify Codex V1 and V2 catalog contracts
+        run: |
+          bun run scripts/smoke-codex-catalog.ts "$(command -v codex)" --v1
+          bun run scripts/smoke-codex-catalog.ts "$(command -v codex)" --v2
+
   verify:
     strategy:
       fail-fast: false

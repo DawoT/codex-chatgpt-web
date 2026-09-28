@@ -32,6 +32,7 @@ const {
 const { RuntimeHost } = require("./runtime.cjs");
 const { ensurePackagedRuntime, waitForPackagedRuntimeSource } = require("./runtime-install.cjs");
 const { RuntimeSupervisor } = require("./runtime-supervisor.cjs");
+const { createRuntimeStartupGate } = require("./runtime-startup-gate.cjs");
 const { DEVELOPMENT_PROFILE, resolveLauncherProfile } = require("./profile.cjs");
 const { runtimeBundlePaths } = require("./runtime-command.cjs");
 const { createUpdateController } = require("./update.cjs");
@@ -91,6 +92,7 @@ let browserHost = null;
 let runtimeHost = null;
 let browserControl = null;
 let runtimeSupervisor = null;
+let runtimeStartupGate = null;
 let tray = null;
 let quitting = false;
 let shutdownInProgress = false;
@@ -514,8 +516,13 @@ function syncFreshConversationPreference(stateStore, config) {
   return state;
 }
 
-function registerIpc({ logger, stateStore }) {
-  const handle = (channel, handler) => registerLoggedIpc(ipcMain, logger, channel, handler);
+function registerIpc({ logger, stateStore, runtimeStartupGate }) {
+  const handle = (channel, handler) => registerLoggedIpc(
+    ipcMain,
+    logger,
+    channel,
+    runtimeStartupGate.guard(channel, handler),
+  );
   handle("launcher:limits", () => limitsController.snapshot());
   handle("launcher:limits-setup", async () => {
     if (runtimeHost.currentOperation()) throw new Error("Finish the current launcher operation before checking Limits.");
@@ -1007,6 +1014,7 @@ async function requestQuit() {
     if (activeOperation) {
       throw new Error(`Wait for ${activeOperation} to finish before quitting Codex Web GPT`);
     }
+    runtimeStartupGate?.revoke(new Error("Launcher is shutting down"));
     await runtimeSupervisor?.shutdown({ cancelActiveTurns: true, force: true });
     stopCatalogVerificationMonitor();
     quitting = true;
@@ -1178,7 +1186,8 @@ async function start() {
     publish: (state) => send("launcher:update-state", state),
     logger,
   });
-  registerIpc({ logger, stateStore });
+  runtimeStartupGate = createRuntimeStartupGate();
+  registerIpc({ logger, stateStore, runtimeStartupGate });
   const trayAvailable = createTray(logger, stateStore.read().language);
   if (startHidden && !trayAvailable) mainWindow.once("ready-to-show", () => showMainWindow());
   const launcherSmokeTest = process.argv.includes("--launcher-smoke-test");
@@ -1193,6 +1202,7 @@ async function start() {
   await loadRenderer(mainWindow);
   if (!launcherSmokeTest) void updateController.checkOnce();
   if (launcherSmokeTest) {
+    runtimeStartupGate.settle();
     const smokeRuntimeRoot = runtimeRootProvider();
     if (app.isPackaged && !smokeRuntimeRoot) {
       throw new Error("Packaged launcher smoke test could not install its durable runtime");
@@ -1260,12 +1270,17 @@ async function start() {
       userData: launcherUserData,
     });
     if (config?.mode === "full") {
-      void startupAuthenticationRefresh.then(() => runtimeSupervisor.startIfConfigured()).catch((error) => {
+      void startupAuthenticationRefresh.then(() => runtimeSupervisor.startIfConfigured()).then(() => {
+        runtimeStartupGate.settle();
+      }).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         logger.error("dev_profile.runtime_start_failed", { message });
         const failed = stateStore.update({ mcpSetupComplete: false });
         send("launcher:state-changed", failed);
+        runtimeStartupGate.settle(new Error(`Launcher runtime startup failed: ${message}`));
       });
+    } else {
+      runtimeStartupGate.settle();
     }
   } else void (async () => {
     await startupAuthenticationRefresh;
@@ -1400,6 +1415,11 @@ async function start() {
     const state = stateStore.update({ coreSetupComplete: false, codexCatalogVerified: false });
     send("launcher:state-changed", state);
     publishOperation({ name: "runtime-start", status: "failed", message });
+    runtimeStartupGate.settle(new Error(`Launcher runtime startup failed: ${message}`));
+  }).then(() => {
+    runtimeStartupGate.settle();
+  }, (error) => {
+    runtimeStartupGate.settle(new Error(`Launcher runtime startup failed: ${error instanceof Error ? error.message : String(error)}`));
   });
 
   app.on("before-quit", (event) => {
@@ -1414,6 +1434,7 @@ async function start() {
 void start().catch(async (error) => {
   startupFailed = true;
   const message = error instanceof Error ? error.message : String(error);
+  runtimeStartupGate?.revoke(new Error(`Launcher startup failed: ${message}`));
   try {
     fs.appendFileSync(path.join(app.getPath("logs"), "launcher-fatal.log"), `${new Date().toISOString()} ${error?.stack || error}\n`);
   } catch {}

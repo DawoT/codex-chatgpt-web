@@ -92,7 +92,7 @@ import {
   chatGptRetainedConversationUnavailableError,
   chatGptStoppedThinkingError,
 } from "./adapter-error";
-import { ChatGptBrowserContextPressure } from "./browser/context-pressure";
+import { ChatGptBrowserContextPressure, ChatGptPageDomObserver } from "./browser/context-pressure";
 import {
   ChatGptLunaCheckpointStream,
   type CapturedChatGptLunaCheckpoint,
@@ -366,6 +366,7 @@ export {
 import {
   chatGptActiveComposer,
   chatGptClearComposerState,
+  chatGptReuseCleanConnector,
 } from "./browser/composer";
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
 const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
@@ -580,7 +581,7 @@ export class ChatGptBrowserWorker {
   private readonly activeRuns = new Map<string, Promise<string>>();
   private readonly contextPressureByConversation = new Map<string, ChatGptBrowserContextPressure>();
   private readonly contextPressureByPage = new WeakMap<Page, ChatGptBrowserContextPressure>();
-  private readonly lastDomMeasurementByPage = new WeakMap<Page, number>();
+  private readonly pageDomObserver = new ChatGptPageDomObserver();
 
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
     // A page can be recycled for a different chat. Its old pressure must not follow
@@ -1824,8 +1825,15 @@ export class ChatGptBrowserWorker {
     try {
       composer = await this.activeComposer(page, 30_000, abortSignal);
       if (await this.connectorIsSelected(composer, abortSignal)) {
-        await capture("connector-already-selected");
-        return composer;
+        const reusable = await chatGptReuseCleanConnector(page, {
+          readPrompt: (p, signal) => this.attachedPromptText(p, signal),
+          clear: p => this.clearChatGptComposerState(p),
+        }, abortSignal);
+        if (reusable) {
+          await capture("connector-already-selected");
+          return composer;
+        }
+        composer = await this.activeComposer(page, 30_000, abortSignal);
       }
       await composer.fill("", { signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
 
@@ -1997,6 +2005,13 @@ export class ChatGptBrowserWorker {
         const composer = await this.activeComposer(page, 30_000, abortSignal);
         const alreadyBound = this.connectorIsSelected !== undefined
           && await this.connectorIsSelected(composer, abortSignal);
+        const cleanBinding = alreadyBound && await chatGptReuseCleanConnector(page, {
+          readPrompt: (p, signal) => this.attachedPromptText(p, signal),
+          clear: async p => {
+            composerMutationStarted = true;
+            await this.clearChatGptComposerState(p);
+          },
+        }, abortSignal);
         let userTurnCount = 0;
         try {
           if (typeof page?.locator === "function") {
@@ -2008,7 +2023,7 @@ export class ChatGptBrowserWorker {
         } catch {
           userTurnCount = 0;
         }
-        selectedComposer = alreadyBound
+        selectedComposer = cleanBinding
           ? composer
           : await this.selectConnector(
               page,
@@ -3015,22 +3030,12 @@ export class ChatGptBrowserWorker {
       .map(stripChatGptTraceControlSuffix)
       .filter(block => block.text.length > 0 && !isChatGptTraceControl(block));
     const observationPage = responseTurn.page();
-    const now = performance.now();
-    if (observed.snapshot && now - (this.lastDomMeasurementByPage.get(observationPage) ?? -Infinity) >= 5_000) {
-      // Measure the whole page at most once every five seconds during a changing response.
-      // A 10-second wait without a revision is not observation latency.
-      this.lastDomMeasurementByPage.set(observationPage, now);
-      const probeStarted = performance.now();
-      const domChars = await withChatGptBrowserObservationTimeout(
-        observationPage.evaluate(() => document.documentElement?.innerHTML.length ?? 0),
-      );
-      if (typeof domChars === "number") {
-        this.getContextPressure(observationPage).recordObservation({
-          domChars,
-          elapsedMs: Math.max(now - observationStarted, performance.now() - probeStarted),
-        });
-      }
-    }
+    await this.pageDomObserver.measure(
+      observationPage,
+      Boolean(observed.snapshot),
+      observationStarted,
+      () => this.getContextPressure(observationPage),
+    );
     return snapshot;
   }
 

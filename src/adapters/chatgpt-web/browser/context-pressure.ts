@@ -1,3 +1,32 @@
+import type { Page } from "playwright-core";
+import { withChatGptBrowserObservationTimeout } from "./suspension-clock";
+
+export class ChatGptPageDomObserver {
+  private readonly lastMeasurementByPage = new WeakMap<Page, number>();
+
+  constructor(private readonly minimumGapMs = 5_000) {}
+
+  async measure(
+    page: Page,
+    changed: boolean,
+    observationStarted: number,
+    pressure: () => ChatGptBrowserContextPressure,
+    now = performance.now(),
+  ): Promise<void> {
+    if (!changed || now - (this.lastMeasurementByPage.get(page) ?? -Infinity) < this.minimumGapMs) return;
+    this.lastMeasurementByPage.set(page, now);
+    const probeStarted = performance.now();
+    const domChars = await withChatGptBrowserObservationTimeout(
+      page.evaluate(() => document.documentElement?.innerHTML.length ?? 0),
+    );
+    if (typeof domChars !== "number") return;
+    pressure().recordObservation({
+      domChars,
+      elapsedMs: Math.max(now - observationStarted, performance.now() - probeStarted),
+    });
+  }
+}
+
 export const CHATGPT_BROWSER_DOM_COMPACTION_CHAR_LIMIT = 600_000;
 export const CHATGPT_BROWSER_SLOW_OBSERVATION_MS = 5_000;
 export const CHATGPT_BROWSER_SLOW_OBSERVATION_STREAK = 2;

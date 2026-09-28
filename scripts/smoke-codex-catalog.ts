@@ -7,6 +7,7 @@ import { defaultConfig } from "../src/config";
 import { augmentNativeModelCatalog } from "../src/model-catalog";
 
 const codex = resolve(process.argv[2] ?? "/Applications/ChatGPT.app/Contents/Resources/codex");
+const protocol = process.argv.includes("--v2") ? "v2" : "v1";
 function runCodex(args: string[], env = process.env): { stdout: string; stderr: string } {
   const result = spawnSync(codex, args, {
     encoding: "utf8",
@@ -34,7 +35,7 @@ process.env.CODEX_CHATGPT_WEB_HOME = join(root, "app");
 mkdirSync(process.env.CODEX_HOME, { recursive: true });
 const config = defaultConfig("browser-only");
 config.proAvailable = true;
-config.subagentProtocol = "compatibility-v1";
+config.subagentProtocol = protocol === "v1" ? "compatibility-v1" : "native";
 const catalogPath = join(root, "augmented-models.json");
 const augmentedCatalog = augmentNativeModelCatalog(sourceCatalog, config);
 writeFileSync(catalogPath, `${JSON.stringify(augmentedCatalog)}\n`);
@@ -43,7 +44,7 @@ writeFileSync(join(process.env.CODEX_HOME, "config.toml"), [
   "",
   "[features]",
   "multi_agent = true",
-  "multi_agent_v2 = false",
+  `multi_agent_v2 = ${protocol === "v2"}`,
   "",
 ].join("\n"));
 try {
@@ -75,15 +76,15 @@ try {
   }
   const nativeSol = catalog.models?.find(model => model.slug === "gpt-5.6-sol");
   const webPro = catalog.models?.find(model => model.slug === "chatgpt-web/pro");
-  if (nativeSol?.multi_agent_version !== "v1" || webPro?.multi_agent_version !== "v1") {
+  if (nativeSol?.multi_agent_version !== protocol || webPro?.multi_agent_version !== protocol) {
     throw new Error(
-      `Codex did not preserve Compatibility V1 catalog metadata: ${JSON.stringify({ nativeSol, webPro })}`,
+      `Codex did not preserve ${protocol} catalog metadata: ${JSON.stringify({ nativeSol, webPro })}`,
     );
   }
   const features = runCodex(["features", "list"], isolatedEnv).stdout;
   if (!/^multi_agent\s+stable\s+true$/m.test(features)
-    || !/^multi_agent_v2\s+stable\s+false$/m.test(features)) {
-    throw new Error(`Codex did not load the Compatibility V1 feature override:\n${features}`);
+    || !new RegExp(`^multi_agent_v2\\s+stable\\s+${protocol === "v2"}$`, "m").test(features)) {
+    throw new Error(`Codex did not load the ${protocol} feature override:\n${features}`);
   }
   const spawnOverrides = (catalog.models ?? [])
     .filter(model => model.supported_in_api === true && model.visibility === "list")
@@ -100,9 +101,9 @@ try {
     .slice(0, 5)
     .map(model => model.slug);
   if (JSON.stringify(spawnOverrides) !== JSON.stringify(expectedSpawnOverrides)) {
-    throw new Error(`Codex did not preserve the bounded V1 subagent roster: ${JSON.stringify(spawnOverrides)}`);
+    throw new Error(`Codex did not preserve the bounded ${protocol} subagent roster: ${JSON.stringify(spawnOverrides)}`);
   }
-  process.stdout.write("NATIVE_CODEX_CATALOG_SMOKE_OK\n");
+  process.stdout.write(`NATIVE_CODEX_CATALOG_SMOKE_${protocol.toUpperCase()}_OK\n`);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -3,7 +3,24 @@ import {
   CHATGPT_BROWSER_DOM_COMPACTION_CHAR_LIMIT,
   CHATGPT_BROWSER_SLOW_OBSERVATION_MS,
   ChatGptBrowserContextPressure,
+  ChatGptPageDomObserver,
 } from "../src/adapters/chatgpt-web/browser/context-pressure";
+
+test("page DOM measurement is throttled per page and only scans changed responses", async () => {
+  const observer = new ChatGptPageDomObserver(5_000);
+  let scans = 0;
+  const page = {
+    evaluate: async () => { scans += 1; return 700_001; },
+  };
+  const pressure = new ChatGptBrowserContextPressure();
+  await observer.measure(page as never, true, 1_000, () => pressure, 1_000);
+  await observer.measure(page as never, true, 1_100, () => pressure, 2_000);
+  await observer.measure(page as never, false, 1_100, () => pressure, 7_000);
+  expect(scans).toBe(1);
+  expect(pressure.snapshot().watchDomSize).toBeTrue();
+  await observer.measure(page as never, true, 7_000, () => pressure, 7_001);
+  expect(scans).toBe(2);
+});
 
 describe("ChatGPT browser context pressure", () => {
   test("watches a large DOM without interrupting a viable turn", () => {

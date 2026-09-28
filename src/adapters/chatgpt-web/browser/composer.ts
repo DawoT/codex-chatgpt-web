@@ -64,6 +64,25 @@ export interface ChatGptClearComposerOptions {
   connectorIsSelected?: (composer: Locator, abortSignal?: AbortSignal) => Promise<boolean>;
 }
 
+export interface ChatGptSelectedConnectorDraft {
+  readPrompt(page: Page, abortSignal?: AbortSignal): Promise<string>;
+  clear(page: Page): Promise<void>;
+}
+
+export async function chatGptReuseCleanConnector(
+  page: Page,
+  draft: ChatGptSelectedConnectorDraft,
+  abortSignal?: AbortSignal,
+): Promise<boolean> {
+  throwIfPromptAttachmentAborted(abortSignal);
+  const text = await draft.readPrompt(page, abortSignal);
+  throwIfPromptAttachmentAborted(abortSignal);
+  if (text.length === 0) return true;
+  await draft.clear(page);
+  throwIfPromptAttachmentAborted(abortSignal);
+  return false;
+}
+
 /**
  * Resets the ChatGPT composer state: presses escape, focuses, selects all, backspaces,
  * and asserts that the composer is completely empty with no connector selected.
