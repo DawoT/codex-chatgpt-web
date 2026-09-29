@@ -37,7 +37,7 @@
     "licenses": "bun run scripts/generate-third-party-notices.ts --include-launcher",
     "clean": "bun run scripts/clean.ts",
     "build": "bun run scripts/build-runtime-bundle.ts",
-    "build:bundles": "bun build ./src/cli.ts --outfile=./dist/cli.js --target=bun && bun build ./src/adapters/chatgpt-web/browser-helper-main.ts --outfile=./dist/browser-helper.cjs --target=node --format=cjs --packages=external --external=playwright-core && bun run scripts/verify-bundle-integrity.ts",
+    "build:bundles": "bun build ./src/cli.ts --outfile=./dist/cli.js --target=bun && bun build ./src/adapters/chatgpt-web/browser-helper-main.ts --outfile=./dist/browser-helper.cjs --target=node --format=cjs --packages=external --external=playwright-core && cp dist/browser-helper.cjs .launcher-runtime/browser-helper.cjs && bun run scripts/verify-bundle-integrity.ts",
     "verify:bundles": "bun run scripts/verify-bundle-integrity.ts",
     "deploy": "bun run build:bundles && LATEST_VER=$(ls -1d ~/.codex-chatgpt-web/versions/*-linux-x64 2>/dev/null | sort -V | tail -n 1) && cp dist/cli.js \"$LATEST_VER/app/cli.js\" && cp dist/browser-helper.cjs \"$LATEST_VER/app/browser-helper.cjs\" && ./scripts/codex-workflow-helper.sh restart",
     "smoke": "bun run scripts/smoke-release.ts dist/runtime",

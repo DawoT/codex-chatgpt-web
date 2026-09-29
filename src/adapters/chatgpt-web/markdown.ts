@@ -1,6 +1,10 @@
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
-import { inspectCompactionStateFormat } from "../../responses/compaction";
+import {
+  inspectCompactionStateFormat,
+  PERMISSIVE_OPENING_TAG,
+  PERMISSIVE_CLOSING_TAG,
+} from "../../responses/compaction";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -169,16 +173,24 @@ function restoreCompactionMarkdown(
     if (compactionCheckpoint && /^`<\/?compaction(?:_|\\_)state>`$/.test(line.trim())) {
       line = line.trim().slice(1, -1);
     }
-    if (["<compaction_state>", "<compaction\\_state>"].includes(line.trim())) {
+    const openingMatch = PERMISSIVE_OPENING_TAG.exec(line);
+    const closingMatch = PERMISSIVE_CLOSING_TAG.exec(line);
+
+    if (openingMatch) {
       state.inCompactionState = true;
-      return line.replace("compaction\\_state", "compaction_state");
+      line = line.replace(openingMatch[0], "<compaction_state>");
     }
-    if (["</compaction_state>", "</compaction\\_state>"].includes(line.trim())) {
+    if (closingMatch) {
       state.inCompactionState = false;
-      return line.replace("compaction\\_state", "compaction_state");
+      line = line.replace(closingMatch[0], "</compaction_state>");
     }
-    if (!state.inCompactionState) return line;
-    return line.replace(/\\([\\`*_{}\[\]()#+\-.!>|])/g, "$1");
+    if (state.inCompactionState) {
+      return line.replace(/\\([\\`*_{}\[\]()#+\-.!>|])/g, "$1");
+    }
+    return line.replace(
+      /^( {0,4}(?:[-*]\s+|\*{1,2}|#{1,4}\s*)?)((?:modified|active|closure|verified|decisions|blockers|pending|next|original)[a-z_\\-]+:)/i,
+      (_, prefix, header) => prefix + header.replace(/\\_/g, "_"),
+    );
   }).join("\n");
 }
 

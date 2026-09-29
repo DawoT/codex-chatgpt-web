@@ -163,11 +163,15 @@ export function decodeCompactionSummary(encryptedContent: string): string | null
   }
 }
 
-interface CompactionStateBounds {
+export const PERMISSIVE_OPENING_TAG = /(?:(?:<|&lt;)\s*compaction(?:\_|\-|\\[_\-])+state\s*(?:>|&gt;))/i;
+export const PERMISSIVE_CLOSING_TAG = /(?:(?:<|&lt;)\s*\/\s*compaction(?:\_|\-|\\[_\-])+state\s*(?:>|&gt;))/i;
+
+export interface CompactionStateBounds {
   startTagStart: number;
   openingEnd: number;
   closingStart: number;
   endTagEnd: number;
+  fenced?: boolean;
 }
 
 function outsideInlineCode(line: string, index: number): boolean {
@@ -186,12 +190,17 @@ function outsideInlineCode(line: string, index: number): boolean {
   return activeTicks === 0;
 }
 
-export function locateCompactionStateBounds(summary: string): CompactionStateBounds | null {
+export function locateCompactionStateBounds(
+  summary: string,
+  options?: { unfencedOnly?: boolean },
+): CompactionStateBounds | null {
   let startTagStart = -1;
   let openingEnd = -1;
   let fence: { marker: string; length: number } | undefined;
   const sourceLines = summary.split("\n");
   let offset = 0;
+
+  // Pass 1: unfenced strict match (<compaction_state> and </compaction_state> outside fences)
   for (const line of sourceLines) {
     const fenceRun = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
@@ -218,11 +227,88 @@ export function locateCompactionStateBounds(summary: string): CompactionStateBou
           openingEnd,
           closingStart,
           endTagEnd: closingStart + COMPACTION_STATE_TAG_END.length,
+          fenced: false,
         };
       }
     }
     offset += line.length + 1;
   }
+
+  // Pass 2: unfenced permissive match (escaped/entity tags outside fences)
+  fence = undefined;
+  offset = 0;
+  startTagStart = -1;
+  openingEnd = -1;
+
+  for (const line of sourceLines) {
+    const fenceRun = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (fenceRun?.[0] === fence.marker && fenceRun.length >= fence.length
+        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+        fence = undefined;
+      }
+    } else if (fenceRun) {
+      fence = { marker: fenceRun[0]!, length: fenceRun.length };
+    } else {
+      if (startTagStart < 0) {
+        const match = PERMISSIVE_OPENING_TAG.exec(line);
+        if (match && outsideInlineCode(line, match.index)) {
+          startTagStart = offset + match.index;
+          openingEnd = startTagStart + match[0].length;
+        }
+      }
+      if (startTagStart >= 0) {
+        const searchOffset = Math.max(0, openingEnd - offset);
+        const remainingInLine = line.slice(searchOffset);
+        const match = PERMISSIVE_CLOSING_TAG.exec(remainingInLine);
+        if (match && outsideInlineCode(line, searchOffset + match.index)) {
+          const closingStart = offset + searchOffset + match.index;
+          return {
+            startTagStart,
+            openingEnd,
+            closingStart,
+            endTagEnd: closingStart + match[0].length,
+            fenced: false,
+          };
+        }
+      }
+    }
+    offset += line.length + 1;
+  }
+
+  if (options?.unfencedOnly) return null;
+
+  // Pass 3: fenced permissive match (model wrapped entire checkpoint in markdown code fence)
+  offset = 0;
+  startTagStart = -1;
+  openingEnd = -1;
+
+  for (const line of sourceLines) {
+    if (startTagStart < 0) {
+      const match = PERMISSIVE_OPENING_TAG.exec(line);
+      if (match && outsideInlineCode(line, match.index)) {
+        startTagStart = offset + match.index;
+        openingEnd = startTagStart + match[0].length;
+      }
+    }
+    if (startTagStart >= 0) {
+      const searchOffset = Math.max(0, openingEnd - offset);
+      const remainingInLine = line.slice(searchOffset);
+      const match = PERMISSIVE_CLOSING_TAG.exec(remainingInLine);
+      if (match && outsideInlineCode(line, searchOffset + match.index)) {
+        const closingStart = offset + searchOffset + match.index;
+        return {
+          startTagStart,
+          openingEnd,
+          closingStart,
+          endTagEnd: closingStart + match[0].length,
+          fenced: true,
+        };
+      }
+    }
+    offset += line.length + 1;
+  }
+
   return null;
 }
 
@@ -238,7 +324,7 @@ export function inspectCompactionStateFormat(summary: string): {
   for (const line of summary.split("\n")) {
     const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
-      if (line.includes(COMPACTION_STATE_TAG_START) || line.includes(COMPACTION_STATE_TAG_END)) {
+      if (PERMISSIVE_OPENING_TAG.test(line) || PERMISSIVE_CLOSING_TAG.test(line)) {
         fencedTag = true;
       }
       if (run?.[0] === fence.marker && run.length >= fence.length
@@ -249,19 +335,17 @@ export function inspectCompactionStateFormat(summary: string): {
       fence = { marker: run[0]!, length: run.length };
     }
   }
+  const countOpening = (summary.match(new RegExp(PERMISSIVE_OPENING_TAG.source, "gi")) ?? []).length;
+  const countClosing = (summary.match(new RegExp(PERMISSIVE_CLOSING_TAG.source, "gi")) ?? []).length;
   return {
-    openingTags: summary.split(COMPACTION_STATE_TAG_START).length - 1,
-    closingTags: summary.split(COMPACTION_STATE_TAG_END).length - 1,
-    usableUnfencedBlock: locateCompactionStateBounds(summary) !== null,
+    openingTags: countOpening,
+    closingTags: countClosing,
+    usableUnfencedBlock: locateCompactionStateBounds(summary, { unfencedOnly: true }) !== null,
     fencedTag,
   };
 }
 
-/** Parses a <compaction_state> XML block from summary text, if present. */
-export function parseCompactionState(summary: string): CompactionStateBlock | null {
-  const bounds = locateCompactionStateBounds(summary);
-  if (!bounds) return null;
-  const rawBlock = summary.slice(bounds.openingEnd, bounds.closingStart).trim();
+function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
   const lines = rawBlock.split(/\r?\n/).map(line => line.trim());
 
   const modifiedFiles: string[] = [];
@@ -287,8 +371,11 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
     | "next_actions"
     | "none" = "none";
 
-  for (const line of lines) {
+  for (let line of lines) {
     if (!line) continue;
+    // Normalize escaped underscores in section headers
+    line = line.replace(/^(?:[-*]\s+)?([a-z_\\-]+:)/i, (_, h) => h.replace(/\\_/g, "_"));
+
     if (line.startsWith("version:")) {
       currentSection = "none";
       version = Number(line.slice("version:".length).trim());
@@ -365,6 +452,8 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
       } else if (currentSection === "next_actions") {
         nextActions.push(item);
       }
+    } else {
+      currentSection = "none";
     }
   }
 
@@ -381,6 +470,36 @@ export function parseCompactionState(summary: string): CompactionStateBlock | nu
     ...(pendingObligations.length > 0 ? { pendingObligations } : {}),
     nextActions,
   };
+}
+
+function parseTaglessCompactionState(summary: string): CompactionStateBlock | null {
+  if (PERMISSIVE_OPENING_TAG.test(summary) || PERMISSIVE_CLOSING_TAG.test(summary)) {
+    return null;
+  }
+  const hasVersion = /(?:^|\n)\s*version:\s*\d+/i.test(summary);
+  const hasRequirements = /(?:^|\n)\s*requirements:/i.test(summary);
+  const hasNextActions = /(?:^|\n)\s*(?:next_actions|next_steps):/i.test(summary);
+
+  if (!hasRequirements || !hasNextActions) return null;
+  if (!hasVersion) {
+    const structuredHeaders = (summary.match(/(?:^|\n)\s*(?:modified_files|active_hypothesis|closure_criteria|verified_achievements|decisions_and_invariants|blockers_or_test_failures|blockers|pending_obligations):/gi) ?? []).length;
+    if (structuredHeaders < 2) return null;
+  }
+
+  const parsed = parseCompactionStateLines(summary);
+  if (!parsed.requirements?.length || !parsed.nextActions?.length) return null;
+  if (parsed.version === undefined) parsed.version = 2;
+  return parsed;
+}
+
+/** Parses a <compaction_state> XML block from summary text, if present. */
+export function parseCompactionState(summary: string): CompactionStateBlock | null {
+  const bounds = locateCompactionStateBounds(summary);
+  if (bounds) {
+    const rawBlock = summary.slice(bounds.openingEnd, bounds.closingStart).trim();
+    return parseCompactionStateLines(rawBlock);
+  }
+  return parseTaglessCompactionState(summary);
 }
 
 /** Formats a structured state block into canonical XML. */
@@ -456,9 +575,36 @@ export function extractStructuredCompactionHandoff(summary: string): {
   const state = parseCompactionState(summary);
   if (!state) return { narrative: summary.trim(), state: null };
 
-  const bounds = locateCompactionStateBounds(summary)!;
-  const before = summary.slice(0, bounds.startTagStart).trim();
-  const after = summary.slice(bounds.endTagEnd).trim();
+  const bounds = locateCompactionStateBounds(summary);
+  if (bounds) {
+    let before = summary.slice(0, bounds.startTagStart).trim();
+    let after = summary.slice(bounds.endTagEnd).trim();
+    if (bounds.fenced) {
+      before = before.replace(/\n? {0,3}(?:`{3,}|~{3,})[^\n]*$/, "").trim();
+      after = after.replace(/^ {0,3}(?:`{3,}|~{3,})\s*\n?/, "").trim();
+    }
+    const narrative = [before, after].filter(Boolean).join("\n\n");
+    return { narrative, state };
+  }
+
+  // Tagless structured checkpoint
+  const lines = summary.split(/\r?\n/);
+  const structuredHeaderRe = /^(?:version|original_request_ref|modified_files|active_hypothesis|requirements|closure_criteria|verified_achievements|decisions_and_invariants|blockers_or_test_failures|blockers|pending_obligations|next_actions|next_steps):/i;
+  let firstStructuredLine = -1;
+  let lastStructuredLine = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim();
+    if (structuredHeaderRe.test(line)) {
+      if (firstStructuredLine < 0) firstStructuredLine = i;
+      lastStructuredLine = i;
+    } else if (firstStructuredLine >= 0 && (line.startsWith("- ") || line.startsWith("* "))) {
+      lastStructuredLine = i;
+    }
+  }
+
+  const before = firstStructuredLine > 0 ? lines.slice(0, firstStructuredLine).join("\n").trim() : "";
+  const after = lastStructuredLine >= 0 && lastStructuredLine < lines.length - 1 ? lines.slice(lastStructuredLine + 1).join("\n").trim() : "";
   const narrative = [before, after].filter(Boolean).join("\n\n");
   return { narrative, state };
 }

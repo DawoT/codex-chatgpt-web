@@ -290,7 +290,10 @@ export function validateCompactionQuality(
         "pending_obligations",
         "next_actions",
       ]) {
-        if (!new RegExp(`^${section}:`, "m").test(draft)) {
+        const pattern = section === "blockers_or_test_failures"
+          ? /^(?: {0,4}(?:[-*]\s+|\*{1,2}|#{1,4}\s*)?)?(?:blockers_or_test_failures|blockers|blockers\\_or\\_test\\_failures):/im
+          : new RegExp(`^(?: {0,4}(?:[-*]\\s+|\\*{1,2}|#{1,4}\\s*)?)?${section.replace(/_/g, "(?:_|\\\\_)")}:`, "im");
+        if (!pattern.test(draft)) {
           missingInvariants.push(`Missing ${section} section`);
         }
       }

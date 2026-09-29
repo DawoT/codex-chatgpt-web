@@ -202,4 +202,120 @@ Second paragraph of narrative summary.`;
       expect(isReadableCompactionSummaryText(compactionItemToText(envelope))).toBeFalse();
     },
   );
+
+  test("parses compaction state when wrapped in a markdown xml code fence", () => {
+    const fenced = [
+      "Here is the compaction state for the session:",
+      "```xml",
+      "<compaction_state>",
+      "version: 2",
+      "original_request_ref: request-1",
+      "modified_files:",
+      "- src/responses/compaction.ts",
+      "active_hypothesis: Support fenced checkpoints",
+      "requirements:",
+      '- {"id":"REQ-1","status":"verified","source":"user","evidence":"bun test passes"}',
+      "closure_criteria:",
+      "- All tests pass",
+      "blockers_or_test_failures:",
+      "- None",
+      "next_actions:",
+      "- Verify build bundle",
+      "</compaction_state>",
+      "```",
+      "Please proceed with the next task.",
+    ].join("\n");
+
+    const parsed = parseCompactionState(fenced);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.modifiedFiles).toEqual(["src/responses/compaction.ts"]);
+    expect(parsed?.nextActions).toEqual(["Verify build bundle"]);
+
+    const handoff = extractStructuredCompactionHandoff(fenced);
+    expect(handoff.narrative).toBe("Here is the compaction state for the session:\n\nPlease proceed with the next task.");
+    expect(handoff.state?.version).toBe(2);
+  });
+
+  test("parses compaction state with escaped underscores, entities, and hyphens", () => {
+    const escaped = [
+      "<compaction\\_state>",
+      "version: 2",
+      "original\\_request\\_ref: request-2",
+      "modified\\_files:",
+      "- src/file.ts",
+      "requirements:",
+      '- {"id":"REQ-2","status":"pending","source":"task"}',
+      "next\\_actions:",
+      "- Continue",
+      "</compaction\\_state>",
+    ].join("\n");
+
+    const parsed = parseCompactionState(escaped);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.originalRequestRef).toBe("request-2");
+    expect(parsed?.modifiedFiles).toEqual(["src/file.ts"]);
+    expect(parsed?.nextActions).toEqual(["Continue"]);
+
+    const entitySummary = [
+      "&lt;compaction_state&gt;",
+      "version: 2",
+      "modified_files:",
+      "- src/entity.ts",
+      "requirements:",
+      '- {"id":"REQ-3","status":"pending","source":"task"}',
+      "next_actions:",
+      "- Continue",
+      "&lt;/compaction_state&gt;",
+    ].join("\n");
+
+    expect(parseCompactionState(entitySummary)?.modifiedFiles).toEqual(["src/entity.ts"]);
+
+    const hyphenSummary = [
+      "<compaction-state>",
+      "version: 2",
+      "modified_files:",
+      "- src/hyphen.ts",
+      "requirements:",
+      '- {"id":"REQ-4","status":"pending","source":"task"}',
+      "next_actions:",
+      "- Continue",
+      "</compaction-state>",
+    ].join("\n");
+
+    expect(parseCompactionState(hyphenSummary)?.modifiedFiles).toEqual(["src/hyphen.ts"]);
+  });
+
+  test("parses tagless structured compaction state and extracts narrative", () => {
+    const tagless = [
+      "Before checkpoint narrative.",
+      "",
+      "version: 2",
+      "original_request_ref: request-5",
+      "modified_files:",
+      "- src/tagless.ts",
+      "active_hypothesis: Fallback parser works",
+      "requirements:",
+      '- {"id":"REQ-5","status":"pending","source":"task"}',
+      "closure_criteria:",
+      "- Tests pass",
+      "blockers_or_test_failures:",
+      "- None",
+      "next_actions:",
+      "- Run tests",
+      "",
+      "After checkpoint narrative.",
+    ].join("\n");
+
+    const parsed = parseCompactionState(tagless);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.modifiedFiles).toEqual(["src/tagless.ts"]);
+    expect(parsed?.nextActions).toEqual(["Run tests"]);
+
+    const handoff = extractStructuredCompactionHandoff(tagless);
+    expect(handoff.narrative).toBe("Before checkpoint narrative.\n\nAfter checkpoint narrative.");
+    expect(handoff.state?.version).toBe(2);
+  });
 });

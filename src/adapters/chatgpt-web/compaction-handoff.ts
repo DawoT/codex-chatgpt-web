@@ -25,6 +25,8 @@ import {
   LATEST_USER_PROMPT_MARKER,
   ORIGINAL_USER_REQUEST_MARKER,
   locateCompactionStateBounds,
+  extractStructuredCompactionHandoff,
+  formatCompactionStateBlock,
 } from "../../responses/compaction";
 
 export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
@@ -165,13 +167,28 @@ export function canonicalizeCompactionHandoff(
       body = body.slice(0, originalOffset).trimEnd();
     }
     const bounds = locateCompactionStateBounds(body);
-    if (bounds) {
+    if (bounds && !bounds.fenced) {
       const before = body.slice(0, bounds.startTagStart);
-      const state = body.slice(bounds.startTagStart, bounds.closingStart).replace(
-        /^original_request_ref:[^\n]*$/m,
-        `original_request_ref: sha256:${digest}`,
-      );
+      let state = body.slice(bounds.startTagStart, bounds.closingStart);
+      if (/^original_request_ref:[^\n]*$/m.test(state)) {
+        state = state.replace(
+          /^original_request_ref:[^\n]*$/m,
+          `original_request_ref: sha256:${digest}`,
+        );
+      } else {
+        state = state.replace(
+          /^(<compaction_state>\s*(?:version:\s*\d+\s*)?)/i,
+          `$1original_request_ref: sha256:${digest}\n`,
+        );
+      }
       body = before + state + body.slice(bounds.closingStart);
+    } else {
+      const handoff = extractStructuredCompactionHandoff(body);
+      if (handoff.state) {
+        handoff.state.originalRequestRef = `sha256:${digest}`;
+        if (handoff.state.version === undefined) handoff.state.version = 2;
+        body = [handoff.narrative, formatCompactionStateBlock(handoff.state)].filter(Boolean).join("\n\n");
+      }
     }
     return `${body}\n\n${originalAppendix}\n\n${latestAppendix}`;
   }
