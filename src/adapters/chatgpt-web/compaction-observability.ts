@@ -1,5 +1,9 @@
 import { runtimeIdentity } from "../../runtime-identity";
-import { extractStructuredCompactionHandoff, inspectCompactionStateFormat } from "../../responses/compaction";
+import {
+  extractStructuredCompactionHandoff,
+  inspectCompactionStateFormat,
+  normalizeCompactionStateBlock,
+} from "../../responses/compaction";
 
 const CHECKPOINT_FIELDS = new Set([
   "version",
@@ -17,19 +21,20 @@ const CHECKPOINT_FIELDS = new Set([
 
 /** Reports only allowlisted structure; no checkpoint values or source paths leave this function. */
 export function checkpointStructuralDiagnostic(draft: string) {
-  const opening = /<compaction_state(?:\s[^>]*)?>/i.exec(draft);
-  const closing = opening ? /<\/compaction_state\s*>/i.exec(draft.slice(opening.index + opening[0].length)) : null;
+  const normalized = normalizeCompactionStateBlock(draft);
+  const opening = /<compaction_state(?:\s[^>]*)?>/i.exec(normalized);
+  const closing = opening ? /<\/compaction_state\s*>/i.exec(normalized.slice(opening.index + opening[0].length)) : null;
   const fieldText = opening
-    ? draft.slice(opening.index + opening[0].length,
+    ? normalized.slice(opening.index + opening[0].length,
       closing ? opening.index + opening[0].length + closing.index : undefined)
-    : draft;
+    : normalized;
   const recognizedFields = [...new Set(fieldText.split(/\r?\n/).flatMap(line => {
     const name = /^\s*([a-z_]+)\s*:/i.exec(line)?.[1]?.toLowerCase();
     return name && CHECKPOINT_FIELDS.has(name) ? [name] : [];
   }))];
-  const state = extractStructuredCompactionHandoff(draft).state;
+  const state = extractStructuredCompactionHandoff(normalized).state;
   return {
-    ...inspectCompactionStateFormat(draft),
+    ...inspectCompactionStateFormat(normalized),
     recognizedFields,
     version: state?.version ?? null,
     requirementCount: state?.requirements?.length ?? 0,

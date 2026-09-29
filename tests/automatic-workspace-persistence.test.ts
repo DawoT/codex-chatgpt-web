@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
-import type { CodexParsedRequest, CodexProviderConfig } from "../src/types";
+import type { AdapterEvent, CodexParsedRequest, CodexProviderConfig } from "../src/types";
 
 function environment(root: string, policy: ChatGptTurnEnvironment["sandboxPolicy"]): ChatGptTurnEnvironment {
   return { cwd: root, roots: [root], writableRoots: policy.type === "workspaceWrite" ? policy.writableRoots : [], sandboxPolicy: policy, tools: [] };
@@ -21,6 +21,61 @@ test("reading absent workspace state creates no directories", () => {
     expect(readWorkspaceState(root)).toBeNull();
     expect(existsSync(join(root, ".agents"))).toBeFalse();
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("failed compaction handoff does not disclose raw error details", async () => {
+  const { executeCompactionFlow } = await import("../src/adapters/chatgpt-web/adapter/compaction-flow");
+  const { runStructuredCompactionOnce } = await import("../src/adapters/chatgpt-web/compaction-handoff");
+  const { chatGptTurnExecutionKey } = await import("../src/adapters/chatgpt-web/turn-execution");
+  const root = mkdtempSync(join(tmpdir(), "cgw-private-handoff-"));
+  const secret = "private-checkpoint-source-123";
+  const parsed: CodexParsedRequest = {
+    modelId: "gpt-5.6-sol",
+    stream: true,
+    options: { reasoning: "high" },
+    _compactionRequest: true,
+    context: { messages: [{ role: "user", content: "Compact", timestamp: 1 }] },
+    _hostTurn: { sessionId: root, turnId: "compact", environment: environment(root, { type: "readOnly", networkAccess: false }) },
+    _rawBody: {
+      input: [{
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Compact" }],
+        internal_chat_message_metadata_passthrough: { turn_id: "compact" },
+      }],
+    },
+  };
+  const key = `${root}:${chatGptTurnExecutionKey(parsed)}`;
+  await expect(runStructuredCompactionOnce(key, { ownerKey: root, traceIds: [] }, async () => {
+    throw new Error(secret);
+  })).rejects.toThrow(secret);
+  const warnings: string[] = [];
+  const warning = spyOn(console, "warn").mockImplementation((...parts) => {
+    warnings.push(parts.map(String).join(" "));
+  });
+  const events: Array<{ type?: string; message?: string; code?: string }> = [];
+  try {
+    await executeCompactionFlow({
+      parsed,
+      incoming: { headers: new Headers() },
+      emit: (event: AdapterEvent) => events.push(event),
+      configuredCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      turnCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      retainedLauncherDescriptor: "existing-run",
+      structuredBroker: {},
+      executionNamespace: root,
+      retryKey: root,
+      manualRequest: false,
+      freshConversationPerTurn: false,
+      startRuntime: () => { throw new Error("Existing run must not start a browser"); },
+    } as any);
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "compaction_handoff_failed" });
+    expect(JSON.stringify(events)).not.toContain(secret);
+    expect(warnings.join("\n")).not.toContain(secret);
+  } finally {
+    warning.mockRestore();
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -4,6 +4,8 @@ import {
   COMPACTION_STATE_TAG_START,
   COMPACTION_STATE_TAG_END,
   compactionItemToText,
+  countCompactionRequirementItems,
+  compactionStateFields,
   decodeCompactionSummary,
   encodeCompactionSummary,
   extractStructuredCompactionHandoff,
@@ -372,5 +374,63 @@ Second paragraph of narrative summary.`;
     expect(parseCompactionState(summary)?.version).toBe(2);
     expect(parseCompactionState(summary)?.modifiedFiles).toEqual(["src/bridge.ts"]);
     expect(extractStructuredCompactionHandoff(summary).narrative).toBe("Before state.\n\nAfter state.");
+  });
+
+  test("parses a collapsed single-line compaction block with escaped underscores and inline lists", () => {
+    const singleLine = `<compaction_state> version: 2 original\\_request\\_ref: "sha256:d88a1e86d8dd121300c4172b5a2590d42ac3637d57f748e54fabdfe680adb555" modified\\_files: - src/a.ts - src/b.ts active\\_hypothesis: "Single line test hypothesis" requirements: - {"id":"REQ-1","status":"pending","source":"original user request: req 1"} - {"id":"REQ-2","status":"verified","source":"original user request: req 2","evidence":"tests pass"} closure\\_criteria: - "All tests pass" verified\\_achievements: - "Tests pass — evidence: tests pass" decisions\\_and\\_invariants: - "Keep invariants intact" blockers\\_or\\_test\\_failures: - "None" pending\\_obligations: - "Complete validation" next\\_actions: - "Run suite" </compaction_state>`;
+
+    const parsed = parseCompactionState(singleLine);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.originalRequestRef).toBe("\"sha256:d88a1e86d8dd121300c4172b5a2590d42ac3637d57f748e54fabdfe680adb555\"");
+    expect(parsed?.modifiedFiles).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(parsed?.activeHypothesis).toBe("\"Single line test hypothesis\"");
+    expect(parsed?.requirements).toHaveLength(2);
+    expect(parsed?.requirements?.[0]?.id).toBe("REQ-1");
+    expect(parsed?.requirements?.[1]?.id).toBe("REQ-2");
+    expect(parsed?.closureCriteria).toEqual(["\"All tests pass\""]);
+    expect(parsed?.verifiedAchievements).toEqual(["\"Tests pass — evidence: tests pass\""]);
+    expect(parsed?.decisionsAndInvariants).toEqual(["\"Keep invariants intact\""]);
+    expect(parsed?.blockersOrTestFailures).toEqual(["\"None\""]);
+    expect(parsed?.pendingObligations).toEqual(["\"Complete validation\""]);
+    expect(parsed?.nextActions).toEqual(["\"Run suite\""]);
+
+    const fields = compactionStateFields(singleLine);
+    expect(fields.has("version")).toBe(true);
+    expect(fields.has("original_request_ref")).toBe(true);
+    expect(fields.has("modified_files")).toBe(true);
+    expect(fields.has("active_hypothesis")).toBe(true);
+    expect(fields.has("requirements")).toBe(true);
+    expect(fields.has("closure_criteria")).toBe(true);
+    expect(fields.has("verified_achievements")).toBe(true);
+    expect(fields.has("decisions_and_invariants")).toBe(true);
+    expect(fields.has("blockers_or_test_failures")).toBe(true);
+    expect(fields.has("pending_obligations")).toBe(true);
+    expect(fields.has("next_actions")).toBe(true);
+
+    const handoff = extractStructuredCompactionHandoff(`Before narrative.\n\n${singleLine}\n\nAfter narrative.`);
+    expect(handoff.narrative).toBe("Before narrative.\n\nAfter narrative.");
+    expect(handoff.state?.version).toBe(2);
+    expect(handoff.state?.modifiedFiles).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+
+  test("preserves quoted field names and bullet-like text inside collapsed checkpoint values", () => {
+    const summary = `<compaction_state> version: 2 original\\_request\\_ref: "Keep requirements: and - examples" modified\\_files: - src/a.ts active\\_hypothesis: "Preserve A - B and next_actions: literally" requirements: - {"id":"REQ-1","status":"pending","source":"Keep - text and modified_files: literal"} next\\_actions: - "Check - text" </compaction_state>`;
+
+    const state = parseCompactionState(summary);
+    expect(state?.originalRequestRef).toBe('"Keep requirements: and - examples"');
+    expect(state?.activeHypothesis).toBe('"Preserve A - B and next_actions: literally"');
+    expect(state?.requirements?.[0]?.source).toBe("Keep - text and modified_files: literal");
+    expect(state?.nextActions).toEqual(['"Check - text"']);
+    expect(countCompactionRequirementItems(summary)).toBe(1);
+  });
+
+  test("preserves unquoted hyphenated scalar checkpoint values", () => {
+    const summary = "<compaction_state> version: 2 original_request_ref: Keep A - B modified_files: - src/a.ts active_hypothesis: Check A - B requirements: - {\"id\":\"REQ-1\",\"status\":\"pending\",\"source\":\"Check A - B\"} next_actions: - Continue </compaction_state>";
+
+    const state = parseCompactionState(summary);
+    expect(state?.originalRequestRef).toBe("Keep A - B");
+    expect(state?.activeHypothesis).toBe("Check A - B");
+    expect(state?.requirements?.[0]?.source).toBe("Check A - B");
   });
 });

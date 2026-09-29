@@ -97,3 +97,22 @@ test("checkpoint field diagnosis ignores narrative lines outside the state block
   const draft = `requirements: quoted user request\n<compaction_state>\nversion: 2\nnext_actions:\n- Continue\n</compaction_state>`;
   expect(checkpointStructuralDiagnostic(draft).recognizedFields).toEqual(["version", "next_actions"]);
 });
+
+test("checkpoint field diagnosis handles collapsed single-line state blocks with escaped underscores", () => {
+  const draft = `<compaction_state> version: 2 original\\_request\\_ref: "sha256:abc" modified\\_files: - /path/to/file.ts active\\_hypothesis: "test" requirements: - {"id":"REQ-1","status":"pending","source":"req"} closure\\_criteria: - "done" verified\\_achievements: - "did it" decisions\\_and\\_invariants: - "rule" blockers\\_or\\_test\\_failures: - "none" pending\\_obligations: - "none" next\\_actions: - "continue" </compaction_state>`;
+  const diagnostic = checkpointStructuralDiagnostic(draft);
+  expect(diagnostic.version).toBe(2);
+  expect(diagnostic.requirementCount).toBe(1);
+  expect(diagnostic.modifiedFileCount).toBe(1);
+  expect(diagnostic.recognizedFields).toContain("version");
+  expect(diagnostic.recognizedFields).toContain("original_request_ref");
+  expect(diagnostic.recognizedFields).toContain("modified_files");
+  expect(diagnostic.recognizedFields).toContain("active_hypothesis");
+  expect(diagnostic.recognizedFields).toContain("requirements");
+  expect(diagnostic.recognizedFields).toContain("closure_criteria");
+  expect(diagnostic.recognizedFields).toContain("verified_achievements");
+  expect(diagnostic.recognizedFields).toContain("decisions_and_invariants");
+  expect(diagnostic.recognizedFields).toContain("blockers_or_test_failures");
+  expect(diagnostic.recognizedFields).toContain("pending_obligations");
+  expect(diagnostic.recognizedFields).toContain("next_actions");
+});

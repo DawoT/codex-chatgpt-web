@@ -65,6 +65,87 @@ export interface CompactionAchievement {
   evidenceRefs?: string[];
 }
 
+function outsideInlineCode(line: string, index: number): boolean {
+  let activeTicks = 0;
+  for (let cursor = 0; cursor < index;) {
+    if (line[cursor] !== "`") {
+      cursor += 1;
+      continue;
+    }
+    let end = cursor + 1;
+    while (line[end] === "`") end += 1;
+    const ticks = end - cursor;
+    activeTicks = activeTicks === 0 ? ticks : activeTicks === ticks ? 0 : activeTicks;
+    cursor = end;
+  }
+  return activeTicks === 0;
+}
+
+/**
+ * Normalizes raw or collapsed compaction state blocks, restoring standalone line breaks,
+ * unescaping markdown-escaped field names/underscores, and separating inline list bullets.
+ */
+export function normalizeCompactionStateBlock(raw: string): string {
+  const openRegex = /<compaction(?:_|\\_)state(?:\s[^>]*)?>/gi;
+  let openMatch: RegExpExecArray | null = null;
+  while ((openMatch = openRegex.exec(raw)) !== null) {
+    if (outsideInlineCode(raw, openMatch.index)) break;
+  }
+  if (!openMatch) return raw;
+
+  const closeRegex = /<\/compaction(?:_|\\_)state\s*>/gi;
+  closeRegex.lastIndex = openMatch.index + openMatch[0].length;
+  let closeMatch: RegExpExecArray | null = null;
+  while ((closeMatch = closeRegex.exec(raw)) !== null) {
+    if (outsideInlineCode(raw, closeMatch.index)) break;
+  }
+  if (!closeMatch) return raw;
+
+  const openTag = openMatch[0];
+  const closeTag = closeMatch[0];
+  const openIdx = openMatch.index;
+  const closeIdx = closeMatch.index;
+
+  const before = raw.slice(0, openIdx);
+  let inner = raw.slice(openIdx + openTag.length, closeIdx);
+  const after = raw.slice(closeIdx + closeTag.length);
+
+  inner = inner.replace(/\\_/g, "_");
+
+  const insideQuote = new Uint8Array(inner.length);
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < inner.length; index += 1) {
+    insideQuote[index] = quoted ? 1 : 0;
+    if (escaped) {
+      escaped = false;
+    } else if (inner[index] === "\\" && quoted) {
+      escaped = true;
+    } else if (inner[index] === '"') {
+      quoted = !quoted;
+    }
+  }
+
+  const boundaryPattern = /(?:^|\s+)(?:[-*•]\s+)?(?:#{1,4}\s*)?(?:\*{1,2}|_{1,2})?(version|original[_-]request[_-]ref|modified[_-]files|active[_-]hypothesis|requirements|closure[_-]criteria|verified[_-]achievements|decisions[_-]and[_-]invariants|blockers[_-]or[_-]test[_-]failures|blockers|pending[_-]obligations|next[_-]actions?)(?:\*{1,2}|_{1,2})?\s*:|\s+([-*•]\s+)/gi;
+  let currentField = "";
+  inner = inner.replace(boundaryPattern, (match, header: string | undefined, bullet: string | undefined, index: number) => {
+    if (insideQuote[index]) return match;
+    if (header) {
+      currentField = header.toLowerCase().replace(/-/g, "_");
+      return `\n${currentField}:`;
+    }
+    if (currentField === "version" || currentField === "original_request_ref"
+      || currentField === "active_hypothesis") return match;
+    return `\n${bullet}`;
+  });
+
+  const cleanInner = inner.trim();
+  const prefix = before ? (before.endsWith("\n") ? before : before + "\n") : "";
+  const suffix = after ? (after.startsWith("\n") ? after : "\n" + after) : "";
+
+  return `${prefix}<compaction_state>\n${cleanInner}\n</compaction_state>${suffix}`;
+}
+
 function checkpointField(line: string): { name: string; value: string } | null {
   const match = /^(?:[-*]\s+)?(?:#{1,4}\s*)?(?:(\*\*|__)([a-z][a-z_\\-]*)\1|([a-z][a-z_\\-]*))\s*:\s*(.*)$/i.exec(line.trim());
   return match
@@ -74,8 +155,9 @@ function checkpointField(line: string): { name: string; value: string } | null {
 
 /** Field presence is derived from the same syntax accepted by the parser. */
 export function compactionStateFields(summary: string): Set<string> {
-  const bounds = locateCompactionStateBounds(summary);
-  const text = bounds ? summary.slice(bounds.openingEnd, bounds.closingStart) : summary;
+  const normalized = normalizeCompactionStateBlock(summary);
+  const bounds = locateCompactionStateBounds(normalized);
+  const text = bounds ? normalized.slice(bounds.openingEnd, bounds.closingStart) : normalized;
   return new Set(text.split(/\r?\n/).flatMap(line => {
     const field = checkpointField(line);
     return field ? [field.name] : [];
@@ -215,21 +297,6 @@ export interface CompactionStateBounds {
   fenced?: boolean;
 }
 
-function outsideInlineCode(line: string, index: number): boolean {
-  let activeTicks = 0;
-  for (let cursor = 0; cursor < index;) {
-    if (line[cursor] !== "`") {
-      cursor += 1;
-      continue;
-    }
-    let end = cursor + 1;
-    while (line[end] === "`") end += 1;
-    const ticks = end - cursor;
-    activeTicks = activeTicks === 0 ? ticks : activeTicks === ticks ? 0 : activeTicks;
-    cursor = end;
-  }
-  return activeTicks === 0;
-}
 
 export function locateCompactionStateBounds(
   summary: string,
@@ -549,10 +616,11 @@ function withoutFencedExamples(summary: string): string {
 
 /** Count all listed requirements, including items the parser cannot represent. */
 export function countCompactionRequirementItems(summary: string): number {
-  const bounds = locateCompactionStateBounds(summary);
+  const normalized = normalizeCompactionStateBlock(summary);
+  const bounds = locateCompactionStateBounds(normalized);
   const text = bounds
-    ? summary.slice(bounds.openingEnd, bounds.closingStart)
-    : withoutFencedExamples(summary);
+    ? normalized.slice(bounds.openingEnd, bounds.closingStart)
+    : withoutFencedExamples(normalized);
   let inRequirements = false;
   let count = 0;
   for (const line of text.split(/\r?\n/)) {
@@ -598,12 +666,13 @@ function parseTaglessCompactionState(summary: string): CompactionStateBlock | nu
 
 /** Parses a <compaction_state> XML block from summary text, if present. */
 export function parseCompactionState(summary: string): CompactionStateBlock | null {
-  const bounds = locateCompactionStateBounds(summary);
+  const normalized = normalizeCompactionStateBlock(summary);
+  const bounds = locateCompactionStateBounds(normalized);
   if (bounds) {
-    const rawBlock = summary.slice(bounds.openingEnd, bounds.closingStart).trim();
+    const rawBlock = normalized.slice(bounds.openingEnd, bounds.closingStart).trim();
     return parseCompactionStateLines(rawBlock);
   }
-  return parseTaglessCompactionState(summary);
+  return parseTaglessCompactionState(normalized);
 }
 
 /** Formats a structured state block into canonical XML. */
@@ -678,13 +747,14 @@ export function extractStructuredCompactionHandoff(summary: string): {
   narrative: string;
   state: CompactionStateBlock | null;
 } {
-  const state = parseCompactionState(summary);
+  const normalized = normalizeCompactionStateBlock(summary);
+  const state = parseCompactionState(normalized);
   if (!state) return { narrative: summary.trim(), state: null };
 
-  const bounds = locateCompactionStateBounds(summary);
+  const bounds = locateCompactionStateBounds(normalized);
   if (bounds) {
-    let before = summary.slice(0, bounds.startTagStart).trim();
-    let after = summary.slice(bounds.endTagEnd).trim();
+    let before = normalized.slice(0, bounds.startTagStart).trim();
+    let after = normalized.slice(bounds.endTagEnd).trim();
     if (bounds.fenced) {
       before = before.replace(/\n? {0,3}(?:`{3,}|~{3,})[^\n]*$/, "").trim();
       after = after.replace(/^ {0,3}(?:`{3,}|~{3,})\s*\n?/, "").trim();
@@ -694,7 +764,7 @@ export function extractStructuredCompactionHandoff(summary: string): {
   }
 
   // Tagless structured checkpoint
-  const lines = summary.split(/\r?\n/);
+  const lines = normalized.split(/\r?\n/);
   const structuredHeaders = new Set([
     "version", "original_request_ref", "modified_files", "active_hypothesis", "requirements",
     "closure_criteria", "verified_achievements", "decisions_and_invariants", "blockers_or_test_failures",

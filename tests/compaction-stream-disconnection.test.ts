@@ -559,5 +559,42 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       expect(verdict.missingInvariants).toContain("Duplicate requirement ID: REQ-1");
       expect(verdict.missingInvariants).toContain("Duplicate pending_obligations entries");
     });
+
+    it("canonicalizeCompactionHandoff normalizes collapsed single-line compaction handoff with escaped underscores and produces valid canonical checkpoint", () => {
+      const parsedReq: CodexParsedRequest = {
+        modelId: "chatgpt-web/high",
+        stream: true,
+        context: {
+          messages: samplePatchedMessages,
+        },
+        options: { reasoning: "high" },
+        _compactionRequest: true,
+        _rawBody: {
+          input: [{
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
+            internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
+          }],
+        },
+      };
+
+      const collapsedSummary = '<compaction_state> version: 2 original\\_request\\_ref: "Actualizar catalogo" modified\\_files: - None active\\_hypothesis: "Complete catalog import scripts and verify generated outputs." requirements: - {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"} closure\\_criteria: - "All catalog scripts run without errors" verified\\_achievements: decisions\\_and\\_invariants: - "Keep sample files under .agents/scratch/" blockers\\_or\\_test\\_failures: - "None" pending\\_obligations: - "Run catalog build script" next\\_actions: - "Run catalog build script" </compaction_state>';
+
+      const canonicalized = canonicalizeCompactionHandoff(parsedReq, collapsedSummary);
+
+      expect(canonicalized).toContain("<compaction_state>\n");
+      expect(canonicalized).toContain("version: 2");
+      expect(canonicalized).toContain("modified_files:\n");
+      expect(canonicalized).toContain("/home/deuz/projects/Allpa Craft/scripts/import-catalog-csv.mjs");
+      expect(canonicalized).toContain("active_hypothesis: \"Complete catalog import scripts and verify generated outputs.\"");
+      expect(canonicalized).toContain("</compaction_state>");
+
+      const verdict = validateCompactionQuality(samplePatchedMessages, canonicalized, {
+        requireStructured: true,
+      });
+      expect(verdict.valid).toBe(true);
+      expect(verdict.missingInvariants).toEqual([]);
+    });
   });
 });

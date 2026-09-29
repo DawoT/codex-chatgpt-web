@@ -33,6 +33,7 @@ import {
   locateCompactionStateBounds,
   extractStructuredCompactionHandoff,
   formatCompactionStateBlock,
+  normalizeCompactionStateBlock,
   parseCompactionState,
   type CompactionStateBlock,
 } from "../../responses/compaction";
@@ -133,6 +134,7 @@ export function canonicalizeCompactionHandoff(
     }
     body = normalized.slice(0, latestOffset).trimEnd();
   }
+  body = normalizeCompactionStateBlock(body);
 
   const previous = parsed.context.messages.filter(message => message.role === "user"
     && message.origin === "compaction_summary");
