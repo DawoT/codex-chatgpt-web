@@ -101,6 +101,27 @@ test("browser preflight rejects an indivisible multipart stage above the safe bo
   )).toThrow("45,000");
 });
 
+test("browser preflight permits an oversized multipart stage during compaction", () => {
+  expect(() => assertChatGptWebMultipartInputWithinLimits(
+    2_000,
+    1_000,
+    "gpt-5.6-sol",
+    "high",
+    capabilities,
+    60_000,
+    6,
+    {
+      stagingEffort: "max",
+      maxStageMessageTokens: 1_000,
+      maxStageChars: 60_000,
+      finalMessageTokens: 1_000,
+      finalMessageChars: 1_000,
+      isCompaction: true,
+    },
+    true,
+  )).not.toThrow();
+});
+
 test("multipart planning leaves room for final attachments and execution instructions without losing history", () => {
   for (const scenario of [
     { extraHighAvailable: false, proAvailable: false, images: 3, schema: false },

@@ -80,7 +80,9 @@ export function assertChatGptWebMultipartInputWithinLimits(
     finalMessageTokens: number;
     finalMessageChars: number;
     finalImageTokens?: number;
+    isCompaction?: boolean;
   },
+  isCompaction?: boolean,
 ): void {
   if (!isChatGptWebMultipartPartCount(partCount)) {
     throw new Error("Bigger Context requires two or six context parts");
@@ -131,9 +133,10 @@ export function assertChatGptWebMultipartInputWithinLimits(
       );
     }
   };
+  const compaction = isCompaction ?? transport?.isCompaction ?? false;
   if (transport) {
     const oversized = Math.max(transport.maxStageChars, transport.finalMessageChars);
-    if (oversized > PREFLIGHT_MAX_STAGE_CHAR_LIMIT) {
+    if (!compaction && oversized > PREFLIGHT_MAX_STAGE_CHAR_LIMIT) {
       throw new ChatGptWebAdapterError(
         `A Bigger Context message contains ${oversized.toLocaleString("en-US")} characters, exceeding the ${PREFLIGHT_MAX_STAGE_CHAR_LIMIT.toLocaleString("en-US")}-character safe browser boundary. An individual record cannot be split or discarded; compact earlier.`,
         { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },

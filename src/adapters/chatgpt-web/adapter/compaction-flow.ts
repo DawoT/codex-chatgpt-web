@@ -5,7 +5,7 @@ import {
   compactionDraftText,
   extractStructuredCompactionHandoff,
 } from "../../../responses/compaction";
-import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
+import { CHATGPT_WEB_INSTANT_COMPOSER_CHAR_LIMIT, type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { acceptedCompactionEpoch } from "../compaction-continuation";
 import { checkpointIssueCodes, checkpointStructuralDiagnostic, logCompactionEvent, type CompactionRoute } from "../compaction-observability";
 import { boundedCompactionRepairObservations, buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "../compaction-evidence";
@@ -50,7 +50,6 @@ import { persistTurnCompaction } from "../workspace-persistence";
 import type { SessionActorManager } from "../session-actor";
 import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
-import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT } from "../preflight-budget";
 
 const observedRepairDurationsMs: number[] = [];
 const persistedStructuredRunRoots = new WeakMap<Promise<string>, string>();
@@ -97,37 +96,61 @@ function repairObservations(parsed: CodexParsedRequest, query: string, limit = 6
 }
 
 /**
- * Fallback-compaction only: truncates messages whose serialized text exceeds the
- * per-stage char boundary so the compaction browser turn can at least submit.
+ * Fallback-compaction only: truncates messages and system prompt whose serialized text
+ * exceeds the per-stage char boundary so the compaction browser turn can at least submit.
  * A notice is appended so the model knows content was omitted.
  * This is never called for normal task turns.
  */
-const FALLBACK_COMPACTION_TRUNCATION_LIMIT = PREFLIGHT_MAX_STAGE_CHAR_LIMIT - 500;
-function truncateOversizedMessagesForFallbackCompaction(messages: CodexParsedRequest["context"]["messages"]): CodexParsedRequest["context"]["messages"] {
-  const truncateString = (text: string): string => {
-    if (text.length <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return text;
-    const kept = text.slice(0, FALLBACK_COMPACTION_TRUNCATION_LIMIT);
-    const dropped = text.length - FALLBACK_COMPACTION_TRUNCATION_LIMIT;
-    return `${kept}\n[... ${dropped.toLocaleString("en-US")} characters truncated for compaction]`;
+export const FALLBACK_COMPACTION_TRUNCATION_LIMIT = CHATGPT_WEB_INSTANT_COMPOSER_CHAR_LIMIT - 500;
+
+function truncateString(text: string, limit = FALLBACK_COMPACTION_TRUNCATION_LIMIT): string {
+  if (text.length <= limit) return text;
+  const kept = text.slice(0, limit);
+  const dropped = text.length - limit;
+  return `${kept}\n[... ${dropped.toLocaleString("en-US")} characters truncated for compaction]`;
+}
+
+export function truncateOversizedMessagesForFallbackCompaction(
+  messages: CodexParsedRequest["context"]["messages"],
+): CodexParsedRequest["context"]["messages"] {
+  const getPartLength = (part: unknown): number => {
+    if (!part || typeof part !== "object") return 0;
+    const record = part as Record<string, unknown>;
+    if (typeof record.text === "string") return record.text.length;
+    if (typeof record.thinking === "string") return record.thinking.length;
+    return 0;
   };
+
   const truncateParts = (parts: Array<unknown>): Array<unknown> => {
-    const totalChars = parts.reduce<number>((sum, part) =>
-      sum + (typeof part === "object" && part !== null && "text" in part && typeof (part as Record<string, unknown>).text === "string"
-        ? ((part as Record<string, unknown>).text as string).length : 0), 0);
+    const totalChars = parts.reduce<number>((sum, part) => sum + getPartLength(part), 0);
     if (totalChars <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return parts;
+
+    // Progressively allocate remaining budget across parts.
+    let remainingBudget = FALLBACK_COMPACTION_TRUNCATION_LIMIT;
     const result = [...parts];
     for (let i = 0; i < result.length; i++) {
       const part = result[i];
-      if (part && typeof part === "object" && "text" in part && typeof (part as Record<string, unknown>).text === "string") {
-        const text = (part as Record<string, unknown>).text as string;
-        if (text.length > FALLBACK_COMPACTION_TRUNCATION_LIMIT) {
-          result[i] = { ...(part as object), text: truncateString(text) };
-          break;
+      if (!part || typeof part !== "object") continue;
+      const record = part as Record<string, unknown>;
+      if (typeof record.text === "string") {
+        if (record.text.length > remainingBudget) {
+          result[i] = { ...(part as object), text: truncateString(record.text, Math.max(0, remainingBudget)) };
+          remainingBudget = 0;
+        } else {
+          remainingBudget -= record.text.length;
+        }
+      } else if (typeof record.thinking === "string") {
+        if (record.thinking.length > remainingBudget) {
+          result[i] = { ...(part as object), thinking: truncateString(record.thinking, Math.max(0, remainingBudget)) };
+          remainingBudget = 0;
+        } else {
+          remainingBudget -= record.thinking.length;
         }
       }
     }
     return result;
   };
+
   return messages.map(message => {
     if (typeof message.content === "string") {
       if (message.content.length <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return message;
@@ -141,6 +164,21 @@ function truncateOversizedMessagesForFallbackCompaction(messages: CodexParsedReq
     }
     return message;
   });
+}
+
+export function truncateOversizedContextForFallbackCompaction(
+  parsed: CodexParsedRequest,
+): CodexParsedRequest {
+  const truncatedMessages = truncateOversizedMessagesForFallbackCompaction(parsed.context.messages);
+  const truncatedSystemPrompt = parsed.context.systemPrompt?.map(sys => truncateString(sys));
+  return {
+    ...parsed,
+    context: {
+      ...parsed.context,
+      messages: truncatedMessages,
+      ...(truncatedSystemPrompt ? { systemPrompt: truncatedSystemPrompt } : {}),
+    },
+  };
 }
 
 function originalRequestFromCanonicalSummary(summary: string): string {
@@ -385,13 +423,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             // This is the only path where truncation is acceptable: the model is summarizing
             // the conversation, so an approximate view of very large records is fine. Normal
             // task turns never use this path and are never truncated.
-            const fallbackParsed: CodexParsedRequest = {
-              ...parsed,
-              context: {
-                ...parsed.context,
-                messages: truncateOversizedMessagesForFallbackCompaction(parsed.context.messages),
-              },
-            };
+            const fallbackParsed = truncateOversizedContextForFallbackCompaction(parsed);
             const fallbackRuntime = startRuntime(
               fallbackParsed,
               manualRequest ? environment : undefined,
@@ -742,9 +774,16 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 "Structured compaction failed and its retained conversation could not be retired",
               );
             }
-            if (handoffError instanceof ChatGptWebAdapterError
-              && handoffError.code === "compaction_source_unavailable") {
-              return await runFreshCompaction("source_disappeared_before_handoff");
+            if (!operationSignal.aborted && !operatorSignal.aborted) {
+              const code = handoffError instanceof ChatGptWebAdapterError
+                ? handoffError.code
+                : (handoffError instanceof AggregateError && handoffError.errors[0] instanceof ChatGptWebAdapterError)
+                  ? (handoffError.errors[0] as ChatGptWebAdapterError).code
+                  : "retained_handoff_failed";
+              const reason = code === "compaction_source_unavailable"
+                ? "source_disappeared_before_handoff"
+                : `retained_handoff_failed_${code}`;
+              return await runFreshCompaction(reason);
             }
             throw handoffError;
           } finally {

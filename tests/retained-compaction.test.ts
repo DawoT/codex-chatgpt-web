@@ -583,6 +583,58 @@ test("retained compaction deadline bounds browser settlement after the control h
   expect(transactionAborted).toBeTrue();
 });
 
+test("initial handoff progressively prunes observations until prompt fits instead of failing", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-handoff-prune-"));
+  const broker = TurnBroker.forSocket(defaultBrokerEndpoint(root));
+  const req = request(true);
+  req.context.messages = [
+    { role: "user", content: "Original task", timestamp: 1 },
+    ...Array.from({ length: 6 }, (_, i) => ({
+      role: "toolResult" as const,
+      toolCallId: `call-${i}`,
+      toolName: "run_command",
+      content: `Result ${i}: output`,
+      isError: false,
+      timestamp: 10 + i,
+    })),
+  ];
+  const source = new ChatGptTurnSession({
+    mode: "read-only", browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(), trace: new ChatGptTraceFeed(), text: new ChatGptTextFeed(),
+    usageInput: req, conversationKey: chatGptConversationKey(req, "provider")!, cancel() {},
+  });
+  const repair = await import("../src/adapters/chatgpt-web/compaction-repair");
+  const originalFits = repair.checkpointRepairPromptFits;
+  // Reject when 6 observations are present (containing call-5), but accept when pruned
+  const spy = spyOn(repair, "checkpointRepairPromptFits").mockImplementation((prompt, modelId, effort, capabilities) => {
+    if (prompt.includes("call-5")) return false;
+    return originalFits(prompt, modelId, effort, capabilities);
+  });
+  let capturedInstruction = "";
+  try {
+    const summary = await requestRetainedCompactionHandoff(
+      { run: async (turn: BrowserTurn) => {
+        const prepared = await turn.prepare();
+        capturedInstruction = prepared.text;
+        const token = prepared.text.match(/turn_token (control_\w+)/)![1]!;
+        const handoffId = prepared.text.match(/handoff_id (handoff_\w+)/)![1]!;
+        await callTurnBroker(broker.socketPath, { method: "submit_compaction_handoff", token, handoffId, summary: "Pruned summary" });
+        prepared.release();
+        return "Checkpoint submitted.";
+      } } as never,
+      req, source, broker,
+      { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      "trace_prune_observations",
+    );
+    expect(summary).toBe("Pruned summary");
+    expect(capturedInstruction).not.toContain("call-5");
+  } finally {
+    spy.mockRestore();
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a failed exact compaction replays its failure instead of reopening the browser", async () => {
   const key = `exact-retry-${Date.now()}-${Math.random()}`;
   const owner = { ownerKey: `owner-${key}`, traceIds: [`trace-${key}`] };

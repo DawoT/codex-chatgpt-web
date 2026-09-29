@@ -3333,7 +3333,9 @@ export class ChatGptBrowserWorker {
             finalMessageTokens: estimateTokens(multipartFinalPrompt, turn.modelId) + skillFileTokens(prepared.skillFiles, turn.modelId),
             finalMessageChars: multipartFinalPrompt.length,
             finalImageTokens: estimateChatGptWebImageTokens(prepared),
+            isCompaction: turn.compaction === true,
           } : undefined,
+          turn.compaction === true,
         );
       } else {
         assertChatGptWebInputWithinLimits(

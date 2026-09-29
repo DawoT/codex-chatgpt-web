@@ -545,11 +545,23 @@ export async function requestRetainedCompactionHandoff(
         });
       }
     } else {
+      const selected = boundedCompactionRepairObservations(allObservations.slice(-6));
       instruction = structuredCompactionHandoffInstruction(
         transaction,
-        boundedCompactionRepairObservations(allObservations.slice(-6)),
+        selected,
       );
       const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
+      while (
+        !checkpointRepairPromptFits(
+          instruction,
+          parsed.modelId as ChatGptWebBackendModel,
+          effort,
+          capabilities,
+        ) && selected.length > 0
+      ) {
+        selected.pop();
+        instruction = structuredCompactionHandoffInstruction(transaction, selected);
+      }
       if (!checkpointRepairPromptFits(
         instruction,
         parsed.modelId as ChatGptWebBackendModel,

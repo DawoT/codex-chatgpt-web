@@ -137,7 +137,9 @@ export function checkpointCompiledRepairFits(
           + skillFileTokens(compiled.skillFiles, request.modelId),
         finalMessageChars: finalMessage.length,
         finalImageTokens: estimateChatGptWebImageTokens(compiled),
+        isCompaction: request._compactionRequest === true,
       },
+      request._compactionRequest === true,
     );
     return true;
   } catch {
