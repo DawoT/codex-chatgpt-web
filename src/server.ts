@@ -1,4 +1,11 @@
+import { join } from "node:path";
 import { HostHttpRoutes } from "./server/host-routes";
+import { createChatGptWebAdapter } from "./adapters/chatgpt-web";
+import {
+  SessionActorJournal,
+  SessionActorManager,
+  SessionResultStore,
+} from "./adapters/chatgpt-web/session-actor";
 import { closeChatGptBrowserWorkers } from "./adapters/chatgpt-web/browser-worker";
 import { closeTurnBrokers, TurnBroker } from "./adapters/chatgpt-web/turn-broker";
 import { chatGptTurnSessions } from "./adapters/chatgpt-web/turn-execution";
@@ -12,7 +19,7 @@ import { sessionHealthGuard } from "./adapters/chatgpt-web/session-guard";
 import { TunnelSupervisor } from "./tunnel-supervisor";
 import { formatErrorResponse } from "./bridge";
 import type { AppConfig } from "./config";
-import { providerConfig } from "./config";
+import { getConfigDir, providerConfig } from "./config";
 import {
   readCodexModelContextOverride,
   readCodexSubagentProtocol,
@@ -79,6 +86,23 @@ export function startServer(
   if (config.purpose === "dev-harness") {
     throw new Error("DEV harness configuration cannot start a Responses listener");
   }
+  const sessionActorEnabled = !dependencies.adapterFactory
+    && config.browserHost === "launcher"
+    && config.browserInteractionMode === "automatic";
+  const actorDirectory = join(getConfigDir(), "runtime", "session-actors");
+  const actorResults = sessionActorEnabled
+    ? new SessionResultStore(join(actorDirectory, "results"))
+    : undefined;
+  const actorJournal = sessionActorEnabled
+    ? new SessionActorJournal(join(actorDirectory, "events.sqlite"))
+    : undefined;
+  const actorManager = actorJournal
+    ? new SessionActorManager(actorJournal, actorResults)
+    : undefined;
+  const adapterFactory: ChatGptWebAdapterFactory = dependencies.adapterFactory
+    ?? (actorManager
+      ? provider => createChatGptWebAdapter(provider, { sessionActorManager: actorManager })
+      : createChatGptWebAdapter);
   const startedAt = Date.now();
   const turnBroker = config.mode === "full" ? TurnBroker.forSocket(config.brokerSocketPath) : undefined;
   if (config.mode === "full") {
@@ -148,7 +172,7 @@ export function startServer(
     request: number; at: string; status: number; failure?: ModelCatalogFailure;
   } | null = null;
   const httpTurns = new HttpTurnCounter();
-  const hostRoutes = new HostHttpRoutes(config, httpTurns, dependencies.adapterFactory);
+  const hostRoutes = new HostHttpRoutes(config, httpTurns, adapterFactory);
 
   // Sprint AG: Rate limiter
   const rateLimitRpm = config.rateLimitRpm
@@ -194,7 +218,7 @@ export function startServer(
     shutdown: () => shutdown(),
   };
 
-  const server = Bun.serve({
+  const createListener = (): ReturnType<typeof Bun.serve> => Bun.serve({
     hostname: config.host,
     port: config.port,
     idleTimeout: 0,
@@ -315,7 +339,7 @@ export function startServer(
           (signal, bindIdentity) => responseRequest(
             new Request(req, { signal }),
             config,
-            dependencies.adapterFactory,
+            adapterFactory,
             { onTurnIdentity: bindIdentity },
           ),
           req.signal,
@@ -330,7 +354,7 @@ export function startServer(
           (signal, bindIdentity) => compactRequest(
             new Request(req, { signal }),
             config,
-            dependencies.adapterFactory,
+            adapterFactory,
             { onTurnIdentity: bindIdentity },
           ),
           req.signal,
@@ -366,15 +390,32 @@ export function startServer(
       return new Response("Not found", { status: 404 });
     },
   });
-
-  const originalStop = server.stop.bind(server);
-  server.stop = (closeActiveConnections?: boolean) => {
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = createListener();
+  } catch (error) {
     sessionJanitor?.stop();
     taskResumeOrchestrator?.stop();
     sessionHealthGuard.stopWatchdog();
     tunnelSupervisor?.stop();
     void hostRoutes.close();
-    return originalStop(closeActiveConnections);
+    void turnBroker?.close();
+    actorJournal?.close();
+    throw error;
+  }
+
+  const originalStop = server.stop.bind(server);
+  server.stop = async (closeActiveConnections?: boolean) => {
+    sessionJanitor?.stop();
+    taskResumeOrchestrator?.stop();
+    sessionHealthGuard.stopWatchdog();
+    tunnelSupervisor?.stop();
+    try {
+      await hostRoutes.close();
+      await originalStop(closeActiveConnections);
+    } finally {
+      actorJournal?.close();
+    }
   };
 
   function shutdown(): void {
