@@ -1,3 +1,4 @@
+/** Wire and storage shapes shared by session actors, the journal and their callers. */
 export const SESSION_ACTOR_PROTOCOL_VERSION = 5;
 
 export type SessionEventType =

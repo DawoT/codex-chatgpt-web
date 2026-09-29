@@ -1,3 +1,8 @@
+/**
+ * Content-addressed store for browser operation results. A persisted result
+ * file is the completion evidence that lets startup recovery distinguish a
+ * finished uncertain operation from one that must be abandoned.
+ */
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,

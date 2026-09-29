@@ -1,3 +1,9 @@
+/**
+ * In-memory session-actor mailbox. A promise tail serializes every dispatch
+ * through the journal in arrival order; the actor itself holds no session
+ * state beyond that queue. quiesce() reports when the queue has been observed
+ * quiet, which mailbox eviction (manager dispose) waits for.
+ */
 import type { SessionAcknowledgement, SessionCommand } from "./types";
 import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
 import { SessionActorJournal } from "./journal";

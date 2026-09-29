@@ -192,6 +192,33 @@ every later tool action in the same turn continues to present the current turn c
 ChatGPT status rows become reasoning summaries, while stable prose between rows becomes native
 Codex commentary.
 
+## Session actor
+
+Every Codex session has one durable actor: an in-memory command mailbox in front of a
+write-ahead SQLite journal (`session-actor/`). The mailbox (`SessionActor`) serializes
+dispatches through a promise tail, so commands from the browser worker, the host bridge
+and the launcher daemon apply in arrival order without locks; the journal owns session
+state and the mailbox holds none of it. A manager (`SessionActorManager`) caches one
+mailbox per session and can `dispose()` it once the queue has been observed quiet — the
+next `actor(sessionId)` rebuilds an equivalent mailbox over the same journal history.
+
+The journal records turns, browser-send operations, tool-batch deliveries, surface
+claims and compaction checkpoints as commands with a per-session generation, a turn id
+and a per-producer sequence. Producers (the daemon, the host, browser workers) get
+gap detection: an out-of-order sequence is answered with `recovery_required` and the
+expected sequence instead of being applied. Every command is idempotent — a repeat
+delivery replays the persisted acknowledgement — and operations follow the
+intent → accepted → completed/abandoned lifecycle, so a crash between the browser send
+and the journal write leaves an `uncertain` operation that startup recovery resolves by
+comparing against persisted result files.
+
+Revocation is generation-scoped: `generation_revoked` invalidates everything the
+session admitted for that generation (browser traces, admitted turns, native turns),
+rejects pending waiters, and requires an explicit `surface_reconciled` acknowledgement
+before a revoked launcher surface may be reused. The turn broker's own revocation and
+completion fences layer on top of these acknowledgements, which is what makes
+concurrent revocations idempotent and late browser results rejectable.
+
 ## Local ChatGPT Limits
 
 The launcher Limits page is an opt-in estimate of its own accepted browser submissions. Setup

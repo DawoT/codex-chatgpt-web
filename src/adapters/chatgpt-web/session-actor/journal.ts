@@ -1,3 +1,10 @@
+/**
+ * Durable session-actor journal: a single WAL SQLite database that owns all
+ * session state. Commands are applied through BEGIN IMMEDIATE transactions and
+ * are idempotent per (session, generation, producer, sequence); recovery
+ * resolves operations left uncertain by a crash between the browser send and
+ * the journal write.
+ */
 import { Database } from "bun:sqlite";
 import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
