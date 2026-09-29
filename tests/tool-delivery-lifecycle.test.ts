@@ -89,6 +89,43 @@ test("broker keeps one call ID across replay and rejects a result after revocati
   }
 });
 
+test("a detached tool observer does not receive a replay or revoke its pending call", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-detached-tool-observer-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  const environment = {
+    cwd: root,
+    roots: [root],
+    writableRoots: [root],
+    sandboxPolicy: { type: "dangerFullAccess" as const },
+    tools: [{ name: "exec_command", description: "Run a command", parameters: { type: "object" as const } }],
+  };
+  try {
+    const token = await broker.register(environment, 30_000, "detached-observer-test");
+    const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, { method: "claim", token });
+    const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
+      method: "invoke",
+      bindingId: claimed.bindingId,
+      wireName: "exec_command",
+      freeform: false,
+      arguments: { cmd: "pwd" },
+    }, 30_000);
+    const [request] = await broker.nextToolBatch(token);
+    expect(request).toBeDefined();
+    const detached = new AbortController();
+    detached.abort();
+    await expect(broker.nextToolBatch(token, detached.signal)).rejects.toMatchObject({ name: "AbortError" });
+    const [recovered] = await broker.nextToolBatch(token);
+    expect(recovered?.callId).toBe(request?.callId);
+    const result: BrokerToolResult = { content: [{ type: "text", text: "ok" }] };
+    broker.completeTool(token, request!.callId, result);
+    expect(await invocation).toEqual(result);
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("lifecycle telemetry keeps each phase on the same trace and call ID", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-delivery-trace-"));
   const traceId = randomUUID();

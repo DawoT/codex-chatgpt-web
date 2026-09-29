@@ -290,6 +290,7 @@ export class TurnBroker implements TurnBrokerOwner {
     this.prune();
     let channel = this.channels.get(token);
     if (!channel) throw new Error("turn token is invalid or expired");
+    if (signal?.aborted) throw new DOMException("tool wait aborted", "AbortError");
     if (channel.safe?.state === "awaiting_start") {
       // The outer Codex adapter owns this wait. It crosses the start boundary only after the user
       // confirms in the Launcher that the copied prompt was sent in the visible ChatGPT tab.
@@ -297,6 +298,7 @@ export class TurnBroker implements TurnBrokerOwner {
       this.prune();
       channel = this.channels.get(token);
       if (!channel) throw new Error("turn token is invalid or expired");
+      if (signal?.aborted) throw new DOMException("tool wait aborted", "AbortError");
     }
     // This owner-only empty batch tells the adapter to consume the already accepted completion.
     // Public Zero Risk MCP calls remain fail-closed after the turn reaches its terminal state.
@@ -320,7 +322,6 @@ export class TurnBroker implements TurnBrokerOwner {
       this.logToolDelivery(channel, ready, "immediate");
       return ready;
     }
-    if (signal?.aborted) throw new DOMException("tool wait aborted", "AbortError");
     return new Promise<BrokerToolRequest[]>((resolveWait, rejectWait) => {
       const waiter: ToolWaiter = { resolve: resolveWait, reject: rejectWait, ...(signal ? { signal } : {}) };
       if (signal) {
