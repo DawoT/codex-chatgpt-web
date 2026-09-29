@@ -1,5 +1,16 @@
 schema_version: "1.0"
 
+# Implementation status (2026-09-29, v6.2.0): this file started as planning-only,
+# but most of its DAG has since been executed. Already landed: P0 (baseline
+# tests), P1 (SSE bridge seams -> src/bridge/), P2 (adapter factory ->
+# src/adapters/chatgpt-web/adapter/), P3/P4 (runtime supervisor/host ->
+# src/server/), P5 (launcher surface queue), P6 (BrowserHost) and P8
+# (TurnBroker, including typed protocol errors). P7 (ChatGptBrowserWorker
+# decomposition: SubmissionObserver, ResponseObserver, ChatGptModelControls,
+# ComposerController, BrowserSession, TurnDiagnostics) remains open and is the
+# active refactor priority. Each phase's acceptance/rollback blocks below stay
+# authoritative for the work that remains.
+
 roadmap:
   id: "refactor-monoliths"
   title: "Monolith Refactor Roadmap"
