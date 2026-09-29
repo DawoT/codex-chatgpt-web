@@ -51,6 +51,35 @@ describe("InteractiveBrowserTurnMutex", () => {
     expect(mutex.waitingCount()).toBe(0);
   });
 
+  it("lets another session act between six acknowledged fragments without sleeps", async () => {
+    const mutex = new InteractiveBrowserTurnMutex();
+    const grants: string[] = [];
+    let fragment = await mutex.acquire("session-A");
+    grants.push("A1");
+
+    for (let index = 1; index <= 6; index += 1) {
+      const otherSession = mutex.acquire("session-B");
+      const nextFragment = index < 6 ? mutex.acquire("session-A") : undefined;
+      fragment.release();
+
+      const other = await otherSession;
+      grants.push(`B${index}`);
+      expect(mutex.currentTraceId()).toBe("session-B");
+      other.release();
+
+      if (nextFragment) {
+        fragment = await nextFragment;
+        grants.push(`A${index + 1}`);
+      }
+    }
+
+    expect(grants).toEqual([
+      "A1", "B1", "A2", "B2", "A3", "B3",
+      "A4", "B4", "A5", "B5", "A6", "B6",
+    ]);
+    expect(mutex.isLocked()).toBeFalse();
+  });
+
   it("handles abort signals on queued waiters without breaking the queue", async () => {
     const mutex = new InteractiveBrowserTurnMutex();
     const lock1 = await mutex.acquire("turn-1");
