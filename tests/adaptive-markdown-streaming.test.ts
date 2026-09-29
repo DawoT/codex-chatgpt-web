@@ -11,7 +11,7 @@ describe("Sprint U: Adaptive Markdown Streaming Latency & Instant Tool Emission"
   });
 
   test("maintains backward compatibility with numeric stability window", () => {
-    const buffer = new ChatGptMarkdownBuffer(m => m, 200);
+    const buffer = new ChatGptMarkdownBuffer((m) => m, 200);
     const seg1 = makeSegment("k1", "Hello world");
     const t0 = 1000;
 
@@ -29,12 +29,12 @@ describe("Sprint U: Adaptive Markdown Streaming Latency & Instant Tool Emission"
   });
 
   test("emits tool and code segments instantly (0ms latency) in adaptive mode", () => {
-    const buffer = new ChatGptMarkdownBuffer(m => m, {
+    const buffer = new ChatGptMarkdownBuffer((m) => m, {
       adaptive: true,
       proseStabilityMs: 350,
       toolStabilityMs: 0,
     });
-    const toolSeg = makeSegment("tool-1", "```json\n{\"tool\": \"codex_read_file\"}\n```", true, "PRE");
+    const toolSeg = makeSegment("tool-1", '```json\n{"tool": "codex_read_file"}\n```', true, "PRE");
     const t0 = 1000;
 
     // Instantly emitted with 0ms elapsed time!
@@ -43,7 +43,7 @@ describe("Sprint U: Adaptive Markdown Streaming Latency & Instant Tool Emission"
   });
 
   test("applies 350ms stability window to prose paragraphs in adaptive mode", () => {
-    const buffer = new ChatGptMarkdownBuffer(m => m, {
+    const buffer = new ChatGptMarkdownBuffer((m) => m, {
       adaptive: true,
       proseStabilityMs: 350,
       toolStabilityMs: 0,
@@ -63,7 +63,7 @@ describe("Sprint U: Adaptive Markdown Streaming Latency & Instant Tool Emission"
   });
 
   test("emits mixed stream: tools immediately and prose after stability", () => {
-    const buffer = new ChatGptMarkdownBuffer(m => m, {
+    const buffer = new ChatGptMarkdownBuffer((m) => m, {
       adaptive: true,
       proseStabilityMs: 300,
       toolStabilityMs: 0,

@@ -103,9 +103,11 @@ function captureRegularFile(filePath, { followSymlink = false } = {}) {
 
 function checkpointWritePath(snapshot) {
   if (!snapshot.symlink) return snapshot.path;
-  if (!fs.lstatSync(snapshot.path).isSymbolicLink()
-    || fs.readlinkSync(snapshot.path) !== snapshot.symlink.link
-    || fs.realpathSync(snapshot.path) !== snapshot.symlink.target) {
+  if (
+    !fs.lstatSync(snapshot.path).isSymbolicLink() ||
+    fs.readlinkSync(snapshot.path) !== snapshot.symlink.link ||
+    fs.realpathSync(snapshot.path) !== snapshot.symlink.target
+  ) {
     throw new Error(`Codex config symlink changed during setup: ${snapshot.path}`);
   }
   return snapshot.symlink.target;
@@ -117,15 +119,21 @@ function restoreRegularFile(snapshot, platform = process.platform) {
     return;
   }
   const writePath = checkpointWritePath(snapshot);
-  writePrivateFileAtomic(writePath, snapshot.data, snapshot.symlink
-    ? { mode: snapshot.mode, protectDirectory: false }
-    : undefined);
+  writePrivateFileAtomic(
+    writePath,
+    snapshot.data,
+    snapshot.symlink ? { mode: snapshot.mode, protectDirectory: false } : undefined,
+  );
   if (platform !== "win32") fs.chmodSync(writePath, snapshot.mode);
 }
 
 function regularFileChanged(snapshot, platform = process.platform) {
   let filePath;
-  try { filePath = checkpointWritePath(snapshot); } catch { return true; }
+  try {
+    filePath = checkpointWritePath(snapshot);
+  } catch {
+    return true;
+  }
   let stat;
   try {
     stat = fs.lstatSync(filePath);
@@ -219,9 +227,7 @@ class RuntimeHost {
   }
 
   currentOperation() {
-    const stuckChild = this.activeChild
-      && this.activeChild.exitCode === null
-      && this.activeChild.signalCode === null;
+    const stuckChild = this.activeChild && this.activeChild.exitCode === null && this.activeChild.signalCode === null;
     return this.lifecycleOperation || this.active || (stuckChild ? "previous runtime process shutdown" : null);
   }
 
@@ -287,8 +293,8 @@ class RuntimeHost {
     const setupConfig = this.supervisor.readSetupConfig
       ? this.supervisor.readSetupConfig()
       : this.supervisor.readConfig();
-    const candidate = setupConfig?.chromeExecutablePath
-      || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    const candidate =
+      setupConfig?.chromeExecutablePath || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
     if (!usableExecutable(candidate, this.platform)) {
       throw new Error(`Google Chrome is unavailable at ${candidate}`);
     }
@@ -297,12 +303,14 @@ class RuntimeHost {
 
   continuePasskeyLogin() {
     const child = this.activeChild;
-    if (this.active !== "passkey-login"
-      || this.passkeyContinuationRequested
-      || !child
-      || child.exitCode !== null
-      || child.signalCode !== null
-      || !child.stdin?.writable) {
+    if (
+      this.active !== "passkey-login" ||
+      this.passkeyContinuationRequested ||
+      !child ||
+      child.exitCode !== null ||
+      child.signalCode !== null ||
+      !child.stdin?.writable
+    ) {
       throw new Error("No passkey sign-in is waiting for Continue");
     }
     this.passkeyContinuationRequested = true;
@@ -312,17 +320,14 @@ class RuntimeHost {
       message: "Capturing and verifying the passkey session",
     });
     return new Promise((resolve, reject) => {
-      child.stdin.write(
-        `${JSON.stringify({ version: 1, type: "passkey-login-continue" })}\n`,
-        error => {
-          if (error) {
-            this.passkeyContinuationRequested = false;
-            reject(error);
-          } else {
-            resolve(true);
-          }
-        },
-      );
+      child.stdin.write(`${JSON.stringify({ version: 1, type: "passkey-login-continue" })}\n`, (error) => {
+        if (error) {
+          this.passkeyContinuationRequested = false;
+          reject(error);
+        } else {
+          resolve(true);
+        }
+      });
     });
   }
 
@@ -331,29 +336,30 @@ class RuntimeHost {
     const chrome = this.passkeyChromeExecutable();
     const parent = path.join(this.app.getPath("userData"), "passkey-login");
     fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
-    try { fs.chmodSync(parent, 0o700); } catch {}
+    try {
+      fs.chmodSync(parent, 0o700);
+    } catch {}
     const transferRoot = fs.mkdtempSync(path.join(parent, "transfer-"));
-    try { fs.chmodSync(transferRoot, 0o700); } catch {}
+    try {
+      fs.chmodSync(transferRoot, 0o700);
+    } catch {}
     const storageStatePath = path.join(transferRoot, "storage-state.json");
     const markerPath = `${storageStatePath}.verified.json`;
     const cleanup = async () => fs.rmSync(transferRoot, { recursive: true, force: true });
     this.passkeyContinuationRequested = false;
     try {
-      await this.run("passkey-login", [
-        "login",
-        "--launcher-control",
-        "--chrome",
-        chrome,
-        "--storage-state",
-        storageStatePath,
-      ], {
-        embedded: true,
-        controlStdin: true,
-        env: this.launcherControlEnvironment(),
-        message: "Sign in with your passkey in Chrome, then return here and choose Continue",
-        successMessage: "Passkey session captured for private Launcher verification",
-        timeoutMs: PASSKEY_LOGIN_TIMEOUT_MS,
-      });
+      await this.run(
+        "passkey-login",
+        ["login", "--launcher-control", "--chrome", chrome, "--storage-state", storageStatePath],
+        {
+          embedded: true,
+          controlStdin: true,
+          env: this.launcherControlEnvironment(),
+          message: "Sign in with your passkey in Chrome, then return here and choose Continue",
+          successMessage: "Passkey session captured for private Launcher verification",
+          timeoutMs: PASSKEY_LOGIN_TIMEOUT_MS,
+        },
+      );
       const stateStat = fs.lstatSync(storageStatePath);
       if (!stateStat.isFile() || stateStat.size < 1 || stateStat.size > MAX_PASSKEY_STATE_FILE_BYTES) {
         throw new Error("Passkey sign-in returned an invalid storage-state file");
@@ -364,12 +370,14 @@ class RuntimeHost {
       }
       const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
       const capturedAt = typeof marker?.capturedAt === "string" ? Date.parse(marker.capturedAt) : Number.NaN;
-      if (marker?.version !== 1
-        || marker?.captureComplete !== true
-        || marker?.source !== "isolated-normal-browser-profile"
-        || !Number.isFinite(capturedAt)
-        || capturedAt < Date.now() - PASSKEY_LOGIN_TIMEOUT_MS - 60_000
-        || capturedAt > Date.now() + 60_000) {
+      if (
+        marker?.version !== 1 ||
+        marker?.captureComplete !== true ||
+        marker?.source !== "isolated-normal-browser-profile" ||
+        !Number.isFinite(capturedAt) ||
+        capturedAt < Date.now() - PASSKEY_LOGIN_TIMEOUT_MS - 60_000 ||
+        capturedAt > Date.now() + 60_000
+      ) {
         throw new Error("Passkey sign-in did not return completed capture evidence");
       }
       return { storageState: JSON.parse(fs.readFileSync(storageStatePath, "utf8")), cleanup };
@@ -448,19 +456,18 @@ class RuntimeHost {
     if (interactionMode !== "automatic" && interactionMode !== "manual") {
       throw new Error("Browser interaction mode must be automatic or manual");
     }
-    const explicitTunnel = interactionMode === "manual"
-      ? config?.manualTunnel
-      : config?.automaticTunnel;
+    const explicitTunnel = interactionMode === "manual" ? config?.manualTunnel : config?.automaticTunnel;
     const hasExplicitProfiles = Boolean(config?.automaticTunnel || config?.manualTunnel);
-    const tunnel = config?.mode === "full"
-      ? explicitTunnel || (!hasExplicitProfiles && interactionMode === "automatic" ? config.tunnel : null)
-      : null;
+    const tunnel =
+      config?.mode === "full"
+        ? explicitTunnel || (!hasExplicitProfiles && interactionMode === "automatic" ? config.tunnel : null)
+        : null;
     return Boolean(
-      tunnel
-      && /^tunnel_[a-f0-9]{32}$/.test(tunnel.tunnelId)
-      && typeof tunnel.runtimeKeyFile === "string"
-      && path.isAbsolute(tunnel.runtimeKeyFile)
-      && fs.existsSync(tunnel.runtimeKeyFile),
+      tunnel &&
+        /^tunnel_[a-f0-9]{32}$/.test(tunnel.tunnelId) &&
+        typeof tunnel.runtimeKeyFile === "string" &&
+        path.isAbsolute(tunnel.runtimeKeyFile) &&
+        fs.existsSync(tunnel.runtimeKeyFile),
     );
   }
 
@@ -468,8 +475,7 @@ class RuntimeHost {
     if (typeof this.supervisor.configPath !== "string" || !path.isAbsolute(this.supervisor.configPath)) {
       throw new Error("Launcher runtime supervisor has no absolute configuration path for setup rollback");
     }
-    const coreHome = this.supervisor.coreHome
-      || path.dirname(this.supervisor.configPath);
+    const coreHome = this.supervisor.coreHome || path.dirname(this.supervisor.configPath);
     const paths = new Set([
       this.supervisor.configPath,
       path.join(coreHome, "codex", "integration-journal.json"),
@@ -488,30 +494,30 @@ class RuntimeHost {
       paths.add(path.join(this.launchAgentsDir, "io.github.codex-chatgpt-web.daemon.plist"));
       paths.add(path.join(this.launchAgentsDir, "io.github.codex-chatgpt-web.tunnel.plist"));
     }
-    const tunnels = [
-      snapshot.config?.tunnel,
-      snapshot.config?.automaticTunnel,
-      snapshot.config?.manualTunnel,
-    ];
+    const tunnels = [snapshot.config?.tunnel, snapshot.config?.automaticTunnel, snapshot.config?.manualTunnel];
     for (const tunnel of tunnels) {
       if (!tunnel || typeof tunnel !== "object") continue;
       if (typeof tunnel.runtimeKeyFile === "string" && tunnel.runtimeKeyFile) {
         paths.add(tunnel.runtimeKeyFile);
       }
-      if (typeof tunnel.profileDir === "string"
-        && tunnel.profileDir
-        && typeof tunnel.profileName === "string"
-        && tunnel.profileName) {
+      if (
+        typeof tunnel.profileDir === "string" &&
+        tunnel.profileDir &&
+        typeof tunnel.profileName === "string" &&
+        tunnel.profileName
+      ) {
         paths.add(path.join(tunnel.profileDir, `${tunnel.profileName}.yaml`));
       }
     }
-    return [...paths].map(filePath => captureRegularFile(filePath, {
-      followSymlink: filePath === path.join(this.codexHome, "config.toml"),
-    }));
+    return [...paths].map((filePath) =>
+      captureRegularFile(filePath, {
+        followSymlink: filePath === path.join(this.codexHome, "config.toml"),
+      }),
+    );
   }
 
   setupCheckpointChanged(checkpoint) {
-    return checkpoint ? checkpoint.some(snapshot => regularFileChanged(snapshot, this.platform)) : false;
+    return checkpoint ? checkpoint.some((snapshot) => regularFileChanged(snapshot, this.platform)) : false;
   }
 
   restoreSetupCheckpoint(checkpoint) {
@@ -589,7 +595,9 @@ class RuntimeHost {
     this.supervisor.clearState();
     if (stopError || restoreError) {
       const failures = [
-        stopError ? `stopping the incomplete runtime failed: ${stopError instanceof Error ? stopError.message : String(stopError)}` : null,
+        stopError
+          ? `stopping the incomplete runtime failed: ${stopError instanceof Error ? stopError.message : String(stopError)}`
+          : null,
         restoreError ? (restoreError instanceof Error ? restoreError.message : String(restoreError)) : null,
       ].filter(Boolean);
       throw new Error(failures.join("; "));
@@ -599,9 +607,7 @@ class RuntimeHost {
 
   async run(name, args, options = {}) {
     if (this.active) throw new Error(`Another launcher operation is active: ${this.active}`);
-    if (this.activeChild
-      && this.activeChild.exitCode === null
-      && this.activeChild.signalCode === null) {
+    if (this.activeChild && this.activeChild.exitCode === null && this.activeChild.signalCode === null) {
       throw new Error("A previous launcher operation process is still running");
     }
     this.activeChild = null;
@@ -610,15 +616,16 @@ class RuntimeHost {
     }
     this.active = name;
     this.publishOperation?.({ name, status: "running", message: options.message || name });
-    this.logger.info("runtime.operation_started", { name, args: args.map((arg) => /key|token/i.test(arg) ? "[redacted]" : arg) });
+    this.logger.info("runtime.operation_started", {
+      name,
+      args: args.map((arg) => (/key|token/i.test(arg) ? "[redacted]" : arg)),
+    });
     try {
       const invocation = options.embedded
         ? embeddedRuntimeInvocation({ app: this.app, sourceRoot: this.sourceRoot, args })
         : this.command(args);
       const result = await new Promise((resolve, reject) => {
-        const environment = options.environment
-          ? { ...options.environment }
-          : { ...process.env };
+        const environment = options.environment ? { ...options.environment } : { ...process.env };
         Object.assign(environment, {
           CODEX_CHATGPT_WEB_BROWSER_HOST_DESCRIPTOR: this.browserDescriptorPath,
           ...(options.env || {}),
@@ -637,14 +644,24 @@ class RuntimeHost {
         const recordPipeError = (stream) => (error) => {
           pipeErrors.push(`${name} ${stream} pipe failed: ${error instanceof Error ? error.message : String(error)}`);
         };
-        collect(child.stdout, stdout, (line) => {
-          this.logger.info("runtime.stdout", { operation: name, line });
-          this.publishOperation?.({ name, status: "running", message: redactText(line) });
-        }, recordPipeError("stdout"));
-        collect(child.stderr, stderr, (line) => {
-          this.logger.warn("runtime.stderr", { operation: name, line });
-          this.publishOperation?.({ name, status: "running", message: redactText(line) });
-        }, recordPipeError("stderr"));
+        collect(
+          child.stdout,
+          stdout,
+          (line) => {
+            this.logger.info("runtime.stdout", { operation: name, line });
+            this.publishOperation?.({ name, status: "running", message: redactText(line) });
+          },
+          recordPipeError("stdout"),
+        );
+        collect(
+          child.stderr,
+          stderr,
+          (line) => {
+            this.logger.warn("runtime.stderr", { operation: name, line });
+            this.publishOperation?.({ name, status: "running", message: redactText(line) });
+          },
+          recordPipeError("stderr"),
+        );
         let settled = false;
         let timedOut = null;
         let terminationTimeout = null;
@@ -663,9 +680,11 @@ class RuntimeHost {
               } catch (error) {
                 settled = true;
                 clearTimers();
-                reject(new Error(
-                  `${timedOut.message}; child process tree termination failed: ${error instanceof Error ? error.message : String(error)}`,
-                ));
+                reject(
+                  new Error(
+                    `${timedOut.message}; child process tree termination failed: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+                );
                 return;
               }
               terminationTimeout = setTimeout(() => {
@@ -675,9 +694,11 @@ class RuntimeHost {
                 } catch (error) {
                   settled = true;
                   clearTimers();
-                  reject(new Error(
-                    `${timedOut.message}; forced child process tree termination failed: ${error instanceof Error ? error.message : String(error)}`,
-                  ));
+                  reject(
+                    new Error(
+                      `${timedOut.message}; forced child process tree termination failed: ${error instanceof Error ? error.message : String(error)}`,
+                    ),
+                  );
                   return;
                 }
                 forceTimeout = setTimeout(() => {
@@ -690,16 +711,12 @@ class RuntimeHost {
             }, options.timeoutMs)
           : null;
         child.once("error", (error) => {
-          const childStillRunning = Number.isInteger(child.pid)
-            && child.exitCode === null
-            && child.signalCode === null;
+          const childStillRunning = Number.isInteger(child.pid) && child.exitCode === null && child.signalCode === null;
           if (this.activeChild === child && !childStillRunning) this.activeChild = null;
           if (settled) return;
           settled = true;
           clearTimers();
-          reject(timedOut
-            ? new Error(`${timedOut.message}; termination failed: ${error.message}`)
-            : error);
+          reject(timedOut ? new Error(`${timedOut.message}; termination failed: ${error.message}`) : error);
         });
         child.once("exit", (code, signal) => {
           if (this.activeChild === child) this.activeChild = null;
@@ -711,9 +728,11 @@ class RuntimeHost {
               terminateOwnedProcessTree(child, "SIGKILL");
               reject(timedOut);
             } catch (error) {
-              reject(new Error(
-                `${timedOut.message}; final process-group cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-              ));
+              reject(
+                new Error(
+                  `${timedOut.message}; final process-group cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+                ),
+              );
             }
             return;
           }
@@ -775,9 +794,10 @@ class RuntimeHost {
       checks.push({
         id: "dev-profile",
         status: config?.purpose === "dev-harness" ? "ok" : "error",
-        message: config?.purpose === "dev-harness"
-          ? "Isolated DEV harness configuration is valid"
-          : "Isolated DEV harness configuration is missing",
+        message:
+          config?.purpose === "dev-harness"
+            ? "Isolated DEV harness configuration is valid"
+            : "Isolated DEV harness configuration is missing",
       });
     } catch (error) {
       checks.push({
@@ -790,9 +810,10 @@ class RuntimeHost {
     checks.push({
       id: "dev-tunnel-credentials",
       status: full && fs.existsSync(config.tunnel.runtimeKeyFile) ? "ok" : "error",
-      message: full && fs.existsSync(config.tunnel.runtimeKeyFile)
-        ? "DEV tunnel credentials are configured"
-        : "DEV Full harness tunnel credentials are not configured",
+      message:
+        full && fs.existsSync(config.tunnel.runtimeKeyFile)
+          ? "DEV tunnel credentials are configured"
+          : "DEV Full harness tunnel credentials are not configured",
     });
     if (full) {
       try {
@@ -820,7 +841,7 @@ class RuntimeHost {
       message: "DEV runtime supervision is tunnel-only and never starts a Responses listener",
     });
     return {
-      ok: checks.every(check => check.status !== "error"),
+      ok: checks.every((check) => check.status !== "error"),
       mode: config?.mode,
       checks,
     };
@@ -891,11 +912,15 @@ class RuntimeHost {
         return result;
       } catch (error) {
         let cleanupError;
-        try { await this.supervisor.stopForSetup(); } catch (caught) { cleanupError = caught; }
+        try {
+          await this.supervisor.stopForSetup();
+        } catch (caught) {
+          cleanupError = caught;
+        }
         if (!cleanupError) throw error;
         throw new Error(
-          `${error instanceof Error ? error.message : String(error)}; stopping the unrouted runtime also failed:`
-          + ` ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          `${error instanceof Error ? error.message : String(error)}; stopping the unrouted runtime also failed:` +
+            ` ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
         );
       }
     } finally {
@@ -950,13 +975,13 @@ class RuntimeHost {
           await this.restoreBridgeRouteWithinOperation(name);
         } catch (routeError) {
           throw new Error(
-            `${error instanceof Error ? error.message : String(error)}; restoring the previous Codex route also failed:`
-            + ` ${routeError instanceof Error ? routeError.message : String(routeError)}`,
+            `${error instanceof Error ? error.message : String(error)}; restoring the previous Codex route also failed:` +
+              ` ${routeError instanceof Error ? routeError.message : String(routeError)}`,
           );
         }
         throw new Error(
-          `${error instanceof Error ? error.message : String(error)}; the previous Codex route was restored,`
-          + " but launcher runtime cleanup did not complete",
+          `${error instanceof Error ? error.message : String(error)}; the previous Codex route was restored,` +
+            " but launcher runtime cleanup did not complete",
         );
       }
       try {
@@ -977,8 +1002,8 @@ class RuntimeHost {
           await this.restoreBridgeRouteWithinOperation(name);
         } catch (routeError) {
           throw new Error(
-            `${error instanceof Error ? error.message : String(error)}; restoring the previous Codex route also failed:`
-            + ` ${routeError instanceof Error ? routeError.message : String(routeError)}`,
+            `${error instanceof Error ? error.message : String(error)}; restoring the previous Codex route also failed:` +
+              ` ${routeError instanceof Error ? routeError.message : String(routeError)}`,
           );
         }
         throw error;
@@ -994,7 +1019,7 @@ class RuntimeHost {
     const existing = this.runtimeConfigSnapshot();
     const mode = existing.mode;
     const interactionMode = existing.configured
-      ? existing.config?.browserInteractionMode ?? this.browserInteractionMode()
+      ? (existing.config?.browserInteractionMode ?? this.browserInteractionMode())
       : this.browserInteractionMode();
     if (!existing.configured && interactionMode === "manual") {
       throw new Error("Zero Risk must be installed through MCP setup because tunnel credentials are required");
@@ -1028,7 +1053,7 @@ class RuntimeHost {
     const existing = this.runtimeConfigSnapshot();
     const mode = existing.mode;
     const interactionMode = existing.configured
-      ? existing.config?.browserInteractionMode ?? this.browserInteractionMode()
+      ? (existing.config?.browserInteractionMode ?? this.browserInteractionMode())
       : "automatic";
     const args = [
       "dev",
@@ -1106,7 +1131,8 @@ class RuntimeHost {
     const args = [
       ...(development ? ["dev", "setup"] : ["setup"]),
       current.mode === "full" ? "--full" : "--browser-only",
-      "--browser-host-descriptor", this.browserDescriptorPath,
+      "--browser-host-descriptor",
+      this.browserDescriptorPath,
       ...this.browserInteractionArgs(),
       "--acknowledge-unofficial",
       ...(development ? [] : ["--replace-codex-route", "--restart-service"]),
@@ -1135,7 +1161,8 @@ class RuntimeHost {
     const args = [
       ...(development ? ["dev", "setup"] : ["setup"]),
       current.mode === "full" ? "--full" : "--browser-only",
-      "--browser-host-descriptor", this.browserDescriptorPath,
+      "--browser-host-descriptor",
+      this.browserDescriptorPath,
       ...this.browserInteractionArgs(),
       "--acknowledge-unofficial",
       ...(development ? [] : ["--replace-codex-route", "--restart-service"]),
@@ -1161,7 +1188,8 @@ class RuntimeHost {
     const args = [
       ...(development ? ["dev", "setup"] : ["setup"]),
       current.mode === "full" ? "--full" : "--browser-only",
-      "--browser-host-descriptor", this.browserDescriptorPath,
+      "--browser-host-descriptor",
+      this.browserDescriptorPath,
       ...this.browserInteractionArgs(),
       "--acknowledge-unofficial",
       ...(development ? [] : ["--replace-codex-route", "--restart-service"]),
@@ -1207,9 +1235,10 @@ class RuntimeHost {
         : `Default Zero Risk model restored${this.launcherProfile === "production" ? "; restart Codex" : ""}`,
       timeoutMs: CORE_SETUP_TIMEOUT_MS,
     };
-    const result = this.launcherProfile === "development"
-      ? await this.runDevSetup("zero-risk-pro", args, options)
-      : await this.runSetup("zero-risk-pro", args, options);
+    const result =
+      this.launcherProfile === "development"
+        ? await this.runDevSetup("zero-risk-pro", args, options)
+        : await this.runSetup("zero-risk-pro", args, options);
     return { ...result, mode: current.mode, enabled: enabled === true };
   }
 
@@ -1218,30 +1247,31 @@ class RuntimeHost {
     if (this.currentOperation()) throw new Error(`Another launcher operation is active: ${this.currentOperation()}`);
     const existing = this.runtimeConfigSnapshot();
     const currentVersion = this.app.getVersion();
-    const connectorMigrationRequired = existing.mode === "full"
-      && isLegacyConnectorName(validateConnectorName(existing.config?.appName));
+    const connectorMigrationRequired =
+      existing.mode === "full" && isLegacyConnectorName(validateConnectorName(existing.config?.appName));
     const interactionMode = existing.config?.browserInteractionMode ?? "automatic";
-    const expectedTunnelProfile = interactionMode === "manual"
-      ? "codex-chatgpt-web-zero-risk"
-      : "codex-chatgpt-web";
-    const expectedKeyFile = interactionMode === "manual"
-      ? "tunnel-runtime-zero-risk.key"
-      : "tunnel-runtime-automatic.key";
-    const explicitTunnel = interactionMode === "manual"
-      ? existing.config?.manualTunnel
-      : existing.config?.automaticTunnel;
+    const expectedTunnelProfile = interactionMode === "manual" ? "codex-chatgpt-web-zero-risk" : "codex-chatgpt-web";
+    const expectedKeyFile =
+      interactionMode === "manual" ? "tunnel-runtime-zero-risk.key" : "tunnel-runtime-automatic.key";
+    const explicitTunnel =
+      interactionMode === "manual" ? existing.config?.manualTunnel : existing.config?.automaticTunnel;
     const activeTunnel = existing.config?.tunnel;
-    const tunnelProfileMigrationRequired = existing.mode === "full" && Boolean(activeTunnel) && Boolean(
-      !explicitTunnel
-      || explicitTunnel.tunnelId !== activeTunnel.tunnelId
-      || activeTunnel.profileName !== expectedTunnelProfile
-      || activeTunnel.alias !== expectedTunnelProfile
-      || path.basename(activeTunnel.runtimeKeyFile) !== expectedKeyFile
-    );
-    if (existing.owner !== "launcher"
-      || (existing.config?.releaseVersion === currentVersion
-        && !connectorMigrationRequired
-        && !tunnelProfileMigrationRequired)) {
+    const tunnelProfileMigrationRequired =
+      existing.mode === "full" &&
+      Boolean(activeTunnel) &&
+      Boolean(
+        !explicitTunnel ||
+          explicitTunnel.tunnelId !== activeTunnel.tunnelId ||
+          activeTunnel.profileName !== expectedTunnelProfile ||
+          activeTunnel.alias !== expectedTunnelProfile ||
+          path.basename(activeTunnel.runtimeKeyFile) !== expectedKeyFile,
+      );
+    if (
+      existing.owner !== "launcher" ||
+      (existing.config?.releaseVersion === currentVersion &&
+        !connectorMigrationRequired &&
+        !tunnelProfileMigrationRequired)
+    ) {
       return { updated: false };
     }
     const args = [
@@ -1304,17 +1334,12 @@ class RuntimeHost {
     }
     const secretsDir = path.join(this.app.getPath("userData"), "secrets");
     fs.mkdirSync(secretsDir, { recursive: true, mode: 0o700 });
-    try { fs.chmodSync(secretsDir, 0o700); } catch {}
+    try {
+      fs.chmodSync(secretsDir, 0o700);
+    } catch {}
     const keyPath = path.join(secretsDir, `runtime-key-${randomBytes(16).toString("hex")}.tmp`);
     fs.writeFileSync(keyPath, runtimeKey.trim(), { flag: "wx", mode: 0o600 });
-    args.push(
-      "--tunnel-id",
-      tunnelId,
-      "--runtime-key-file",
-      keyPath,
-      "--acknowledge-unofficial",
-      "--restart-service",
-    );
+    args.push("--tunnel-id", tunnelId, "--runtime-key-file", keyPath, "--acknowledge-unofficial", "--restart-service");
     return this.runSetup("mcp-setup", args, {
       message: "Connecting the native Codex harness",
       successMessage: "Local MCP tools are ready",
@@ -1355,7 +1380,9 @@ class RuntimeHost {
     }
     const secretsDir = path.join(this.app.getPath("userData"), "secrets");
     fs.mkdirSync(secretsDir, { recursive: true, mode: 0o700 });
-    try { fs.chmodSync(secretsDir, 0o700); } catch {}
+    try {
+      fs.chmodSync(secretsDir, 0o700);
+    } catch {}
     const keyPath = path.join(secretsDir, `runtime-key-${randomBytes(16).toString("hex")}.tmp`);
     fs.writeFileSync(keyPath, runtimeKey.trim(), { flag: "wx", mode: 0o600 });
     args.push("--tunnel-id", tunnelId, "--runtime-key-file", keyPath);
@@ -1392,18 +1419,18 @@ class RuntimeHost {
     ];
     if (current.config?.autoApproveToolCalls === true) args.push("--auto-approve-tool-calls");
     const options = {
-      message: mode === "manual"
-        ? "Enabling Zero Risk"
-        : "Enabling automatic browser interaction",
-      successMessage: mode === "manual"
-        ? `Zero Risk enabled${this.launcherProfile === "production" ? "; restart Codex" : ""}`
-        : `Automatic browser interaction enabled${this.launcherProfile === "production" ? "; restart Codex" : ""}`,
+      message: mode === "manual" ? "Enabling Zero Risk" : "Enabling automatic browser interaction",
+      successMessage:
+        mode === "manual"
+          ? `Zero Risk enabled${this.launcherProfile === "production" ? "; restart Codex" : ""}`
+          : `Automatic browser interaction enabled${this.launcherProfile === "production" ? "; restart Codex" : ""}`,
       timeoutMs: current.mode === "full" ? MCP_SETUP_TIMEOUT_MS : CORE_SETUP_TIMEOUT_MS,
       afterRuntimeReady,
     };
-    const result = this.launcherProfile === "development"
-      ? await this.runDevSetup("browser-interaction-mode", args, options)
-      : await this.runSetup("browser-interaction-mode", args, options);
+    const result =
+      this.launcherProfile === "development"
+        ? await this.runDevSetup("browser-interaction-mode", args, options)
+        : await this.runSetup("browser-interaction-mode", args, options);
     return { configured: true, mode, stdout: result.stdout };
   }
 
@@ -1441,7 +1468,9 @@ class RuntimeHost {
       const result = await this.run(name, args, options);
       const runtime = await this.supervisor.startIfConfigured();
       if (runtime.status !== "ready") {
-        throw new Error(`Setup completed, but the launcher-owned runtime is ${runtime.status}: ${runtime.detail || "not ready"}`);
+        throw new Error(
+          `Setup completed, but the launcher-owned runtime is ${runtime.status}: ${runtime.detail || "not ready"}`,
+        );
       }
       await options.afterRuntimeReady?.();
       return result;

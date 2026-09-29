@@ -93,17 +93,23 @@ function updateLinux(job) {
   installLinuxFile(job.source, nextTarget);
   installLinuxFile(job.runnerSource, runner);
   const wrapperNext = `${wrapper}.updating-${process.pid}`;
-  fs.writeFileSync(wrapperNext, [
-    "#!/bin/sh",
-    "set -eu",
-    `export CODEX_WEB_GPT_LAUNCHER_EXECUTABLE=${shellQuote(wrapper)}`,
-    `export CODEX_WEB_GPT_APPIMAGE=${shellQuote(nextTarget)}`,
-    `exec ${shellQuote(runner)} ${shellQuote(nextTarget)} "$@"`,
-    "",
-  ].join("\n"), { mode: 0o755 });
+  fs.writeFileSync(
+    wrapperNext,
+    [
+      "#!/bin/sh",
+      "set -eu",
+      `export CODEX_WEB_GPT_LAUNCHER_EXECUTABLE=${shellQuote(wrapper)}`,
+      `export CODEX_WEB_GPT_APPIMAGE=${shellQuote(nextTarget)}`,
+      `exec ${shellQuote(runner)} ${shellQuote(nextTarget)} "$@"`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
   fs.renameSync(wrapperNext, wrapper);
-  if (path.dirname(job.target) !== path.dirname(nextTarget)
-    && path.dirname(path.dirname(job.target)) === versionsRoot) {
+  if (
+    path.dirname(job.target) !== path.dirname(nextTarget) &&
+    path.dirname(path.dirname(job.target)) === versionsRoot
+  ) {
     fs.rmSync(path.dirname(job.target), { recursive: true, force: true });
   }
   launch(wrapper);
@@ -133,7 +139,9 @@ async function main() {
     else if (job.platform === "linux") updateLinux(job);
     else throw new Error(`Unsupported update platform: ${job.platform}`);
     appendLog(job, `v${job.version} installed and relaunched`);
-    try { fs.rmSync(job.tempRoot, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(job.tempRoot, { recursive: true, force: true });
+    } catch {}
   } catch (error) {
     appendLog(job, `update failed: ${error instanceof Error ? error.stack || error.message : String(error)}`);
     relaunchExisting(job);

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { estimateTokens } from "../../../lib/token-estimate";
+import { withoutRetiredTurnHandles } from "./sanitization";
 import {
   CHATGPT_BIGGER_CONTEXT_PARTS,
   type ChatGptWebMultipartPartCount,
@@ -9,7 +10,6 @@ import {
   type MultipartContextRecord,
   type MultipartRecordWeight,
 } from "./types";
-import { withoutRetiredTurnHandles } from "./sanitization";
 
 export function isChatGptWebMultipartPartCount(value: number): value is ChatGptWebMultipartPartCount {
   return value === 2 || value === CHATGPT_BIGGER_CONTEXT_PARTS;
@@ -31,10 +31,10 @@ export function formatChatGptWebMultipartStage(
 ): ChatGptWebMultipartStage {
   assertMultipartTransactionId(transactionId);
   if (
-    !Number.isInteger(partIndex)
-    || partIndex < 1
-    || partIndex > totalParts
-    || !isChatGptWebMultipartPartCount(totalParts)
+    !Number.isInteger(partIndex) ||
+    partIndex < 1 ||
+    partIndex > totalParts ||
+    !isChatGptWebMultipartPartCount(totalParts)
   ) {
     throw new Error("ChatGPT multipart stage index is invalid");
   }
@@ -64,18 +64,15 @@ export function formatChatGptWebMultipartStage(
   return { text, acknowledgement, sha256 };
 }
 
-export function formatChatGptWebMultipartCommit(
-  multipart: ChatGptWebMultipartPrompt,
-  transactionId: string,
-): string {
+export function formatChatGptWebMultipartCommit(multipart: ChatGptWebMultipartPrompt, transactionId: string): string {
   assertMultipartTransactionId(transactionId);
   const totalParts = multipart.parts.length;
   if (!isChatGptWebMultipartPartCount(totalParts)) {
     throw new Error("ChatGPT multipart commit requires two or six context parts");
   }
-  const manifest = multipart.parts.map((payload, index) => (
-    `${index + 1}/${totalParts}:${createHash("sha256").update(payload).digest("hex")}`
-  )).join(" ");
+  const manifest = multipart.parts
+    .map((payload, index) => `${index + 1}/${totalParts}:${createHash("sha256").update(payload).digest("hex")}`)
+    .join(" ");
   const acknowledgedParts = totalParts - 1;
   const finalPayload = multipart.parts[totalParts - 1]!;
   return [
@@ -111,10 +108,8 @@ function partitionMultipartRecordWeights(
 ): number[] {
   // A fixed-point fraction of each part's own remaining budget. One step is less than one token.
   const scale = 1_000_000;
-  const load = (part: number, tokens: number, chars: number): number => Math.max(
-    Math.ceil(tokens * scale / budgets[part]!.tokens),
-    Math.ceil(chars * scale / budgets[part]!.chars),
-  );
+  const load = (part: number, tokens: number, chars: number): number =>
+    Math.max(Math.ceil((tokens * scale) / budgets[part]!.tokens), Math.ceil((chars * scale) / budgets[part]!.chars));
   let lower = 0;
   let totalTokens = 0;
   let totalChars = 0;
@@ -164,17 +159,21 @@ export function partitionMultipartContext(
   const weights = records.map(multipartRecordWeight);
   const boundaries = partitionMultipartRecordWeights(weights, budgets);
   let offset = 0;
-  const groups = boundaries.map(end => {
+  const groups = boundaries.map((end) => {
     const group = records.slice(offset, end);
     offset = end;
     return group;
   });
   if (offset !== records.length) throw new Error("ChatGPT multipart context partition lost records");
-  const payloads = groups.map((group, index) => withoutRetiredTurnHandles(JSON.stringify({
-    version: 1,
-    part_index: index + 1,
-    total_parts: totalParts,
-    records: group,
-  })));
+  const payloads = groups.map((group, index) =>
+    withoutRetiredTurnHandles(
+      JSON.stringify({
+        version: 1,
+        part_index: index + 1,
+        total_parts: totalParts,
+        records: group,
+      }),
+    ),
+  );
   return payloads;
 }

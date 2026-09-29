@@ -5,10 +5,7 @@ import {
   LEGACY_CHATGPT_CONNECTOR_NAMES,
   legacyChatGptConnectorMigrationMessage,
 } from "../../../config";
-import {
-  withBrowserTurnAbort,
-  withChatGptBrowserObservationTimeout,
-} from "./suspension-clock";
+import { withBrowserTurnAbort, withChatGptBrowserObservationTimeout } from "./suspension-clock";
 
 export const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
 
@@ -43,20 +40,16 @@ export async function chatGptRowIsHighlighted(
   }
 }
 
-
 /**
  * Resolves the composer locator matching an active connector control by appName or its slug.
  */
-export function chatGptSelectedConnectorControl(
-  composer: Locator,
-  appName: string,
-): Locator {
+export function chatGptSelectedConnectorControl(composer: Locator, appName: string): Locator {
   const slug = appName.toLowerCase().replace(/\s+/g, "-");
   return composer
     .locator(
-      `[data-id^="plugin:"][data-keyword=${JSON.stringify(appName)}], `
-      + `[app-mention-display-name=${JSON.stringify(appName)}], `
-      + `[data-prompt-link-label=${JSON.stringify(`$${slug}`)}]`
+      `[data-id^="plugin:"][data-keyword=${JSON.stringify(appName)}], ` +
+        `[app-mention-display-name=${JSON.stringify(appName)}], ` +
+        `[data-prompt-link-label=${JSON.stringify(`$${slug}`)}]`,
     )
     .filter({ visible: true });
 }
@@ -72,16 +65,21 @@ export async function chatGptConnectorIsSelected(
 ): Promise<boolean> {
   const selected = chatGptSelectedConnectorControl(composer, appName);
   const keywords = await withBrowserTurnAbort(
-    withChatGptBrowserObservationTimeout(selected.evaluateAll(elements => (
-      elements.map(element => element.getAttribute("data-keyword")
-        || element.getAttribute("app-mention-display-name")
-        || element.getAttribute("data-prompt-link-label")
-        || "")
-    ))),
+    withChatGptBrowserObservationTimeout(
+      selected.evaluateAll((elements) =>
+        elements.map(
+          (element) =>
+            element.getAttribute("data-keyword") ||
+            element.getAttribute("app-mention-display-name") ||
+            element.getAttribute("data-prompt-link-label") ||
+            "",
+        ),
+      ),
+    ),
     abortSignal,
   );
   const slug = `$${appName.toLowerCase().replace(/\s+/g, "-")}`;
-  const exactMatches = keywords.filter(k => k === appName || k === slug).length;
+  const exactMatches = keywords.filter((k) => k === appName || k === slug).length;
   if (exactMatches > 1) {
     throw new Error(`ChatGPT composer exposed duplicate ${JSON.stringify(appName)} connector selections`);
   }
@@ -107,8 +105,8 @@ export async function chatGptConnectorMentionRowTitles(
     texts = [];
   }
   return texts
-    .map(text => (text.split("\n")[0] ?? "").replace(/\s+/g, " ").trim())
-    .filter(title => title.length > 0);
+    .map((text) => (text.split("\n")[0] ?? "").replace(/\s+/g, " ").trim())
+    .filter((title) => title.length > 0);
 }
 
 export interface ChatGptConnectorMentionFailureOptions {
@@ -134,7 +132,7 @@ export async function chatGptConnectorMentionFailure(
   if (page && typeof page.locator === "function") {
     try {
       const container = page.locator(
-        '[role="listbox"], [data-testid="mention-menu"], [data-radix-popper-content-wrapper], div.__menu, [class*="suggestionMenu"], .composer-home-top-menu'
+        '[role="listbox"], [data-testid="mention-menu"], [data-radix-popper-content-wrapper], div.__menu, [class*="suggestionMenu"], .composer-home-top-menu',
       );
       if (typeof container?.count === "function") {
         isMentionMenuOpen = (await container.count().catch(() => 0)) > 0;
@@ -145,24 +143,28 @@ export async function chatGptConnectorMentionFailure(
   }
 
   const titles = isMentionMenuOpen
-    ? (options?.fetchRowTitles
-        ? await options.fetchRowTitles(menuRows, abortSignal)
-        : await chatGptConnectorMentionRowTitles(menuRows, abortSignal))
+    ? options?.fetchRowTitles
+      ? await options.fetchRowTitles(menuRows, abortSignal)
+      : await chatGptConnectorMentionRowTitles(menuRows, abortSignal)
     : [];
 
   if (titles.length === 0 || !isMentionMenuOpen) {
     return `ChatGPT connector menu did not open after ${triggerAttempts} complete mention trigger attempt(s)`;
   }
   if (appName === CHATGPT_CONNECTOR_NAME && titles.includes(DEV_CHATGPT_CONNECTOR_NAME)) {
-    return `ChatGPT exposes the isolated DEV connector ${JSON.stringify(DEV_CHATGPT_CONNECTOR_NAME)},`
-      + ` but production requires a separate connector named ${JSON.stringify(CHATGPT_CONNECTOR_NAME)};`
-      + ` create ${JSON.stringify(CHATGPT_CONNECTOR_NAME)} against the production tunnel and leave the DEV connector unchanged`;
+    return (
+      `ChatGPT exposes the isolated DEV connector ${JSON.stringify(DEV_CHATGPT_CONNECTOR_NAME)},` +
+      ` but production requires a separate connector named ${JSON.stringify(CHATGPT_CONNECTOR_NAME)};` +
+      ` create ${JSON.stringify(CHATGPT_CONNECTOR_NAME)} against the production tunnel and leave the DEV connector unchanged`
+    );
   }
   if (appName === CHATGPT_CONNECTOR_NAME && !titles.includes(CHATGPT_CONNECTOR_NAME)) {
-    const legacyName = LEGACY_CHATGPT_CONNECTOR_NAMES.find(name => titles.includes(name));
+    const legacyName = LEGACY_CHATGPT_CONNECTOR_NAMES.find((name) => titles.includes(name));
     if (legacyName) return legacyChatGptConnectorMigrationMessage(legacyName);
   }
-  return `ChatGPT connector menu opened but exposed no row named ${JSON.stringify(appName)}`
-    + ` after ${triggerAttempts} complete mention trigger attempt(s)`
-    + `; create a connector with that exact name before retrying`;
+  return (
+    `ChatGPT connector menu opened but exposed no row named ${JSON.stringify(appName)}` +
+    ` after ${triggerAttempts} complete mention trigger attempt(s)` +
+    `; create a connector with that exact name before retrying`
+  );
 }

@@ -174,7 +174,6 @@ class RuntimeMetricsCollector {
     this._upstreamErrors++;
   }
 
-
   // --- Structured error logging ---
 
   logStructuredError(entry: Omit<StructuredLogEntry, "recorded_at">): void {
@@ -263,17 +262,25 @@ class RuntimeMetricsCollector {
     counter("janitor_bytes_reclaimed", "Total bytes reclaimed by session janitor", s.janitor_bytes_reclaimed);
     counter("janitor_runs", "Total session janitor run invocations", s.janitor_runs_total);
     counter("janitor_runs_error", "Total session janitor runs that encountered an error", s.janitor_runs_error);
-    gauge("janitor_consecutive_errors", "Consecutive session janitor runs that ended in error", s.janitor_consecutive_errors);
+    gauge(
+      "janitor_consecutive_errors",
+      "Consecutive session janitor runs that ended in error",
+      s.janitor_consecutive_errors,
+    );
     counter("checkpoints_written", "Total checkpoints written to .agents/checkpoints/", s.checkpoints_written);
     counter("compactions", "Total successful context compactions", s.compactions_total);
     counter("structured_errors", "Total structured errors logged", s.structured_errors_total);
     counter("rate_limit_rejections", "Total requests rejected by the rate limiter", s.rate_limit_rejections);
     counter("circuit_breaker_opens", "Total times the circuit breaker transitioned to OPEN", s.circuit_breaker_opens);
-    gauge("circuit_breaker_state", "Current circuit breaker state (0=closed, 1=open, 2=half-open)", s.circuit_breaker_state);
+    gauge(
+      "circuit_breaker_state",
+      "Current circuit breaker state (0=closed, 1=open, 2=half-open)",
+      s.circuit_breaker_state,
+    );
     counter("upstream_errors", "Total upstream call errors recorded", s.upstream_errors);
 
     // Trailing newline required by Prometheus text format
-    return lines.join("\n") + "\n";
+    return `${lines.join("\n")}\n`;
   }
 
   /** Build a unified admin status JSON snapshot */
@@ -290,7 +297,7 @@ class RuntimeMetricsCollector {
     const snap = this.getSnapshot();
     const alerts = this.getAlerts();
     return {
-      status: alerts.some(a => a.severity === "critical") ? "degraded" : alerts.length > 0 ? "warning" : "ok",
+      status: alerts.some((a) => a.severity === "critical") ? "degraded" : alerts.length > 0 ? "warning" : "ok",
       daemon: {
         pid: opts.daemonPid,
         version: opts.version,

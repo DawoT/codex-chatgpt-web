@@ -1,22 +1,19 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { notifyLauncherTurn, readLauncherBrowserHostDescriptor } from "../../launcher-browser-host";
 import {
   RUNTIME_PROTOCOL_VERSION,
+  type RuntimeIdentity,
   runtimeIdentity,
   setObservedHelperDiagnostic,
-  type RuntimeIdentity,
 } from "../../runtime-identity";
-import { notifyLauncherTurn, readLauncherBrowserHostDescriptor } from "../../launcher-browser-host";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
-import type { CompiledChatGptWebPrompt } from "./prompt";
 import type { BrowserTurn, ResolvedBrowserConfig } from "./browser-worker";
-import {
-  parseChatGptLunaCheckpoint,
-  type ChatGptLunaCheckpoint,
-} from "./rolling-checkpoint";
+import type { CompiledChatGptWebPrompt } from "./prompt";
+import { type ChatGptLunaCheckpoint, parseChatGptLunaCheckpoint } from "./rolling-checkpoint";
 
 interface PendingTurn {
   turn: BrowserTurn;
@@ -32,7 +29,13 @@ interface PendingTurn {
 
 type HelperMessage =
   | { type: "ready"; features?: string[]; protocolVersion?: number; identity?: RuntimeIdentity }
-  | { type: "event"; id: string; event: "heartbeat" | "send_activated" | "submitted" | "reasoning" | "commentary" | "text"; text?: string; continuation?: boolean }
+  | {
+      type: "event";
+      id: string;
+      event: "heartbeat" | "send_activated" | "submitted" | "reasoning" | "commentary" | "text";
+      text?: string;
+      continuation?: boolean;
+    }
   | { type: "event"; id: string; event: "tool_batch_observed"; requestId: number; revision: number }
   | { type: "event"; id: string; event: "surface_ownership"; phase: "leased" | "released"; surfaceId: string }
   | { type: "event"; id: string; event: "result_ready"; text: string; textSha256: string }
@@ -61,23 +64,35 @@ function parseHelperMessage(line: string): HelperMessage {
   const message = value as Record<string, unknown>;
   if (message.type === "ready") {
     const features = message.features;
-    if (features !== undefined
-      && (!Array.isArray(features) || features.some(feature => typeof feature !== "string"))) {
+    if (
+      features !== undefined &&
+      (!Array.isArray(features) || features.some((feature) => typeof feature !== "string"))
+    ) {
       throw new Error("Launcher browser helper advertised invalid features");
     }
-    if (message.protocolVersion !== undefined
-      && (!Number.isSafeInteger(message.protocolVersion) || (message.protocolVersion as number) < 1)) {
+    if (
+      message.protocolVersion !== undefined &&
+      (!Number.isSafeInteger(message.protocolVersion) || (message.protocolVersion as number) < 1)
+    ) {
       throw new Error("Launcher browser helper protocol version is invalid");
     }
     let identity: RuntimeIdentity | undefined;
     if (message.identity !== undefined) {
       const value = message.identity as Record<string, unknown>;
-      if (!value || typeof value !== "object" || Array.isArray(value)
-        || value.protocolVersion !== message.protocolVersion
-        || typeof value.generation !== "string" || !/^[a-f0-9-]{36}$/.test(value.generation)
-        || !Number.isSafeInteger(value.pid) || (value.pid as number) <= 0
-        || (value.buildCommit !== null && (typeof value.buildCommit !== "string" || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(value.buildCommit)))
-        || (value.artifactSha256 !== null && (typeof value.artifactSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.artifactSha256)))) {
+      if (
+        !value ||
+        typeof value !== "object" ||
+        Array.isArray(value) ||
+        value.protocolVersion !== message.protocolVersion ||
+        typeof value.generation !== "string" ||
+        !/^[a-f0-9-]{36}$/.test(value.generation) ||
+        !Number.isSafeInteger(value.pid) ||
+        (value.pid as number) <= 0 ||
+        (value.buildCommit !== null &&
+          (typeof value.buildCommit !== "string" || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(value.buildCommit))) ||
+        (value.artifactSha256 !== null &&
+          (typeof value.artifactSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.artifactSha256)))
+      ) {
         throw new Error("Launcher browser helper identity is invalid");
       }
       identity = value as unknown as RuntimeIdentity;
@@ -101,8 +116,12 @@ function parseHelperMessage(line: string): HelperMessage {
       return { type: "event", id: message.id, event, stageIndex: message.stageIndex as number };
     }
     if (event === "tool_batch_observed") {
-      if (!Number.isSafeInteger(message.revision) || (message.revision as number) <= 0
-        || !Number.isSafeInteger(message.requestId) || (message.requestId as number) <= 0) {
+      if (
+        !Number.isSafeInteger(message.revision) ||
+        (message.revision as number) <= 0 ||
+        !Number.isSafeInteger(message.requestId) ||
+        (message.requestId as number) <= 0
+      ) {
         throw new Error("Launcher browser helper tool-boundary operation is invalid");
       }
       return {
@@ -114,9 +133,11 @@ function parseHelperMessage(line: string): HelperMessage {
       };
     }
     if (event === "surface_ownership") {
-      if ((message.phase !== "leased" && message.phase !== "released")
-        || typeof message.surfaceId !== "string"
-        || !/^[A-Za-z0-9_-]{32}$/.test(message.surfaceId)) {
+      if (
+        (message.phase !== "leased" && message.phase !== "released") ||
+        typeof message.surfaceId !== "string" ||
+        !/^[A-Za-z0-9_-]{32}$/.test(message.surfaceId)
+      ) {
         throw new Error("Launcher browser helper surface ownership event is invalid");
       }
       return {
@@ -128,9 +149,11 @@ function parseHelperMessage(line: string): HelperMessage {
       };
     }
     if (event === "result_ready") {
-      if (typeof message.text !== "string"
-        || typeof message.textSha256 !== "string"
-        || createHash("sha256").update(message.text).digest("hex") !== message.textSha256) {
+      if (
+        typeof message.text !== "string" ||
+        typeof message.textSha256 !== "string" ||
+        createHash("sha256").update(message.text).digest("hex") !== message.textSha256
+      ) {
         throw new Error("Launcher browser helper result persistence event is invalid");
       }
       return {
@@ -148,8 +171,12 @@ function parseHelperMessage(line: string): HelperMessage {
       return { type: "event", id: message.id, event, requestId: message.requestId as number };
     }
     if (event === "completion_fence_commit") {
-      if (!Number.isSafeInteger(message.requestId) || (message.requestId as number) <= 0
-        || !Number.isSafeInteger(message.revision) || (message.revision as number) < 0) {
+      if (
+        !Number.isSafeInteger(message.requestId) ||
+        (message.requestId as number) <= 0 ||
+        !Number.isSafeInteger(message.revision) ||
+        (message.revision as number) < 0
+      ) {
         throw new Error("Launcher browser helper completion fence revision is invalid");
       }
       return {
@@ -211,22 +238,20 @@ function parseHelperMessage(line: string): HelperMessage {
     const errorType = message.errorType;
     const code = message.code;
     const retryable = message.retryable;
-    const structured = status !== undefined
-      || errorType !== undefined
-      || code !== undefined
-      || retryable !== undefined;
-    if (typeof errorMessage !== "string"
-      || (errorName !== undefined && typeof errorName !== "string")
-      || (structured && (
-        !Number.isInteger(status)
-        || (status as number) < 400
-        || (status as number) > 599
-        || typeof errorType !== "string"
-        || !errorType
-        || typeof code !== "string"
-        || !code
-        || typeof retryable !== "boolean"
-      ))) {
+    const structured = status !== undefined || errorType !== undefined || code !== undefined || retryable !== undefined;
+    if (
+      typeof errorMessage !== "string" ||
+      (errorName !== undefined && typeof errorName !== "string") ||
+      (structured &&
+        (!Number.isInteger(status) ||
+          (status as number) < 400 ||
+          (status as number) > 599 ||
+          typeof errorType !== "string" ||
+          !errorType ||
+          typeof code !== "string" ||
+          !code ||
+          typeof retryable !== "boolean"))
+    ) {
       throw new Error("Launcher browser helper error payload is invalid");
     }
     return {
@@ -234,12 +259,14 @@ function parseHelperMessage(line: string): HelperMessage {
       id: message.id,
       message: errorMessage,
       ...(errorName !== undefined ? { name: errorName as string } : {}),
-      ...(structured ? {
-        status: status as number,
-        errorType: errorType as string,
-        code: code as string,
-        retryable: retryable as boolean,
-      } : {}),
+      ...(structured
+        ? {
+            status: status as number,
+            errorType: errorType as string,
+            code: code as string,
+            retryable: retryable as boolean,
+          }
+        : {}),
     };
   }
   throw new Error("Launcher browser helper emitted an unknown message type");
@@ -291,10 +318,11 @@ export class LauncherBrowserHelperClient {
     await this.ensureChild();
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
     if (!this.helperFeatures.has("session-operation-id-v2")) {
-      throw new Error("Launcher browser helper does not support isolated operation identities; update or restart the launcher");
+      throw new Error(
+        "Launcher browser helper does not support isolated operation identities; update or restart the launcher",
+      );
     }
-    if ((turn.onSurfaceLeased || turn.onSurfaceReleased)
-      && !this.helperFeatures.has("surface-ownership-ack-v1")) {
+    if ((turn.onSurfaceLeased || turn.onSurfaceReleased) && !this.helperFeatures.has("surface-ownership-ack-v1")) {
       throw new Error("Launcher browser helper lacks surface ownership confirmation; update or restart the launcher");
     }
     if (turn.onResultReady && !this.helperFeatures.has("result-persistence-ack-v1")) {
@@ -319,87 +347,83 @@ export class LauncherBrowserHelperClient {
       throw new Error("Launcher browser helper does not support mission headroom; update or restart the launcher");
     }
     if (turn.compaction && !this.helperFeatures.has("checkpoint-markdown-v2")) {
-      throw new Error("Launcher browser helper does not support the checkpoint Markdown protocol; update or restart the launcher");
+      throw new Error(
+        "Launcher browser helper does not support the checkpoint Markdown protocol; update or restart the launcher",
+      );
     }
     return await new Promise<string>((resolveResult, rejectResult) => {
-        if ([...this.pending.values()].some(pending => pending.turn.traceId === turn.traceId)) {
-          rejectResult(new Error(`Duplicate launcher browser turn: ${turn.traceId}`));
-          return;
-        }
-        const operationId = randomUUID();
-        const pending: PendingTurn = { turn, resolve: resolveResult, reject: rejectResult };
-        this.pending.set(operationId, pending);
-        if (turn.abortSignal) {
-          const abortListener = () => {
-            if (!pending.sent) {
-              this.finishWithError(
-                operationId,
-                new DOMException("ChatGPT web turn aborted", "AbortError"),
-              );
-              return;
-            }
-            void this.send({
-              type: "abort",
-              id: operationId,
-              ...(turn.abortSignal?.reason instanceof ChatGptCompactionHandoffAccepted
-                ? { reason: "compaction_handoff_accepted" }
-                : {}),
-            }).catch(error => {
-              this.finishWithError(
-                operationId,
-                error instanceof Error ? error : new Error(String(error)),
-              );
-            });
-          };
-          pending.abortListener = abortListener;
-          turn.abortSignal.addEventListener("abort", abortListener, { once: true });
-          if (turn.abortSignal.aborted) {
-            abortListener();
+      if ([...this.pending.values()].some((pending) => pending.turn.traceId === turn.traceId)) {
+        rejectResult(new Error(`Duplicate launcher browser turn: ${turn.traceId}`));
+        return;
+      }
+      const operationId = randomUUID();
+      const pending: PendingTurn = { turn, resolve: resolveResult, reject: rejectResult };
+      this.pending.set(operationId, pending);
+      if (turn.abortSignal) {
+        const abortListener = () => {
+          if (!pending.sent) {
+            this.finishWithError(operationId, new DOMException("ChatGPT web turn aborted", "AbortError"));
             return;
           }
+          void this.send({
+            type: "abort",
+            id: operationId,
+            ...(turn.abortSignal?.reason instanceof ChatGptCompactionHandoffAccepted
+              ? { reason: "compaction_handoff_accepted" }
+              : {}),
+          }).catch((error) => {
+            this.finishWithError(operationId, error instanceof Error ? error : new Error(String(error)));
+          });
+        };
+        pending.abortListener = abortListener;
+        turn.abortSignal.addEventListener("abort", abortListener, { once: true });
+        if (turn.abortSignal.aborted) {
+          abortListener();
+          return;
         }
-        // Setting this before the synchronous write call makes an abort either prevent dispatch or
-        // queue an `abort` after the `run` frame; it can never overtake the run frame in the pipe.
-        pending.sent = true;
-        const progressForwarding = new AbortController();
-        pending.progressForwarding = progressForwarding;
-        void this.send({
-          type: "run",
-          id: operationId,
-          config: {
-            appName: this.config.appName,
-            browserHostDescriptorPath: this.config.browserHostDescriptorPath!,
-            browserDiagnosticsPath: this.config.browserDiagnosticsPath,
-            turnTimeoutMs: this.config.turnTimeoutMs,
-            autoApproveToolCalls: this.config.autoApproveToolCalls,
-            useSavedChats: this.config.useSavedChats,
-          },
-          turn: {
-            traceId: turn.traceId,
-            modelId: turn.modelId,
-            reasoning: turn.reasoning,
-            ...(turn.modelFamily ? { modelFamily: turn.modelFamily } : {}),
-            capabilities: turn.capabilities,
-            ...(turn.nativeConnector ? { nativeConnector: true } : {}),
-            ...(turn.prepareResume ? { resumeAvailable: true } : {}),
-            ...(turn.retainConversation ? { retainConversation: true } : {}),
-            ...(turn.requireRetainedConversation ? { requireRetainedConversation: true } : {}),
-            ...(turn.conversationKey ? { conversationKey: turn.conversationKey } : {}),
-            ...(turn.compaction ? { compaction: true } : {}),
-            ...(turn.pendingMissionRequirements ? { pendingMissionRequirements: true } : {}),
-            ...(turn.captureLunaCheckpoint ? { captureLunaCheckpoint: true } : {}),
-            ...(turn.externalProgress ? { externalProgress: true } : {}),
-            ...(turn.onSurfaceLeased && turn.onSurfaceReleased ? { surfaceOwnership: true } : {}),
-            ...(turn.onResultReady ? { resultPersistence: true } : {}),
-          },
+      }
+      // Setting this before the synchronous write call makes an abort either prevent dispatch or
+      // queue an `abort` after the `run` frame; it can never overtake the run frame in the pipe.
+      pending.sent = true;
+      const progressForwarding = new AbortController();
+      pending.progressForwarding = progressForwarding;
+      void this.send({
+        type: "run",
+        id: operationId,
+        config: {
+          appName: this.config.appName,
+          browserHostDescriptorPath: this.config.browserHostDescriptorPath!,
+          browserDiagnosticsPath: this.config.browserDiagnosticsPath,
+          turnTimeoutMs: this.config.turnTimeoutMs,
+          autoApproveToolCalls: this.config.autoApproveToolCalls,
+          useSavedChats: this.config.useSavedChats,
+        },
+        turn: {
+          traceId: turn.traceId,
+          modelId: turn.modelId,
+          reasoning: turn.reasoning,
+          ...(turn.modelFamily ? { modelFamily: turn.modelFamily } : {}),
+          capabilities: turn.capabilities,
+          ...(turn.nativeConnector ? { nativeConnector: true } : {}),
+          ...(turn.prepareResume ? { resumeAvailable: true } : {}),
+          ...(turn.retainConversation ? { retainConversation: true } : {}),
+          ...(turn.requireRetainedConversation ? { requireRetainedConversation: true } : {}),
+          ...(turn.conversationKey ? { conversationKey: turn.conversationKey } : {}),
+          ...(turn.compaction ? { compaction: true } : {}),
+          ...(turn.pendingMissionRequirements ? { pendingMissionRequirements: true } : {}),
+          ...(turn.captureLunaCheckpoint ? { captureLunaCheckpoint: true } : {}),
+          ...(turn.externalProgress ? { externalProgress: true } : {}),
+          ...(turn.onSurfaceLeased && turn.onSurfaceReleased ? { surfaceOwnership: true } : {}),
+          ...(turn.onResultReady ? { resultPersistence: true } : {}),
+        },
+      })
+        // Only mirror once the run frame is on the wire, so the helper never sees progress for a
+        // turn it has not been told about and cannot accumulate state for unknown ids.
+        .then(() => {
+          if (!progressForwarding.signal.aborted) this.forwardProgress(turn, operationId, progressForwarding.signal);
         })
-          // Only mirror once the run frame is on the wire, so the helper never sees progress for a
-          // turn it has not been told about and cannot accumulate state for unknown ids.
-          .then(() => {
-            if (!progressForwarding.signal.aborted) this.forwardProgress(turn, operationId, progressForwarding.signal);
-          })
-          .catch(error => this.finishWithError(operationId, error instanceof Error ? error : new Error(String(error))));
-      });
+        .catch((error) => this.finishWithError(operationId, error instanceof Error ? error : new Error(String(error))));
+    });
   }
 
   async releaseConversationContextPressure(conversationKey: string): Promise<void> {
@@ -409,7 +433,9 @@ export class LauncherBrowserHelperClient {
     if (!this.child || !this.ready) return;
     await this.ready;
     if (!this.helperFeatures.has("context-pressure-release")) {
-      throw new Error("Launcher browser helper does not support context pressure release; update or restart the launcher");
+      throw new Error(
+        "Launcher browser helper does not support context pressure release; update or restart the launcher",
+      );
     }
     await this.send({ type: "release_context_pressure", conversationKey });
   }
@@ -433,43 +459,41 @@ export class LauncherBrowserHelperClient {
   }
 
   private async ensureChild(): Promise<void> {
-    if (this.child
-      && !this.child.killed
-      && this.child.exitCode === null
-      && this.child.signalCode === null
-      && this.ready) {
+    if (
+      this.child &&
+      !this.child.killed &&
+      this.child.exitCode === null &&
+      this.child.signalCode === null &&
+      this.ready
+    ) {
       return this.ready;
     }
     const descriptor = readLauncherBrowserHostDescriptor(this.config.browserHostDescriptorPath!);
     const scriptPath = this.config.browserHelperScriptPath ?? this.bundledHelperScript() ?? descriptor.helper.script;
     this.expectedHelperArtifactSha256 = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
-    const child = spawn(
-      descriptor.helper.executable,
-      [scriptPath],
-      {
-        env: {
-          ...process.env,
-          ELECTRON_RUN_AS_NODE: "1",
-          CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS: "1",
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
+    const child = spawn(descriptor.helper.executable, [scriptPath], {
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+        CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS: "1",
       },
-    );
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
     this.child = child;
     this.ready = new Promise<void>((resolveReady, rejectReady) => {
       this.readyResolve = resolveReady;
       this.readyReject = rejectReady;
     });
     const output = createInterface({ input: child.stdout });
-    output.on("line", line => this.handleLine(child, line));
+    output.on("line", (line) => this.handleLine(child, line));
     const errors = createInterface({ input: child.stderr });
-    errors.on("line", line => console.info(`[chatgpt-web-helper] ${line}`));
+    errors.on("line", (line) => console.info(`[chatgpt-web-helper] ${line}`));
     const failChild = (error: Error) => {
       const owned = this.child === child;
       this.handleExit(child, error);
       if (owned && Number.isInteger(child.pid) && child.exitCode === null && child.signalCode === null) {
-        void this.terminateChild(child, 0).catch(cleanupError => {
+        void this.terminateChild(child, 0).catch((cleanupError) => {
           console.error(
             `[chatgpt-web-helper] process-error cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
           );
@@ -477,12 +501,17 @@ export class LauncherBrowserHelperClient {
       }
     };
     child.once("error", failChild);
-    child.stdin.once("error", error => failChild(new Error(
-      `Launcher browser helper input failed: ${error instanceof Error ? error.message : String(error)}`,
-    )));
-    child.once("exit", (code, signal) => this.handleExit(child, new Error(
-      `Launcher browser helper exited ${signal ? `from signal ${signal}` : `with status ${code ?? 1}`}`,
-    )));
+    child.stdin.once("error", (error) =>
+      failChild(
+        new Error(`Launcher browser helper input failed: ${error instanceof Error ? error.message : String(error)}`),
+      ),
+    );
+    child.once("exit", (code, signal) =>
+      this.handleExit(
+        child,
+        new Error(`Launcher browser helper exited ${signal ? `from signal ${signal}` : `with status ${code ?? 1}`}`),
+      ),
+    );
     const timer = setTimeout(() => {
       if (this.child === child) this.readyReject?.(new Error("Launcher browser helper did not become ready"));
     }, 15_000);
@@ -511,20 +540,26 @@ export class LauncherBrowserHelperClient {
   private handleLine(child: ChildProcessWithoutNullStreams, line: string): void {
     if (this.child !== child) return;
     let message: HelperMessage;
-    try { message = parseHelperMessage(line); }
-    catch (error) {
+    try {
+      message = parseHelperMessage(line);
+    } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       this.handleExit(child, new Error(`Launcher browser helper emitted invalid protocol data: ${detail}`));
-      void this.terminateChild(child, 0).catch(error => {
-        console.error(`[chatgpt-web-helper] invalid-protocol cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+      void this.terminateChild(child, 0).catch((error) => {
+        console.error(
+          `[chatgpt-web-helper] invalid-protocol cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
       });
       return;
     }
     if (message.type === "ready") {
       if (message.protocolVersion !== undefined && message.protocolVersion !== RUNTIME_PROTOCOL_VERSION) {
-        this.handleExit(child, new Error(
-          `Incompatible helper protocol ${message.protocolVersion}; daemon requires ${RUNTIME_PROTOCOL_VERSION}`,
-        ));
+        this.handleExit(
+          child,
+          new Error(
+            `Incompatible helper protocol ${message.protocolVersion}; daemon requires ${RUNTIME_PROTOCOL_VERSION}`,
+          ),
+        );
         void this.terminateChild(child, 0).catch(() => {});
         return;
       }
@@ -533,17 +568,22 @@ export class LauncherBrowserHelperClient {
         void this.terminateChild(child, 0).catch(() => {});
         return;
       }
-      if (message.identity && (message.identity.pid !== child.pid
-        || message.identity.artifactSha256 !== this.expectedHelperArtifactSha256)) {
-        this.handleExit(child, new Error("Launcher browser helper artifact hash or process identity disagrees with the launched helper"));
+      if (
+        message.identity &&
+        (message.identity.pid !== child.pid || message.identity.artifactSha256 !== this.expectedHelperArtifactSha256)
+      ) {
+        this.handleExit(
+          child,
+          new Error("Launcher browser helper artifact hash or process identity disagrees with the launched helper"),
+        );
         void this.terminateChild(child, 0).catch(() => {});
         return;
       }
-      if (runtimeIdentity.buildCommit !== null
-        && message.identity?.buildCommit !== runtimeIdentity.buildCommit) {
-        this.handleExit(child, new Error(
-          `Launcher browser helper build does not match daemon build ${runtimeIdentity.buildCommit}`,
-        ));
+      if (runtimeIdentity.buildCommit !== null && message.identity?.buildCommit !== runtimeIdentity.buildCommit) {
+        this.handleExit(
+          child,
+          new Error(`Launcher browser helper build does not match daemon build ${runtimeIdentity.buildCommit}`),
+        );
         void this.terminateChild(child, 0).catch(() => {});
         return;
       }
@@ -566,9 +606,7 @@ export class LauncherBrowserHelperClient {
     if (message.type === "event") {
       if (message.event === "heartbeat") pending.turn.onHeartbeat?.();
       else if (message.event === "surface_ownership") {
-        const callback = message.phase === "leased"
-          ? pending.turn.onSurfaceLeased
-          : pending.turn.onSurfaceReleased;
+        const callback = message.phase === "leased" ? pending.turn.onSurfaceLeased : pending.turn.onSurfaceReleased;
         if (!/^[A-Za-z0-9_-]{32}$/.test(message.surfaceId) || !callback) {
           this.abortWithLocalFailure(
             message.id,
@@ -577,29 +615,30 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void Promise.resolve().then(() => callback(message.surfaceId)).then(
-          () => {
-            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
-            return this.send({
-              type: "surface_ownership_ack",
-              id: message.id,
-              phase: message.phase,
-              surfaceId: message.surfaceId,
-              accepted: true,
-            });
-          },
-          error => this.abortWithLocalFailure(
-            message.id,
-            error instanceof Error ? error : new Error(String(error)),
-            pending,
-          ),
-        ).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "result_ready") {
+        void Promise.resolve()
+          .then(() => callback(message.surfaceId))
+          .then(
+            () => {
+              if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+              return this.send({
+                type: "surface_ownership_ack",
+                id: message.id,
+                phase: message.phase,
+                surfaceId: message.surfaceId,
+                accepted: true,
+              });
+            },
+            (error) =>
+              this.abortWithLocalFailure(
+                message.id,
+                error instanceof Error ? error : new Error(String(error)),
+                pending,
+              ),
+          )
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "result_ready") {
         if (!pending.turn.onResultReady) {
           this.abortWithLocalFailure(
             message.id,
@@ -608,28 +647,29 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void Promise.resolve().then(() => pending.turn.onResultReady!(message.text)).then(
-          () => {
-            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
-            return this.send({
-              type: "result_ready_ack",
-              id: message.id,
-              textSha256: message.textSha256,
-              accepted: true,
-            });
-          },
-          error => this.abortWithLocalFailure(
-            message.id,
-            error instanceof Error ? error : new Error(String(error)),
-            pending,
-          ),
-        ).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "tool_batch_observed") {
+        void Promise.resolve()
+          .then(() => pending.turn.onResultReady!(message.text))
+          .then(
+            () => {
+              if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+              return this.send({
+                type: "result_ready_ack",
+                id: message.id,
+                textSha256: message.textSha256,
+                accepted: true,
+              });
+            },
+            (error) =>
+              this.abortWithLocalFailure(
+                message.id,
+                error instanceof Error ? error : new Error(String(error)),
+                pending,
+              ),
+          )
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "tool_batch_observed") {
         const progress = pending.turn.externalProgress;
         if (!progress) {
           this.abortWithLocalFailure(
@@ -639,43 +679,41 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void Promise.resolve().then(async () => {
-          const latest = progress.snapshot().lastToolBatchRevision;
-          if (!Number.isSafeInteger(message.revision)
-            || message.revision < 1
-            || message.revision > latest) {
-            throw new Error("ChatGPT tool-boundary acknowledgement has an invalid batch revision");
-          }
-          await pending.turn.onToolBatchObserved?.(message.requestId, message.revision);
-          await progress.acknowledgeToolBatch(message.revision);
-        }).then(
-          () => {
-            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
-            return this.send({
-              type: "tool_batch_observed_ack",
-              id: message.id,
-              requestId: message.requestId,
-              revision: message.revision,
-              accepted: true,
-            });
-          },
-          () => {
-            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
-            return this.send({
-              type: "tool_batch_observed_ack",
-              id: message.id,
-              requestId: message.requestId,
-              revision: message.revision,
-              accepted: false,
-            });
-          },
-        ).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "completion_fence_begin") {
+        void Promise.resolve()
+          .then(async () => {
+            const latest = progress.snapshot().lastToolBatchRevision;
+            if (!Number.isSafeInteger(message.revision) || message.revision < 1 || message.revision > latest) {
+              throw new Error("ChatGPT tool-boundary acknowledgement has an invalid batch revision");
+            }
+            await pending.turn.onToolBatchObserved?.(message.requestId, message.revision);
+            await progress.acknowledgeToolBatch(message.revision);
+          })
+          .then(
+            () => {
+              if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+              return this.send({
+                type: "tool_batch_observed_ack",
+                id: message.id,
+                requestId: message.requestId,
+                revision: message.revision,
+                accepted: true,
+              });
+            },
+            () => {
+              if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+              return this.send({
+                type: "tool_batch_observed_ack",
+                id: message.id,
+                requestId: message.requestId,
+                revision: message.revision,
+                accepted: false,
+              });
+            },
+          )
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "completion_fence_begin") {
         const fence = pending.turn.completionFence;
         if (!fence) {
           this.abortWithLocalFailure(
@@ -685,21 +723,22 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void fence.begin().then(revision => {
-          if (this.pending.get(message.id) !== pending || pending.localFailure || pending.turn.abortSignal?.aborted) return;
-          return this.send({
-            type: "completion_fence_begin_ack",
-            id: message.id,
-            requestId: message.requestId,
-            revision: revision ?? null,
-          });
-        }).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "completion_fence_commit") {
+        void fence
+          .begin()
+          .then((revision) => {
+            if (this.pending.get(message.id) !== pending || pending.localFailure || pending.turn.abortSignal?.aborted)
+              return;
+            return this.send({
+              type: "completion_fence_begin_ack",
+              id: message.id,
+              requestId: message.requestId,
+              revision: revision ?? null,
+            });
+          })
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "completion_fence_commit") {
         const fence = pending.turn.completionFence;
         if (!fence) {
           this.abortWithLocalFailure(
@@ -709,36 +748,39 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void fence.commit(message.revision).then(committed => {
-          if (this.pending.get(message.id) !== pending || pending.localFailure || pending.turn.abortSignal?.aborted) return;
-          return this.send({
-            type: "completion_fence_commit_ack",
-            id: message.id,
-            requestId: message.requestId,
-            committed,
-          });
-        }).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "send_activated") {
-        void Promise.resolve().then(() => pending.turn.onSendActivated?.()).then(() => {
-          if (this.pending.get(message.id) !== pending) return;
-          return this.send({ type: "send_activation_ack", id: message.id });
-        }).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "submitted") pending.turn.onSubmitted?.();
+        void fence
+          .commit(message.revision)
+          .then((committed) => {
+            if (this.pending.get(message.id) !== pending || pending.localFailure || pending.turn.abortSignal?.aborted)
+              return;
+            return this.send({
+              type: "completion_fence_commit_ack",
+              id: message.id,
+              requestId: message.requestId,
+              committed,
+            });
+          })
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "send_activated") {
+        void Promise.resolve()
+          .then(() => pending.turn.onSendActivated?.())
+          .then(() => {
+            if (this.pending.get(message.id) !== pending) return;
+            return this.send({ type: "send_activation_ack", id: message.id });
+          })
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "submitted") pending.turn.onSubmitted?.();
       else if (message.event === "multipart_stage_acknowledged") {
         const multipart = pending.prepared?.multipart;
-        if (!multipart
-          || message.stageIndex >= multipart.parts.length
-          || message.stageIndex !== (pending.acknowledgedMultipartStage ?? 0) + 1) {
+        if (
+          !multipart ||
+          message.stageIndex >= multipart.parts.length ||
+          message.stageIndex !== (pending.acknowledgedMultipartStage ?? 0) + 1
+        ) {
           this.abortWithLocalFailure(
             message.id,
             new Error("Launcher browser helper acknowledged an unexpected multipart stage"),
@@ -747,69 +789,68 @@ export class LauncherBrowserHelperClient {
           return;
         }
         pending.acknowledgedMultipartStage = message.stageIndex;
-        void Promise.resolve().then(() => pending.turn.onMultipartStageAcknowledged?.(message.stageIndex))
-          .catch(error => this.abortWithLocalFailure(
-            message.id,
-            error instanceof Error ? error : new Error(String(error)),
-            pending,
-          ));
-      }
-      else if (message.event === "prepared_selected") {
+        void Promise.resolve()
+          .then(() => pending.turn.onMultipartStageAcknowledged?.(message.stageIndex))
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "prepared_selected") {
         const prepare = message.reused ? pending.turn.prepareResume : pending.turn.prepare;
-        void Promise.resolve().then(() => prepare?.()).then(prepared => {
-          if (!prepared) throw new Error("Launcher browser helper selected an unavailable continuation prompt");
-          if (this.pending.get(message.id) !== pending) {
-            prepared.release();
-            return;
-          }
-          pending.prepared = prepared;
-          if (prepared.multipart && !this.helperFeatures.has("multipart-submission-lifecycle")) {
-            throw new ChatGptWebAdapterError(
-              "Launcher browser helper lacks the multipart submission lifecycle; update or restart the launcher before retrying",
-              {
-                status: 409,
-                errorType: "invalid_request_error",
-                code: "helper_protocol_incompatible",
-                retryable: false,
-              },
-            );
-          }
-          if (prepared.skillFiles?.length && !this.helperFeatures.has("skill-attachments")) {
-            throw new Error("Launcher browser helper does not support skill attachments; update or restart the launcher");
-          }
-          return Promise.resolve(pending.turn.onPreparedSelected?.(message.reused)).then(() => {
-            if (this.pending.get(message.id) !== pending) return;
-            return this.send({
-              type: "prepared_selected_ack",
-              id: message.id,
-              prepared: {
-                text: prepared.text,
-                images: prepared.images,
-                ...(prepared.skillFiles ? { skillFiles: prepared.skillFiles } : {}),
-                ...(prepared.multipart ? { multipart: prepared.multipart } : {}),
-                ...(prepared.trimmedCompactionMessages !== undefined
-                  ? { trimmedCompactionMessages: prepared.trimmedCompactionMessages }
-                  : {}),
-              } satisfies CompiledChatGptWebPrompt,
+        void Promise.resolve()
+          .then(() => prepare?.())
+          .then((prepared) => {
+            if (!prepared) throw new Error("Launcher browser helper selected an unavailable continuation prompt");
+            if (this.pending.get(message.id) !== pending) {
+              prepared.release();
+              return;
+            }
+            pending.prepared = prepared;
+            if (prepared.multipart && !this.helperFeatures.has("multipart-submission-lifecycle")) {
+              throw new ChatGptWebAdapterError(
+                "Launcher browser helper lacks the multipart submission lifecycle; update or restart the launcher before retrying",
+                {
+                  status: 409,
+                  errorType: "invalid_request_error",
+                  code: "helper_protocol_incompatible",
+                  retryable: false,
+                },
+              );
+            }
+            if (prepared.skillFiles?.length && !this.helperFeatures.has("skill-attachments")) {
+              throw new Error(
+                "Launcher browser helper does not support skill attachments; update or restart the launcher",
+              );
+            }
+            return Promise.resolve(pending.turn.onPreparedSelected?.(message.reused)).then(() => {
+              if (this.pending.get(message.id) !== pending) return;
+              return this.send({
+                type: "prepared_selected_ack",
+                id: message.id,
+                prepared: {
+                  text: prepared.text,
+                  images: prepared.images,
+                  ...(prepared.skillFiles ? { skillFiles: prepared.skillFiles } : {}),
+                  ...(prepared.multipart ? { multipart: prepared.multipart } : {}),
+                  ...(prepared.trimmedCompactionMessages !== undefined
+                    ? { trimmedCompactionMessages: prepared.trimmedCompactionMessages }
+                    : {}),
+                } satisfies CompiledChatGptWebPrompt,
+              });
             });
-          });
-        }).catch(error => this.abortWithLocalFailure(
-          message.id,
-          error instanceof Error ? error : new Error(String(error)),
-          pending,
-        ));
-      }
-      else if (message.event === "luna_checkpoint") {
+          })
+          .catch((error) =>
+            this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
+          );
+      } else if (message.event === "luna_checkpoint") {
         if (!pending.turn.captureLunaCheckpoint || !pending.turn.onLunaCheckpoint) {
           this.finishWithError(message.id, new Error("Launcher browser helper emitted an unexpected Luna checkpoint"));
           return;
         }
         pending.turn.onLunaCheckpoint({ checkpoint: message.checkpoint, answerHash: message.answerHash });
-      }
-      else if (message.event === "reasoning" && message.text) {
+      } else if (message.event === "reasoning" && message.text) {
         pending.turn.onReasoningSummary?.(message.text, message.continuation === true);
-      }
-      else if (message.event === "commentary" && message.text) pending.turn.onCommentary?.(message.text, message.continuation === true);
+      } else if (message.event === "commentary" && message.text)
+        pending.turn.onCommentary?.(message.text, message.continuation === true);
       else if (message.event === "text" && message.text) pending.turn.onTextDelta(message.text);
       return;
     }
@@ -818,16 +859,17 @@ export class LauncherBrowserHelperClient {
       if (pending.localFailure) pending.reject(pending.localFailure);
       else pending.resolve(message.text);
     } else if (message.type === "error") {
-      const error = message.status !== undefined
-        ? new ChatGptWebAdapterError(message.message, {
-          status: message.status,
-          errorType: message.errorType!,
-          code: message.code!,
-          retryable: message.retryable!,
-        })
-        : message.name === "AbortError"
-          ? new DOMException(message.message, "AbortError")
-          : new Error(message.message);
+      const error =
+        message.status !== undefined
+          ? new ChatGptWebAdapterError(message.message, {
+              status: message.status,
+              errorType: message.errorType!,
+              code: message.code!,
+              retryable: message.retryable!,
+            })
+          : message.name === "AbortError"
+            ? new DOMException(message.message, "AbortError")
+            : new Error(message.message);
       this.finish(message.id);
       pending.reject(pending.localFailure ?? error);
     }
@@ -836,7 +878,7 @@ export class LauncherBrowserHelperClient {
   private abortWithLocalFailure(id: string, error: Error, pending: PendingTurn): void {
     if (this.pending.get(id) !== pending || pending.localFailure) return;
     pending.localFailure = error;
-    void this.send({ type: "abort", id }).catch(sendError => {
+    void this.send({ type: "abort", id }).catch((sendError) => {
       if (this.pending.get(id) !== pending) return;
       this.finishWithError(
         id,
@@ -859,8 +901,8 @@ export class LauncherBrowserHelperClient {
     if (!progress) return;
     if (!this.helperFeatures.has("progress")) {
       console.warn(
-        `[chatgpt-web] browser turn ${turn.traceId} runs without an MCP progress mirror:`
-        + " the launcher browser helper predates the progress frame",
+        `[chatgpt-web] browser turn ${turn.traceId} runs without an MCP progress mirror:` +
+          " the launcher browser helper predates the progress frame",
       );
       return;
     }
@@ -872,14 +914,14 @@ export class LauncherBrowserHelperClient {
         if (stop.aborted) return;
         await this.send({ type: "progress", id: operationId, snapshot });
       }
-    })().catch(error => {
+    })().catch((error) => {
       // Ending, aborting, or losing the helper stops the mirror by design and is not a fault.
       // Anything else leaves the worker on DOM-only health without saying so, which is exactly the
       // silent degradation this transport exists to remove, so it is surfaced rather than dropped.
       if (stop.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
       console.warn(
-        `[chatgpt-web] browser turn ${turn.traceId} lost its MCP progress mirror:`
-        + ` ${error instanceof Error ? error.message : String(error)}`,
+        `[chatgpt-web] browser turn ${turn.traceId} lost its MCP progress mirror:` +
+          ` ${error instanceof Error ? error.message : String(error)}`,
       );
     });
   }
@@ -926,20 +968,24 @@ export class LauncherBrowserHelperClient {
         message: "Launcher browser helper exited before completing the turn",
       }).then(
         () => this.finishWithError(id, pending.localFailure ?? error),
-        controlError => this.finishWithError(
-          id,
-          new AggregateError(
-            [pending.localFailure ?? error, controlError instanceof Error ? controlError : new Error(String(controlError))],
-            `Launcher browser helper exited and failed to release turn ${id}`,
+        (controlError) =>
+          this.finishWithError(
+            id,
+            new AggregateError(
+              [
+                pending.localFailure ?? error,
+                controlError instanceof Error ? controlError : new Error(String(controlError)),
+              ],
+              `Launcher browser helper exited and failed to release turn ${id}`,
+            ),
           ),
-        ),
       );
     }
   }
 
   private async waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
     if (child.exitCode !== null || child.signalCode !== null) return true;
-    return await new Promise<boolean>(resolveExit => {
+    return await new Promise<boolean>((resolveExit) => {
       let settled = false;
       const finish = (exited: boolean) => {
         if (settled) return;
@@ -967,17 +1013,14 @@ export class LauncherBrowserHelperClient {
     if (!child.kill("SIGKILL") && child.exitCode === null && child.signalCode === null) {
       throw new Error("Launcher browser helper refused forced termination");
     }
-    if (!await this.waitForExit(child, 2_000)) {
+    if (!(await this.waitForExit(child, 2_000))) {
       throw new Error("Launcher browser helper did not exit after forced termination");
     }
   }
 
   private send(message: unknown): Promise<void> {
     const child = this.child;
-    if (!child
-      || child.killed
-      || child.exitCode !== null
-      || child.signalCode !== null) {
+    if (!child || child.killed || child.exitCode !== null || child.signalCode !== null) {
       return Promise.reject(new Error("Launcher browser helper is not running"));
     }
     return this.sendTo(child, message);
@@ -989,7 +1032,7 @@ export class LauncherBrowserHelperClient {
       throw new Error("Launcher browser helper input is closed");
     }
     await new Promise<void>((resolveWrite, rejectWrite) => {
-      child.stdin.write(encoded, error => {
+      child.stdin.write(encoded, (error) => {
         if (error) rejectWrite(error);
         else resolveWrite();
       });

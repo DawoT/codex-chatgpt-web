@@ -43,12 +43,15 @@ class SurfaceAdmission {
     if (this.queue.length > 0) return null;
     const occupants = this.occupants();
     const occupied = occupants.length + this.reservations.size;
-    const ordinary = occupants.filter(value => value !== "reserved").length
-      + [...this.reservations].filter(value => value.kind === "ordinary").length;
+    const ordinary =
+      occupants.filter((value) => value !== "reserved").length +
+      [...this.reservations].filter((value) => value.kind === "ordinary").length;
     const reserved = occupied - ordinary;
-    if (occupied >= MAX_SURFACES
-      || (kind === "ordinary" && ordinary >= MAX_ORDINARY_SURFACES)
-      || (kind === "reserved" && reserved >= MAX_RESERVED_SURFACES)) {
+    if (
+      occupied >= MAX_SURFACES ||
+      (kind === "ordinary" && ordinary >= MAX_ORDINARY_SURFACES) ||
+      (kind === "reserved" && reserved >= MAX_RESERVED_SURFACES)
+    ) {
       return null;
     }
     return this.grant(kind);
@@ -74,16 +77,15 @@ class SurfaceAdmission {
   pump() {
     const occupants = this.occupants();
     let occupied = occupants.length + this.reservations.size;
-    let ordinary = occupants.filter(kind => kind !== "reserved").length
-      + [...this.reservations].filter(reservation => reservation.kind === "ordinary").length;
+    let ordinary =
+      occupants.filter((kind) => kind !== "reserved").length +
+      [...this.reservations].filter((reservation) => reservation.kind === "ordinary").length;
     let reserved = occupied - ordinary;
 
     while (occupied < MAX_SURFACES) {
-      const index = this.queue.findIndex(request => (
-        request.kind === "reserved"
-          ? reserved < MAX_RESERVED_SURFACES
-          : ordinary < MAX_ORDINARY_SURFACES
-      ));
+      const index = this.queue.findIndex((request) =>
+        request.kind === "reserved" ? reserved < MAX_RESERVED_SURFACES : ordinary < MAX_ORDINARY_SURFACES,
+      );
       if (index < 0) return;
       const [request] = this.queue.splice(index, 1);
       request.signal?.removeEventListener("abort", request.onAbort);

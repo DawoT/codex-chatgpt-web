@@ -142,7 +142,10 @@ function firstErrorLine(lines: string[]): string | undefined {
 }
 
 function fallbackTail(lines: string[]): string {
-  const meaningful = lines.slice(-FALLBACK_TAIL_LINES).map(line => line.trim()).filter(line => line.length > 0);
+  const meaningful = lines
+    .slice(-FALLBACK_TAIL_LINES)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
   return meaningful.join(" / ");
 }
 

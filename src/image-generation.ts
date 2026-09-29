@@ -1,7 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 
 export interface ImageGenerationRequest {
   prompt: string;
@@ -66,7 +66,9 @@ export function resolveAuthToken(explicitToken?: string, codexHome?: string): st
  * Resolves input image bytes from a path or base64 string.
  * Returns { buffer, mime, filename } or undefined if no input image is specified.
  */
-function resolveInputImage(request: ImageGenerationRequest): { buffer: Buffer; mime: string; filename: string } | undefined {
+function resolveInputImage(
+  request: ImageGenerationRequest,
+): { buffer: Buffer; mime: string; filename: string } | undefined {
   if (request.inputImagePath) {
     const absPath = resolve(request.inputImagePath);
     if (!existsSync(absPath)) {
@@ -74,9 +76,7 @@ function resolveInputImage(request: ImageGenerationRequest): { buffer: Buffer; m
     }
     const buffer = readFileSync(absPath);
     const ext = extname(absPath).toLowerCase();
-    const mime = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg"
-      : ext === ".webp" ? "image/webp"
-      : "image/png";
+    const mime = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
     return { buffer, mime, filename: basename(absPath) };
   }
   if (request.inputImageBase64) {

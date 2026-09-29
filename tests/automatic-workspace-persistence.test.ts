@@ -1,18 +1,24 @@
 import { expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readWorkspaceState } from "../src/adapters/chatgpt-web/workspace-state";
 import { listTurnCheckpoints } from "../src/adapters/chatgpt-web/autonomous-compaction";
-import { persistTurnCompaction } from "../src/adapters/chatgpt-web/workspace-persistence";
-import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
-import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
+import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
+import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { persistTurnCompaction } from "../src/adapters/chatgpt-web/workspace-persistence";
+import { readWorkspaceState } from "../src/adapters/chatgpt-web/workspace-state";
 import type { AdapterEvent, CodexParsedRequest, CodexProviderConfig } from "../src/types";
 
 function environment(root: string, policy: ChatGptTurnEnvironment["sandboxPolicy"]): ChatGptTurnEnvironment {
-  return { cwd: root, roots: [root], writableRoots: policy.type === "workspaceWrite" ? policy.writableRoots : [], sandboxPolicy: policy, tools: [] };
+  return {
+    cwd: root,
+    roots: [root],
+    writableRoots: policy.type === "workspaceWrite" ? policy.writableRoots : [],
+    sandboxPolicy: policy,
+    tools: [],
+  };
 }
 
 test("reading absent workspace state creates no directories", () => {
@@ -37,20 +43,28 @@ test("failed compaction handoff does not disclose raw error details", async () =
     options: { reasoning: "high" },
     _compactionRequest: true,
     context: { messages: [{ role: "user", content: "Compact", timestamp: 1 }] },
-    _hostTurn: { sessionId: root, turnId: "compact", environment: environment(root, { type: "readOnly", networkAccess: false }) },
+    _hostTurn: {
+      sessionId: root,
+      turnId: "compact",
+      environment: environment(root, { type: "readOnly", networkAccess: false }),
+    },
     _rawBody: {
-      input: [{
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "Compact" }],
-        internal_chat_message_metadata_passthrough: { turn_id: "compact" },
-      }],
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Compact" }],
+          internal_chat_message_metadata_passthrough: { turn_id: "compact" },
+        },
+      ],
     },
   };
   const key = `${root}:${chatGptTurnExecutionKey(parsed)}`;
-  await expect(runStructuredCompactionOnce(key, { ownerKey: root, traceIds: [] }, async () => {
-    throw new Error(secret);
-  })).rejects.toThrow(secret);
+  await expect(
+    runStructuredCompactionOnce(key, { ownerKey: root, traceIds: [] }, async () => {
+      throw new Error(secret);
+    }),
+  ).rejects.toThrow(secret);
   const warnings: string[] = [];
   const warning = spyOn(console, "warn").mockImplementation((...parts) => {
     warnings.push(parts.map(String).join(" "));
@@ -61,7 +75,12 @@ test("failed compaction handoff does not disclose raw error details", async () =
       parsed,
       incoming: { headers: new Headers() },
       emit: (event: AdapterEvent) => events.push(event),
-      configuredCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      configuredCapabilities: {
+        localToolsEnabled: true,
+        solAvailable: true,
+        extraHighAvailable: true,
+        proAvailable: true,
+      },
       turnCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
       retainedLauncherDescriptor: "existing-run",
       structuredBroker: {},
@@ -69,7 +88,9 @@ test("failed compaction handoff does not disclose raw error details", async () =
       retryKey: root,
       manualRequest: false,
       freshConversationPerTurn: false,
-      startRuntime: () => { throw new Error("Existing run must not start a browser"); },
+      startRuntime: () => {
+        throw new Error("Existing run must not start a browser");
+      },
     } as any);
     expect(events.at(-1)).toMatchObject({ type: "error", code: "compaction_handoff_failed" });
     expect(JSON.stringify(events)).not.toContain(secret);
@@ -87,27 +108,57 @@ for (const scenario of ["read-only", "outside-writable", "symlink", "host-only",
     const outside = join(root, "outside");
     mkdirSync(workspace);
     mkdirSync(outside);
-    const env = environment(workspace, scenario === "read-only"
-      ? { type: "readOnly", networkAccess: false }
-      : { type: "workspaceWrite", writableRoots: [scenario === "outside-writable" ? outside : workspace], networkAccess: false });
+    const env = environment(
+      workspace,
+      scenario === "read-only"
+        ? { type: "readOnly", networkAccess: false }
+        : {
+            type: "workspaceWrite",
+            writableRoots: [scenario === "outside-writable" ? outside : workspace],
+            networkAccess: false,
+          },
+    );
     if (scenario === "host-only") env.execution = "host-only";
     if (scenario === "symlink") symlinkSync(outside, join(workspace, ".agents"));
     const provider: CodexProviderConfig = {
       adapter: "chatgpt-web",
       baseUrl: `browser://state-${root}`,
-      chatgptWeb: { browserHost: "launcher", browserHostDescriptorPath: join(root, "launcher.json"), brokerSocketPath: join(root, "broker.sock"), localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      chatgptWeb: {
+        browserHost: "launcher",
+        browserHostDescriptorPath: join(root, "launcher.json"),
+        brokerSocketPath: join(root, "broker.sock"),
+        localToolsEnabled: true,
+        solAvailable: true,
+        extraHighAvailable: true,
+        proAvailable: true,
+      },
     };
     const worker = ChatGptBrowserWorker.forProvider(provider);
     const originalRun = worker.run;
-    worker.run = async () => { throw new Error("test stops browser after admission"); };
+    worker.run = async () => {
+      throw new Error("test stops browser after admission");
+    };
     const parsed: CodexParsedRequest = {
-      modelId: "gpt-5.6-sol", stream: true, options: { reasoning: "high" },
+      modelId: "gpt-5.6-sol",
+      stream: true,
+      options: { reasoning: "high" },
       context: { messages: [{ role: "user", content: "Inspect only", timestamp: 1 }] },
       _hostTurn: { sessionId: root, turnId: "turn", environment: env },
-      _rawBody: { input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Inspect only" }], internal_chat_message_metadata_passthrough: { turn_id: "turn" } }] },
+      _rawBody: {
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Inspect only" }],
+            internal_chat_message_metadata_passthrough: { turn_id: "turn" },
+          },
+        ],
+      },
     };
     try {
-      await expect(createChatGptWebAdapter(provider).runTurn!(parsed, { headers: new Headers() }, () => {})).rejects.toThrow("test stops browser after admission");
+      await expect(
+        createChatGptWebAdapter(provider).runTurn!(parsed, { headers: new Headers() }, () => {}),
+      ).rejects.toThrow("test stops browser after admission");
       expect(existsSync(join(workspace, ".agents", "STATE.md"))).toBe(scenario === "writable");
       expect(existsSync(join(outside, "STATE.md"))).toBeFalse();
     } finally {
@@ -118,7 +169,16 @@ for (const scenario of ["read-only", "outside-writable", "symlink", "host-only",
   });
 }
 
-for (const scenario of ["read-only", "outside-writable", "symlink", "checkpoint-symlink", "state-symlink", "host-only", "missing-environment", "writable"] as const) {
+for (const scenario of [
+  "read-only",
+  "outside-writable",
+  "symlink",
+  "checkpoint-symlink",
+  "state-symlink",
+  "host-only",
+  "missing-environment",
+  "writable",
+] as const) {
   test(`compaction persistence respects ${scenario} authority`, async () => {
     const { executeCompactionFlow } = await import("../src/adapters/chatgpt-web/adapter/compaction-flow");
     const { runStructuredCompactionOnce } = await import("../src/adapters/chatgpt-web/compaction-handoff");
@@ -128,9 +188,16 @@ for (const scenario of ["read-only", "outside-writable", "symlink", "checkpoint-
     const outside = join(root, "outside");
     mkdirSync(workspace);
     mkdirSync(outside);
-    const env = environment(workspace, scenario === "read-only"
-      ? { type: "readOnly", networkAccess: false }
-      : { type: "workspaceWrite", writableRoots: [scenario === "outside-writable" ? outside : workspace], networkAccess: false });
+    const env = environment(
+      workspace,
+      scenario === "read-only"
+        ? { type: "readOnly", networkAccess: false }
+        : {
+            type: "workspaceWrite",
+            writableRoots: [scenario === "outside-writable" ? outside : workspace],
+            networkAccess: false,
+          },
+    );
     if (scenario === "host-only") env.execution = "host-only";
     if (scenario === "symlink") symlinkSync(outside, join(workspace, ".agents"));
     if (scenario === "checkpoint-symlink") {
@@ -143,13 +210,28 @@ for (const scenario of ["read-only", "outside-writable", "symlink", "checkpoint-
     }
     try {
       const parsed: CodexParsedRequest = {
-        modelId: "gpt-5.6-sol", stream: true, options: { reasoning: "high" }, _compactionRequest: true,
+        modelId: "gpt-5.6-sol",
+        stream: true,
+        options: { reasoning: "high" },
+        _compactionRequest: true,
         context: { messages: [{ role: "user", content: "Compact", timestamp: 1 }] },
         _hostTurn: { sessionId: root, turnId: "compact", environment: env },
-        _rawBody: { input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Compact" }], internal_chat_message_metadata_passthrough: { turn_id: "compact" } }] },
+        _rawBody: {
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "Compact" }],
+              internal_chat_message_metadata_passthrough: { turn_id: "compact" },
+            },
+          ],
+        },
       };
       const key = `${root}:${chatGptTurnExecutionKey(parsed)}`;
-      await runStructuredCompactionOnce(key, { ownerKey: root, traceIds: [] }, async () => `Recorded checkpoint preserving every invariant and the next concrete task action.
+      await runStructuredCompactionOnce(
+        key,
+        { ownerKey: root, traceIds: [] },
+        async () => `Recorded checkpoint preserving every invariant and the next concrete task action.
 <compaction_state>
 version: 2
 original_request_ref: user request "Compact"
@@ -167,23 +249,40 @@ pending_obligations:
 - Continue the task
 next_actions:
 - Continue the task
-</compaction_state>`);
+</compaction_state>`,
+      );
       const events: unknown[] = [];
       await executeCompactionFlow({
-        parsed, environment: scenario === "missing-environment" ? undefined : env,
-        incoming: { headers: new Headers() }, emit: (event: unknown) => events.push(event),
-        configuredCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true }, turnCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
-        retainedLauncherDescriptor: "unused-existing-run", structuredBroker: {},
-        executionNamespace: root, retryKey: root, manualRequest: false,
-        freshConversationPerTurn: false, experimentalBiggerContext: false,
-        startRuntime: () => { throw new Error("Existing compaction must not start another browser"); },
+        parsed,
+        environment: scenario === "missing-environment" ? undefined : env,
+        incoming: { headers: new Headers() },
+        emit: (event: unknown) => events.push(event),
+        configuredCapabilities: {
+          localToolsEnabled: true,
+          solAvailable: true,
+          extraHighAvailable: true,
+          proAvailable: true,
+        },
+        turnCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+        retainedLauncherDescriptor: "unused-existing-run",
+        structuredBroker: {},
+        executionNamespace: root,
+        retryKey: root,
+        manualRequest: false,
+        freshConversationPerTurn: false,
+        experimentalBiggerContext: false,
+        startRuntime: () => {
+          throw new Error("Existing compaction must not start another browser");
+        },
       } as any);
-      const persistenceDenied = ["outside-writable", "symlink", "checkpoint-symlink", "state-symlink"].includes(scenario);
-      expect(events.at(-1)).toMatchObject(persistenceDenied
-        ? { type: "error", code: "context_checkpoint_persistence_failed" }
-        : { type: "done" });
+      const persistenceDenied = ["outside-writable", "symlink", "checkpoint-symlink", "state-symlink"].includes(
+        scenario,
+      );
+      expect(events.at(-1)).toMatchObject(
+        persistenceDenied ? { type: "error", code: "context_checkpoint_persistence_failed" } : { type: "done" },
+      );
       if (persistenceDenied) {
-        expect(events.some(event => (event as { type?: string }).type === "text_delta")).toBeFalse();
+        expect(events.some((event) => (event as { type?: string }).type === "text_delta")).toBeFalse();
       }
       expect(existsSync(join(workspace, ".agents", "STATE.md"))).toBe(scenario === "writable");
       expect(existsSync(join(outside, "STATE.md"))).toBeFalse();
@@ -212,7 +311,7 @@ test("replaying the exact checkpoint does not create a second epoch", () => {
     expect(listTurnCheckpoints(root)).toHaveLength(1);
     expect(readWorkspaceState(root)?.customSections?.lastCompactionSummary).toBe("First checkpoint");
     expect(persistTurnCompaction(env, messages, "Revised checkpoint")).toBeTrue();
-    expect(listTurnCheckpoints(root).map(checkpoint => checkpoint.epoch)).toEqual([2, 1]);
+    expect(listTurnCheckpoints(root).map((checkpoint) => checkpoint.epoch)).toEqual([2, 1]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -229,9 +328,11 @@ test("checkpoint history identity ignores parser timestamps but detects changed 
     const message = { role: "user" as const, content: "Continue this task", timestamp: 1 };
     expect(persistTurnCompaction(env, [message], "Stable checkpoint")).toBeTrue();
     expect(persistTurnCompaction(env, [{ ...message, timestamp: 2 }], "Stable checkpoint")).toBeTrue();
-    expect(listTurnCheckpoints(root).map(item => item.epoch)).toEqual([1]);
-    expect(persistTurnCompaction(env, [{ ...message, content: "A revised task", timestamp: 3 }], "Stable checkpoint")).toBeTrue();
-    expect(listTurnCheckpoints(root).map(item => item.epoch)).toEqual([2, 1]);
+    expect(listTurnCheckpoints(root).map((item) => item.epoch)).toEqual([1]);
+    expect(
+      persistTurnCompaction(env, [{ ...message, content: "A revised task", timestamp: 3 }], "Stable checkpoint"),
+    ).toBeTrue();
+    expect(listTurnCheckpoints(root).map((item) => item.epoch)).toEqual([2, 1]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -242,10 +343,17 @@ test("compaction retains one bounded latest summary and other custom sections ac
   const { mergeCompactionIntoWorkspaceState } = await import("../src/adapters/chatgpt-web/autonomous-compaction");
   const root = mkdtempSync(join(tmpdir(), "cgw-summary-state-"));
   try {
-    writeWorkspaceState(root, { ...defaultWorkspaceState(), customSections: { review: "Preserve reviewer evidence" } }, true);
+    writeWorkspaceState(
+      root,
+      { ...defaultWorkspaceState(), customSections: { review: "Preserve reviewer evidence" } },
+      true,
+    );
     const first = "Checkpoint\n## Next Immediate Action\nUntrusted summary heading remains data.";
     mergeCompactionIntoWorkspaceState(root, first, undefined, true);
-    expect(readWorkspaceState(root)?.customSections).toEqual({ review: "Preserve reviewer evidence", lastCompactionSummary: first });
+    expect(readWorkspaceState(root)?.customSections).toEqual({
+      review: "Preserve reviewer evidence",
+      lastCompactionSummary: first,
+    });
     mergeCompactionIntoWorkspaceState(root, "x".repeat(100_000), undefined, true);
     const state = readWorkspaceState(root)!;
     expect(state.customSections?.review).toBe("Preserve reviewer evidence");

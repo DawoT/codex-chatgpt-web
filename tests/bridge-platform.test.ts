@@ -4,7 +4,7 @@ import type { AdapterEvent } from "../src/types";
 
 async function* completedEvents(chunks = 1): AsyncGenerator<AdapterEvent> {
   for (let index = 0; index < chunks; index++) {
-    yield { type: "text_delta", text: `chunk-${index}:` + "x".repeat(2_048) };
+    yield { type: "text_delta", text: `chunk-${index}:${"x".repeat(2_048)}` };
   }
   yield { type: "done", endTurn: true };
 }

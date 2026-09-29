@@ -1,24 +1,14 @@
 import { isChatGptWebZeroRiskBackendModel } from "../../../chatgpt-web-models";
 import { isOnePixelPngDataUrl, isReadableCompactionSummaryText } from "../../../responses/compaction";
-import type {
-  CodexAssistantContentPart,
-  CodexContentPart,
-  CodexMessage,
-  CodexParsedRequest,
-} from "../../../types";
-import { resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "../model";
-import {
-  CHATGPT_MAX_INPUT_IMAGES,
-  type ChatGptWebPromptImage,
-  type ImageBudget,
-} from "./types";
+import type { CodexAssistantContentPart, CodexContentPart, CodexMessage, CodexParsedRequest } from "../../../types";
+import { type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "../model";
+import { CHATGPT_MAX_INPUT_IMAGES, type ChatGptWebPromptImage, type ImageBudget } from "./types";
 
 export function chatGptPromptJsonBytes(text: string): number {
   return Buffer.byteLength(JSON.stringify(text), "utf8");
 }
 
-const DROPPED_IMAGE_NOTE =
-  `[older image not attached: ChatGPT accepts at most ${CHATGPT_MAX_INPUT_IMAGES} per message]`;
+const DROPPED_IMAGE_NOTE = `[older image not attached: ChatGPT accepts at most ${CHATGPT_MAX_INPUT_IMAGES} per message]`;
 
 /**
  * A fresh compaction epoch receives the complete canonical context, so every still-relevant image
@@ -33,13 +23,14 @@ export function inputContent(
   budget: ImageBudget,
 ): unknown {
   if (typeof content === "string") return content;
-  const semantic = content.filter(part =>
-    part.type !== "image" || !isOnePixelPngDataUrl(part.imageUrl)
-  );
-  if (!semantic.some(part => part.type === "image")) {
-    return semantic.filter(part => part.type === "text").map(part => part.text).join("\n");
+  const semantic = content.filter((part) => part.type !== "image" || !isOnePixelPngDataUrl(part.imageUrl));
+  if (!semantic.some((part) => part.type === "image")) {
+    return semantic
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
   }
-  return semantic.map(part => {
+  return semantic.map((part) => {
     if (part.type === "text") return { type: "text", text: part.text };
     budget.seen += 1;
     if (budget.seen <= budget.dropped) return { type: "text", text: DROPPED_IMAGE_NOTE };
@@ -61,7 +52,7 @@ export function countChatGptContextImages(messages: readonly CodexMessage[]): nu
 }
 
 export function assistantContent(content: CodexAssistantContentPart[]): unknown[] {
-  return content.map(part => {
+  return content.map((part) => {
     if (part.type === "text") return { type: "text", text: part.text };
     if (part.type === "thinking") return { type: "thinking_summary", text: part.thinking };
     return {
@@ -115,9 +106,9 @@ export function chatGptReadOnlyContextWarning(
   const mode = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities);
   if (mode.localTools) return undefined;
   const label = mode.effort === "max" ? "ChatGPT Pro" : `ChatGPT Web ${mode.displayLabel}`;
-  const hasLocalEvidence = parsed.context.messages.some(message =>
-    message.role === "toolResult"
-    || (message.role === "user" && isReadableCompactionSummaryText(message.content))
+  const hasLocalEvidence = parsed.context.messages.some(
+    (message) =>
+      message.role === "toolResult" || (message.role === "user" && isReadableCompactionSummaryText(message.content)),
   );
   const browserOnlyGuidance = !capabilities.localToolsEnabled
     ? "\n>\n> **Action:** Open `MCP` in `Codex Web GPT` and connect the `Full` harness to give the selected ChatGPT Web model access to local tools."

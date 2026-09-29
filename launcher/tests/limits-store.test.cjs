@@ -4,7 +4,14 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
-  LimitsStore, LimitsStoreError, OFFICIAL_LIMITS, SOURCE_URL, SOURCE_DATE, DAY_MS, RETENTION_MS, STORE_BOUNDS,
+  LimitsStore,
+  LimitsStoreError,
+  OFFICIAL_LIMITS,
+  SOURCE_URL,
+  SOURCE_DATE,
+  DAY_MS,
+  RETENTION_MS,
+  STORE_BOUNDS,
 } = require("../electron/limits-store.cjs");
 
 const A = "a".repeat(64);
@@ -16,22 +23,46 @@ function fixture(t) {
   const file = path.join(root, "limits.json");
   let time = START;
   const now = () => time;
-  return { root, file, now, setTime(value) { time = value; }, store: new LimitsStore(file, { now }) };
+  return {
+    root,
+    file,
+    now,
+    setTime(value) {
+      time = value;
+    },
+    store: new LimitsStore(file, { now }),
+  };
 }
 const receipt = (id, model = "gpt-6-pro", at = START, accountKey = A) => ({ id, model, at, accountKey });
-const counts = snapshot => snapshot.windows.map(({ id, durationMs, limit, used, uncertainUsed }) => ({ id, durationMs, limit, used, uncertainUsed }));
+const counts = (snapshot) =>
+  snapshot.windows.map(({ id, durationMs, limit, used, uncertainUsed }) => ({
+    id,
+    durationMs,
+    limit,
+    used,
+    uncertainUsed,
+  }));
 
-test("opt-in, private atomic persistence, restart dedup, and receipt-only storage", t => {
+test("opt-in, private atomic persistence, restart dedup, and receipt-only storage", (t) => {
   const { root, file, now, store, setTime } = fixture(t);
   assert.deepEqual(store.snapshot(), {
-    enabled: false, plan: null, trackingSince: null, checkedAt: null,
-    totalMessages: 0, unknownProMessages: 0, incomplete: false, windows: [],
+    enabled: false,
+    plan: null,
+    trackingSince: null,
+    checkedAt: null,
+    totalMessages: 0,
+    unknownProMessages: 0,
+    incomplete: false,
+    windows: [],
   });
   assert.equal(store.matchesAccount(A), false);
   assert.equal(store.record(receipt("before-opt-in")), false);
   assert.equal(fs.existsSync(file), false);
   assert.equal(store.configure({ accountKey: A.toUpperCase(), plan: "pro_200" }).enabled, true);
-  assert.equal(store.record({ ...receipt("first"), prompt: "private-prompt", email: "private-email", cookies: "private-cookie" }), true);
+  assert.equal(
+    store.record({ ...receipt("first"), prompt: "private-prompt", email: "private-email", cookies: "private-cookie" }),
+    true,
+  );
   assert.equal(store.record(receipt("non-pro", "other")), true);
   setTime(START + 100);
   const restarted = new LimitsStore(file, { now });
@@ -57,10 +88,15 @@ test("opt-in, private atomic persistence, restart dedup, and receipt-only storag
   }
 });
 
-test("Pro reference caps share unknown usage without assigning a family or enforcing limits", t => {
+test("Pro reference caps share unknown usage without assigning a family or enforcing limits", (t) => {
   const { store } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_200" });
-  for (const [id, model] of [["six", "gpt-6-pro"], ["five", "gpt-5.6-pro"], ["unknown", "pro-unknown"], ["other", "other"]]) {
+  for (const [id, model] of [
+    ["six", "gpt-6-pro"],
+    ["five", "gpt-5.6-pro"],
+    ["unknown", "pro-unknown"],
+    ["other", "other"],
+  ]) {
     assert.equal(store.record(receipt(id, model)), true);
   }
   const snapshot = store.snapshot();
@@ -85,7 +121,7 @@ test("Pro reference caps share unknown usage without assigning a family or enfor
   assert.equal("resetAt" in snapshot.windows[0], false);
 });
 
-test("rolling boundaries expire independently and prune receipts without losing retained dedup", t => {
+test("rolling boundaries expire independently and prune receipts without losing retained dedup", (t) => {
   const { store, file, now, setTime } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_200" });
   store.record(receipt("old"));
@@ -94,14 +130,23 @@ test("rolling boundaries expire independently and prune receipts without losing 
   store.record(receipt("unknown", "pro-unknown", now()));
   assert.equal(store.snapshot().windows[2].used, 3);
   setTime(START + DAY_MS);
-  assert.deepEqual(store.snapshot().windows.map(window => window.used), [1, 1, 2]);
+  assert.deepEqual(
+    store.snapshot().windows.map((window) => window.used),
+    [1, 1, 2],
+  );
   setTime(START + RETENTION_MS);
   assert.equal(store.snapshot().totalMessages, 2);
-  assert.deepEqual(store.snapshot().windows.map(window => window.used), [0, 0, 0]);
+  assert.deepEqual(
+    store.snapshot().windows.map((window) => window.used),
+    [0, 0, 0],
+  );
   assert.equal(store.snapshot().windows[0].uncertainUsed, 1);
   assert.equal(store.record(receipt("old")), false);
   assert.equal(store.record(receipt("later", "gpt-6-pro", now())), false);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).accounts[A].events.map(event => event.id), ["later", "unknown"]);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(file, "utf8")).accounts[A].events.map((event) => event.id),
+    ["later", "unknown"],
+  );
   setTime(START + RETENTION_MS + DAY_MS - 1);
   const restarted = new LimitsStore(file, { now });
   assert.equal(restarted.snapshot().totalMessages, 0);
@@ -111,7 +156,7 @@ test("rolling boundaries expire independently and prune receipts without losing 
   assert.equal(restarted.record(receipt("later", "gpt-6-pro", now())), true);
 });
 
-test("account isolation, unsupported plans, and invalid configuration cannot pollute usage", t => {
+test("account isolation, unsupported plans, and invalid configuration cannot pollute usage", (t) => {
   const { store, file, now, setTime } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_100" });
   assert.equal(store.record(receipt("same-id")), true);
@@ -131,7 +176,11 @@ test("account isolation, unsupported plans, and invalid configuration cannot pol
   assert.deepEqual(disabled.windows, []);
   assert.equal(store.record(receipt("disabled", "gpt-6-pro", now())), false);
   const before = fs.readFileSync(file, "utf8");
-  for (const config of [{ accountKey: A, plan: "business" }, { accountKey: "email@example.com", plan: "pro_100" }, null]) {
+  for (const config of [
+    { accountKey: A, plan: "business" },
+    { accountKey: "email@example.com", plan: "pro_100" },
+    null,
+  ]) {
     assert.throws(() => store.configure(config), { code: "LIMITS_INVALID_CONFIG" });
   }
   for (const event of [receipt("bad-model", "gpt-6"), receipt("", "other"), receipt("negative", "other", -1)]) {
@@ -148,7 +197,7 @@ test("account isolation, unsupported plans, and invalid configuration cannot pol
   assert.equal(new LimitsStore(file, { now }).configure({ accountKey: B, plan: "pro_200" }).windows[1].used, 1);
 });
 
-test("clock skew rejects new receipts without clamping or discarding existing history", t => {
+test("clock skew rejects new receipts without clamping or discarding existing history", (t) => {
   const { store, file, now, setTime } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_200" });
   setTime(START + 100);
@@ -166,29 +215,53 @@ test("clock skew rejects new receipts without clamping or discarding existing hi
   assert.equal(fs.readFileSync(file, "utf8"), before);
 });
 
-test("corrupt and unsupported persisted data throws specific errors and remains untouched", t => {
+test("corrupt and unsupported persisted data throws specific errors and remains untouched", (t) => {
   const { store, file, now } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_200" });
   store.record(receipt("valid"));
   const valid = fs.readFileSync(file, "utf8");
   const mutations = [
-    state => { state.accounts[A].plan = "business"; },
-    state => { state.activeAccountKey = B; },
-    state => { state.activeAccountKey = [A]; },
-    state => { state.accounts[A].initializedAt = "bad-time"; },
-    state => { state.accounts[A].events.push(state.accounts[A].events[0]); },
-    state => { state.accounts[A].events[0].model = "unknown-model"; },
-    state => { state.accounts[A].events[0].at = -1; },
-    state => { state.accounts[A].events[0].prompt = "must-not-be-preserved"; },
+    (state) => {
+      state.accounts[A].plan = "business";
+    },
+    (state) => {
+      state.activeAccountKey = B;
+    },
+    (state) => {
+      state.activeAccountKey = [A];
+    },
+    (state) => {
+      state.accounts[A].initializedAt = "bad-time";
+    },
+    (state) => {
+      state.accounts[A].events.push(state.accounts[A].events[0]);
+    },
+    (state) => {
+      state.accounts[A].events[0].model = "unknown-model";
+    },
+    (state) => {
+      state.accounts[A].events[0].at = -1;
+    },
+    (state) => {
+      state.accounts[A].events[0].prompt = "must-not-be-preserved";
+    },
   ];
   const cases = [
-    ["{broken", "LIMITS_CORRUPT_STATE"], ["null", "LIMITS_CORRUPT_STATE"],
+    ["{broken", "LIMITS_CORRUPT_STATE"],
+    ["null", "LIMITS_CORRUPT_STATE"],
     [JSON.stringify({ ...JSON.parse(valid), version: 2 }), "LIMITS_UNSUPPORTED_VERSION"],
-    ...mutations.map(mutate => { const state = JSON.parse(valid); mutate(state); return [JSON.stringify(state), "LIMITS_CORRUPT_STATE"]; }),
+    ...mutations.map((mutate) => {
+      const state = JSON.parse(valid);
+      mutate(state);
+      return [JSON.stringify(state), "LIMITS_CORRUPT_STATE"];
+    }),
   ];
   for (const [content, code] of cases) {
     fs.writeFileSync(file, content);
-    assert.throws(() => new LimitsStore(file, { now }), error => error instanceof LimitsStoreError && error.code === code);
+    assert.throws(
+      () => new LimitsStore(file, { now }),
+      (error) => error instanceof LimitsStoreError && error.code === code,
+    );
     assert.equal(fs.readFileSync(file, "utf8"), content);
   }
   fs.truncateSync(file, STORE_BOUNDS.maxFileBytes + 1);
@@ -196,7 +269,7 @@ test("corrupt and unsupported persisted data throws specific errors and remains 
   assert.equal(fs.statSync(file).size, STORE_BOUNDS.maxFileBytes + 1);
 });
 
-test("failed atomic persistence does not advance in-memory counts or dedup state", t => {
+test("failed atomic persistence does not advance in-memory counts or dedup state", (t) => {
   const { store, root, file } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_200" });
   const before = fs.readFileSync(file, "utf8");
@@ -211,13 +284,22 @@ test("failed atomic persistence does not advance in-memory counts or dedup state
   assert.equal(store.snapshot().totalMessages, 1);
 });
 
-test("capacity fails explicitly without evicting recent receipts or account history", t => {
+test("capacity fails explicitly without evicting recent receipts or account history", (t) => {
   const { store, file, now, setTime } = fixture(t);
   store.configure({ accountKey: A, plan: "pro_200" });
   const state = JSON.parse(fs.readFileSync(file, "utf8"));
-  state.accounts[A].events = Array.from({ length: STORE_BOUNDS.maxEvents }, (_, index) => ({ id: `receipt-${index}`, model: "gpt-6-pro", at: START }));
+  state.accounts[A].events = Array.from({ length: STORE_BOUNDS.maxEvents }, (_, index) => ({
+    id: `receipt-${index}`,
+    model: "gpt-6-pro",
+    at: START,
+  }));
   for (let index = 1; index < STORE_BOUNDS.maxAccounts; index += 1) {
-    state.accounts[index.toString(16).padStart(64, "0")] = { plan: "unsupported", initializedAt: null, checkedAt: START, events: [] };
+    state.accounts[index.toString(16).padStart(64, "0")] = {
+      plan: "unsupported",
+      initializedAt: null,
+      checkedAt: START,
+      events: [],
+    };
   }
   fs.writeFileSync(file, JSON.stringify(state));
   const bounded = new LimitsStore(file, { now });

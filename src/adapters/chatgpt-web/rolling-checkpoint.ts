@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import * as z from "zod/v4";
 import { atomicWriteFile } from "../../config";
 import { estimateTokens } from "../../lib/token-estimate";
 import { parseRequest } from "../../responses/parser";
 import type { CodexParsedRequest } from "../../types";
-import * as z from "zod/v4";
 import { extractChatGptTurnIdentity, extractChatGptTurnUserRevision } from "./environment";
 
 // Alphanumeric by design: ChatGPT's DOM-to-Markdown serializer escapes `_`, `*`, and brackets.
@@ -12,18 +12,22 @@ export const CHATGPT_LUNA_CHECKPOINT_MARKER = "CODEXLUNAPRIVATECHECKPOINTV1A7F3C
 export const CHATGPT_LUNA_CHECKPOINT_MAX_TOKENS = 4_000;
 
 const legacyCheckpointString = z.string().trim().min(1).max(1_200);
-const legacyCheckpointSchema = z.object({
-  version: z.literal(1),
-  objective: z.string().trim().min(1).max(2_000),
-  state: z.array(legacyCheckpointString).max(32),
-  evidence: z.array(legacyCheckpointString).max(32),
-  decisions: z.array(legacyCheckpointString).max(32),
-  pending: z.array(legacyCheckpointString).max(32),
-}).strict();
-const textCheckpointSchema = z.object({
-  version: z.literal(2),
-  summary: z.string().trim().min(1).max(24_000),
-}).strict();
+const legacyCheckpointSchema = z
+  .object({
+    version: z.literal(1),
+    objective: z.string().trim().min(1).max(2_000),
+    state: z.array(legacyCheckpointString).max(32),
+    evidence: z.array(legacyCheckpointString).max(32),
+    decisions: z.array(legacyCheckpointString).max(32),
+    pending: z.array(legacyCheckpointString).max(32),
+  })
+  .strict();
+const textCheckpointSchema = z
+  .object({
+    version: z.literal(2),
+    summary: z.string().trim().min(1).max(24_000),
+  })
+  .strict();
 const checkpointSchema = z.discriminatedUnion("version", [legacyCheckpointSchema, textCheckpointSchema]);
 
 export type ChatGptLunaCheckpoint = z.infer<typeof checkpointSchema>;
@@ -56,7 +60,7 @@ const VISIBLE_MARKER_RESERVE_CHARS = CHATGPT_LUNA_CHECKPOINT_MARKER.length + 16;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -185,22 +189,23 @@ export class ChatGptLunaCheckpointStream {
 function currentTurnBoundary(parsed: CodexParsedRequest, input: unknown[], turnId: string): number | undefined {
   const replayPrefix = Math.min(parsed._replayPrefixLen ?? 0, input.length);
   if (replayPrefix > 0) return replayPrefix;
-  const firstCurrentItem = input.findIndex(item => itemTurnId(item) === turnId);
+  const firstCurrentItem = input.findIndex((item) => itemTurnId(item) === turnId);
   return firstCurrentItem >= 0 ? firstCurrentItem : undefined;
 }
 
 function assistantItemText(value: unknown): string | undefined {
   const item = record(value);
-  if (!item || item.role !== "assistant") return undefined;
+  if (item?.role !== "assistant") return undefined;
   if (typeof item.content === "string") return item.content.trim() ? item.content : undefined;
   if (!Array.isArray(item.content)) return undefined;
-  const text = item.content.map(block => {
-    const content = record(block);
-    return content && (content.type === "output_text" || content.type === "text")
-      && typeof content.text === "string"
-      ? content.text
-      : "";
-  }).join("");
+  const text = item.content
+    .map((block) => {
+      const content = record(block);
+      return content && (content.type === "output_text" || content.type === "text") && typeof content.text === "string"
+        ? content.text
+        : "";
+    })
+    .join("");
   return text.trim() ? text : undefined;
 }
 
@@ -241,12 +246,14 @@ function checkpointContext(checkpoint: ChatGptLunaCheckpoint): string {
 
 function validateStoredCheckpoint(value: unknown): StoredChatGptLunaCheckpoint {
   const parsed = record(value);
-  if (!parsed
-    || typeof parsed.threadId !== "string"
-    || typeof parsed.sourceTurnId !== "string"
-    || typeof parsed.answerHash !== "string"
-    || !/^[a-f0-9]{64}$/.test(parsed.answerHash)
-    || typeof parsed.updatedAt !== "number") {
+  if (
+    !parsed ||
+    typeof parsed.threadId !== "string" ||
+    typeof parsed.sourceTurnId !== "string" ||
+    typeof parsed.answerHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(parsed.answerHash) ||
+    typeof parsed.updatedAt !== "number"
+  ) {
     throw new Error("Invalid persisted ChatGPT Luna checkpoint metadata");
   }
   return {
@@ -270,7 +277,8 @@ export class ChatGptLunaCheckpointStore {
 
   apply(parsed: CodexParsedRequest): { parsed: CodexParsedRequest; applied: boolean; reason?: string } {
     const identity = extractChatGptTurnIdentity(parsed);
-    if (!identity.threadId || !identity.turnId) return { parsed, applied: false, reason: "missing native thread identity" };
+    if (!identity.threadId || !identity.turnId)
+      return { parsed, applied: false, reason: "missing native thread identity" };
     const parent = parentAssistantAnswer(parsed, identity.turnId);
     if (!parent) return { parsed, applied: false, reason: "no proven completed parent assistant answer" };
 
@@ -305,7 +313,10 @@ export class ChatGptLunaCheckpointStore {
     compacted.options = { ...compacted.options, ...parsed.options };
 
     // The transport optimization must never change which native user revision is being executed.
-    if (JSON.stringify(extractChatGptTurnUserRevision(compacted)) !== JSON.stringify(extractChatGptTurnUserRevision(parsed))) {
+    if (
+      JSON.stringify(extractChatGptTurnUserRevision(compacted)) !==
+      JSON.stringify(extractChatGptTurnUserRevision(parsed))
+    ) {
       throw new Error("ChatGPT Luna rolling checkpoint changed the active native user revision");
     }
     return { parsed: compacted, applied: true };

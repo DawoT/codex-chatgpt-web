@@ -1,8 +1,15 @@
 import { expect, test } from "bun:test";
-import { estimateChatGptWebInputTokens, resolveBiggerContextMultipartParts } from "../src/adapters/chatgpt-web/usage";
+import {
+  assertChatGptWebMultipartInputWithinLimits,
+  resolveChatGptWebMultipartStagingMode,
+} from "../src/adapters/chatgpt-web/browser-worker";
+import {
+  compiledChatGptWebMessages,
+  estimateChatGptWebImageTokens,
+  estimateCompiledChatGptWebInputTokens,
+} from "../src/adapters/chatgpt-web/input-tokens";
 import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
-import { compiledChatGptWebMessages, estimateChatGptWebImageTokens, estimateCompiledChatGptWebInputTokens } from "../src/adapters/chatgpt-web/input-tokens";
-import { assertChatGptWebMultipartInputWithinLimits, resolveChatGptWebMultipartStagingMode } from "../src/adapters/chatgpt-web/browser-worker";
+import { estimateChatGptWebInputTokens, resolveBiggerContextMultipartParts } from "../src/adapters/chatgpt-web/usage";
 import { estimateTokens } from "../src/lib/token-estimate";
 import type { CodexParsedRequest } from "../src/types";
 
@@ -20,15 +27,19 @@ function request(text: string): CodexParsedRequest {
 test.each([
   ["highly compressible", "a".repeat(480_000)],
   ["ordinary repeated words", `${"word ".repeat(79_999)}word`],
-])("%s context uses tokenizer-derived usage without character-pressure inflation", (_label, text) => {
-  expect(estimateChatGptWebInputTokens(request(text), capabilities)).toBeLessThan(100_000);
-}, 15_000);
+])(
+  "%s context uses tokenizer-derived usage without character-pressure inflation",
+  (_label, text) => {
+    expect(estimateChatGptWebInputTokens(request(text), capabilities)).toBeLessThan(100_000);
+  },
+  15_000,
+);
 
 test("multipart selection accounts for whole-record and composer fit before submission", () => {
   const plus = { ...capabilities, extraHighAvailable: false, proAvailable: false };
   for (const [contents, expected] of [
     [["small task"], undefined],
-    [[50_000, 40_000, 50_000, 5_000].map(n => "word ".repeat(n)), 6],
+    [[50_000, 40_000, 50_000, 5_000].map((n) => "word ".repeat(n)), 6],
     [Array.from({ length: 3 }, () => " ".repeat(450_000)), 6],
   ] as const) {
     const parsed = request("");
@@ -37,8 +48,9 @@ test("multipart selection accounts for whole-record and composer fit before subm
     expect(parts).toBe(expected);
     const compiled = compileChatGptWebPrompt(parsed, plus, undefined, { experimentalMultipartParts: parts });
     if (parts) {
-      expect(compiled.multipart!.parts.flatMap(part => JSON.parse(part).records).map(record => record.message.content))
-        .toEqual([...contents]);
+      expect(
+        compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records).map((record) => record.message.content),
+      ).toEqual([...contents]);
     }
   }
   // Low-token text can still exceed the reasoning model's server character ceiling.
@@ -46,16 +58,29 @@ test("multipart selection accounts for whole-record and composer fit before subm
   const sparsePro = request("x".repeat(600_000));
   expect(resolveBiggerContextMultipartParts(sparsePro, capabilities)).toBe(6);
   const stagedPro = compileChatGptWebPrompt(sparsePro, capabilities, undefined, { experimentalMultipartParts: 6 });
-  expect(stagedPro.multipart!.parts.flatMap(part => JSON.parse(part).records).map(record => record.message.content))
-    .toEqual([sparsePro.context.messages[0]!.content]);
+  expect(
+    stagedPro.multipart!.parts.flatMap((part) => JSON.parse(part).records).map((record) => record.message.content),
+  ).toEqual([sparsePro.context.messages[0]!.content]);
   const proMessages = compiledChatGptWebMessages(stagedPro);
-  expect(proMessages.some(message => message.length > 45_000)).toBe(true);
-  expect(() => assertChatGptWebMultipartInputWithinLimits(
-    20_000, 1_000, sparsePro.modelId, "high", capabilities,
-    Math.max(...proMessages.map(message => message.length)), 6,
-    { stagingEffort: "max", maxStageMessageTokens: 1_000, maxStageChars: Math.max(...proMessages.slice(0, -1).map(message => message.length)),
-      finalMessageTokens: 1_000, finalMessageChars: proMessages.at(-1)!.length },
-  )).toThrow("45,000");
+  expect(proMessages.some((message) => message.length > 45_000)).toBe(true);
+  expect(() =>
+    assertChatGptWebMultipartInputWithinLimits(
+      20_000,
+      1_000,
+      sparsePro.modelId,
+      "high",
+      capabilities,
+      Math.max(...proMessages.map((message) => message.length)),
+      6,
+      {
+        stagingEffort: "max",
+        maxStageMessageTokens: 1_000,
+        maxStageChars: Math.max(...proMessages.slice(0, -1).map((message) => message.length)),
+        finalMessageTokens: 1_000,
+        finalMessageChars: proMessages.at(-1)!.length,
+      },
+    ),
+  ).toThrow("45,000");
 }, 60_000);
 
 test("Bigger Context compaction selects six parts before the legacy inline byte budget", () => {
@@ -65,8 +90,9 @@ test("Bigger Context compaction selects six parts before the legacy inline byte 
   expect(parts).toBe(6);
   const compiled = compileChatGptWebPrompt(parsed, capabilities, undefined, { experimentalMultipartParts: parts });
   expect(compiled.trimmedCompactionMessages).toBeUndefined();
-  expect(compiled.multipart!.parts.flatMap(part => JSON.parse(part).records).map(record => record.message.content))
-    .toEqual([parsed.context.messages[0]!.content]);
+  expect(
+    compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records).map((record) => record.message.content),
+  ).toEqual([parsed.context.messages[0]!.content]);
 });
 
 test("multipart planning promotes two oversized physical stages to six", () => {
@@ -79,47 +105,42 @@ test("multipart planning promotes two oversized physical stages to six", () => {
 
   expect(resolveBiggerContextMultipartParts(parsed, capabilities)).toBe(6);
   const compiled = compileChatGptWebPrompt(parsed, capabilities, undefined, { experimentalMultipartParts: 6 });
-  expect(compiledChatGptWebMessages(compiled).every(message => message.length <= 45_000)).toBe(true);
+  expect(compiledChatGptWebMessages(compiled).every((message) => message.length <= 45_000)).toBe(true);
 });
 
 test("browser preflight rejects an indivisible multipart stage above the safe boundary", () => {
-  expect(() => assertChatGptWebMultipartInputWithinLimits(
-    2_000,
-    1_000,
-    "gpt-5.6-sol",
-    "high",
-    capabilities,
-    60_000,
-    6,
-    {
+  expect(() =>
+    assertChatGptWebMultipartInputWithinLimits(2_000, 1_000, "gpt-5.6-sol", "high", capabilities, 60_000, 6, {
       stagingEffort: "max",
       maxStageMessageTokens: 1_000,
       maxStageChars: 60_000,
       finalMessageTokens: 1_000,
       finalMessageChars: 1_000,
-    },
-  )).toThrow("45,000");
+    }),
+  ).toThrow("45,000");
 });
 
 test("browser preflight permits an oversized multipart stage during compaction", () => {
-  expect(() => assertChatGptWebMultipartInputWithinLimits(
-    2_000,
-    1_000,
-    "gpt-5.6-sol",
-    "high",
-    capabilities,
-    60_000,
-    6,
-    {
-      stagingEffort: "max",
-      maxStageMessageTokens: 1_000,
-      maxStageChars: 60_000,
-      finalMessageTokens: 1_000,
-      finalMessageChars: 1_000,
-      isCompaction: true,
-    },
-    true,
-  )).not.toThrow();
+  expect(() =>
+    assertChatGptWebMultipartInputWithinLimits(
+      2_000,
+      1_000,
+      "gpt-5.6-sol",
+      "high",
+      capabilities,
+      60_000,
+      6,
+      {
+        stagingEffort: "max",
+        maxStageMessageTokens: 1_000,
+        maxStageChars: 60_000,
+        finalMessageTokens: 1_000,
+        finalMessageChars: 1_000,
+        isCompaction: true,
+      },
+      true,
+    ),
+  ).not.toThrow();
 });
 
 test("multipart planning leaves room for final attachments and execution instructions without losing history", () => {
@@ -133,29 +154,51 @@ test("multipart planning leaves room for final attachments and execution instruc
     const texts = Array.from({ length: 36 }, (_, index) => `record ${index}: ${"word ".repeat(800)}`);
     parsed.context.messages = texts.map((content, index) => ({ role: "user", content, timestamp: index + 1 }));
     const images = Array.from({ length: scenario.images }, (_, index) => ({
-      type: "image" as const, imageUrl: `data:image/png;base64,partition-image-${index}`, detail: "original" as const,
+      type: "image" as const,
+      imageUrl: `data:image/png;base64,partition-image-${index}`,
+      detail: "original" as const,
     }));
     if (images.length) parsed.context.messages.push({ role: "user", content: images, timestamp: 37 });
-    if (scenario.schema) parsed.options.outputFormat = {
-      type: "json_schema", name: "result", strict: true, schema: { type: "string", description: "schema ".repeat(500) },
-    };
+    if (scenario.schema)
+      parsed.options.outputFormat = {
+        type: "json_schema",
+        name: "result",
+        strict: true,
+        schema: { type: "string", description: "schema ".repeat(500) },
+      };
     const compiled = compileChatGptWebPrompt(parsed, caps, undefined, { experimentalMultipartParts: 6 });
-    const records = compiled.multipart!.parts.flatMap(part => JSON.parse(part).records);
-    expect(records.map(record => record.message_index)).toEqual(parsed.context.messages.map((_, index) => index));
-    expect(records.slice(0, texts.length).map(record => record.message.content)).toEqual(texts);
-    expect(compiled.images.map(image => ({ imageUrl: image.imageUrl, detail: image.detail })))
-      .toEqual(images.map(image => ({ imageUrl: image.imageUrl, detail: image.detail })));
-    if (scenario.schema) expect(compiled.multipart!.commit).toContain(JSON.stringify(parsed.options.outputFormat!.schema));
+    const records = compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records);
+    expect(records.map((record) => record.message_index)).toEqual(parsed.context.messages.map((_, index) => index));
+    expect(records.slice(0, texts.length).map((record) => record.message.content)).toEqual(texts);
+    expect(compiled.images.map((image) => ({ imageUrl: image.imageUrl, detail: image.detail }))).toEqual(
+      images.map((image) => ({ imageUrl: image.imageUrl, detail: image.detail })),
+    );
+    if (scenario.schema)
+      expect(compiled.multipart!.commit).toContain(JSON.stringify(parsed.options.outputFormat!.schema));
     const messages = compiledChatGptWebMessages(compiled);
-    const tokens = messages.map(text => estimateTokens(text));
-    const chars = messages.map(text => text.length);
+    const tokens = messages.map((text) => estimateTokens(text));
+    const chars = messages.map((text) => text.length);
     const maxStageMessageTokens = Math.max(...tokens.slice(0, -1));
     const maxStageChars = Math.max(...chars.slice(0, -1));
     const stage = resolveChatGptWebMultipartStagingMode(parsed.modelId, caps, maxStageMessageTokens, maxStageChars);
-    expect(() => assertChatGptWebMultipartInputWithinLimits(
-      estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId), Math.max(...tokens),
-      parsed.modelId, "high", caps, Math.max(...chars), 6,
-      { stagingEffort: stage.effort, maxStageMessageTokens, maxStageChars, finalMessageTokens: tokens.at(-1)!, finalMessageChars: chars.at(-1)!, finalImageTokens: estimateChatGptWebImageTokens(compiled) },
-    )).not.toThrow();
+    expect(() =>
+      assertChatGptWebMultipartInputWithinLimits(
+        estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId),
+        Math.max(...tokens),
+        parsed.modelId,
+        "high",
+        caps,
+        Math.max(...chars),
+        6,
+        {
+          stagingEffort: stage.effort,
+          maxStageMessageTokens,
+          maxStageChars,
+          finalMessageTokens: tokens.at(-1)!,
+          finalMessageChars: chars.at(-1)!,
+          finalImageTokens: estimateChatGptWebImageTokens(compiled),
+        },
+      ),
+    ).not.toThrow();
   }
 }, 30_000);

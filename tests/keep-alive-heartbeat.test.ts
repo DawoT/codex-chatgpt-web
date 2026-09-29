@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
 import {
   CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS,
   chatGptMcpInvocationTimeout,
 } from "../src/adapters/chatgpt-web/mcp-server";
 import { bridgeToResponsesSSE } from "../src/bridge";
 import type { AdapterEvent } from "../src/types";
-import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
 
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const dummyEnvironment: ChatGptTurnEnvironment = {
   cwd: "/workspace",
@@ -27,20 +27,13 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
 
     test("clamps to expiresAt if remaining time is less than default 45s", () => {
       const now = 1_000_000;
-      const timeout = chatGptMcpInvocationTimeout(
-        { ...dummyEnvironment, expiresAt: now + 20_000 },
-        now,
-      );
+      const timeout = chatGptMcpInvocationTimeout({ ...dummyEnvironment, expiresAt: now + 20_000 }, now);
       expect(timeout).toBe(20_000);
     });
 
     test("caps long requested waits below the transport deadline", () => {
       const requestedTimeoutMs = 180_000;
-      const timeout = chatGptMcpInvocationTimeout(
-        dummyEnvironment,
-        Date.now(),
-        requestedTimeoutMs,
-      );
+      const timeout = chatGptMcpInvocationTimeout(dummyEnvironment, Date.now(), requestedTimeoutMs);
       expect(timeout).toBe(45_000);
     });
 
@@ -68,11 +61,7 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
 
     test("a short native session yield retires a stalled MCP call before the transport deadline", () => {
       const requestedTimeoutMs = 20_000; // 5s yield + 15s grace
-      const timeout = chatGptMcpInvocationTimeout(
-        dummyEnvironment,
-        Date.now(),
-        requestedTimeoutMs,
-      );
+      const timeout = chatGptMcpInvocationTimeout(dummyEnvironment, Date.now(), requestedTimeoutMs);
       expect(timeout).toBe(20_000);
     });
   });
@@ -116,7 +105,7 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
       );
 
       const body = await new Response(stream).text();
-      expect(body).toContain(": keep-alive\n\nevent: response.heartbeat\ndata: {\"type\":\"response.heartbeat\"}\n\n");
+      expect(body).toContain(': keep-alive\n\nevent: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n');
       expect(body).toContain("hello after heartbeat");
       expect(body).toContain("event: response.completed");
     });
@@ -175,7 +164,6 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
     });
   });
 });
-
 
 test("MCP timeout configuration remains finite and within the transport budget", async () => {
   const { resolveMcpInvocationTimeout } = await import("../src/adapters/chatgpt-web/mcp/instructions");

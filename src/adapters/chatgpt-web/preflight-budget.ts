@@ -23,10 +23,7 @@ export interface PreflightBudgetOptions {
   experimentalBiggerContext?: boolean;
 }
 
-export function enforcePreflightDeliveryBudget(
-  request: CodexParsedRequest,
-  verdict: PreflightBudgetVerdict,
-): void {
+export function enforcePreflightDeliveryBudget(request: CodexParsedRequest, verdict: PreflightBudgetVerdict): void {
   if (request._compactionRequest || verdict.actionRequired !== "trigger_compaction") return;
   throw chatGptContextCompactionRequiredError(verdict.reason);
 }
@@ -61,7 +58,7 @@ export function estimateRequestCharacters(request: CodexParsedRequest): number {
 
 export function evaluatePreflightBudget(
   request: CodexParsedRequest,
-  capabilities: ChatGptWebCapabilities,
+  _capabilities: ChatGptWebCapabilities,
   options?: PreflightBudgetOptions,
 ): PreflightBudgetVerdict {
   const safeLimit = options?.safeCharLimit ?? PREFLIGHT_SAFE_INLINE_CHAR_LIMIT;
@@ -69,7 +66,8 @@ export function evaluatePreflightBudget(
   const estimatedChars = estimateRequestCharacters(request);
   const estimatedTokens = Math.ceil(estimatedChars / 3.8);
   const prunableToolResultsCount = 0; // Automatic evidence deletion is not permitted.
-  const multipartSupported = options?.experimentalBiggerContext !== undefined ? options.experimentalBiggerContext : true;
+  const multipartSupported =
+    options?.experimentalBiggerContext !== undefined ? options.experimentalBiggerContext : true;
 
   // Case 1: Within safe inline budget
   if (estimatedChars < safeLimit) {

@@ -1,21 +1,17 @@
 import { encodeCompactionSummary } from "../responses/compaction";
 import { encodeReasoningEnvelope, type ReasoningEnvelope } from "../responses/reasoning-envelope";
 import { resolveStallTimeoutSec } from "../stall-timeout";
-import type {
-  AdapterEvent,
-  CodexMessagePhase,
-  CodexProviderContinuationState,
-} from "../types";
+import type { AdapterEvent, CodexMessagePhase, CodexProviderContinuationState } from "../types";
 import { adapterFailureFromEvent, responseError } from "./errors";
 import {
   freeformInput,
   freeformPartialInput,
+  type OutputItem,
   parseArgsObj,
   plaintextCollaborationFields,
+  type ResponsesTerminalStatus,
   sseEvent,
   uuid,
-  type OutputItem,
-  type ResponsesTerminalStatus,
 } from "./types";
 import { responsesUsage } from "./usage";
 
@@ -95,12 +91,19 @@ export function bridgeToResponsesSSE(
   const finishedItems: OutputItem[] = [];
 
   const responseSnapshot = (status: string, output: OutputItem[], endTurn?: boolean) => ({
-    id: responseId, object: "response", created_at: createdAt,
-    status, model: modelId, output, usage: null,
+    id: responseId,
+    object: "response",
+    created_at: createdAt,
+    status,
+    model: modelId,
+    output,
+    usage: null,
     ...(endTurn !== undefined ? { end_turn: endTurn } : {}),
   });
 
-  const heartbeatFrame = encoder.encode(': keep-alive\n\nevent: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n');
+  const heartbeatFrame = encoder.encode(
+    ': keep-alive\n\nevent: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n',
+  );
   let stallWarned = false;
   const now = options?.now ?? (() => performance.now());
   let lastAdapterEventAt = now();
@@ -163,20 +166,38 @@ export function bridgeToResponsesSSE(
   // Full assistant text of a compaction turn (across message boundaries) — becomes the
   // synthetic compaction item's payload on done.
   let compactionText = "";
-  let currentToolCall: { itemId: string; outputIndex: number; callId: string; name: string; args: string; namespace?: string; freeform?: boolean; toolSearch?: boolean; inputEmitted?: string } | null = null;
+  let currentToolCall: {
+    itemId: string;
+    outputIndex: number;
+    callId: string;
+    name: string;
+    args: string;
+    namespace?: string;
+    freeform?: boolean;
+    toolSearch?: boolean;
+    inputEmitted?: string;
+  } | null = null;
   const closeCurrentMessage = () => {
     if (!currentMsg) return;
     // Finalize the text part (Responses protocol). Without these .done events Codex never
     // commits the content part and renders the message as truncated / cut off.
     emit("response.output_text.done", {
-      item_id: currentMsg.itemId, output_index: currentMsg.outputIndex, content_index: 0, text: currentMsg.text,
+      item_id: currentMsg.itemId,
+      output_index: currentMsg.outputIndex,
+      content_index: 0,
+      text: currentMsg.text,
     });
     emit("response.content_part.done", {
-      item_id: currentMsg.itemId, output_index: currentMsg.outputIndex, content_index: 0,
+      item_id: currentMsg.itemId,
+      output_index: currentMsg.outputIndex,
+      content_index: 0,
       part: { type: "output_text", text: currentMsg.text, annotations: [] },
     });
     const item = {
-      type: "message", id: currentMsg.itemId, status: "completed", role: "assistant",
+      type: "message",
+      id: currentMsg.itemId,
+      status: "completed",
+      role: "assistant",
       content: [{ type: "output_text", text: currentMsg.text, annotations: [] }],
       ...(currentMsg.phase ? { phase: currentMsg.phase } : {}),
     };
@@ -189,15 +210,21 @@ export function bridgeToResponsesSSE(
   const closeCurrentReasoning = () => {
     if (!currentReasoning) return;
     emit("response.reasoning_summary_text.done", {
-      item_id: currentReasoning.itemId, output_index: currentReasoning.outputIndex, summary_index: 0, text: currentReasoning.text,
+      item_id: currentReasoning.itemId,
+      output_index: currentReasoning.outputIndex,
+      summary_index: 0,
+      text: currentReasoning.text,
     });
     emit("response.reasoning_summary_part.done", {
-      item_id: currentReasoning.itemId, output_index: currentReasoning.outputIndex, summary_index: 0,
+      item_id: currentReasoning.itemId,
+      output_index: currentReasoning.outputIndex,
+      summary_index: 0,
       part: { type: "summary_text", text: currentReasoning.text },
     });
     const encrypted = takeReasoningEnvelope();
     const item = {
-      type: "reasoning", id: currentReasoning.itemId,
+      type: "reasoning",
+      id: currentReasoning.itemId,
       summary: [{ type: "summary_text", text: currentReasoning.text }],
       ...(encrypted ? { encrypted_content: encrypted } : {}),
     };
@@ -210,7 +237,9 @@ export function bridgeToResponsesSSE(
   const closeCurrentRawReasoning = () => {
     if (!currentRawReasoning) return;
     const item = {
-      type: "reasoning", id: currentRawReasoning.itemId, summary: [],
+      type: "reasoning",
+      id: currentRawReasoning.itemId,
+      summary: [],
       content: [{ type: "reasoning_text", text: currentRawReasoning.text }],
     };
     emit("response.output_item.done", { output_index: currentRawReasoning.outputIndex, item });
@@ -228,34 +257,46 @@ export function bridgeToResponsesSSE(
     // Finalize streamed function-call arguments so Codex commits the call (incl. MCP / computer_use).
     if (!currentToolCall.freeform && !currentToolCall.toolSearch) {
       emit("response.function_call_arguments.done", {
-        item_id: currentToolCall.itemId, output_index: currentToolCall.outputIndex, arguments: argsStr,
+        item_id: currentToolCall.itemId,
+        output_index: currentToolCall.outputIndex,
+        arguments: argsStr,
       });
     }
     if (currentToolCall.freeform) {
       emit("response.custom_tool_call_input.done", {
-        item_id: currentToolCall.itemId, output_index: currentToolCall.outputIndex,
+        item_id: currentToolCall.itemId,
+        output_index: currentToolCall.outputIndex,
         input: freeformInput(currentToolCall.args),
       });
     }
     const item = currentToolCall.toolSearch
       ? {
-          type: "tool_search_call", id: currentToolCall.itemId,
-          call_id: currentToolCall.callId, execution: "client",
-          arguments: parseArgsObj(currentToolCall.args), status: "completed",
+          type: "tool_search_call",
+          id: currentToolCall.itemId,
+          call_id: currentToolCall.callId,
+          execution: "client",
+          arguments: parseArgsObj(currentToolCall.args),
+          status: "completed",
         }
       : currentToolCall.freeform
-      ? {
-          type: "custom_tool_call", id: currentToolCall.itemId,
-          call_id: currentToolCall.callId, name: currentToolCall.name,
-          input: freeformInput(currentToolCall.args), status: "completed",
-        }
-      : {
-          type: "function_call", id: currentToolCall.itemId,
-          call_id: currentToolCall.callId, name: currentToolCall.name,
-          arguments: argsStr, status: "completed",
-          ...(currentToolCall.namespace ? { namespace: currentToolCall.namespace } : {}),
-          ...plaintextCollaborationFields(currentToolCall.namespace, currentToolCall.name),
-        };
+        ? {
+            type: "custom_tool_call",
+            id: currentToolCall.itemId,
+            call_id: currentToolCall.callId,
+            name: currentToolCall.name,
+            input: freeformInput(currentToolCall.args),
+            status: "completed",
+          }
+        : {
+            type: "function_call",
+            id: currentToolCall.itemId,
+            call_id: currentToolCall.callId,
+            name: currentToolCall.name,
+            arguments: argsStr,
+            status: "completed",
+            ...(currentToolCall.namespace ? { namespace: currentToolCall.namespace } : {}),
+            ...plaintextCollaborationFields(currentToolCall.namespace, currentToolCall.name),
+          };
     emit("response.output_item.done", { output_index: currentToolCall.outputIndex, item });
     finishedItems.push(item as OutputItem);
     outputIndex++;
@@ -270,16 +311,21 @@ export function bridgeToResponsesSSE(
   let firstOutputReported = false;
   const reportFirstOutput = (event: AdapterEvent): void => {
     if (firstOutputReported) return;
-    const nonEmpty = event.type === "text_delta"
-      ? event.text.length > 0
-      : event.type === "thinking_delta"
-        ? event.thinking.length > 0
-        : event.type === "reasoning_raw_delta"
-          ? event.text.length > 0
-          : false;
+    const nonEmpty =
+      event.type === "text_delta"
+        ? event.text.length > 0
+        : event.type === "thinking_delta"
+          ? event.thinking.length > 0
+          : event.type === "reasoning_raw_delta"
+            ? event.text.length > 0
+            : false;
     if (!nonEmpty) return;
     firstOutputReported = true;
-    try { options?.onFirstOutput?.(); } catch { /* metrics must not break the stream */ }
+    try {
+      options?.onFirstOutput?.();
+    } catch {
+      /* metrics must not break the stream */
+    }
   };
   const it = events[Symbol.asyncIterator]();
   let iteratorStarted = false;
@@ -301,7 +347,10 @@ export function bridgeToResponsesSSE(
     if (!iteratorStarted) {
       iteratorStarted = true;
       try {
-        void it.next().then(finishReturn, () => {}).catch(() => {});
+        void it
+          .next()
+          .then(finishReturn, () => {})
+          .catch(() => {});
       } catch {
         /* synchronous iterator start failure is also best-effort */
       }
@@ -318,7 +367,10 @@ export function bridgeToResponsesSSE(
       while (!terminated && !closed && emittedFrames === emittedAtStart) {
         iteratorStarted = true;
         const next = await it.next();
-        if (next.done) { upstreamDone = true; break; }
+        if (next.done) {
+          upstreamDone = true;
+          break;
+        }
         const event = next.value;
         let terminalEvent = false;
         lastAdapterEventAt = now();
@@ -332,7 +384,10 @@ export function bridgeToResponsesSSE(
         // expansion (rememberResponseState stores input + output). Codex ignores extra items but
         // its compaction UI renders nothing mid-turn, so nothing is lost visually.
         if (options?.compaction) {
-          if (event.type === "text_delta") { compactionText += event.text; continue; }
+          if (event.type === "text_delta") {
+            compactionText += event.text;
+            continue;
+          }
           if (event.type === "heartbeat") {
             try {
               controller.enqueue(heartbeatFrame);
@@ -342,8 +397,13 @@ export function bridgeToResponsesSSE(
             }
             continue;
           }
-          if (event.type !== "done" && event.type !== "incomplete"
-            && event.type !== "error" && event.type !== "milestone") continue;
+          if (
+            event.type !== "done" &&
+            event.type !== "incomplete" &&
+            event.type !== "error" &&
+            event.type !== "milestone"
+          )
+            continue;
         }
         switch (event.type) {
           case "milestone": {
@@ -386,26 +446,36 @@ export function bridgeToResponsesSSE(
             if (!currentMsg) {
               const itemId = `msg_${uuid()}`;
               const item = {
-                type: "message", id: itemId, status: "in_progress", role: "assistant",
+                type: "message",
+                id: itemId,
+                status: "in_progress",
+                role: "assistant",
                 content: [] as { type: string; text: string; annotations: never[] }[],
                 ...(event.phase ? { phase: event.phase } : {}),
               };
               emit("response.output_item.added", { output_index: outputIndex, item });
               emit("response.content_part.added", {
-                item_id: itemId, output_index: outputIndex, content_index: 0,
+                item_id: itemId,
+                output_index: outputIndex,
+                content_index: 0,
                 part: { type: "output_text", text: "", annotations: [] },
               });
               currentMsg = { itemId, outputIndex, text: "", ...(event.phase ? { phase: event.phase } : {}) };
             }
             currentMsg.text += event.text;
             emit("response.output_text.delta", {
-              item_id: currentMsg.itemId, output_index: currentMsg.outputIndex,
-              content_index: 0, delta: event.text,
+              item_id: currentMsg.itemId,
+              output_index: currentMsg.outputIndex,
+              content_index: 0,
+              delta: event.text,
             });
             break;
           }
           case "thinking_delta": {
-            if (options?.hideThinkingSummary) { hiddenThinkingText += event.thinking; break; }
+            if (options?.hideThinkingSummary) {
+              hiddenThinkingText += event.thinking;
+              break;
+            }
             if (currentMsg) closeCurrentMessage();
             if (currentRawReasoning) closeCurrentRawReasoning();
             flushHiddenRawReasoning();
@@ -415,15 +485,19 @@ export function bridgeToResponsesSSE(
               const item = { type: "reasoning", id: itemId, summary: [] as { type: string; text: string }[] };
               emit("response.output_item.added", { output_index: outputIndex, item });
               emit("response.reasoning_summary_part.added", {
-                item_id: itemId, output_index: outputIndex, summary_index: 0,
+                item_id: itemId,
+                output_index: outputIndex,
+                summary_index: 0,
                 part: { type: "summary_text", text: "" },
               });
               currentReasoning = { itemId, outputIndex, text: "" };
             }
             currentReasoning.text += event.thinking;
             emit("response.reasoning_summary_text.delta", {
-              item_id: currentReasoning.itemId, output_index: currentReasoning.outputIndex,
-              summary_index: 0, delta: event.thinking,
+              item_id: currentReasoning.itemId,
+              output_index: currentReasoning.outputIndex,
+              summary_index: 0,
+              delta: event.thinking,
             });
             break;
           }
@@ -440,20 +514,30 @@ export function bridgeToResponsesSSE(
             break;
           }
           case "reasoning_raw_delta": {
-            if (options?.hideThinkingSummary) { hiddenRawReasoningText += event.text; break; }
+            if (options?.hideThinkingSummary) {
+              hiddenRawReasoningText += event.text;
+              break;
+            }
             if (currentMsg) closeCurrentMessage();
             if (currentReasoning) closeCurrentReasoning();
             if (currentToolCall) closeCurrentToolCall();
             if (!currentRawReasoning) {
               const itemId = `rs_${uuid()}`;
-              const item = { type: "reasoning", id: itemId, summary: [] as never[], content: [] as { type: string; text: string }[] };
+              const item = {
+                type: "reasoning",
+                id: itemId,
+                summary: [] as never[],
+                content: [] as { type: string; text: string }[],
+              };
               emit("response.output_item.added", { output_index: outputIndex, item });
               currentRawReasoning = { itemId, outputIndex, text: "" };
             }
             currentRawReasoning.text += event.text;
             emit("response.reasoning_text.delta", {
-              item_id: currentRawReasoning.itemId, output_index: currentRawReasoning.outputIndex,
-              content_index: 0, delta: event.text,
+              item_id: currentRawReasoning.itemId,
+              output_index: currentRawReasoning.outputIndex,
+              content_index: 0,
+              delta: event.text,
             });
             break;
           }
@@ -470,16 +554,44 @@ export function bridgeToResponsesSSE(
             const freeform = !toolSearch && (freeformToolNames?.has(realName) ?? false);
             const itemId = `${toolSearch ? "tsc" : freeform ? "ctc" : "fc"}_${uuid()}`;
             const item = toolSearch
-              ? { type: "tool_search_call", id: itemId, call_id: event.id, execution: "client", arguments: {}, status: "in_progress" }
+              ? {
+                  type: "tool_search_call",
+                  id: itemId,
+                  call_id: event.id,
+                  execution: "client",
+                  arguments: {},
+                  status: "in_progress",
+                }
               : freeform
-              ? { type: "custom_tool_call", id: itemId, call_id: event.id, name: realName, input: "", status: "in_progress" }
-              : {
-                  type: "function_call", id: itemId, call_id: event.id, name: realName,
-                  arguments: "", status: "in_progress", ...(ns ? { namespace: ns } : {}),
-                  ...plaintextCollaborationFields(ns, realName),
-                };
+                ? {
+                    type: "custom_tool_call",
+                    id: itemId,
+                    call_id: event.id,
+                    name: realName,
+                    input: "",
+                    status: "in_progress",
+                  }
+                : {
+                    type: "function_call",
+                    id: itemId,
+                    call_id: event.id,
+                    name: realName,
+                    arguments: "",
+                    status: "in_progress",
+                    ...(ns ? { namespace: ns } : {}),
+                    ...plaintextCollaborationFields(ns, realName),
+                  };
             emit("response.output_item.added", { output_index: outputIndex, item });
-            currentToolCall = { itemId, outputIndex, callId: event.id, name: realName, args: "", namespace: ns, freeform, toolSearch };
+            currentToolCall = {
+              itemId,
+              outputIndex,
+              callId: event.id,
+              name: realName,
+              args: "",
+              namespace: ns,
+              freeform,
+              toolSearch,
+            };
             break;
           }
           case "tool_call_delta": {
@@ -487,7 +599,8 @@ export function bridgeToResponsesSSE(
               currentToolCall.args += event.arguments;
               if (!currentToolCall.freeform && !currentToolCall.toolSearch) {
                 emit("response.function_call_arguments.delta", {
-                  item_id: currentToolCall.itemId, output_index: currentToolCall.outputIndex,
+                  item_id: currentToolCall.itemId,
+                  output_index: currentToolCall.outputIndex,
                   delta: event.arguments,
                 });
               }
@@ -499,7 +612,8 @@ export function bridgeToResponsesSSE(
                   const emitted = currentToolCall.inputEmitted ?? "";
                   if (full.startsWith(emitted) && full.length > emitted.length) {
                     emit("response.custom_tool_call_input.delta", {
-                      item_id: currentToolCall.itemId, output_index: currentToolCall.outputIndex,
+                      item_id: currentToolCall.itemId,
+                      output_index: currentToolCall.outputIndex,
                       delta: full.slice(emitted.length),
                     });
                     currentToolCall.inputEmitted = full;
@@ -525,7 +639,8 @@ export function bridgeToResponsesSSE(
             if (options?.compaction) {
               // Exactly one compaction item per turn; codex-rs takes the first and fatals on 0.
               const item = {
-                type: "compaction", id: `cmp_${uuid()}`,
+                type: "compaction",
+                id: `cmp_${uuid()}`,
                 encrypted_content: encodeCompactionSummary(compactionText),
               };
               console.info(
@@ -551,7 +666,10 @@ export function bridgeToResponsesSSE(
               emit("response.incomplete", { response });
               reportTerminal("incomplete");
             } else {
-              const response = { ...responseSnapshot("completed", finishedItems, event.endTurn), usage: responsesUsage(event.usage) };
+              const response = {
+                ...responseSnapshot("completed", finishedItems, event.endTurn),
+                usage: responsesUsage(event.usage),
+              };
               options?.onCompletedResponse?.(response, event.providerState);
               emit("response.completed", {
                 response,
@@ -635,7 +753,10 @@ export function bridgeToResponsesSSE(
       stepping = false;
       return;
     }
-    if (beat) { clearInterval(beat); beat = undefined; }
+    if (beat) {
+      clearInterval(beat);
+      beat = undefined;
+    }
 
     if (!terminated) {
       // The adapter generator ended without an explicit done/error event. Mark as incomplete
@@ -680,18 +801,18 @@ export function bridgeToResponsesSSE(
         // costs a user their turn.
         stallWarned = true;
         console.warn(
-          `[bridge] upstream silence halfway to the stall budget model=${modelId}`
-          + ` response=${responseId} stallSec=${stallSec} adapterEvents=${adapterEventCount}`
-          + ` lastEvent=${lastAdapterEventType} sinceLastEventMs=${silenceMs}`,
+          `[bridge] upstream silence halfway to the stall budget model=${modelId}` +
+            ` response=${responseId} stallSec=${stallSec} adapterEvents=${adapterEventCount}` +
+            ` lastEvent=${lastAdapterEventType} sinceLastEventMs=${silenceMs}`,
         );
       }
       if (silenceMs >= stallTimeoutMs) {
         console.error(
-          `[bridge] upstream_stall_timeout model=${modelId} response=${responseId}`
-          + ` stallSec=${stallSec} adapterEvents=${adapterEventCount}`
-          + ` lastEvent=${lastAdapterEventType} sinceLastEventMs=${silenceMs}`
-          + ` sinceStreamStartMs=${checkedAt - streamStartedAt}`
-          + ` iteratorStarted=${iteratorStarted} upstreamDone=${upstreamDone} emittedFrames=${emittedFrames}`,
+          `[bridge] upstream_stall_timeout model=${modelId} response=${responseId}` +
+            ` stallSec=${stallSec} adapterEvents=${adapterEventCount}` +
+            ` lastEvent=${lastAdapterEventType} sinceLastEventMs=${silenceMs}` +
+            ` sinceStreamStartMs=${checkedAt - streamStartedAt}` +
+            ` iteratorStarted=${iteratorStarted} upstreamDone=${upstreamDone} emittedFrames=${emittedFrames}`,
         );
         if (currentMsg) closeCurrentMessage();
         if (currentReasoning) closeCurrentReasoning();
@@ -711,7 +832,11 @@ export function bridgeToResponsesSSE(
         emitDone();
         if (beat) clearInterval(beat);
         beat = undefined;
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
         closed = true;
         return;
       }
@@ -726,7 +851,7 @@ export function bridgeToResponsesSSE(
 
   const waitForCapacity = async () => {
     while (!closed && (controller.desiredSize ?? 1) <= 0) {
-      await new Promise<void>(resolve => setTimeout(resolve, 5));
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
   };
 
@@ -756,13 +881,17 @@ export function bridgeToResponsesSSE(
       start(streamController) {
         controller = streamController;
         startStream();
-        void pump().catch(error => {
+        void pump().catch((error) => {
           if (closed) return;
           closed = true;
           if (beat) clearInterval(beat);
           onCancel?.();
           returnIterator();
-          try { controller.error(error); } catch { /* already closed */ }
+          try {
+            controller.error(error);
+          } catch {
+            /* already closed */
+          }
         });
       },
       cancel: cancelStream,

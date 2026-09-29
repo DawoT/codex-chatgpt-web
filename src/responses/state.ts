@@ -126,7 +126,11 @@ function persistNow(path: string): void {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     // mkdirSync's mode only applies on creation — re-harden an existing config dir so the
     // conversation-content snapshot never lands in a group/world-readable directory.
-    try { chmodSync(dirname(path), 0o700); } catch { /* best-effort (e.g. Windows) */ }
+    try {
+      chmodSync(dirname(path), 0o700);
+    } catch {
+      /* best-effort (e.g. Windows) */
+    }
     atomicWriteFile(path, JSON.stringify({ version: 1, states: entries }));
   } catch {
     /* best-effort: disk trouble must never affect request handling */
@@ -217,8 +221,13 @@ export function rememberResponseState(
   if (typeof response.id !== "string" || !Array.isArray(response.output)) return;
   if (response.status === "incomplete") {
     const details = response.incomplete_details;
-    if (!details || typeof details !== "object" || Array.isArray(details)
-      || (details as { reason?: unknown }).reason !== "max_output_tokens") return;
+    if (
+      !details ||
+      typeof details !== "object" ||
+      Array.isArray(details) ||
+      (details as { reason?: unknown }).reason !== "max_output_tokens"
+    )
+      return;
   } else if (response.status !== undefined && response.status !== "completed") return;
   ensureLoaded();
   setEntry(response.id, {

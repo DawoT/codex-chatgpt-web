@@ -9,13 +9,12 @@ export const AGENT_WAIT_TRANSPORT_RULE = `ChatGPT Web transport rule: wait for e
 // prove that the underlying command stopped; the caller must reconcile its operation.
 export function resolveMcpInvocationTimeout(value: string | undefined): number {
   const configured = Number(value);
-  return Number.isFinite(configured) && configured >= 1
-    ? Math.min(45_000, Math.floor(configured))
-    : 45_000;
+  return Number.isFinite(configured) && configured >= 1 ? Math.min(45_000, Math.floor(configured)) : 45_000;
 }
 
-export const CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS =
-  resolveMcpInvocationTimeout(process.env.CODEX_CHATGPT_WEB_MCP_TIMEOUT_MS);
+export const CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS = resolveMcpInvocationTimeout(
+  process.env.CODEX_CHATGPT_WEB_MCP_TIMEOUT_MS,
+);
 
 export const ZERO_RISK_MCP_INSTRUCTIONS = [
   "For each pasted Codex Web GPT request, begin with codex_turn_start using the request_id in its request block.",
@@ -42,7 +41,5 @@ export const NATIVE_CHATGPT_MCP_INSTRUCTIONS = [
 ].join(" ");
 
 export function afterSafeStart(contract: ChatGptMcpContract, description: string): string {
-  return contract === "safe"
-    ? `For a Zero Risk request connected by codex_turn_start. ${description}`
-    : description;
+  return contract === "safe" ? `For a Zero Risk request connected by codex_turn_start. ${description}` : description;
 }

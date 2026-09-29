@@ -1,9 +1,19 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { workspaceFileCache, type FastPathWorkspaceCache } from "../fast-path-cache";
-import { GLOBAL_SKILL_READ_ROOTS, type FastPathToolResult, result } from "./types";
+import { type FastPathWorkspaceCache, workspaceFileCache } from "../fast-path-cache";
 import { truncateToolOutputText, utf8PrefixLength } from "./output";
 import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./sandbox";
+import { type FastPathToolResult, GLOBAL_SKILL_READ_ROOTS, result } from "./types";
 
 /** Hard ceiling for one codex_read_file call; larger files must be read in slices or via codex_exec. */
 export const CHATGPT_WEB_MAX_READ_FILE_BYTES = 16 * 1024 * 1024;
@@ -27,10 +37,7 @@ export function handleReadFile(options: {
     return result({ error: "offset must be greater than 0" }, true);
   }
   const cache = options.cache ?? workspaceFileCache;
-  const allowedRoots = [
-    ...options.roots,
-    ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),
-  ];
+  const allowedRoots = [...options.roots, ...GLOBAL_SKILL_READ_ROOTS.filter((dir) => existsSync(dir))];
   const resolved = resolveSafeWorkspacePath(path, options.cwd, allowedRoots);
   if (!existsSync(resolved)) {
     return result({ error: `File does not exist: ${path}` }, true);
@@ -42,10 +49,22 @@ export function handleReadFile(options: {
   if (options.max_bytes !== undefined || options.offset_bytes !== undefined) {
     const maxBytes = options.max_bytes ?? DEFAULT_MAX_READ_CHUNK_BYTES;
     const byteOffset = options.offset_bytes ?? 0;
-    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > DEFAULT_MAX_READ_CHUNK_BYTES
-      || !Number.isSafeInteger(byteOffset) || byteOffset < 0
-      || options.offset !== undefined || options.limit_lines !== undefined) {
-      return result({ error: "Byte pagination requires max_bytes between 1 and 131072, a nonnegative offset_bytes, and no line pagination arguments" }, true);
+    if (
+      !Number.isSafeInteger(maxBytes) ||
+      maxBytes < 1 ||
+      maxBytes > DEFAULT_MAX_READ_CHUNK_BYTES ||
+      !Number.isSafeInteger(byteOffset) ||
+      byteOffset < 0 ||
+      options.offset !== undefined ||
+      options.limit_lines !== undefined
+    ) {
+      return result(
+        {
+          error:
+            "Byte pagination requires max_bytes between 1 and 131072, a nonnegative offset_bytes, and no line pagination arguments",
+        },
+        true,
+      );
     }
     const fd = openSync(resolved, "r");
     const buffer = Buffer.alloc(Math.min(Math.max(0, st.size - byteOffset), maxBytes + 1));
@@ -58,12 +77,15 @@ export function handleReadFile(options: {
     const checkBytes = Math.min(bytesRead, 8192);
     for (let i = 0; i < checkBytes; i++) {
       if (buffer[i] === 0) {
-        return result({
-          path: relative(options.cwd, resolved) || path,
-          binary: true,
-          size_bytes: st.size,
-          error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
-        }, true);
+        return result(
+          {
+            path: relative(options.cwd, resolved) || path,
+            binary: true,
+            size_bytes: st.size,
+            error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
+          },
+          true,
+        );
       }
     }
     bytesRead = utf8PrefixLength(buffer.subarray(0, bytesRead), maxBytes);
@@ -88,24 +110,30 @@ export function handleReadFile(options: {
     });
   }
   if (st.size > CHATGPT_WEB_MAX_READ_FILE_BYTES) {
-    return result({
-      path: relative(options.cwd, resolved) || path,
-      size_bytes: st.size,
-      error: `File is too large to read (${st.size.toLocaleString("en-US")} bytes; limit ${CHATGPT_WEB_MAX_READ_FILE_BYTES.toLocaleString("en-US")}).`,
-      suggestion: "read with offset/limit_lines or use codex_exec",
-    }, true);
+    return result(
+      {
+        path: relative(options.cwd, resolved) || path,
+        size_bytes: st.size,
+        error: `File is too large to read (${st.size.toLocaleString("en-US")} bytes; limit ${CHATGPT_WEB_MAX_READ_FILE_BYTES.toLocaleString("en-US")}).`,
+        suggestion: "read with offset/limit_lines or use codex_exec",
+      },
+      true,
+    );
   }
   const cached = cache.get(resolved, st);
   let lines: string[];
   let totalLines: number;
   if (cached) {
     if (cached.isBinary) {
-      return result({
-        path: relative(options.cwd, resolved) || path,
-        binary: true,
-        size_bytes: st.size,
-        error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
-      }, true);
+      return result(
+        {
+          path: relative(options.cwd, resolved) || path,
+          binary: true,
+          size_bytes: st.size,
+          error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
+        },
+        true,
+      );
     }
     lines = cached.lines;
     totalLines = cached.totalLines;
@@ -115,12 +143,15 @@ export function handleReadFile(options: {
     for (let i = 0; i < checkBytes; i++) {
       if (buffer[i] === 0) {
         cache.set(resolved, st, { text: "", lines: [], isBinary: true });
-        return result({
-          path: relative(options.cwd, resolved) || path,
-          binary: true,
-          size_bytes: buffer.length,
-          error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
-        }, true);
+        return result(
+          {
+            path: relative(options.cwd, resolved) || path,
+            binary: true,
+            size_bytes: buffer.length,
+            error: "Binary file cannot be displayed as text. Use codex_view_image or inspect via codex_exec.",
+          },
+          true,
+        );
       }
     }
     const text = buffer.toString("utf8");
@@ -162,7 +193,10 @@ export function handleWriteFile(options: {
   // A read-only sandbox policy (writableRoots: []) rejects every mutation before touching the
   // filesystem; without writableRoots the write roots fall back to `roots` (legacy behavior).
   if (options.writableRoots !== undefined && options.writableRoots.length === 0) {
-    return result({ error: "Workspace is read-only (writableRoots is empty): codex_write_file cannot modify files." }, true);
+    return result(
+      { error: "Workspace is read-only (writableRoots is empty): codex_write_file cannot modify files." },
+      true,
+    );
   }
   const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
   if (options.writableRoots !== undefined) {
@@ -175,21 +209,28 @@ export function handleWriteFile(options: {
       return result({ path, error: `Path is a directory, not a file: ${path}` }, true);
     }
     if (!overwrite) {
-      return result({
-        path: relative(options.cwd, resolved) || path,
-        error: "File already exists and overwrite is false; refusing to clobber it. Re-run with overwrite=true to replace the content.",
-        size_bytes: st.size,
-        modified_epoch_ms: st.mtimeMs,
-      }, true);
+      return result(
+        {
+          path: relative(options.cwd, resolved) || path,
+          error:
+            "File already exists and overwrite is false; refusing to clobber it. Re-run with overwrite=true to replace the content.",
+          size_bytes: st.size,
+          modified_epoch_ms: st.mtimeMs,
+        },
+        true,
+      );
     }
   }
   const parent = dirname(resolved);
   if (!existsSync(parent)) {
     if (!create_parents) {
-      return result({
-        path,
-        error: `Parent directory does not exist: ${relative(options.cwd, parent) || parent}. Re-run with create_parents=true to create it.`,
-      }, true);
+      return result(
+        {
+          path,
+          error: `Parent directory does not exist: ${relative(options.cwd, parent) || parent}. Re-run with create_parents=true to create it.`,
+        },
+        true,
+      );
     }
     mkdirSync(parent, { recursive: true });
   }
@@ -215,7 +256,10 @@ export function handlePatchFile(options: {
   const cache = options.cache ?? workspaceFileCache;
   // Same read-only/writable-roots policy as codex_write_file (Sprint C2).
   if (options.writableRoots !== undefined && options.writableRoots.length === 0) {
-    return result({ error: "Workspace is read-only (writableRoots is empty): codex_patch_file cannot modify files." }, true);
+    return result(
+      { error: "Workspace is read-only (writableRoots is empty): codex_patch_file cannot modify files." },
+      true,
+    );
   }
   const resolved = resolveSafeWorkspacePath(path, options.cwd, options.roots);
   if (options.writableRoots !== undefined) {
@@ -233,28 +277,39 @@ export function handlePatchFile(options: {
   // Mutation safety: unlike read_file (which only probes the first bytes), never write into a
   // file that contains a null byte anywhere; treating it as text would corrupt the binary.
   if (content.includes("\0")) {
-    return result({
-      path: relative(options.cwd, resolved) || path,
-      binary: true,
-      size_bytes: st.size,
-      error: "Binary file cannot be patched as text. Rewrite it with codex_write_file or inspect via codex_exec.",
-    }, true);
+    return result(
+      {
+        path: relative(options.cwd, resolved) || path,
+        binary: true,
+        size_bytes: st.size,
+        error: "Binary file cannot be patched as text. Rewrite it with codex_write_file or inspect via codex_exec.",
+      },
+      true,
+    );
   }
   if (!target_content || typeof target_content !== "string") {
-    return result({
-      path: relative(options.cwd, resolved) || path,
-      error: "target_content cannot be empty; nothing was written. Provide the exact text to replace.",
-    }, true);
+    return result(
+      {
+        path: relative(options.cwd, resolved) || path,
+        error: "target_content cannot be empty; nothing was written. Provide the exact text to replace.",
+      },
+      true,
+    );
   }
   const firstIndex = content.indexOf(target_content);
   if (firstIndex < 0) {
-    return result({
-      path: relative(options.cwd, resolved) || path,
-      error: "target_content was not found in the file; nothing was written. The match must be exact, including whitespace, indentation, and line endings.",
-      target_chars: target_content.length,
-    }, true);
+    return result(
+      {
+        path: relative(options.cwd, resolved) || path,
+        error:
+          "target_content was not found in the file; nothing was written. The match must be exact, including whitespace, indentation, and line endings.",
+        target_chars: target_content.length,
+      },
+      true,
+    );
   }
-  const updated = content.slice(0, firstIndex) + replacement_content + content.slice(firstIndex + target_content.length);
+  const updated =
+    content.slice(0, firstIndex) + replacement_content + content.slice(firstIndex + target_content.length);
   writeFileSync(resolved, updated, "utf8");
   cache.invalidate(resolved);
   return result({
@@ -275,10 +330,7 @@ export function handleListDir(options: {
   if (limit !== undefined && limit <= 0) {
     return result({ error: "limit must be greater than 0" }, true);
   }
-  const allowedRoots = [
-    ...options.roots,
-    ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),
-  ];
+  const allowedRoots = [...options.roots, ...GLOBAL_SKILL_READ_ROOTS.filter((dir) => existsSync(dir))];
   const resolved = resolveSafeWorkspacePath(path, options.cwd, allowedRoots);
   if (!existsSync(resolved)) {
     return result({ error: `Directory does not exist: ${path}` }, true);

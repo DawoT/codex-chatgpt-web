@@ -1,12 +1,12 @@
-import { selectedSkillFile } from "../src/adapters/chatgpt-web/skill-attachments";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
-import { LauncherBrowserHelperClient } from "../src/adapters/chatgpt-web/launcher-helper-client";
 import type { BrowserTurn, ResolvedBrowserConfig } from "../src/adapters/chatgpt-web/browser-worker";
+import { LauncherBrowserHelperClient } from "../src/adapters/chatgpt-web/launcher-helper-client";
+import { selectedSkillFile } from "../src/adapters/chatgpt-web/skill-attachments";
 import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
 import { LAUNCHER_BROWSER_HOST_KIND, LAUNCHER_BROWSER_IDLE_URL } from "../src/launcher-browser-host";
 
@@ -19,7 +19,9 @@ test("daemon streams browser lifecycle through the real helper process", async (
   const root = mkdtempSync(join(tmpdir(), "codex-launcher-helper-client-"));
   roots.push(root);
   const helper = join(root, "helper.ts");
-  writeFileSync(helper, `
+  writeFileSync(
+    helper,
+    `
     import { ChatGptBrowserWorker } from ${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url).href)};
     // Substitute only the browser. Both sides of the production IPC protocol run unchanged.
     let previousText;
@@ -85,27 +87,33 @@ test("daemon streams browser lifecycle through the real helper process", async (
       return "done";
     };
     await import(${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-helper-main.ts", import.meta.url).href)});
-  `, { mode: 0o700 });
+  `,
+    { mode: 0o700 },
+  );
   const descriptorHelper = join(root, "descriptor-helper.cjs");
   writeFileSync(descriptorHelper, "process.exit(99);\n", { mode: 0o700 });
   const descriptorPath = join(root, "launcher.json");
-  writeFileSync(descriptorPath, `${JSON.stringify({
-    version: 3,
-    kind: LAUNCHER_BROWSER_HOST_KIND,
-    profile: "production",
-    pid: process.pid,
-    endpoint: "http://127.0.0.1:39001",
-    control: {
-      endpoint: "http://127.0.0.1:39002",
-      token: "launcher-control-token-0123456789abcdefghijklmnop",
-    },
-    helper: { executable: process.execPath, script: descriptorHelper },
-    partition: "persist:codex-web-gpt-chatgpt",
-    idleUrl: LAUNCHER_BROWSER_IDLE_URL,
-    surfaceId: "launcher_surface_id_0123456789AB",
-    surfaceTargets: { ["launcher_surface_id_0123456789AB"]: "native-owned-target" },
-    createdAt: new Date().toISOString(),
-  })}\n`, { mode: 0o600 });
+  writeFileSync(
+    descriptorPath,
+    `${JSON.stringify({
+      version: 3,
+      kind: LAUNCHER_BROWSER_HOST_KIND,
+      profile: "production",
+      pid: process.pid,
+      endpoint: "http://127.0.0.1:39001",
+      control: {
+        endpoint: "http://127.0.0.1:39002",
+        token: "launcher-control-token-0123456789abcdefghijklmnop",
+      },
+      helper: { executable: process.execPath, script: descriptorHelper },
+      partition: "persist:codex-web-gpt-chatgpt",
+      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+      surfaceId: "launcher_surface_id_0123456789AB",
+      surfaceTargets: { launcher_surface_id_0123456789AB: "native-owned-target" },
+      createdAt: new Date().toISOString(),
+    })}\n`,
+    { mode: 0o600 },
+  );
   const config: ResolvedBrowserConfig = {
     appName: "Codex Native2",
     browserHost: "launcher",
@@ -136,20 +144,37 @@ test("daemon streams browser lifecycle through the real helper process", async (
       conversationKey: "a".repeat(64),
       capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
       prepare: async () => ({
-        text: "inspect", images: [],
-        skillFiles: [selectedSkillFile({ role: "user", origin: "codex_skill", timestamp: 0,
-          content: "<skill>\n<name>ipc</name>\n<path>/skills/ipc/SKILL.md</path>\ncheck IPC\n</skill>",
-        })],
-        multipart: { parts: ["part one", "part two", "part three", "part four", "part five", "part six"], commit: "inspect" },
-        release: () => { released = true; },
+        text: "inspect",
+        images: [],
+        skillFiles: [
+          selectedSkillFile({
+            role: "user",
+            origin: "codex_skill",
+            timestamp: 0,
+            content: "<skill>\n<name>ipc</name>\n<path>/skills/ipc/SKILL.md</path>\ncheck IPC\n</skill>",
+          }),
+        ],
+        multipart: {
+          parts: ["part one", "part two", "part three", "part four", "part five", "part six"],
+          commit: "inspect",
+        },
+        release: () => {
+          released = true;
+        },
       }),
-      onMultipartStageAcknowledged: stage => { acknowledgedStages.push(stage); },
-      onSendActivated: () => { sendActivated = true; },
-      onSubmitted: () => { submitted = true; },
+      onMultipartStageAcknowledged: (stage) => {
+        acknowledgedStages.push(stage);
+      },
+      onSendActivated: () => {
+        sendActivated = true;
+      },
+      onSubmitted: () => {
+        submitted = true;
+      },
       onReasoningSummary: (text, continuation) => reasoning.push({ text, continuation: continuation === true }),
-      onTextDelta: text => deltas.push(text),
+      onTextDelta: (text) => deltas.push(text),
       captureLunaCheckpoint: true,
-      onLunaCheckpoint: checkpoint => checkpoints.push(checkpoint),
+      onLunaCheckpoint: (checkpoint) => checkpoints.push(checkpoint),
     });
     expect(result).toBe("done");
     expect(client.getHelperIdentity()).toMatchObject({
@@ -166,46 +191,60 @@ test("daemon streams browser lifecycle through the real helper process", async (
     expect(sendActivated).toBe(true);
     expect(submitted).toBe(true);
     expect(acknowledgedStages).toEqual([1, 2, 3, 4, 5]);
-    expect(checkpoints).toEqual([{
-      answerHash: "a".repeat(64),
-      checkpoint: {
-        version: 1,
-        objective: "Finish the helper test.",
-        state: ["The answer streamed."],
-        evidence: ["The helper emitted a checkpoint event."],
-        decisions: [],
-        pending: [],
+    expect(checkpoints).toEqual([
+      {
+        answerHash: "a".repeat(64),
+        checkpoint: {
+          version: 1,
+          objective: "Finish the helper test.",
+          state: ["The answer streamed."],
+          evidence: ["The helper emitted a checkpoint event."],
+          decisions: [],
+          pending: [],
+        },
       },
-    }]);
+    ]);
     expect(released).toBe(true);
     await client.releaseConversationContextPressure("a".repeat(64));
-    expect(await client.run({
-      traceId: "abcdef123457",
-      modelId: "gpt-5.6-sol",
-      modelFamily: "5.6",
-      conversationKey: "a".repeat(64),
-      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-      prepare: async () => ({ text: "inspect", images: [], release() {} }),
-      onTextDelta() {},
-    })).toBe("released");
+    expect(
+      await client.run({
+        traceId: "abcdef123457",
+        modelId: "gpt-5.6-sol",
+        modelFamily: "5.6",
+        conversationKey: "a".repeat(64),
+        capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+        prepare: async () => ({ text: "inspect", images: [], release() {} }),
+        onTextDelta() {},
+      }),
+    ).toBe("released");
     const progress = new ChatGptExternalTurnProgress();
     const originalAcknowledge = progress.acknowledgeToolBatch.bind(progress);
     let releaseAcknowledgement!: () => void;
-    const acknowledgementGate = new Promise<void>(resolve => { releaseAcknowledgement = resolve; });
+    const acknowledgementGate = new Promise<void>((resolve) => {
+      releaseAcknowledgement = resolve;
+    });
     let markAcknowledgementRequested!: () => void;
-    const acknowledgementRequested = new Promise<void>(resolve => { markAcknowledgementRequested = resolve; });
-    progress.acknowledgeToolBatch = async revision => {
+    const acknowledgementRequested = new Promise<void>((resolve) => {
+      markAcknowledgementRequested = resolve;
+    });
+    progress.acknowledgeToolBatch = async (revision) => {
       markAcknowledgementRequested();
       await acknowledgementGate;
       await originalAcknowledge(revision);
     };
     let markPrepared!: () => void;
-    const thirdPrepared = new Promise<void>(resolve => { markPrepared = resolve; });
+    const thirdPrepared = new Promise<void>((resolve) => {
+      markPrepared = resolve;
+    });
     const surfaceEvents: string[] = [];
     let markJournalRequested!: () => void;
-    const journalRequested = new Promise<void>(resolve => { markJournalRequested = resolve; });
+    const journalRequested = new Promise<void>((resolve) => {
+      markJournalRequested = resolve;
+    });
     let releaseJournal!: () => void;
-    const journalGate = new Promise<void>(resolve => { releaseJournal = resolve; });
+    const journalGate = new Promise<void>((resolve) => {
+      releaseJournal = resolve;
+    });
     const third = client.run({
       traceId: "abcdef123458",
       modelId: "gpt-5.6-sol",
@@ -216,13 +255,13 @@ test("daemon streams browser lifecycle through the real helper process", async (
         return { text: "inspect", images: [], release() {} };
       },
       externalProgress: progress,
-      onSurfaceLeased: async surfaceId => {
+      onSurfaceLeased: async (surfaceId) => {
         surfaceEvents.push(`claimed:${surfaceId}`);
       },
-      onResultReady: async text => {
+      onResultReady: async (text) => {
         surfaceEvents.push(`persisted:${text}`);
       },
-      onSurfaceReleased: async surfaceId => {
+      onSurfaceReleased: async (surfaceId) => {
         surfaceEvents.push(`released:${surfaceId}`);
       },
       onToolBatchObserved: async (_requestId, observedRevision) => {
@@ -237,23 +276,21 @@ test("daemon streams browser lifecycle through the real helper process", async (
     const revision = progress.recordToolBatch(1);
     await journalRequested;
     let memoryAcknowledged = false;
-    void acknowledgementRequested.then(() => { memoryAcknowledged = true; });
+    void acknowledgementRequested.then(() => {
+      memoryAcknowledged = true;
+    });
     await Promise.resolve();
     expect(memoryAcknowledged).toBeFalse();
     releaseJournal();
     await acknowledgementRequested;
     const early = await Promise.race([
       third.then(() => true),
-      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 50)),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
     ]);
     expect(early).toBeFalse();
     releaseAcknowledgement();
     expect(await third).toBe("observed");
-    expect(surfaceEvents).toEqual([
-      `claimed:${"a".repeat(32)}`,
-      "persisted:observed",
-      `released:${"a".repeat(32)}`,
-    ]);
+    expect(surfaceEvents).toEqual([`claimed:${"a".repeat(32)}`, "persisted:observed", `released:${"a".repeat(32)}`]);
     await expect(progress.waitForToolBatchObservation(revision)).resolves.toBeUndefined();
     const repeatedDeltas: string[] = [];
     const repeatedTurn = () => ({
@@ -276,7 +313,9 @@ test("accepted compaction retires through the helper as completed without hiding
   const root = mkdtempSync(join(tmpdir(), "codex-helper-compaction-end-"));
   roots.push(root);
   const helper = join(root, "helper.ts");
-  writeFileSync(helper, `
+  writeFileSync(
+    helper,
+    `
     import { ChatGptBrowserWorker } from ${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url).href)};
     const run = ChatGptBrowserWorker.prototype.run;
     ChatGptBrowserWorker.prototype.run = function(turn) {
@@ -295,37 +334,65 @@ test("accepted compaction retires through the helper as completed without hiding
       return run.call(this, turn);
     };
     await import(${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-helper-main.ts", import.meta.url).href)});
-  `, { mode: 0o700 });
+  `,
+    { mode: 0o700 },
+  );
   const ended = new Map<string, Record<string, unknown>>();
   const server = Bun.serve({
-    hostname: "127.0.0.1", port: 0,
+    hostname: "127.0.0.1",
+    port: 0,
     async fetch(request) {
-      const body = await request.json() as Record<string, unknown>;
-      if (body.phase === "start") return Response.json({
-        ok: true, surfaceId: "launcher_surface_id_0123456789AB", reused: true, connectorBound: true,
-      });
+      const body = (await request.json()) as Record<string, unknown>;
+      if (body.phase === "start")
+        return Response.json({
+          ok: true,
+          surfaceId: "launcher_surface_id_0123456789AB",
+          reused: true,
+          connectorBound: true,
+        });
       if (body.phase === "end") ended.set(body.traceId as string, body);
       return Response.json({ ok: true, cancelledByUser: false });
     },
   });
   const descriptorPath = join(root, "launcher.json");
-  writeFileSync(descriptorPath, JSON.stringify({
-    version: 3, kind: LAUNCHER_BROWSER_HOST_KIND, profile: "production", pid: process.pid,
-    endpoint: `http://127.0.0.1:${server.port}`,
-    control: { endpoint: `http://127.0.0.1:${server.port}`, token: "launcher-control-token-0123456789abcdefghijklmnop" },
-    helper: { executable: process.execPath, script: helper },
-    partition: "persist:codex-web-gpt-chatgpt", idleUrl: LAUNCHER_BROWSER_IDLE_URL,
-    surfaceId: "launcher_surface_id_0123456789AB", createdAt: new Date().toISOString(),
-    surfaceTargets: { launcher_surface_id_0123456789AB: "native-owned-target" },
-  }), { mode: 0o600 });
+  writeFileSync(
+    descriptorPath,
+    JSON.stringify({
+      version: 3,
+      kind: LAUNCHER_BROWSER_HOST_KIND,
+      profile: "production",
+      pid: process.pid,
+      endpoint: `http://127.0.0.1:${server.port}`,
+      control: {
+        endpoint: `http://127.0.0.1:${server.port}`,
+        token: "launcher-control-token-0123456789abcdefghijklmnop",
+      },
+      helper: { executable: process.execPath, script: helper },
+      partition: "persist:codex-web-gpt-chatgpt",
+      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+      surfaceId: "launcher_surface_id_0123456789AB",
+      createdAt: new Date().toISOString(),
+      surfaceTargets: { launcher_surface_id_0123456789AB: "native-owned-target" },
+    }),
+    { mode: 0o600 },
+  );
   const client = new LauncherBrowserHelperClient({
-    appName: "Codex Native2", browserHost: "launcher", browserHostDescriptorPath: descriptorPath,
-    browserHelperScriptPath: helper, browserDiagnosticsPath: join(root, "diagnostics"),
-    storageStatePath: join(root, "unused-state.json"), chromeExecutablePath: join(root, "unused-chrome"),
-    turnTimeoutMs: 60_000, headed: true, autoApproveToolCalls: false, useSavedChats: false,
+    appName: "Codex Native2",
+    browserHost: "launcher",
+    browserHostDescriptorPath: descriptorPath,
+    browserHelperScriptPath: helper,
+    browserDiagnosticsPath: join(root, "diagnostics"),
+    storageStatePath: join(root, "unused-state.json"),
+    chromeExecutablePath: join(root, "unused-chrome"),
+    turnTimeoutMs: 60_000,
+    headed: true,
+    autoApproveToolCalls: false,
+    useSavedChats: false,
   });
   const logs: string[] = [];
-  const logger = spyOn(console, "info").mockImplementation((...args) => { logs.push(args.join(" ")); });
+  const logger = spyOn(console, "info").mockImplementation((...args) => {
+    logs.push(args.join(" "));
+  });
   try {
     for (const [traceId, reason, status] of [
       ["compaction_accepted", new ChatGptCompactionHandoffAccepted(), "completed"],
@@ -336,26 +403,59 @@ test("accepted compaction retires through the helper as completed without hiding
     ] as const) {
       const controller = new AbortController();
       let released = false;
-      const prepare = async () => ({ text: "checkpoint instruction", images: [], release: () => { released = true; } });
-      await expect(client.run({
-        traceId, modelId: "gpt-5.6-sol", reasoning: "high",
-        capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-        nativeConnector: true, conversationKey: "a".repeat(64), requireRetainedConversation: true,
-        prepare, prepareResume: prepare, abortSignal: controller.signal,
-        onSubmitted: () => { controller.abort(reason); }, onTextDelta() {},
-      })).rejects.toThrow(traceId === "compaction_real_failure"
-        ? "independent browser failure"
-        : traceId === "compaction_accepted" ? "Structured compaction handoff accepted" : "ChatGPT web turn aborted");
+      const prepare = async () => ({
+        text: "checkpoint instruction",
+        images: [],
+        release: () => {
+          released = true;
+        },
+      });
+      await expect(
+        client.run({
+          traceId,
+          modelId: "gpt-5.6-sol",
+          reasoning: "high",
+          capabilities: {
+            localToolsEnabled: false,
+            solAvailable: true,
+            extraHighAvailable: false,
+            proAvailable: false,
+          },
+          nativeConnector: true,
+          conversationKey: "a".repeat(64),
+          requireRetainedConversation: true,
+          prepare,
+          prepareResume: prepare,
+          abortSignal: controller.signal,
+          onSubmitted: () => {
+            controller.abort(reason);
+          },
+          onTextDelta() {},
+        }),
+      ).rejects.toThrow(
+        traceId === "compaction_real_failure"
+          ? "independent browser failure"
+          : traceId === "compaction_accepted"
+            ? "Structured compaction handoff accepted"
+            : "ChatGPT web turn aborted",
+      );
       // Logical outcome is observed only after the real helper's launcher retirement handshake.
       expect(ended.get(traceId)?.status).toBe(status);
       expect(ended.get(traceId)?.retain).toBeUndefined();
       expect(released).toBeTrue();
     }
     await client.close();
-    expect(logs.some(line => line.includes("compaction_accepted ended after accepted structured compaction handoff"))).toBeTrue();
-    expect(logs.some(line => line.includes("compaction_accepted failed:"))).toBeFalse();
-    for (const traceId of ["compaction_cancelled", "compaction_same_text", "compaction_deadline", "compaction_real_failure"]) {
-      expect(logs.some(line => line.includes(`${traceId} failed:`))).toBeTrue();
+    expect(
+      logs.some((line) => line.includes("compaction_accepted ended after accepted structured compaction handoff")),
+    ).toBeTrue();
+    expect(logs.some((line) => line.includes("compaction_accepted failed:"))).toBeFalse();
+    for (const traceId of [
+      "compaction_cancelled",
+      "compaction_same_text",
+      "compaction_deadline",
+      "compaction_real_failure",
+    ]) {
+      expect(logs.some((line) => line.includes(`${traceId} failed:`))).toBeTrue();
     }
   } finally {
     await client.close();
@@ -389,46 +489,74 @@ test("a helper without multipart submission lifecycle never receives multipart p
   internal.child = child;
   internal.helperFeatures = new Set(["session-operation-id-v2", "multipart-stage-ack"]);
   internal.ensureChild = async () => {};
-  internal.send = async message => {
+  internal.send = async (message) => {
     sent.push(message.type);
     if (message.type === "run") {
-      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-        type: "event", id: message.id, event: "prepared_selected", reused: false,
-      })));
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "event",
+            id: message.id,
+            event: "prepared_selected",
+            reused: false,
+          }),
+        ),
+      );
     } else if (message.type === "prepared_selected_ack") {
-      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-        type: "result", id: message.id, text: "legacy helper would submit",
-      })));
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "result",
+            id: message.id,
+            text: "legacy helper would submit",
+          }),
+        ),
+      );
     } else if (message.type === "abort") {
-      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-        type: "error", id: message.id, message: "helper stopped",
-      })));
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "error",
+            id: message.id,
+            message: "helper stopped",
+          }),
+        ),
+      );
     }
   };
 
-  const failure = await client.run({
-    traceId: "old-multipart-helper",
-    modelId: "gpt-5.6-sol",
-    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-    prepare: async () => ({
-      text: "commit",
-      images: [],
-      multipart: { parts: ["part one", "part two"], commit: "commit" },
-      release() { released = true; },
-    }),
-    onTextDelta() {},
-  }).catch(error => error);
+  const failure = await client
+    .run({
+      traceId: "old-multipart-helper",
+      modelId: "gpt-5.6-sol",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => ({
+        text: "commit",
+        images: [],
+        multipart: { parts: ["part one", "part two"], commit: "commit" },
+        release() {
+          released = true;
+        },
+      }),
+      onTextDelta() {},
+    })
+    .catch((error) => error);
   expect(failure).toMatchObject({ code: "helper_protocol_incompatible", retryable: false });
   expect(failure.message).toContain("multipart submission lifecycle");
   expect(sent).toEqual(["run", "abort"]);
   expect(released).toBe(true);
-  await expect(client.run({
-    traceId: "old-inline-helper",
-    modelId: "gpt-5.6-sol",
-    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-    prepare: async () => ({ text: "inline", images: [], release() {} }),
-    onTextDelta() {},
-  })).resolves.toBe("legacy helper would submit");
+  await expect(
+    client.run({
+      traceId: "old-inline-helper",
+      modelId: "gpt-5.6-sol",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => ({ text: "inline", images: [], release() {} }),
+      onTextDelta() {},
+    }),
+  ).resolves.toBe("legacy helper would submit");
   expect(sent).toEqual(["run", "abort", "run", "prepared_selected_ack"]);
 });
 
@@ -456,42 +584,61 @@ test("launcher helper protocol preserves multipart context and the compaction fl
   };
   const child = {};
   internal.child = child;
-  internal.helperFeatures = new Set(["session-operation-id-v2", "checkpoint-markdown-v2", "multipart-submission-lifecycle"]);
+  internal.helperFeatures = new Set([
+    "session-operation-id-v2",
+    "checkpoint-markdown-v2",
+    "multipart-submission-lifecycle",
+  ]);
   internal.ensureChild = async () => {};
-  internal.send = async message => {
+  internal.send = async (message) => {
     sent.push(message);
     if (typeof message.id !== "string") return;
     if (message.type === "run") {
-      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-        type: "event",
-        id: message.id,
-        event: "prepared_selected",
-        reused: false,
-      })));
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "event",
+            id: message.id,
+            event: "prepared_selected",
+            reused: false,
+          }),
+        ),
+      );
     } else if (message.type === "prepared_selected_ack") {
-      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-        type: "result",
-        id: message.id,
-        text: "done",
-      })));
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "result",
+            id: message.id,
+            text: "done",
+          }),
+        ),
+      );
     }
   };
 
-  await expect(client.run({
-    traceId: "multipart-123",
-    modelId: "gpt-5.6-sol",
-    reasoning: "high",
-    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
-    compaction: true,
-    prepare: async () => ({
-      text: "commit",
-      images: [],
-      multipart: { parts: Array.from({ length: 6 }, (_, index) => JSON.stringify({ part: index + 1 })), commit: "commit" },
-      trimmedCompactionMessages: 4,
-      release() {},
+  await expect(
+    client.run({
+      traceId: "multipart-123",
+      modelId: "gpt-5.6-sol",
+      reasoning: "high",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      compaction: true,
+      prepare: async () => ({
+        text: "commit",
+        images: [],
+        multipart: {
+          parts: Array.from({ length: 6 }, (_, index) => JSON.stringify({ part: index + 1 })),
+          commit: "commit",
+        },
+        trimmedCompactionMessages: 4,
+        release() {},
+      }),
+      onTextDelta() {},
     }),
-    onTextDelta() {},
-  })).resolves.toBe("done");
+  ).resolves.toBe("done");
 
   expect(sent[0]).toMatchObject({
     type: "run",
@@ -502,9 +649,12 @@ test("launcher helper protocol preserves multipart context and the compaction fl
   expect(sent[1]).toMatchObject({
     type: "prepared_selected_ack",
     prepared: {
-        text: "commit",
-        multipart: { parts: Array.from({ length: 6 }, (_, index) => JSON.stringify({ part: index + 1 })), commit: "commit" },
-        trimmedCompactionMessages: 4,
+      text: "commit",
+      multipart: {
+        parts: Array.from({ length: 6 }, (_, index) => JSON.stringify({ part: index + 1 })),
+        commit: "commit",
+      },
+      trimmedCompactionMessages: 4,
     },
   });
 });
@@ -532,30 +682,33 @@ test("an abort dispatched during run submission cannot overtake the run frame", 
   };
   internal.ensureChild = async () => {};
   internal.helperFeatures = new Set(["session-operation-id-v2"]);
-  internal.send = async message => {
+  internal.send = async (message) => {
     messages.push(message.type);
     if (message.type === "run") controller.abort();
     if (message.type === "abort" && message.id) {
-      queueMicrotask(() => internal.finishWithError(
-        message.id!,
-        new DOMException("ChatGPT web turn aborted", "AbortError"),
-      ));
+      queueMicrotask(() =>
+        internal.finishWithError(message.id!, new DOMException("ChatGPT web turn aborted", "AbortError")),
+      );
     }
   };
 
-  await expect(client.run({
-    traceId: "abort-order-123",
-    modelId: "gpt-5.6-sol",
-    reasoning: "high",
-    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-    abortSignal: controller.signal,
-    prepare: async () => ({
-      text: "inspect",
-      images: [],
-      release: () => { released = true; },
+  await expect(
+    client.run({
+      traceId: "abort-order-123",
+      modelId: "gpt-5.6-sol",
+      reasoning: "high",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      abortSignal: controller.signal,
+      prepare: async () => ({
+        text: "inspect",
+        images: [],
+        release: () => {
+          released = true;
+        },
+      }),
+      onTextDelta: () => {},
     }),
-    onTextDelta: () => {},
-  })).rejects.toMatchObject({ name: "AbortError" });
+  ).rejects.toMatchObject({ name: "AbortError" });
 
   expect(messages).toEqual(["run", "abort"]);
   expect(released).toBe(false);
@@ -581,19 +734,21 @@ test("a stale helper cannot accept a fresh compaction before checkpoint Markdown
   };
   internal.ensureChild = async () => {};
   internal.helperFeatures = new Set(["session-operation-id-v2", "multipart-stage-ack", "skill-attachments"]);
-  internal.send = async message => {
+  internal.send = async (message) => {
     sent.push(message.type);
     throw new Error("A stale helper was allowed to receive the compaction turn");
   };
 
-  await expect(client.run({
-    traceId: "stale-compaction-helper",
-    modelId: "gpt-5.6-sol",
-    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-    compaction: true,
-    prepare: async () => ({ text: "checkpoint", images: [], release() {} }),
-    onTextDelta() {},
-  })).rejects.toThrow("checkpoint Markdown protocol");
+  await expect(
+    client.run({
+      traceId: "stale-compaction-helper",
+      modelId: "gpt-5.6-sol",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      compaction: true,
+      prepare: async () => ({ text: "checkpoint", images: [], release() {} }),
+      onTextDelta() {},
+    }),
+  ).rejects.toThrow("checkpoint Markdown protocol");
   expect(sent).toEqual([]);
 });
 
@@ -611,11 +766,14 @@ test("structured helper errors preserve the ChatGPT adapter failure contract", a
   });
   const internal = client as unknown as {
     child?: unknown;
-    pending: Map<string, {
-      turn: BrowserTurn;
-      resolve: (value: string) => void;
-      reject: (error: Error) => void;
-    }>;
+    pending: Map<
+      string,
+      {
+        turn: BrowserTurn;
+        resolve: (value: string) => void;
+        reject: (error: Error) => void;
+      }
+    >;
     handleLine(child: unknown, line: string): void;
   };
   const child = {};
@@ -634,18 +792,24 @@ test("structured helper errors preserve the ChatGPT adapter failure contract", a
     });
   });
 
-  internal.handleLine(child, JSON.stringify({
-    type: "error",
-    id: "rate-limit-123",
-    name: "ChatGptWebAdapterError",
-    message: "ChatGPT rate limit: too many requests are being made too quickly. Wait before retrying.",
-    status: 429,
-    errorType: "rate_limit_error",
-    code: "rate_limit_exceeded",
-    retryable: true,
-  }));
+  internal.handleLine(
+    child,
+    JSON.stringify({
+      type: "error",
+      id: "rate-limit-123",
+      name: "ChatGptWebAdapterError",
+      message: "ChatGPT rate limit: too many requests are being made too quickly. Wait before retrying.",
+      status: 429,
+      errorType: "rate_limit_error",
+      code: "rate_limit_exceeded",
+      retryable: true,
+    }),
+  );
 
-  const error = await result.then(() => undefined, failure => failure);
+  const error = await result.then(
+    () => undefined,
+    (failure) => failure,
+  );
   expect(error).toBeInstanceOf(ChatGptWebAdapterError);
   expect(error).toMatchObject({
     status: 429,
@@ -657,8 +821,14 @@ test("structured helper errors preserve the ChatGPT adapter failure contract", a
 
 test("an older helper cannot silently drop selected skill files and releases the prepared turn", async () => {
   const client = new LauncherBrowserHelperClient({
-    appName: "Codex Native2", browserHost: "launcher", browserHostDescriptorPath: "/durable/launcher.json",
-    storageStatePath: "/durable/unused.json", chromeExecutablePath: "/durable/chrome", headed: true, autoApproveToolCalls: false, useSavedChats: false,
+    appName: "Codex Native2",
+    browserHost: "launcher",
+    browserHostDescriptorPath: "/durable/launcher.json",
+    storageStatePath: "/durable/unused.json",
+    chromeExecutablePath: "/durable/chrome",
+    headed: true,
+    autoApproveToolCalls: false,
+    useSavedChats: false,
   });
   const internal = client as unknown as {
     child: unknown;
@@ -672,27 +842,57 @@ test("an older helper cannot silently drop selected skill files and releases the
   internal.helperFeatures = new Set(["session-operation-id-v2"]);
   internal.ensureChild = async () => {};
   const sent: string[] = [];
-  internal.send = async message => {
+  internal.send = async (message) => {
     sent.push(String(message.type));
-    if (message.type === "run") queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-      type: "event", id: message.id, event: "prepared_selected", reused: false,
-    })));
-    if (message.type === "abort") queueMicrotask(() => internal.handleLine(child, JSON.stringify({
-      type: "error", id: message.id, message: "aborted",
-    })));
+    if (message.type === "run")
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "event",
+            id: message.id,
+            event: "prepared_selected",
+            reused: false,
+          }),
+        ),
+      );
+    if (message.type === "abort")
+      queueMicrotask(() =>
+        internal.handleLine(
+          child,
+          JSON.stringify({
+            type: "error",
+            id: message.id,
+            message: "aborted",
+          }),
+        ),
+      );
   };
   let released = false;
-  await expect(client.run({
-    traceId: "skill-old-helper", modelId: "gpt-5.6-sol", reasoning: "high",
-    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
-    prepare: async () => ({ text: "inspect", images: [],
-      skillFiles: [selectedSkillFile({ role: "user", origin: "codex_skill", timestamp: 0,
-        content: "<skill>\n<name>test</name>\n<path>/test</path>\ncheck\n</skill>",
-      })],
-      release() { released = true; },
+  await expect(
+    client.run({
+      traceId: "skill-old-helper",
+      modelId: "gpt-5.6-sol",
+      reasoning: "high",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => ({
+        text: "inspect",
+        images: [],
+        skillFiles: [
+          selectedSkillFile({
+            role: "user",
+            origin: "codex_skill",
+            timestamp: 0,
+            content: "<skill>\n<name>test</name>\n<path>/test</path>\ncheck\n</skill>",
+          }),
+        ],
+        release() {
+          released = true;
+        },
+      }),
+      onTextDelta() {},
     }),
-    onTextDelta() {},
-  })).rejects.toThrow("does not support skill attachments");
+  ).rejects.toThrow("does not support skill attachments");
   expect(sent).toEqual(["run", "abort"]);
   expect(released).toBe(true);
 });

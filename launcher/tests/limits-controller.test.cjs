@@ -17,27 +17,51 @@ function fixture(t) {
   let mode = "automatic";
   let time = START;
   const options = { getInteractionMode: () => mode, now: () => time };
-  return { file, options, controller: new LimitsController(file, options), setMode(value) { mode = value; }, setTime(value) { time = value; } };
+  return {
+    file,
+    options,
+    controller: new LimitsController(file, options),
+    setMode(value) {
+      mode = value;
+    },
+    setTime(value) {
+      time = value;
+    },
+  };
 }
 
-test("lazy corrupt store is explicitly unavailable without crashing or replacing its file", async t => {
+test("lazy corrupt store is explicitly unavailable without crashing or replacing its file", async (t) => {
   const { file, options } = fixture(t);
   fs.writeFileSync(file, "{corrupt");
   const controller = new LimitsController(file, options);
   const snapshot = controller.snapshot();
-  assert.deepEqual({ ...snapshot, error: null }, {
-    enabled: false, plan: null, trackingSince: null, checkedAt: null,
-    totalMessages: 0, unknownProMessages: 0, incomplete: false, windows: [], disabledReason: null, error: null,
-  });
+  assert.deepEqual(
+    { ...snapshot, error: null },
+    {
+      enabled: false,
+      plan: null,
+      trackingSince: null,
+      checkedAt: null,
+      totalMessages: 0,
+      unknownProMessages: 0,
+      incomplete: false,
+      windows: [],
+      disabledReason: null,
+      error: null,
+    },
+  );
   assert.match(snapshot.error, /unavailable.*not valid JSON/);
   assert.equal(controller.enabled(), false);
   assert.equal(controller.record({ receipt: receipt("ignored") }), false);
-  await assert.rejects(controller.setup(() => assert.fail("A corrupt store cannot be configured")), /not valid JSON/);
+  await assert.rejects(
+    controller.setup(() => assert.fail("A corrupt store cannot be configured")),
+    /not valid JSON/,
+  );
   assert.equal(fs.readFileSync(file, "utf8"), "{corrupt");
   assert.match(controller.snapshot().error, /history may be incomplete/);
 });
 
-test("setup opts in, restores persisted counts, and preserves counters and sticky errors on failure", async t => {
+test("setup opts in, restores persisted counts, and preserves counters and sticky errors on failure", async (t) => {
   const { file, options, controller } = fixture(t);
   assert.equal(controller.enabled(), false);
   assert.equal(fs.existsSync(file), false);
@@ -49,8 +73,16 @@ test("setup opts in, restores persisted counts, and preserves counters and stick
   assert.equal(restarted.record({ receipt: receipt("first") }), false);
   assert.equal(restarted.snapshot().error, null);
   const before = fs.readFileSync(file, "utf8");
-  await assert.rejects(restarted.setup(async () => { throw new Error("browser busy"); }), /browser busy.*history may be incomplete/);
-  await assert.rejects(restarted.setup(async () => config(B, "business")), /Expected a 64-hex/);
+  await assert.rejects(
+    restarted.setup(async () => {
+      throw new Error("browser busy");
+    }),
+    /browser busy.*history may be incomplete/,
+  );
+  await assert.rejects(
+    restarted.setup(async () => config(B, "business")),
+    /Expected a 64-hex/,
+  );
   assert.equal(fs.readFileSync(file, "utf8"), before);
   assert.equal(restarted.snapshot().totalMessages, 1);
   const error = restarted.snapshot().error;
@@ -61,8 +93,16 @@ test("setup opts in, restores persisted counts, and preserves counters and stick
   assert.equal(checked.error, null);
   assert.equal(checked.disabledReason, null);
   let finishCheck;
-  const pending = restarted.setup(() => new Promise(resolve => { finishCheck = resolve; }));
-  await assert.rejects(restarted.setup(() => assert.fail("Only one detector may run")), /already running/);
+  const pending = restarted.setup(
+    () =>
+      new Promise((resolve) => {
+        finishCheck = resolve;
+      }),
+  );
+  await assert.rejects(
+    restarted.setup(() => assert.fail("Only one detector may run")),
+    /already running/,
+  );
   finishCheck(config());
   assert.equal((await pending).totalMessages, 2);
   const unsupported = await restarted.setup(async () => config(A, "unsupported"));
@@ -71,7 +111,7 @@ test("setup opts in, restores persisted counts, and preserves counters and stick
   assert.equal(restarted.record({ receipt: receipt("unsupported") }), false);
 });
 
-test("Zero Risk gates setup and receipt writes, including a mode change during detection", async t => {
+test("Zero Risk gates setup and receipt writes, including a mode change during detection", async (t) => {
   const { file, controller, setMode } = fixture(t);
   await controller.setup(async () => config());
   controller.record({ receipt: receipt("saved") });
@@ -82,16 +122,25 @@ test("Zero Risk gates setup and receipt writes, including a mode change during d
   assert.equal(controller.snapshot().totalMessages, 1);
   assert.equal(controller.record({ receipt: receipt("manual") }), false);
   assert.equal(controller.record({ trackingError: "account-unavailable" }), false);
-  await assert.rejects(controller.setup(() => assert.fail("Manual mode must not call the detector")), /Zero Risk/);
+  await assert.rejects(
+    controller.setup(() => assert.fail("Manual mode must not call the detector")),
+    /Zero Risk/,
+  );
   setMode("automatic");
-  await assert.rejects(controller.setup(async () => { setMode("manual"); return config(B); }), /Zero Risk/);
+  await assert.rejects(
+    controller.setup(async () => {
+      setMode("manual");
+      return config(B);
+    }),
+    /Zero Risk/,
+  );
   assert.equal(fs.readFileSync(file, "utf8"), before);
   setMode("automatic");
   assert.equal((await controller.setup(async () => config())).error, null);
   assert.equal(controller.enabled(), true);
 });
 
-test("account mismatch and missing identity report persistent gaps without charging another account", async t => {
+test("account mismatch and missing identity report persistent gaps without charging another account", async (t) => {
   const { controller } = fixture(t);
   await controller.setup(async () => config());
   assert.equal(controller.record({ receipt: receipt("first", A.toUpperCase()) }), true);
@@ -117,7 +166,7 @@ test("account mismatch and missing identity report persistent gaps without charg
   assert.equal((await controller.setup(async () => config())).totalMessages, 3);
 });
 
-test("optional receipt failures never throw or erase counters and only a recheck clears their error", async t => {
+test("optional receipt failures never throw or erase counters and only a recheck clears their error", async (t) => {
   const { file, controller, setTime } = fixture(t);
   await controller.setup(async () => config());
   assert.equal(controller.record({ receipt: receipt("saved") }), true);

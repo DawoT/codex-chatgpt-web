@@ -1,9 +1,9 @@
-import { runtimeIdentity } from "../../runtime-identity";
 import {
   extractStructuredCompactionHandoff,
   inspectCompactionStateFormat,
   normalizeCompactionStateBlock,
 } from "../../responses/compaction";
+import { runtimeIdentity } from "../../runtime-identity";
 
 const CHECKPOINT_FIELDS = new Set([
   "version",
@@ -25,13 +25,19 @@ export function checkpointStructuralDiagnostic(draft: string) {
   const opening = /<compaction_state(?:\s[^>]*)?>/i.exec(normalized);
   const closing = opening ? /<\/compaction_state\s*>/i.exec(normalized.slice(opening.index + opening[0].length)) : null;
   const fieldText = opening
-    ? normalized.slice(opening.index + opening[0].length,
-      closing ? opening.index + opening[0].length + closing.index : undefined)
+    ? normalized.slice(
+        opening.index + opening[0].length,
+        closing ? opening.index + opening[0].length + closing.index : undefined,
+      )
     : normalized;
-  const recognizedFields = [...new Set(fieldText.split(/\r?\n/).flatMap(line => {
-    const name = /^\s*([a-z_]+)\s*:/i.exec(line)?.[1]?.toLowerCase();
-    return name && CHECKPOINT_FIELDS.has(name) ? [name] : [];
-  }))];
+  const recognizedFields = [
+    ...new Set(
+      fieldText.split(/\r?\n/).flatMap((line) => {
+        const name = /^\s*([a-z_]+)\s*:/i.exec(line)?.[1]?.toLowerCase();
+        return name && CHECKPOINT_FIELDS.has(name) ? [name] : [];
+      }),
+    ),
+  ];
   const state = extractStructuredCompactionHandoff(normalized).state;
   return {
     ...inspectCompactionStateFormat(normalized),
@@ -93,38 +99,41 @@ const ISSUE_PATTERNS: Array<[RegExp, string]> = [
 
 /** Issue messages may contain paths, requirement IDs, and model text. Only codes enter logs. */
 export function checkpointIssueCodes(issues: readonly string[]): string[] {
-  return [...new Set(issues.map(issue =>
-    ISSUE_PATTERNS.find(([pattern]) => pattern.test(issue))?.[1] ?? "other_validation_issue"
-  ))].slice(0, 24);
+  return [
+    ...new Set(
+      issues.map((issue) => ISSUE_PATTERNS.find(([pattern]) => pattern.test(issue))?.[1] ?? "other_validation_issue"),
+    ),
+  ].slice(0, 24);
 }
 
 /** One JSON object per line; no checkpoint, tool output, source path, token, or raw error. */
 export function logCompactionEvent(event: CompactionEvent): void {
   const traceId = /^[a-f0-9]{12}$/.test(event.traceId) ? event.traceId : "unknown";
-  const handoffTraceId = event.handoffTraceId && /^[a-f0-9]{12}$/.test(event.handoffTraceId)
-    ? event.handoffTraceId
-    : undefined;
-  const reasonCode = event.reasonCode && /^[a-z][a-z0-9_]{0,79}$/.test(event.reasonCode)
-    ? event.reasonCode
-    : undefined;
-  console.info(`[chatgpt-web] compaction_event ${JSON.stringify({
-    schemaVersion: 1,
-    timestamp: new Date().toISOString(),
-    traceId,
-    ...(handoffTraceId ? { handoffTraceId } : {}),
-    phase: event.phase,
-    outcome: event.outcome,
-    route: event.route,
-    ...(event.attempt !== undefined ? { attempt: event.attempt } : {}),
-    ...(event.elapsedMs !== undefined ? { elapsedMs: Math.max(0, Math.round(event.elapsedMs)) } : {}),
-    ...(reasonCode ? { reasonCode } : {}),
-    ...(event.issueCodes?.length ? {
-      issueCodes: event.issueCodes.slice(0, 24).map(code =>
-        /^[a-z][a-z0-9_]{0,79}$/.test(code) ? code : "other_validation_issue"
-      ),
-    } : {}),
-    ...(event.localPersisted !== undefined ? { localPersisted: event.localPersisted } : {}),
-    ...(event.requirementCount !== undefined ? { requirementCount: event.requirementCount } : {}),
-    runtime: runtimeIdentity,
-  })}`);
+  const handoffTraceId =
+    event.handoffTraceId && /^[a-f0-9]{12}$/.test(event.handoffTraceId) ? event.handoffTraceId : undefined;
+  const reasonCode = event.reasonCode && /^[a-z][a-z0-9_]{0,79}$/.test(event.reasonCode) ? event.reasonCode : undefined;
+  console.info(
+    `[chatgpt-web] compaction_event ${JSON.stringify({
+      schemaVersion: 1,
+      timestamp: new Date().toISOString(),
+      traceId,
+      ...(handoffTraceId ? { handoffTraceId } : {}),
+      phase: event.phase,
+      outcome: event.outcome,
+      route: event.route,
+      ...(event.attempt !== undefined ? { attempt: event.attempt } : {}),
+      ...(event.elapsedMs !== undefined ? { elapsedMs: Math.max(0, Math.round(event.elapsedMs)) } : {}),
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(event.issueCodes?.length
+        ? {
+            issueCodes: event.issueCodes
+              .slice(0, 24)
+              .map((code) => (/^[a-z][a-z0-9_]{0,79}$/.test(code) ? code : "other_validation_issue")),
+          }
+        : {}),
+      ...(event.localPersisted !== undefined ? { localPersisted: event.localPersisted } : {}),
+      ...(event.requirementCount !== undefined ? { requirementCount: event.requirementCount } : {}),
+      runtime: runtimeIdentity,
+    })}`,
+  );
 }

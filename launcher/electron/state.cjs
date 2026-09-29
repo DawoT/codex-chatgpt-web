@@ -36,7 +36,7 @@ function nextSessionRefreshReminderAt(now = Date.now()) {
 function readState(filePath) {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!parsed || parsed.version !== 1) return { ...DEFAULT_STATE };
+    if (parsed?.version !== 1) return { ...DEFAULT_STATE };
     const state = { ...DEFAULT_STATE, ...parsed };
     delete state.bridgeEnabled;
     if (state.language !== null && (typeof state.language !== "string" || !Object.hasOwn(languages, state.language))) {
@@ -66,21 +66,27 @@ function readState(filePath) {
       if (state.onboardingComplete !== true) state.browserInteractionMode = "automatic";
       state.zeroRiskProEnabled = false;
     }
-    if (state.browserSmokeVersion !== null
-      && (typeof state.browserSmokeVersion !== "string" || state.browserSmokeVersion.length > 128)) {
+    if (
+      state.browserSmokeVersion !== null &&
+      (typeof state.browserSmokeVersion !== "string" || state.browserSmokeVersion.length > 128)
+    ) {
       state.browserSmokeVersion = DEFAULT_STATE.browserSmokeVersion;
     }
-    if (!Number.isFinite(state.sidebarWidth)
-      || state.sidebarWidth < SIDEBAR_MIN_WIDTH
-      || state.sidebarWidth > SIDEBAR_MAX_WIDTH) {
+    if (
+      !Number.isFinite(state.sidebarWidth) ||
+      state.sidebarWidth < SIDEBAR_MIN_WIDTH ||
+      state.sidebarWidth > SIDEBAR_MAX_WIDTH
+    ) {
       state.sidebarWidth = DEFAULT_STATE.sidebarWidth;
     }
     if (!Number.isInteger(state.mcpGuideStep) || state.mcpGuideStep < 0 || state.mcpGuideStep > 2) {
       state.mcpGuideStep = DEFAULT_STATE.mcpGuideStep;
     }
-    if (state.sessionRefreshReminderAt !== null
-      && (typeof state.sessionRefreshReminderAt !== "string"
-        || !Number.isFinite(Date.parse(state.sessionRefreshReminderAt)))) {
+    if (
+      state.sessionRefreshReminderAt !== null &&
+      (typeof state.sessionRefreshReminderAt !== "string" ||
+        !Number.isFinite(Date.parse(state.sessionRefreshReminderAt)))
+    ) {
       state.sessionRefreshReminderAt = DEFAULT_STATE.sessionRefreshReminderAt;
     }
     for (const key of [

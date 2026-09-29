@@ -1,8 +1,8 @@
-import { type FastPathWorkspaceCache } from "../fast-path-cache";
-import { type FastPathBatchResult, type FastPathToolCall, type FastPathToolResult, result } from "./types";
-import { handleReadFile, handleWriteFile, handlePatchFile, handleListDir } from "./file-ops";
-import { handleGrep } from "./grep";
+import type { FastPathWorkspaceCache } from "../fast-path-cache";
 import { handleExecCommand } from "./exec";
+import { handleListDir, handlePatchFile, handleReadFile, handleWriteFile } from "./file-ops";
+import { handleGrep } from "./grep";
+import { type FastPathBatchResult, type FastPathToolCall, type FastPathToolResult, result } from "./types";
 
 export function isReadOnlyFastPathTool(toolName: string): boolean {
   return (
@@ -36,7 +36,7 @@ export function dispatchFastPathTool(
     cache?: FastPathWorkspaceCache;
   },
 ): FastPathToolResult | Promise<FastPathToolResult> {
-  const safeArgs = (args && typeof args === "object" && !Array.isArray(args)) ? args : {};
+  const safeArgs = args && typeof args === "object" && !Array.isArray(args) ? args : {};
   const norm = tool.startsWith("codex_") ? tool : `codex_${tool}`;
   switch (norm) {
     case "codex_read_file":

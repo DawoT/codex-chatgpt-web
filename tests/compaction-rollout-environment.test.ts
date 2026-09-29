@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -18,14 +18,7 @@ function setupRolloutFixture() {
   const sqliteHome = join(codexHome, "state");
   mkdirSync(sqliteHome, { recursive: true });
 
-  const rolloutPath = join(
-    codexHome,
-    "sessions",
-    "2026",
-    "09",
-    "29",
-    `rollout-2026-09-29T02-00-00-${threadId}.jsonl`,
-  );
+  const rolloutPath = join(codexHome, "sessions", "2026", "09", "29", `rollout-2026-09-29T02-00-00-${threadId}.jsonl`);
   mkdirSync(dirname(rolloutPath), { recursive: true });
 
   // Rollout records: session_meta and the latest executed tool turn (intermediateTurnId)
@@ -48,10 +41,7 @@ function setupRolloutFixture() {
     },
   };
 
-  writeFileSync(
-    rolloutPath,
-    [JSON.stringify(sessionMeta), JSON.stringify(intermediateTurnContext)].join("\n") + "\n",
-  );
+  writeFileSync(rolloutPath, `${[JSON.stringify(sessionMeta), JSON.stringify(intermediateTurnContext)].join("\n")}\n`);
 
   // Setup state_5.sqlite
   const db = new Database(join(sqliteHome, "state_5.sqlite"));
@@ -67,10 +57,7 @@ function setupRolloutFixture() {
       status TEXT
     );
   `);
-  db.run(
-    "INSERT INTO threads (id, rollout_path, agent_path) VALUES (?, ?, ?)",
-    [threadId, rolloutPath, "/root"],
-  );
+  db.run("INSERT INTO threads (id, rollout_path, agent_path) VALUES (?, ?, ?)", [threadId, rolloutPath, "/root"]);
   db.close();
 
   return {
@@ -140,12 +127,7 @@ describe("Compaction rollout environment resolution", () => {
   test("resolves environment for a compaction request when the rollout latest turn is an intermediate executed turn", () => {
     const fixture = setupRolloutFixture();
     try {
-      const store = new ChatGptThreadEnvironmentStore(
-        undefined,
-        Date.now,
-        fixture.codexHome,
-        fixture.sqliteHome,
-      );
+      const store = new ChatGptThreadEnvironmentStore(undefined, Date.now, fixture.codexHome, fixture.sqliteHome);
       const compactionRequest = createCompactionRequest();
 
       // This must successfully resolve the environment from the thread's authoritative rollout
@@ -163,12 +145,7 @@ describe("Compaction rollout environment resolution", () => {
   test("falls back to cached sameThread environment during compaction if rollout turn context has advanced", () => {
     const fixture = setupRolloutFixture();
     try {
-      const store = new ChatGptThreadEnvironmentStore(
-        undefined,
-        Date.now,
-        fixture.codexHome,
-        fixture.sqliteHome,
-      );
+      const store = new ChatGptThreadEnvironmentStore(undefined, Date.now, fixture.codexHome, fixture.sqliteHome);
 
       // Seed the cache with the thread's environment from an earlier turn via public API
       const initialRequest = parseRequest({
@@ -179,10 +156,12 @@ describe("Compaction rollout environment resolution", () => {
             type: "message",
             role: "user",
             id: "msg_initial",
-            content: [{
-              type: "input_text",
-              text: `<environment_context><cwd>${root}</cwd><filesystem><workspace_roots><root>${root}</root></workspace_roots><permission_profile type="disabled"><file_system type="unrestricted" /></permission_profile></filesystem></environment_context>`,
-            }],
+            content: [
+              {
+                type: "input_text",
+                text: `<environment_context><cwd>${root}</cwd><filesystem><workspace_roots><root>${root}</root></workspace_roots><permission_profile type="disabled"><file_system type="unrestricted" /></permission_profile></filesystem></environment_context>`,
+              },
+            ],
             internal_chat_message_metadata_passthrough: { turn_id: userTurnId },
           },
           {

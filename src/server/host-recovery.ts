@@ -2,14 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   constants,
-  fsyncSync,
   fstatSync,
+  fsyncSync,
   linkSync,
   lstatSync,
   mkdirSync,
   openSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -78,9 +78,11 @@ export class HostRecoveryStore {
       if (admissions.length >= MAX_TURNS) {
         throw new HostProtocolError(429, "Host recovery turn capacity reached");
       }
-      if (admissions.some(claim => claim.turnId === turnId)
-        || this.readCompletion(directory, scope, turnId)
-        || this.readCancellation(directory, scope, turnId)) {
+      if (
+        admissions.some((claim) => claim.turnId === turnId) ||
+        this.readCompletion(directory, scope, turnId) ||
+        this.readCancellation(directory, scope, turnId)
+      ) {
         throw new HostProtocolError(409, "Host turn was already admitted; inspect recovery before new work");
       }
       const order = admissions.reduce((highest, claim) => Math.max(highest, claim.order), 0) + 1;
@@ -112,8 +114,14 @@ export class HostRecoveryStore {
 
   complete(scope: string, turnId: string, sequence: number, responseId: string): void {
     this.validateIdentity(scope, turnId);
-    if (!Number.isSafeInteger(sequence) || sequence < 1 || typeof responseId !== "string"
-      || responseId.length < 1 || responseId.length > 256 || /[\x00-\x1f]/.test(responseId)) {
+    if (
+      !Number.isSafeInteger(sequence) ||
+      sequence < 1 ||
+      typeof responseId !== "string" ||
+      responseId.length < 1 ||
+      responseId.length > 256 ||
+      /[\x00-\x1f]/.test(responseId)
+    ) {
       throw new Error("Invalid host recovery completion");
     }
     const directory = this.prepare(scope, false);
@@ -170,7 +178,7 @@ export class HostRecoveryStore {
     if (!directory) return empty;
     const entries = readdirSync(directory);
     const admissions = this.listAdmissions(directory, scope, entries);
-    const digests = new Set(admissions.map(claim => fileDigest(claim.turnId)));
+    const digests = new Set(admissions.map((claim) => fileDigest(claim.turnId)));
     for (const name of entries) {
       if (name.endsWith(".completed.json") || name.endsWith(".cancelled.json")) {
         if (!digests.has(name.slice(0, 64))) throw new Error("Orphan host recovery outcome");
@@ -192,8 +200,7 @@ export class HostRecoveryStore {
   }
 
   private validateIdentity(scope: string, turnId?: string): void {
-    if (!/^[a-f0-9]{64}$/.test(scope)
-      || (turnId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(turnId))) {
+    if (!/^[a-f0-9]{64}$/.test(scope) || (turnId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(turnId))) {
       throw new HostProtocolError(400, "Invalid host recovery identity");
     }
   }
@@ -213,12 +220,16 @@ export class HostRecoveryStore {
     for (const name of entries) {
       if (!name.endsWith(".claim.json")) continue;
       const match = /^([0-9]{16})\.claim\.json$/.exec(name);
-      const claim = match ? this.readRecord(join(directory, name)) as Admission | undefined : undefined;
-      if (!claim || claim.version !== 1 || claim.scope !== scope
-        || !/^[A-Za-z0-9_-]{1,128}$/.test(claim.turnId)
-        || !/^[a-f0-9]{64}$/.test(claim.requestDigest)
-        || !Number.isSafeInteger(claim.admittedAt)
-        || claim.order !== Number(match![1]) || seenTurns.has(claim.turnId)) {
+      const claim = match ? (this.readRecord(join(directory, name)) as Admission | undefined) : undefined;
+      if (
+        claim?.version !== 1 ||
+        claim.scope !== scope ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(claim.turnId) ||
+        !/^[a-f0-9]{64}$/.test(claim.requestDigest) ||
+        !Number.isSafeInteger(claim.admittedAt) ||
+        claim.order !== Number(match![1]) ||
+        seenTurns.has(claim.turnId)
+      ) {
         throw new Error("Invalid host recovery admission");
       }
       seenTurns.add(claim.turnId);
@@ -267,17 +278,23 @@ export class HostRecoveryStore {
 
   private assertDirectory(path: string, privateMode: boolean): void {
     const info = lstatSync(path);
-    if (!info.isDirectory() || info.isSymbolicLink()
-      || (process.platform !== "win32" && (info.uid !== process.getuid?.()
-        || (privateMode && (info.mode & 0o077) !== 0)))) {
+    if (
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      (process.platform !== "win32" && (info.uid !== process.getuid?.() || (privateMode && (info.mode & 0o077) !== 0)))
+    ) {
       throw new Error("Host recovery storage is not a private owned directory");
     }
   }
 
   private writeExclusive(path: string, value: unknown, directory: string): void {
-    const bytes = Buffer.from(JSON.stringify(value) + "\n");
+    const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
     if (bytes.length > MAX_RECORD_BYTES) throw new Error("Host recovery record is too large");
-    const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+    const fd = openSync(
+      path,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+      0o600,
+    );
     try {
       writeFileSync(fd, bytes);
       fsyncSync(fd);
@@ -307,16 +324,24 @@ export class HostRecoveryStore {
   }
 
   private readAdmission(directory: string, scope: string, turnId: string): Admission | undefined {
-    return this.listAdmissions(directory, scope).find(claim => claim.turnId === turnId);
+    return this.listAdmissions(directory, scope).find((claim) => claim.turnId === turnId);
   }
 
   private readCompletion(directory: string, scope: string, turnId: string): Completion | undefined {
     const completion = this.readRecord(this.path(directory, turnId, "completed")) as Completion | undefined;
-    if (completion && (completion.version !== 1 || completion.scope !== scope || completion.turnId !== turnId
-      || !Number.isSafeInteger(completion.sequence) || completion.sequence < 1
-      || typeof completion.responseId !== "string" || completion.responseId.length < 1
-      || completion.responseId.length > 256 || /[\x00-\x1f]/.test(completion.responseId)
-      || !Number.isSafeInteger(completion.completedAt))) {
+    if (
+      completion &&
+      (completion.version !== 1 ||
+        completion.scope !== scope ||
+        completion.turnId !== turnId ||
+        !Number.isSafeInteger(completion.sequence) ||
+        completion.sequence < 1 ||
+        typeof completion.responseId !== "string" ||
+        completion.responseId.length < 1 ||
+        completion.responseId.length > 256 ||
+        /[\x00-\x1f]/.test(completion.responseId) ||
+        !Number.isSafeInteger(completion.completedAt))
+    ) {
       throw new Error("Invalid host recovery completion");
     }
     return completion;
@@ -324,9 +349,14 @@ export class HostRecoveryStore {
 
   private readCancellation(directory: string, scope: string, turnId: string): Cancellation | undefined {
     const cancellation = this.readRecord(this.path(directory, turnId, "cancelled")) as Cancellation | undefined;
-    if (cancellation && (cancellation.version !== 1 || cancellation.scope !== scope
-      || cancellation.turnId !== turnId || !["requested", "settled"].includes(cancellation.state)
-      || !Number.isSafeInteger(cancellation.observedAt))) {
+    if (
+      cancellation &&
+      (cancellation.version !== 1 ||
+        cancellation.scope !== scope ||
+        cancellation.turnId !== turnId ||
+        !["requested", "settled"].includes(cancellation.state) ||
+        !Number.isSafeInteger(cancellation.observedAt))
+    ) {
       throw new Error("Invalid host recovery cancellation");
     }
     return cancellation;

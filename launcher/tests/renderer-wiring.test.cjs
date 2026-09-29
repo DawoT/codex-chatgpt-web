@@ -25,10 +25,7 @@ test("native clicks reach browser tabs instead of the window drag region", () =>
 });
 
 test("renderer zoom scales the shell without moving or zooming the native ChatGPT surface", () => {
-  assert.match(
-    electronMain,
-    /browserHost\?\.setBounds\(validateBounds\(bounds\), event\.sender\.getZoomFactor\(\)\)/,
-  );
+  assert.match(electronMain, /browserHost\?\.setBounds\(validateBounds\(bounds\), event\.sender\.getZoomFactor\(\)\)/);
   assert.match(browserHostSource, /this\.bindShellZoomShortcuts\(this\.window\.webContents\)/);
   assert.match(browserHostSource, /contents\.setZoomLevel\(next\)/);
   assert.match(appSource, /api!\.zoomBrowser\(action\)/);
@@ -56,10 +53,7 @@ test("a foreground launch request survives hidden startup until the launcher win
     electronMain.indexOf('window.once("ready-to-show"'),
     electronMain.indexOf("trackWindowState(window", electronMain.indexOf('window.once("ready-to-show"')),
   );
-  assert.match(
-    readyHandler,
-    /mainWindowReadyToShow = true;[\s\S]*?if \(mainWindowShowRequested\) showMainWindow\(\);/,
-  );
+  assert.match(readyHandler, /mainWindowReadyToShow = true;[\s\S]*?if \(mainWindowShowRequested\) showMainWindow\(\);/);
 
   const secondInstance = electronMain.indexOf('app.on("second-instance", () => showMainWindow())');
   const runtimeMaterialization = electronMain.indexOf("await waitForPackagedRuntimeSource", secondInstance);
@@ -71,10 +65,7 @@ test("a foreground launch request survives hidden startup until the launcher win
 });
 
 test("normal shutdown persists the ChatGPT session before closing browser views", () => {
-  assert.match(
-    electronMain,
-    /runtimeSupervisor\?\.shutdown\(\{ cancelActiveTurns: true, force: true \}\)/,
-  );
+  assert.match(electronMain, /runtimeSupervisor\?\.shutdown\(\{ cancelActiveTurns: true, force: true \}\)/);
   const persist = electronMain.indexOf("await browserHost?.persistSession()");
   const destroy = electronMain.indexOf("browserHost?.destroy()", persist);
   assert.ok(persist >= 0, "shutdown must persist the ChatGPT session");
@@ -92,15 +83,24 @@ test("setup preserves session-check failures and never installs without verified
     let installs = 0;
     let browser = { authenticated: false, status: "error", message: "ChatGPT session verification failed (HTTP 503)." };
     const state = { browserInteractionMode: "automatic", coreSetupComplete: false };
-    const run = async () => { installs++; return { mode: "browser-only", stdout: "" }; };
+    const run = async () => {
+      installs++;
+      return { mode: "browser-only", stdout: "" };
+    };
     vm.runInNewContext(source, {
-      handle: (_name, handler) => { setup = handler; }, IS_DEV_PROFILE: dev,
+      handle: (_name, handler) => {
+        setup = handler;
+      },
+      IS_DEV_PROFILE: dev,
       stateStore: { read: () => state, update() {} },
       browserHost: { probeAuthentication: async () => browser, returnToIdle: async () => {} },
       runtimeHost: { setupCore: run, setupDevCore: run, runtimeConfigSnapshot: () => ({ config: {} }) },
-      smokePassedThisSession: true, send() {}, startCatalogVerificationMonitor() {}, logger: {},
+      smokePassedThisSession: true,
+      send() {},
+      startCatalogVerificationMonitor() {},
+      logger: {},
     });
-    await assert.rejects(setup, error => error.message === browser.message);
+    await assert.rejects(setup, (error) => error.message === browser.message);
     assert.equal(installs, 0);
     browser = { authenticated: false, status: "signed-out", message: "Sign in to ChatGPT" };
     await assert.rejects(setup, /Sign in to/);
@@ -113,41 +113,73 @@ test("setup preserves session-check failures and never installs without verified
 
 test("startup failure stays visible on another launch and Retry exits the failed instance", async () => {
   const vm = require("node:vm");
-  const source = electronMain.slice(electronMain.indexOf("function showMainWindow()"), electronMain.indexOf("async function openWebUrl"))
-    + electronMain.slice(electronMain.indexOf("void start().catch("));
+  const source =
+    electronMain.slice(
+      electronMain.indexOf("function showMainWindow()"),
+      electronMain.indexOf("async function openWebUrl"),
+    ) + electronMain.slice(electronMain.indexOf("void start().catch("));
   const events = [];
   let visible = false;
   let answer;
-  const dialogOpened = new Promise(resolve => {
+  const dialogOpened = new Promise((resolve) => {
     answer = { opened: resolve };
   });
-  const window = { isDestroyed: () => false, isMinimized: () => false,
-    show: () => { visible = true; }, focus() {}, };
+  const window = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    show: () => {
+      visible = true;
+    },
+    focus() {},
+  };
   const sandbox = {
-    mainWindow: window, mainWindowReadyToShow: false, mainWindowShowRequested: false,
-    startupFailed: false, quitting: false,
-    runtimeStartupGate: { revoke: error => events.push(["revoke", error.message]) },
+    mainWindow: window,
+    mainWindowReadyToShow: false,
+    mainWindowShowRequested: false,
+    startupFailed: false,
+    quitting: false,
+    runtimeStartupGate: { revoke: (error) => events.push(["revoke", error.message]) },
     browserHost: { destroy: () => events.push("destroy") },
     browserControl: { close: async () => events.push("control closed") },
-    start: async () => { throw new Error("Browser idle document did not commit within 10000ms"); },
-    app: { getPath: () => "/unused", whenReady: async () => {},
-      relaunch: options => events.push(["relaunch", options.args]), exit: code => events.push(["exit", code]) },
-    fs: { appendFileSync() {} }, path,
+    start: async () => {
+      throw new Error("Browser idle document did not commit within 10000ms");
+    },
+    app: {
+      getPath: () => "/unused",
+      whenReady: async () => {},
+      relaunch: (options) => events.push(["relaunch", options.args]),
+      exit: (code) => events.push(["exit", code]),
+    },
+    fs: { appendFileSync() {} },
+    path,
     createStateStore: () => ({ read: () => ({ language: "ko" }) }),
-    nativeCopyFor: language => {
+    nativeCopyFor: (language) => {
       assert.equal(language, "ko");
-      return { startupTitle: "시작 오류", startupDetail: "다시 시작", startupCleanupFailed: "정리 실패", retry: "다시 시도", quit: "종료" };
+      return {
+        startupTitle: "시작 오류",
+        startupDetail: "다시 시작",
+        startupCleanupFailed: "정리 실패",
+        retry: "다시 시도",
+        quit: "종료",
+      };
     },
     launchEnvironment: { CODEX_CHATGPT_WEB_HOME: undefined, CODEX_HOME: "original-codex-home" },
-    process: { argv: ["launcher", "--hidden"], env: { CODEX_CHATGPT_WEB_HOME: "dev-home", CODEX_HOME: "dev-codex-home" } },
+    process: {
+      argv: ["launcher", "--hidden"],
+      env: { CODEX_CHATGPT_WEB_HOME: "dev-home", CODEX_HOME: "dev-codex-home" },
+    },
     dialog: {
-      showErrorBox: () => { answer.opened(); },
+      showErrorBox: () => {
+        answer.opened();
+      },
       showMessageBox: (owner, options) => {
         assert.equal(options.title, "시작 오류");
         assert.deepEqual(Array.from(options.buttons), ["다시 시도", "종료"]);
         events.push(["dialog", owner === window, options.message]);
         answer.opened();
-        return new Promise(resolve => { answer.resolve = resolve; });
+        return new Promise((resolve) => {
+          answer.resolve = resolve;
+        });
       },
     },
   };
@@ -161,9 +193,12 @@ test("startup failure stays visible on another launch and Retry exits the failed
   visible = false;
   sandbox.showMainWindow();
   assert.equal(visible, true, "a second launch must restore the existing startup error window");
-  assert.equal(events.some(event => Array.isArray(event) && event[0] === "exit"), false);
+  assert.equal(
+    events.some((event) => Array.isArray(event) && event[0] === "exit"),
+    false,
+  );
   answer.resolve({ response: 0 });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(events.at(-2)[0], "relaunch");
   assert.deepEqual(Array.from(events.at(-2)[1]), []);
   assert.deepEqual(events.at(-1), ["exit", 1]);
@@ -191,7 +226,10 @@ test("packaged runtime is verified before launcher browser surfaces can bind por
 
 test("DEV launcher exposes its profile and supervises only its Full-mode MCP runtime", () => {
   assert.match(electronMain, /profile:\s*LAUNCHER_PROFILE\.kind/);
-  assert.match(electronMain, /if \(IS_DEV_PROFILE\) \{[\s\S]*?config\?\.mode === "full"[\s\S]*?runtimeSupervisor\.startIfConfigured\(\)[\s\S]*?\} else void \(async \(\) => \{/);
+  assert.match(
+    electronMain,
+    /if \(IS_DEV_PROFILE\) \{[\s\S]*?config\?\.mode === "full"[\s\S]*?runtimeSupervisor\.startIfConfigured\(\)[\s\S]*?\} else void \(async \(\) => \{/,
+  );
   assert.match(electronMain, /await runtimeSupervisor\?\.shutdown\(\{ cancelActiveTurns: true, force: true \}\)/);
   assert.match(electronMain, /packaged:\s*app\.isPackaged && !IS_DEV_PROFILE/);
   assert.match(electronMain, /IS_DEV_PROFILE && !stateStore\.read\(\)\.onboardingComplete/);
@@ -207,7 +245,10 @@ test("DEV launcher exposes its profile and supervises only its Full-mode MCP run
 test("macOS passkey sign-in is additive to the unchanged embedded login action", () => {
   assert.match(appSource, /onAction=\{openLogin\}/);
   assert.match(appSource, /<BrowserSurface[\s\S]*?operation=\{operation\}[\s\S]*?platform=\{snapshot\.platform\}/);
-  assert.match(appSource, /const passkeyAvailable = !manualInteraction[\s\S]*?platform === "darwin"[\s\S]*?browser\?\.authenticated !== true/);
+  assert.match(
+    appSource,
+    /const passkeyAvailable = !manualInteraction[\s\S]*?platform === "darwin"[\s\S]*?browser\?\.authenticated !== true/,
+  );
   assert.match(appSource, /\{passkeyAvailable \? \([\s\S]*?className="toolbar-text-button"[\s\S]*?copy\.passkeySignIn/);
   assert.match(appSource, /className="browser-empty-actions"[\s\S]*?copy\.passkeySignIn/);
   assert.match(appSource, /passkeyWaiting \? continuePasskeyLogin : openPasskeyLogin/);
@@ -250,7 +291,9 @@ test("Zero Risk setup commits state after the runtime transaction and preserves 
     electronMain.indexOf('handle("launcher:set-mcp-step"'),
   );
   const runtimeMcpCommit = mcpSetupHandler.indexOf("const runSetup = afterRuntimeReady => setup({");
-  const mcpTransaction = mcpSetupHandler.indexOf("await browserHost.withInteractionModeChange(interactionMode, runSetup)");
+  const mcpTransaction = mcpSetupHandler.indexOf(
+    "await browserHost.withInteractionModeChange(interactionMode, runSetup)",
+  );
   const stateMcpCommit = mcpSetupHandler.indexOf("const state = stateStore.update({");
   assert.ok(runtimeMcpCommit >= 0 && runtimeMcpCommit < mcpTransaction);
   assert.ok(mcpTransaction < stateMcpCommit);
@@ -259,17 +302,22 @@ test("Zero Risk setup commits state after the runtime transaction and preserves 
     browserHostSource.indexOf("bindManualTurnContents(tab)"),
     browserHostSource.indexOf("bindWebContents()"),
   );
-  assert.doesNotMatch(manualBinding, /executeJavaScript|insertCSS|querySelector|runBrowserHelperOperation|enableDeviceEmulation/);
+  assert.doesNotMatch(
+    manualBinding,
+    /executeJavaScript|insertCSS|querySelector|runBrowserHelperOperation|enableDeviceEmulation/,
+  );
   assert.match(browserHostSource, /requireAutomaticBrowserInspection\(this, "ChatGPT authentication probe"\)/);
-  assert.match(browserHostSource, /requireAutomaticBrowserInspection\(this, "ChatGPT session and capability inspection"\)/);
-  assert.match(browserHostSource, /browserInteractionModeFor\(this\) === "manual"\) return;[\s\S]*?applyViewportCss\(\)/);
   assert.match(
     browserHostSource,
-    /page-title-updated[\s\S]*?browserInteractionModeFor\(this\) === "manual"\) return;/,
+    /requireAutomaticBrowserInspection\(this, "ChatGPT session and capability inspection"\)/,
   );
+  assert.match(
+    browserHostSource,
+    /browserInteractionModeFor\(this\) === "manual"\) return;[\s\S]*?applyViewportCss\(\)/,
+  );
+  assert.match(browserHostSource, /page-title-updated[\s\S]*?browserInteractionModeFor\(this\) === "manual"\) return;/);
   assert.doesNotMatch(modeSwitchHandler, /const pending = stateStore\.update|catch \(error\)/);
   assert.match(electronMain, /browserInteractionMode === "manual"[\s\S]*?Local Zero Risk runtime is healthy/);
-
 });
 
 test("MCP connection remains unavailable until the model catalog is verified", () => {
@@ -359,35 +407,57 @@ test("catalog verification reports a failed request instead of requesting anothe
   const operations = [];
   const events = [];
   let tick;
-  let payload = { pid: 10, successful_model_catalog_requests: 0, model_catalog_requests: 0, last_model_catalog_result: null };
-  vm.runInNewContext(source + "\nstartCatalogVerificationMonitor({ logger, stateStore });", {
-    catalogVerificationInFlight: false, catalogVerificationTimer: null, lastOperation: null,
+  let payload = {
+    pid: 10,
+    successful_model_catalog_requests: 0,
+    model_catalog_requests: 0,
+    last_model_catalog_result: null,
+  };
+  vm.runInNewContext(`${source}\nstartCatalogVerificationMonitor({ logger, stateStore });`, {
+    catalogVerificationInFlight: false,
+    catalogVerificationTimer: null,
+    lastOperation: null,
     stopCatalogVerificationMonitor() {},
     runtimeSupervisor: { readConfig: () => ({}), proxyHealthPayload: async () => payload },
-    stateStore: { read: () => state, update: patch => Object.assign(state, patch) },
-    setInterval: callback => { tick = callback; return { unref() {} }; },
+    stateStore: { read: () => state, update: (patch) => Object.assign(state, patch) },
+    setInterval: (callback) => {
+      tick = callback;
+      return { unref() {} };
+    },
     logger: { info: (...args) => events.push(args), warn: (...args) => events.push(args), debug() {} },
-    send() {}, publishOperation: op => operations.push(op),
+    send() {},
+    publishOperation: (op) => operations.push(op),
     nativeCopyFor: () => ({ catalogFailure: "Catalog failed (HTTP {status}; {reason})." }),
   });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(operations.length, 0);
   assert.equal(state.codexRestartRequired, true);
-  payload = { ...payload, model_catalog_requests: 1, last_model_catalog_result: {
-    request: 1, at: "2026-09-16T10:00:00Z", status: 502, failure: { stage: "transport", code: "UnsupportedProxyProtocol" },
-  } };
+  payload = {
+    ...payload,
+    model_catalog_requests: 1,
+    last_model_catalog_result: {
+      request: 1,
+      at: "2026-09-16T10:00:00Z",
+      status: 502,
+      failure: { stage: "transport", code: "UnsupportedProxyProtocol" },
+    },
+  };
   await tick();
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.codexCatalogVerified, false);
   assert.equal(state.codexRestartRequired, false);
   assert.equal(operations[0]?.status, "failed");
   assert.match(operations[0].message, /502.*UnsupportedProxyProtocol/);
   await tick();
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(operations.length, 1, "polling must not repeat the same failure");
-  payload = { ...payload, successful_model_catalog_requests: 1, last_successful_model_catalog_request_at: "2026-09-16T10:01:00Z" };
+  payload = {
+    ...payload,
+    successful_model_catalog_requests: 1,
+    last_successful_model_catalog_request_at: "2026-09-16T10:01:00Z",
+  };
   await tick();
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.codexCatalogVerified, true);
   assert.equal(state.codexRestartRequired, false);
   assert.ok(events.some(([event]) => event === "codex.model_catalog_verified"));
@@ -407,20 +477,35 @@ test("fresh-conversation IPC commits only after setup succeeds and refuses activ
     const state = { experimentalFreshConversationPerTurn: false, useSavedChats: false };
     const config = { experimentalFreshConversationPerTurn: false, useSavedChats: false };
     const events = [];
-    let handler, finishSetup, setupFailure, calls = 0;
+    let handler,
+      finishSetup,
+      setupFailure,
+      calls = 0;
     const browserHost = { activeTraceId: "running-turn", currentOperation: () => null, turnTabs: new Map() };
-    const syncSource = electronMain.slice(electronMain.indexOf("function syncFreshConversationPreference("), electronMain.indexOf("function registerIpc("));
+    const syncSource = electronMain.slice(
+      electronMain.indexOf("function syncFreshConversationPreference("),
+      electronMain.indexOf("function registerIpc("),
+    );
     vm.runInNewContext(syncSource + source, {
-      handle: (_channel, callback) => { handler = callback; }, browserHost,
+      handle: (_channel, callback) => {
+        handler = callback;
+      },
+      browserHost,
       releaseRetainedConversation: require("../electron/retained-turn-release.cjs").releaseRetainedConversation,
-      runtimeHost: { currentOperation: () => null, runtimeConfigSnapshot: () => ({ config }), [method]: async enabled => {
-        calls++;
-        if (setupFailure) throw setupFailure;
-        await new Promise(resolve => { finishSetup = resolve; });
-        config[property] = enabled;
-        return { enabled };
-      } },
-      stateStore: { read: () => ({ ...state }), update: patch => Object.assign(state, patch) },
+      runtimeHost: {
+        currentOperation: () => null,
+        runtimeConfigSnapshot: () => ({ config }),
+        [method]: async (enabled) => {
+          calls++;
+          if (setupFailure) throw setupFailure;
+          await new Promise((resolve) => {
+            finishSetup = resolve;
+          });
+          config[property] = enabled;
+          return { enabled };
+        },
+      },
+      stateStore: { read: () => ({ ...state }), update: (patch) => Object.assign(state, patch) },
       send: (channel, value) => events.push({ channel, value: { ...value } }),
     });
     await assert.rejects(() => handler(null, true), /Finish or cancel active ChatGPT turns/);
@@ -430,13 +515,21 @@ test("fresh-conversation IPC commits only after setup succeeds and refuses activ
     assert.equal(calls, 0);
     browserHost.currentOperation = () => null;
     let api;
-    vm.runInNewContext(preloadSource, { require: () => ({
-      contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } },
-      ipcRenderer: { invoke: (actualChannel, enabled) => {
-        assert.equal(actualChannel, channel);
-        return handler(null, enabled);
-      } },
-    }) });
+    vm.runInNewContext(preloadSource, {
+      require: () => ({
+        contextBridge: {
+          exposeInMainWorld: (_name, value) => {
+            api = value;
+          },
+        },
+        ipcRenderer: {
+          invoke: (actualChannel, enabled) => {
+            assert.equal(actualChannel, channel);
+            return handler(null, enabled);
+          },
+        },
+      }),
+    });
     const changing = api[method](true);
     assert.equal(state[property], false);
     assert.equal(events.length, 0);
@@ -458,28 +551,62 @@ test("fresh-conversation snapshot uses runtime configuration and mode switching 
   let config = { browserInteractionMode: "automatic", experimentalFreshConversationPerTurn: true };
   const runtimeHost = {
     currentOperation: () => null,
-    runtimeConfigSnapshot: () => ({ config }), browserConnectorName: () => "Codex Native2",
-    setupConnectorName: () => "Codex Native2", mcpCredentialsConfigured: () => true,
-    setBrowserInteractionMode: async mode => { config.browserInteractionMode = mode; return { configured: true }; },
+    runtimeConfigSnapshot: () => ({ config }),
+    browserConnectorName: () => "Codex Native2",
+    setupConnectorName: () => "Codex Native2",
+    mcpCredentialsConfigured: () => true,
+    setBrowserInteractionMode: async (mode) => {
+      config.browserInteractionMode = mode;
+      return { configured: true };
+    },
   };
   const sandbox = {
-    handle: (name, handler) => handlers.set(name, handler), runtimeHost,
+    handle: (name, handler) => handlers.set(name, handler),
+    runtimeHost,
     releaseRetainedConversation: require("../electron/retained-turn-release.cjs").releaseRetainedConversation,
-    stateStore: { read: () => ({ ...state }), update: patch => Object.assign(state, patch) },
-    browserHost: { activeTraceId: null, turnTabs: new Map(), currentOperation: () => null, snapshot: () => ({}),
-      withInteractionModeChange: async (_mode, action) => action() },
-    validateBrowserInteractionMode: mode => mode, IS_DEV_PROFILE: false, send() {}, startCatalogVerificationMonitor() {},
-    LAUNCHER_PROFILE: { kind: "production", codexHome: "/fixture/codex" }, CORE_HOME: "/fixture/core",
-    launcherUserData: "/fixture/launcher", logger: { recent: () => [] },
-    GITHUB_URL: "", X_URL: "", CONNECTORS_URL: "", TUNNELS_URL: "", KEYS_URL: "",
-    process: { platform: "darwin" }, app: { isPackaged: false, getVersion: () => "test" },
-    smokePassedThisSession: false, smokePassedForCurrentVersion: () => false, lastOperation: null, updateController: null,
+    stateStore: { read: () => ({ ...state }), update: (patch) => Object.assign(state, patch) },
+    browserHost: {
+      activeTraceId: null,
+      turnTabs: new Map(),
+      currentOperation: () => null,
+      snapshot: () => ({}),
+      withInteractionModeChange: async (_mode, action) => action(),
+    },
+    validateBrowserInteractionMode: (mode) => mode,
+    IS_DEV_PROFILE: false,
+    send() {},
+    startCatalogVerificationMonitor() {},
+    LAUNCHER_PROFILE: { kind: "production", codexHome: "/fixture/codex" },
+    CORE_HOME: "/fixture/core",
+    launcherUserData: "/fixture/launcher",
+    logger: { recent: () => [] },
+    GITHUB_URL: "",
+    X_URL: "",
+    CONNECTORS_URL: "",
+    TUNNELS_URL: "",
+    KEYS_URL: "",
+    process: { platform: "darwin" },
+    app: { isPackaged: false, getVersion: () => "test" },
+    smokePassedThisSession: false,
+    smokePassedForCurrentVersion: () => false,
+    lastOperation: null,
+    updateController: null,
   };
-  vm.runInNewContext(electronMain.slice(electronMain.indexOf("function syncFreshConversationPreference("), electronMain.indexOf("function registerIpc(")) +
-    electronMain.slice(electronMain.indexOf('handle("launcher:snapshot",'),
-    electronMain.indexOf('handle("launcher:set-language",')) +
-    electronMain.slice(electronMain.indexOf('handle("launcher:browser-interaction-mode",'),
-    electronMain.indexOf('handle("launcher:set-preference",')), sandbox);
+  vm.runInNewContext(
+    electronMain.slice(
+      electronMain.indexOf("function syncFreshConversationPreference("),
+      electronMain.indexOf("function registerIpc("),
+    ) +
+      electronMain.slice(
+        electronMain.indexOf('handle("launcher:snapshot",'),
+        electronMain.indexOf('handle("launcher:set-language",'),
+      ) +
+      electronMain.slice(
+        electronMain.indexOf('handle("launcher:browser-interaction-mode",'),
+        electronMain.indexOf('handle("launcher:set-preference",'),
+      ),
+    sandbox,
+  );
   const snapshot = handlers.get("launcher:snapshot");
   assert.equal((await snapshot()).state.experimentalFreshConversationPerTurn, true);
   assert.equal(state.experimentalFreshConversationPerTurn, true, "snapshot synchronizes a CLI configuration change");
@@ -496,45 +623,102 @@ test("fresh-conversation snapshot uses runtime configuration and mode switching 
 test("fresh-conversation control is translated, disabled in Zero Risk, and invokes the async setting", async () => {
   const ts = require("typescript");
   const vm = require("node:vm");
-  const settings = appSource.slice(appSource.indexOf("function SettingsSurface("), appSource.indexOf("function ContentSurface("));
-  const transpile = (source, fileName) => ts.transpileModule(source, {
-    fileName, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
-      jsx: ts.JsxEmit.React, jsxFactory: "element" },
-  }).outputText;
+  const settings = appSource.slice(
+    appSource.indexOf("function SettingsSurface("),
+    appSource.indexOf("function ContentSurface("),
+  );
+  const transpile = (source, fileName) =>
+    ts.transpileModule(source, {
+      fileName,
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.React,
+        jsxFactory: "element",
+      },
+    }).outputText;
   const translated = { exports: {} };
-  vm.runInNewContext(transpile(fs.readFileSync(path.join(launcherRoot, "src", "i18n.ts"), "utf8"), "i18n.ts"), translated);
+  vm.runInNewContext(
+    transpile(fs.readFileSync(path.join(launcherRoot, "src", "i18n.ts"), "utf8"), "i18n.ts"),
+    translated,
+  );
   let render, invocation, saved;
   const sandbox = {
     element: (type, props, ...children) => ({ type, props: props ?? {}, children }),
-    useState: value => [value, () => {}],
-    api: { setFreshConversationPerTurn: async enabled => { invocation = enabled; return { experimentalFreshConversationPerTurn: enabled }; } },
-    messageOf: String, platformLabel: String,
+    useState: (value) => [value, () => {}],
+    api: {
+      setFreshConversationPerTurn: async (enabled) => {
+        invocation = enabled;
+        return { experimentalFreshConversationPerTurn: enabled };
+      },
+    },
+    messageOf: String,
+    platformLabel: String,
   };
-  for (const name of ["ContentSurface", "SectionHeading", "SettingRow", "Switch", "InteractionModePicker", "LanguageMenu", "NoticeRow", "Icon", "DoctorSummary", "BrandMark"]) sandbox[name] = name;
-  vm.runInNewContext(transpile(settings, "settings.tsx") + "\nrender = SettingsSurface;", Object.assign(sandbox, { render }));
+  for (const name of [
+    "ContentSurface",
+    "SectionHeading",
+    "SettingRow",
+    "Switch",
+    "InteractionModePicker",
+    "LanguageMenu",
+    "NoticeRow",
+    "Icon",
+    "DoctorSummary",
+    "BrandMark",
+  ])
+    sandbox[name] = name;
+  vm.runInNewContext(
+    `${transpile(settings, "settings.tsx")}\nrender = SettingsSurface;`,
+    Object.assign(sandbox, { render }),
+  );
   render = sandbox.render;
-  const visit = tree => Array.isArray(tree) ? tree.flatMap(visit) : tree && typeof tree === "object"
-    ? [tree, ...visit(tree.children ?? [])] : [];
+  const visit = (tree) =>
+    Array.isArray(tree)
+      ? tree.flatMap(visit)
+      : tree && typeof tree === "object"
+        ? [tree, ...visit(tree.children ?? [])]
+        : [];
   for (const language of Object.keys(require("../electron/languages.json"))) {
     const copy = translated.exports.copyFor(language);
     for (const key of ["freshConversation", "freshConversationBody", "manualFreshConversationUnavailable"]) {
       assert.equal(typeof copy[key], "string");
       assert.ok(copy[key].length > 10);
     }
-    for (const [mode, configured, enabled] of [["automatic", true, false], ["manual", true, true], ["automatic", false, false]]) {
-      const tree = render({ copy, devProfile: false, language, configureInteractionMode() {}, setError() {},
-        snapshot: { state: { browserInteractionMode: mode, coreSetupComplete: configured, experimentalFreshConversationPerTurn: enabled } },
-        updateState: value => { saved = value; },
+    for (const [mode, configured, enabled] of [
+      ["automatic", true, false],
+      ["manual", true, true],
+      ["automatic", false, false],
+    ]) {
+      const tree = render({
+        copy,
+        devProfile: false,
+        language,
+        configureInteractionMode() {},
+        setError() {},
+        snapshot: {
+          state: {
+            browserInteractionMode: mode,
+            coreSetupComplete: configured,
+            experimentalFreshConversationPerTurn: enabled,
+          },
+        },
+        updateState: (value) => {
+          saved = value;
+        },
       });
-      const row = visit(tree).find(node => node.type === "SettingRow" && node.props.label === copy.freshConversation);
+      const row = visit(tree).find((node) => node.type === "SettingRow" && node.props.label === copy.freshConversation);
       assert.ok(row);
-      assert.equal(row.props.body, mode === "manual" ? copy.manualFreshConversationUnavailable : copy.freshConversationBody);
-      const control = visit(row).find(node => node.type === "Switch");
+      assert.equal(
+        row.props.body,
+        mode === "manual" ? copy.manualFreshConversationUnavailable : copy.freshConversationBody,
+      );
+      const control = visit(row).find((node) => node.type === "Switch");
       assert.equal(control.props.checked, enabled);
       assert.equal(control.props.disabled, mode === "manual" || !configured);
       if (!control.props.disabled) {
         control.props.onChange(true);
-        await new Promise(resolve => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
         assert.equal(invocation, true);
         assert.equal(saved.experimentalFreshConversationPerTurn, true);
       }

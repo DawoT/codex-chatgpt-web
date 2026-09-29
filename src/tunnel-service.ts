@@ -3,7 +3,7 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import type { AppConfig } from "./config";
 import { atomicWriteFile, getConfigDir } from "./config";
-import { runCommand, runChecked } from "./process";
+import { runChecked, runCommand } from "./process";
 
 const LABEL = "io.github.codex-chatgpt-web.tunnel";
 
@@ -60,7 +60,7 @@ export function tunnelServiceDefinition(config: AppConfig): string {
   <string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-${args.map(arg => `    <string>${xml(arg)}</string>`).join("\n")}
+${args.map((arg) => `    <string>${xml(arg)}</string>`).join("\n")}
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -133,7 +133,7 @@ export function startTunnelService(): TunnelServiceStatus {
 async function waitForTunnelServiceUnloaded(timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (getTunnelServiceStatus().loaded && Date.now() < deadline) {
-    await new Promise(resolveWait => setTimeout(resolveWait, 50));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
   }
   if (getTunnelServiceStatus().loaded) throw new Error(`launchd did not unload ${LABEL} after ${timeoutMs}ms`);
 }

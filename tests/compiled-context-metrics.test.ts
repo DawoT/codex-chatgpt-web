@@ -1,16 +1,23 @@
 import { expect, test } from "bun:test";
 import * as tokens from "../src/adapters/chatgpt-web/input-tokens";
-import { compileChatGptWebPrompt, formatChatGptWebMultipartStage, formatChatGptWebMultipartCommit } from "../src/adapters/chatgpt-web/prompt";
+import {
+  compileChatGptWebPrompt,
+  formatChatGptWebMultipartCommit,
+  formatChatGptWebMultipartStage,
+} from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_PLATFORM_RESERVE_TOKENS, chatGptWebImageTokenReserve } from "../src/chatgpt-web-models";
 import { estimateTokens } from "../src/lib/token-estimate";
 
 test("combined compiled metrics retain inline text and platform budgets", () => {
-  const compiled = compileChatGptWebPrompt({
-    modelId: "gpt-5.6-sol",
-    stream: false,
-    options: {},
-    context: { messages: [{ role: "user", content: "Preserve the evidence 😀", timestamp: 1 }] },
-  }, { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true });
+  const compiled = compileChatGptWebPrompt(
+    {
+      modelId: "gpt-5.6-sol",
+      stream: false,
+      options: {},
+      context: { messages: [{ role: "user", content: "Preserve the evidence 😀", timestamp: 1 }] },
+    },
+    { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+  );
   const measure = (tokens as any).measureCompiledChatGptWebInput;
   expect(typeof measure).toBe("function");
   const metrics = measure(compiled, "gpt-5.6-sol");
@@ -40,8 +47,12 @@ test("multipart totals include acknowledgments, images and final attachments exa
     skillFiles: [{ name: "skill.txt", text: attachment }],
   };
   expect(tokens.measureCompiledChatGptWebInput(compiled, "gpt-5.6-sol")).toEqual({
-    inputTokens: CHATGPT_WEB_PLATFORM_RESERVE_TOKENS + stageTokens + finalTokens
-      + estimateTokens(stage.acknowledgement) + chatGptWebImageTokenReserve("original"),
+    inputTokens:
+      CHATGPT_WEB_PLATFORM_RESERVE_TOKENS +
+      stageTokens +
+      finalTokens +
+      estimateTokens(stage.acknowledgement) +
+      chatGptWebImageTokenReserve("original"),
     maxMessageTokens: Math.max(stageTokens, finalTokens),
     maxMessageChars: Math.max(stage.text.length, final.length),
   });
@@ -61,9 +72,9 @@ test("browser payload metrics exclude platform reserve and acknowledgements", ()
   const metric = tokens.measureCompiledBrowserPayload(compiled, "gpt-5.6-sol");
   expect(metric).toEqual({
     messageCount: 2,
-    messageChars: messages.map(message => message.length),
-    messageBytes: messages.map(message => Buffer.byteLength(message, "utf8")),
-    messageTokensEstimated: messages.map(message => estimateTokens(message, "gpt-5.6-sol")),
+    messageChars: messages.map((message) => message.length),
+    messageBytes: messages.map((message) => Buffer.byteLength(message, "utf8")),
+    messageTokensEstimated: messages.map((message) => estimateTokens(message, "gpt-5.6-sol")),
     skillFileCount: 1,
     skillFileBytes: Buffer.byteLength("stable instructions", "utf8"),
     skillFileTokensEstimated: estimateTokens("stable instructions", "gpt-5.6-sol"),
@@ -71,9 +82,11 @@ test("browser payload metrics exclude platform reserve and acknowledgements", ()
     imageTokensEstimated: chatGptWebImageTokenReserve("original"),
     cacheReadTokens: null,
   });
-  expect(metric.messageTokensEstimated.reduce((sum: number, value: number) => sum + value, 0)
-    + metric.skillFileTokensEstimated + metric.imageTokensEstimated)
-    .toBeLessThan(tokens.measureCompiledChatGptWebInput(compiled, "gpt-5.6-sol").inputTokens);
+  expect(
+    metric.messageTokensEstimated.reduce((sum: number, value: number) => sum + value, 0) +
+      metric.skillFileTokensEstimated +
+      metric.imageTokensEstimated,
+  ).toBeLessThan(tokens.measureCompiledChatGptWebInput(compiled, "gpt-5.6-sol").inputTokens);
 });
 
 test("inline browser payload counts UTF-8 bytes separately from characters", () => {
@@ -120,8 +133,7 @@ test("context measurement reuses premeasured physical tokens without counting ca
   };
   const payload = tokens.measureCompiledBrowserPayload(compiled, "gpt-5.6-sol");
   const standalone = tokens.measureCompiledChatGptWebInput(compiled, "gpt-5.6-sol");
-  expect(tokens.measureCompiledChatGptWebInput(compiled, "gpt-5.6-sol", payload))
-    .toEqual(standalone);
+  expect(tokens.measureCompiledChatGptWebInput(compiled, "gpt-5.6-sol", payload)).toEqual(standalone);
   expect(standalone.inputTokens).toBeGreaterThan(payload.messageTokensEstimated[0]!);
   expect(payload.cacheReadTokens).toBeNull();
 });
@@ -155,8 +167,8 @@ test("browser payload measurement uses exact staged messages selected for Send",
     formatChatGptWebMultipartCommit(compiled.multipart, transactionId),
   ];
   const measured = tokens.measureCompiledBrowserPayload(compiled, "gpt-5.6-sol", messages);
-  expect(measured.messageBytes).toEqual(messages.map(message => Buffer.byteLength(message, "utf8")));
-  expect(measured.messageTokensEstimated).toEqual(messages.map(message => estimateTokens(message, "gpt-5.6-sol")));
+  expect(measured.messageBytes).toEqual(messages.map((message) => Buffer.byteLength(message, "utf8")));
+  expect(measured.messageTokensEstimated).toEqual(messages.map((message) => estimateTokens(message, "gpt-5.6-sol")));
 });
 
 test("a failed telemetry sink cannot turn an accepted Send into a retry", () => {

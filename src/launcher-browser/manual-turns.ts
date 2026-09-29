@@ -3,15 +3,15 @@ import {
   LAUNCHER_MANUAL_SENT_REQUEST_TIMEOUT_MS,
   LAUNCHER_MANUAL_TURN_END_TIMEOUT_MS,
   LAUNCHER_MANUAL_TURN_START_TIMEOUT_MS,
-  LauncherBrowserTurnCancelledError,
-  LauncherManualTurnFailedError,
-  LauncherManualTurnTimedOutError,
   type LauncherBrowserHostDescriptor,
+  LauncherBrowserTurnCancelledError,
   type LauncherManualTurnEnd,
+  LauncherManualTurnFailedError,
   type LauncherManualTurnLease,
   type LauncherManualTurnOwner,
   type LauncherManualTurnStart,
   type LauncherManualTurnTerminal,
+  LauncherManualTurnTimedOutError,
 } from "./types";
 
 async function launcherManualRequest(
@@ -35,7 +35,7 @@ async function launcherManualRequest(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    const decoded = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const decoded = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     return { response, body: decoded };
   } finally {
     clearTimeout(timer);
@@ -65,13 +65,14 @@ async function reconcileLauncherManualMutation(
 }
 
 function isLauncherManualTurnLease(body: Record<string, unknown>): boolean {
-  return body.ok === true
-    && typeof body.tabId === "string"
-    && body.tabId.length > 0
-    && typeof body.reused === "boolean"
-    && (body.deadlineAt === null
-      || (typeof body.deadlineAt === "string" && !Number.isNaN(Date.parse(body.deadlineAt))))
-    && ["awaiting-user", "sent", "running", "completed"].includes(String(body.state));
+  return (
+    body.ok === true &&
+    typeof body.tabId === "string" &&
+    body.tabId.length > 0 &&
+    typeof body.reused === "boolean" &&
+    (body.deadlineAt === null || (typeof body.deadlineAt === "string" && !Number.isNaN(Date.parse(body.deadlineAt)))) &&
+    ["awaiting-user", "sent", "running", "completed"].includes(String(body.state))
+  );
 }
 
 function throwManualControlError(response: Response, body: Record<string, unknown>): never {
@@ -122,8 +123,10 @@ export async function waitForLauncherManualSent(
     );
     if (response.status === 202 && body.status === "pending") continue;
     if (!response.ok) throwManualControlError(response, body);
-    if (body.status !== "sent"
-      || (body.sentAt !== null && (typeof body.sentAt !== "string" || Number.isNaN(Date.parse(body.sentAt))))) {
+    if (
+      body.status !== "sent" ||
+      (body.sentAt !== null && (typeof body.sentAt !== "string" || Number.isNaN(Date.parse(body.sentAt))))
+    ) {
       throw new LauncherManualTurnFailedError("Launcher returned invalid manual Sent confirmation");
     }
     return { sentAt: body.sentAt as string | null };
@@ -141,7 +144,7 @@ export async function markLauncherManualTurnStarted(
     "started",
     owner,
     timeoutMs,
-    body => body.ok === true,
+    (body) => body.ok === true,
     "Launcher returned an invalid manual started acknowledgement",
   );
   if (!response.ok) throwManualControlError(response, body);
@@ -183,7 +186,7 @@ export async function endLauncherManualTurn(
     "end",
     activity,
     timeoutMs,
-    body => body.ok === true && typeof body.cancelledByUser === "boolean",
+    (body) => body.ok === true && typeof body.cancelledByUser === "boolean",
     "Launcher returned an invalid manual turn release result",
   );
   if (!response.ok) throwManualControlError(response, body);

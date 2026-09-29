@@ -31,15 +31,19 @@ test("DEV launcher profile isolates every durable home from production", () => {
 test("DEV launcher refuses an explicit home collision with production", () => {
   const homeDir = path.resolve("/Users/tester");
   const shared = path.join(homeDir, "shared");
-  assert.throws(() => resolveLauncherProfile({
-    argv: ["electron", ".", "--dev-profile"],
-    env: {
-      CODEX_WEB_GPT_DEV_HOME: shared,
-      CODEX_CHATGPT_WEB_HOME: shared,
-    },
-    homeDir,
-    appData: path.join(homeDir, "Library", "Application Support"),
-  }), /must differ from the production/);
+  assert.throws(
+    () =>
+      resolveLauncherProfile({
+        argv: ["electron", ".", "--dev-profile"],
+        env: {
+          CODEX_WEB_GPT_DEV_HOME: shared,
+          CODEX_CHATGPT_WEB_HOME: shared,
+        },
+        homeDir,
+        appData: path.join(homeDir, "Library", "Application Support"),
+      }),
+    /must differ from the production/,
+  );
 });
 
 test("DEV launcher ignores generic production path overrides", () => {

@@ -119,7 +119,8 @@ export class PromptContractCache {
       size: this.cache.size,
       capacity: this.maxEntries,
       hitRatio: totalRequests > 0 ? Number((this.hits / totalRequests).toFixed(3)) : 0,
-      avgCompilationTimeMs: this.totalCompilations > 0 ? Number((this.totalCompilationTimeMs / this.totalCompilations).toFixed(2)) : 0,
+      avgCompilationTimeMs:
+        this.totalCompilations > 0 ? Number((this.totalCompilationTimeMs / this.totalCompilations).toFixed(2)) : 0,
       totalCompilations: this.totalCompilations,
     };
   }

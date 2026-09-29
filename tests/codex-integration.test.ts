@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,15 +19,14 @@ import {
   getCodexJournalPath,
   getCodexJournalRecoveryPath,
   getCodexModelsCachePath,
-  installCodexIntegration,
   inspectCodexIntegration,
+  installCodexIntegration,
   preflightCodexIntegration,
-  readCodexSubagentProtocol,
   readCodexModelContextOverride,
+  readCodexSubagentProtocol,
   setCodexSubagentProtocol,
   uninstallCodexIntegration,
 } from "../src/codex-integration";
-import { defaultConfig, loadConfig, saveConfig } from "../src/config";
 import {
   CODEX_REALTIME_WEBRTC_CALL_BASE_URL,
   MANAGED_COMMENT,
@@ -29,6 +38,7 @@ import {
   snapshotFile,
   writeFilesWithCompensation,
 } from "../src/codex-integration-shared";
+import { defaultConfig, loadConfig, saveConfig } from "../src/config";
 
 const roots: string[] = [];
 
@@ -108,9 +118,9 @@ describe("reversible native Codex route integration", () => {
     symlinkSync(target, alias);
     const inode = lstatSync(alias).ino;
     const mode = statSync(target).mode & 0o777;
-    expect(() => writeFilesWithCompensation(
-      [{ path: alias, data: "changed\n", followSymlink: true }], [directory],
-    )).toThrow();
+    expect(() =>
+      writeFilesWithCompensation([{ path: alias, data: "changed\n", followSymlink: true }], [directory]),
+    ).toThrow();
     expect(readFileSync(target, "utf8")).toBe("original\n");
     expect(lstatSync(alias).ino).toBe(inode);
     expect(statSync(target).mode & 0o777).toBe(mode);
@@ -138,11 +148,9 @@ describe("reversible native Codex route integration", () => {
     const { codexHome } = fixture();
     writeFileSync(
       join(codexHome, "config.toml"),
-      [
-        "model_context_window = 1_000_000 # explicit override",
-        "model_auto_compact_token_limit = 900_000",
-        "",
-      ].join("\n"),
+      ["model_context_window = 1_000_000 # explicit override", "model_auto_compact_token_limit = 900_000", ""].join(
+        "\n",
+      ),
     );
 
     expect(readCodexModelContextOverride()).toEqual({
@@ -170,8 +178,7 @@ describe("reversible native Codex route integration", () => {
     expect(installed).not.toMatch(/^\s*model_provider\s*=/m);
     expect(installed).not.toMatch(/^\s*model_catalog_json\s*=/m);
     expect(installed).not.toContain("[model_providers.codex-chatgpt-web]");
-    expect(readFileSync(getCodexJournalRecoveryPath(), "utf8"))
-      .toBe(readFileSync(getCodexJournalPath(), "utf8"));
+    expect(readFileSync(getCodexJournalRecoveryPath(), "utf8")).toBe(readFileSync(getCodexJournalPath(), "utf8"));
 
     expect(uninstallCodexIntegration()).toEqual({ changed: true });
     expect(readFileSync(configPath, "utf8")).toBe(original);
@@ -293,7 +300,8 @@ describe("reversible native Codex route integration", () => {
     expect(journal.previousMultiAgentV2).toMatchObject({
       inlineTable: true,
       value: "true",
-      rawLine: 'multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = false, root_agent_usage_hint_text = "Keep { context }, exactly." } # user choice',
+      rawLine:
+        'multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = false, root_agent_usage_hint_text = "Keep { context }, exactly." } # user choice',
     });
     expect(installed).toContain(
       'multi_agent_v2 = { enabled = false, hide_spawn_agent_metadata = false, root_agent_usage_hint_text = "Keep { context }, exactly." } # user choice',
@@ -330,23 +338,21 @@ describe("reversible native Codex route integration", () => {
   test("Compatibility V1 rejects a non-boolean inline multi_agent_v2 enabled value", () => {
     const { codexHome } = fixture();
     const configPath = join(codexHome, "config.toml");
-    writeFileSync(configPath, "[features]\nmulti_agent_v2 = { enabled = \"false\" }\n");
-    expect(() => installCodexIntegration(compatibilityV1Config("browser-only")))
-      .toThrow("enabled in Codex [features].multi_agent_v2 inline table must be a boolean");
+    writeFileSync(configPath, '[features]\nmulti_agent_v2 = { enabled = "false" }\n');
+    expect(() => installCodexIntegration(compatibilityV1Config("browser-only"))).toThrow(
+      "enabled in Codex [features].multi_agent_v2 inline table must be a boolean",
+    );
   });
 
   test("explicit replacement adopts a Codex-migrated inline multi_agent_v2 value", () => {
     const { codexHome } = fixture();
     const configPath = join(codexHome, "config.toml");
-    writeFileSync(
-      configPath,
-      'model = "gpt-5.6-sol"\n\n[features]\nmulti_agent_v2 = true # prior native choice\n',
-    );
+    writeFileSync(configPath, 'model = "gpt-5.6-sol"\n\n[features]\nmulti_agent_v2 = true # prior native choice\n');
     const config = compatibilityV1Config("browser-only");
     installCodexIntegration(config);
     const migrated = readFileSync(configPath, "utf8").replace(
       MANAGED_MULTI_AGENT_V2_LINE,
-      'multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = true } # migrated by Codex',
+      "multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = true } # migrated by Codex",
     );
     writeFileSync(configPath, migrated);
 
@@ -355,14 +361,14 @@ describe("reversible native Codex route integration", () => {
     expect(journal.previousMultiAgentV2).toMatchObject({
       inlineTable: true,
       value: "true",
-      rawLine: 'multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = true } # migrated by Codex',
+      rawLine: "multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = true } # migrated by Codex",
     });
     expect(readFileSync(configPath, "utf8")).toContain(
-      'multi_agent_v2 = { enabled = false, hide_spawn_agent_metadata = true } # migrated by Codex',
+      "multi_agent_v2 = { enabled = false, hide_spawn_agent_metadata = true } # migrated by Codex",
     );
     uninstallCodexIntegration();
     expect(readFileSync(configPath, "utf8")).toContain(
-      'multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = true } # migrated by Codex',
+      "multi_agent_v2 = { enabled = true, hide_spawn_agent_metadata = true } # migrated by Codex",
     );
   });
 
@@ -393,8 +399,7 @@ describe("reversible native Codex route integration", () => {
     installCodexIntegration(config);
     expect(readCodexSubagentProtocol()).toBe("native");
 
-    expect(setCodexSubagentProtocol(config, "compatibility-v1").installed.subagent_protocol)
-      .toBe("compatibility-v1");
+    expect(setCodexSubagentProtocol(config, "compatibility-v1").installed.subagent_protocol).toBe("compatibility-v1");
     expect(readCodexSubagentProtocol()).toBe("compatibility-v1");
     expect(loadConfig().subagentProtocol).toBe("compatibility-v1");
     expect(readFileSync(configPath, "utf8")).toContain(MANAGED_MULTI_AGENT_V2_LINE);
@@ -479,9 +484,7 @@ describe("reversible native Codex route integration", () => {
 
     expect(() => preflightCodexIntegration(nativeConfig("browser-only"))).not.toThrow();
     installCodexIntegration(nativeConfig("browser-only"));
-    expect(readFileSync(configPath, "utf8")).toContain(
-      'model_provider = "openai" # explicit built-in default',
-    );
+    expect(readFileSync(configPath, "utf8")).toContain('model_provider = "openai" # explicit built-in default');
 
     uninstallCodexIntegration();
     expect(readFileSync(configPath, "utf8")).toBe(original);
@@ -604,7 +607,8 @@ describe("reversible native Codex route integration", () => {
   test("refuses a different Voice route unless replacement is explicit and reversible", () => {
     const { codexHome } = fixture();
     const configPath = join(codexHome, "config.toml");
-    const original = 'model = "gpt-5.6-sol"\nexperimental_realtime_webrtc_call_base_url = "https://voice.example/v1" # external owner\n';
+    const original =
+      'model = "gpt-5.6-sol"\nexperimental_realtime_webrtc_call_base_url = "https://voice.example/v1" # external owner\n';
     writeFileSync(configPath, original);
 
     expect(() => preflightCodexIntegration(nativeConfig("browser-only"))).toThrow("--replace-codex-route");
@@ -634,8 +638,13 @@ describe("reversible native Codex route integration", () => {
 
     writeFileSync(configPath, activeEdit.replace("https://voice.example/changed", CODEX_REALTIME_WEBRTC_CALL_BASE_URL));
     deactivateCodexIntegration();
-    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}experimental_realtime_webrtc_call_base_url = "https://voice.example/new"\n`);
-    expect(() => activateCodexIntegration()).toThrow("realtime WebRTC call route changed while the bridge was disconnected");
+    writeFileSync(
+      configPath,
+      `${readFileSync(configPath, "utf8")}experimental_realtime_webrtc_call_base_url = "https://voice.example/new"\n`,
+    );
+    expect(() => activateCodexIntegration()).toThrow(
+      "realtime WebRTC call route changed while the bridge was disconnected",
+    );
   });
 
   test("invalidates the model cache on install, release reinstall, and uninstall without rewriting a saved model", () => {
@@ -684,8 +693,12 @@ describe("reversible native Codex route integration", () => {
         const original = [
           'model = "gpt-5.6-sol"',
           `experimental_realtime_webrtc_call_base_url = "${CODEX_REALTIME_WEBRTC_CALL_BASE_URL}"`,
-          "", "[hooks.state]", "", "[mcp_servers.user_tool]",
-          'command = "user-tool-never-executed"', "",
+          "",
+          "[hooks.state]",
+          "",
+          "[mcp_servers.user_tool]",
+          'command = "user-tool-never-executed"',
+          "",
         ].join(ending);
         writeFileSync(configPath, original);
         const config = nativeConfig("full");
@@ -736,11 +749,11 @@ describe("reversible native Codex route integration", () => {
     for (const current of [
       active.replace("timeout = 3", "timeout = 2"),
       withoutHook + installed.interruptHook.fragment.split("[[hooks.Interrupt]]")[0],
-      withoutHook + `\n[hooks.state.${JSON.stringify(installed.interruptHook.stateKey)}]\ntrusted_hash = ${JSON.stringify(installed.interruptHook.trustedHash)}\n`,
-      withoutHook + '\n[[hooks.Interrupt]]\n[[hooks.Interrupt.hooks]]\ntype = "command"\ncommand = "user-modified-hook"\n',
-      withoutHook + '\n[hooks]\nInterrupt = []\n',
-      withoutHook + '\n[hooks]\nstate = "invalid"\n',
-      withoutHook + '\n[mcp_servers.invalid\n',
+      `${withoutHook}\n[hooks.state.${JSON.stringify(installed.interruptHook.stateKey)}]\ntrusted_hash = ${JSON.stringify(installed.interruptHook.trustedHash)}\n`,
+      `${withoutHook}\n[[hooks.Interrupt]]\n[[hooks.Interrupt.hooks]]\ntype = "command"\ncommand = "user-modified-hook"\n`,
+      `${withoutHook}\n[hooks]\nInterrupt = []\n`,
+      `${withoutHook}\n[hooks]\nstate = "invalid"\n`,
+      `${withoutHook}\n[mcp_servers.invalid\n`,
     ]) {
       writeFileSync(configPath, current);
       expect(() => preflightCodexIntegration(config, { replaceExistingRoute: true })).toThrow();
@@ -765,9 +778,12 @@ describe("reversible native Codex route integration", () => {
       const inline = `Interrupt = [{ hooks = [{ command = ${JSON.stringify(hook.command)}, timeout = 3, type = 'command' }] }]\n`;
       const without = readFileSync(configPath, "utf8").replace(hook.fragment, "");
       const rewritten = without.includes("[hooks]\n")
-        ? without.replace("[hooks]\n", "[hooks]\n" + inline)
-        : without + "\n[hooks]\n" + inline;
-      writeFileSync(configPath, rewritten + `\n[hooks.state.${JSON.stringify(hook.stateKey)}]\ntrusted_hash = '${hook.trustedHash}'\n`);
+        ? without.replace("[hooks]\n", `[hooks]\n${inline}`)
+        : `${without}\n[hooks]\n${inline}`;
+      writeFileSync(
+        configPath,
+        `${rewritten}\n[hooks.state.${JSON.stringify(hook.stateKey)}]\ntrusted_hash = '${hook.trustedHash}'\n`,
+      );
       expect(inspectCodexIntegration().errors).toEqual([]);
     };
     nativeRewrite();
@@ -787,13 +803,15 @@ describe("reversible native Codex route integration", () => {
   test("rejects custom providers without changing them, even with explicit route replacement", () => {
     const { codexHome } = fixture();
     const configPath = join(codexHome, "config.toml");
-    for (const selection of ['model_provider = "custom"', '"model_provider" = \'custom\'']) {
+    for (const selection of ['model_provider = "custom"', "\"model_provider\" = 'custom'"]) {
       const original = `${selection} # user choice\n\n[model_providers.custom]\nname = "custom"\nbase_url = "http://127.0.0.1:9999/v1"\n`;
       writeFileSync(configPath, original);
       writeFileSync(getCodexModelsCachePath(), '{"models":[]}\n');
       for (const replaceExistingRoute of [false, true]) {
         for (const action of [preflightCodexIntegration, installCodexIntegration]) {
-          expect(() => action(nativeConfig("full"), { replaceExistingRoute })).toThrow(/model_provider.*built-in.*openai/s);
+          expect(() => action(nativeConfig("full"), { replaceExistingRoute })).toThrow(
+            /model_provider.*built-in.*openai/s,
+          );
           expect(readFileSync(configPath, "utf8")).toBe(original);
           expect(readFileSync(getCodexModelsCachePath(), "utf8")).toBe('{"models":[]}\n');
           expect(existsSync(getCodexJournalPath())).toBe(false);
@@ -891,8 +909,9 @@ describe("reversible native Codex route integration", () => {
     const original = 'model = "gpt-5.6-sol"\nopenai_base_url = "http://127.0.0.1:9999/v1"\n';
     writeFileSync(configPath, original);
 
-    expect(() => preflightCodexIntegration(nativeConfig("browser-only")))
-      .toThrow(/--replace-codex-route.*OpenCodex or Headroom/s);
+    expect(() => preflightCodexIntegration(nativeConfig("browser-only"))).toThrow(
+      /--replace-codex-route.*OpenCodex or Headroom/s,
+    );
     expect(readFileSync(configPath, "utf8")).toBe(original);
     expect(() => readFileSync(getCodexJournalPath(), "utf8")).toThrow();
   });
@@ -940,7 +959,8 @@ describe("reversible native Codex route integration", () => {
   test("disconnects and reconnects the bridge without losing the prior route or journal", () => {
     const { codexHome } = fixture();
     const configPath = join(codexHome, "config.toml");
-    const original = 'model = "gpt-5.6-sol"\napproval_policy = "never"\nopenai_base_url = "https://native.example/v1"\n';
+    const original =
+      'model = "gpt-5.6-sol"\napproval_policy = "never"\nopenai_base_url = "https://native.example/v1"\n';
     writeFileSync(configPath, original);
 
     installCodexIntegration(nativeConfig("browser-only"), { replaceExistingRoute: true });
@@ -1038,7 +1058,8 @@ describe("reversible native Codex route integration", () => {
     delete legacy.installed.experimental_realtime_webrtc_call_base_url;
     delete legacy.previousRealtimeWebrtcCallBaseUrl;
     const legacyJournal = `${JSON.stringify(legacy, null, 2)}\n`;
-    const legacyConfig = readFileSync(configPath, "utf8").replace(interruptFragment, "")
+    const legacyConfig = readFileSync(configPath, "utf8")
+      .replace(interruptFragment, "")
       .replace(MANAGED_ROUTE_COMMENT, MANAGED_COMMENT)
       .replace(/^experimental_realtime_webrtc_call_base_url\s*=.*$/m, customVoiceLine);
     writeFileSync(configPath, legacyConfig);
@@ -1049,10 +1070,7 @@ describe("reversible native Codex route integration", () => {
     expect(() => installCodexIntegration(nativeConfig("browser-only"))).toThrow("--replace-codex-route");
     expect(readFileSync(configPath, "utf8")).toBe(legacyConfig);
 
-    const upgraded = installCodexIntegration(
-      nativeConfig("browser-only"),
-      { replaceExistingRoute: true },
-    );
+    const upgraded = installCodexIntegration(nativeConfig("browser-only"), { replaceExistingRoute: true });
     expect(upgraded.version).toBe(10);
     expect(upgraded.previousRealtimeWebrtcCallBaseUrl.rawLine).toBe(customVoiceLine);
     uninstallCodexIntegration();
@@ -1074,7 +1092,8 @@ describe("reversible native Codex route integration", () => {
     delete legacy.installed.experimental_realtime_webrtc_call_base_url;
     delete legacy.previousRealtimeWebrtcCallBaseUrl;
     const legacyJournal = `${JSON.stringify(legacy, null, 2)}\n`;
-    const legacyConfig = currentConfig.replace(interruptFragment, "")
+    const legacyConfig = currentConfig
+      .replace(interruptFragment, "")
       .replace(MANAGED_ROUTE_COMMENT, MANAGED_COMMENT)
       .replace(/^experimental_realtime_webrtc_call_base_url\s*=.*\n/gm, "");
 
@@ -1101,7 +1120,8 @@ describe("reversible native Codex route integration", () => {
     installCodexIntegration(nativeConfig("browser-only"));
     const previous = JSON.parse(readFileSync(getCodexJournalPath(), "utf8"));
     const interruptFragment = previous.interruptHook.fragment as string;
-    const legacyInstalled = readFileSync(configPath, "utf8").replace(interruptFragment, "")
+    const legacyInstalled = readFileSync(configPath, "utf8")
+      .replace(interruptFragment, "")
       .replace(MANAGED_ROUTE_COMMENT, MANAGED_COMMENT)
       .replace(/^experimental_realtime_webrtc_call_base_url\s*=.*\n/gm, "")
       .replace(/^(?:remote_compaction_v2 = false|multi_agent = true|multi_agent_v2 = false).*\n/gm, "");
@@ -1149,7 +1169,8 @@ describe("reversible native Codex route integration", () => {
     writeFileSync(getCodexJournalRecoveryPath(), legacyJournal);
     writeFileSync(
       configPath,
-      readFileSync(configPath, "utf8").replace(interruptFragment, "")
+      readFileSync(configPath, "utf8")
+        .replace(interruptFragment, "")
         .replace(MANAGED_ROUTE_COMMENT, MANAGED_COMMENT)
         .replace(/^experimental_realtime_webrtc_call_base_url\s*=.*\n/gm, "")
         .replace(/^(?:remote_compaction_v2 = false|multi_agent = true|multi_agent_v2 = false).*\n/gm, ""),
@@ -1161,5 +1182,4 @@ describe("reversible native Codex route integration", () => {
     expect(readFileSync(configPath, "utf8")).not.toContain("remote_compaction_v2");
     expect(readFileSync(configPath, "utf8")).not.toContain("multi_agent");
   });
-
 });

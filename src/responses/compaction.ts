@@ -43,8 +43,12 @@ export function compactionDraftText(summary: string): string {
     const record: unknown = JSON.parse(beforeLatest.slice(originalOffset + originalMarker.length));
     if (!record || typeof record !== "object" || Array.isArray(record)) return beforeLatest;
     const { text, sha256 } = record as { text?: unknown; sha256?: unknown };
-    if (typeof text !== "string" || typeof sha256 !== "string"
-      || createHash("sha256").update(text).digest("hex") !== sha256) return beforeLatest;
+    if (
+      typeof text !== "string" ||
+      typeof sha256 !== "string" ||
+      createHash("sha256").update(text).digest("hex") !== sha256
+    )
+      return beforeLatest;
   } catch {
     return beforeLatest;
   }
@@ -67,7 +71,7 @@ export interface CompactionAchievement {
 
 function outsideInlineCode(line: string, index: number): boolean {
   let activeTicks = 0;
-  for (let cursor = 0; cursor < index;) {
+  for (let cursor = 0; cursor < index; ) {
     if (line[cursor] !== "`") {
       cursor += 1;
       continue;
@@ -126,31 +130,35 @@ export function normalizeCompactionStateBlock(raw: string): string {
     }
   }
 
-  const boundaryPattern = /(?:^|\s+)(?:[-*•]\s+)?(?:#{1,4}\s*)?(?:\*{1,2}|_{1,2})?(version|original[_-]request[_-]ref|modified[_-]files|active[_-]hypothesis|requirements|closure[_-]criteria|verified[_-]achievements|decisions[_-]and[_-]invariants|blockers[_-]or[_-]test[_-]failures|blockers|pending[_-]obligations|next[_-]actions?)(?:\*{1,2}|_{1,2})?\s*:|\s+([-*•]\s+)/gi;
+  const boundaryPattern =
+    /(?:^|\s+)(?:[-*•]\s+)?(?:#{1,4}\s*)?(?:\*{1,2}|_{1,2})?(version|original[_-]request[_-]ref|modified[_-]files|active[_-]hypothesis|requirements|closure[_-]criteria|verified[_-]achievements|decisions[_-]and[_-]invariants|blockers[_-]or[_-]test[_-]failures|blockers|pending[_-]obligations|next[_-]actions?)(?:\*{1,2}|_{1,2})?\s*:|\s+([-*•]\s+)/gi;
   let currentField = "";
-  inner = inner.replace(boundaryPattern, (match, header: string | undefined, bullet: string | undefined, index: number) => {
-    if (insideQuote[index]) return match;
-    if (header) {
-      currentField = header.toLowerCase().replace(/-/g, "_");
-      return `\n${currentField}:`;
-    }
-    if (currentField === "version" || currentField === "original_request_ref"
-      || currentField === "active_hypothesis") return match;
-    return `\n${bullet}`;
-  });
+  inner = inner.replace(
+    boundaryPattern,
+    (match, header: string | undefined, bullet: string | undefined, index: number) => {
+      if (insideQuote[index]) return match;
+      if (header) {
+        currentField = header.toLowerCase().replace(/-/g, "_");
+        return `\n${currentField}:`;
+      }
+      if (currentField === "version" || currentField === "original_request_ref" || currentField === "active_hypothesis")
+        return match;
+      return `\n${bullet}`;
+    },
+  );
 
   const cleanInner = inner.trim();
-  const prefix = before ? (before.endsWith("\n") ? before : before + "\n") : "";
-  const suffix = after ? (after.startsWith("\n") ? after : "\n" + after) : "";
+  const prefix = before ? (before.endsWith("\n") ? before : `${before}\n`) : "";
+  const suffix = after ? (after.startsWith("\n") ? after : `\n${after}`) : "";
 
   return `${prefix}<compaction_state>\n${cleanInner}\n</compaction_state>${suffix}`;
 }
 
 function checkpointField(line: string): { name: string; value: string } | null {
-  const match = /^(?:[-*]\s+)?(?:#{1,4}\s*)?(?:(\*\*|__)([a-z][a-z_\\-]*)\1|([a-z][a-z_\\-]*))\s*:\s*(.*)$/i.exec(line.trim());
-  return match
-    ? { name: (match[2] ?? match[3])!.replace(/\\_/g, "_").toLowerCase(), value: match[4]! }
-    : null;
+  const match = /^(?:[-*]\s+)?(?:#{1,4}\s*)?(?:(\*\*|__)([a-z][a-z_\\-]*)\1|([a-z][a-z_\\-]*))\s*:\s*(.*)$/i.exec(
+    line.trim(),
+  );
+  return match ? { name: (match[2] ?? match[3])!.replace(/\\_/g, "_").toLowerCase(), value: match[4]! } : null;
 }
 
 /** Field presence is derived from the same syntax accepted by the parser. */
@@ -158,10 +166,12 @@ export function compactionStateFields(summary: string): Set<string> {
   const normalized = normalizeCompactionStateBlock(summary);
   const bounds = locateCompactionStateBounds(normalized);
   const text = bounds ? normalized.slice(bounds.openingEnd, bounds.closingStart) : normalized;
-  return new Set(text.split(/\r?\n/).flatMap(line => {
-    const field = checkpointField(line);
-    return field ? [field.name] : [];
-  }));
+  return new Set(
+    text.split(/\r?\n/).flatMap((line) => {
+      const field = checkpointField(line);
+      return field ? [field.name] : [];
+    }),
+  );
 }
 
 /** Ignore fenced examples when an active unfenced block exists. */
@@ -174,8 +184,10 @@ export function countActiveCompactionStates(summary: string): number {
     const bounds = locateCompactionStateBounds(rest, { unfencedOnly: unfenced });
     if (!bounds) break;
     count += 1;
-    count += rest.slice(bounds.openingEnd, bounds.closingStart)
-      .split(/\r?\n/).filter(line => standaloneOpening.test(line)).length;
+    count += rest
+      .slice(bounds.openingEnd, bounds.closingStart)
+      .split(/\r?\n/)
+      .filter((line) => standaloneOpening.test(line)).length;
     rest = rest.slice(bounds.endTagEnd);
   }
   return count;
@@ -202,25 +214,32 @@ export function isNativeTextCompaction(body: unknown): boolean {
   if (!client || typeof client !== "object" || Array.isArray(client)) return false;
   let metadata: unknown = (client as Record<string, unknown>)["x-codex-turn-metadata"];
   if (typeof metadata === "string") {
-    try { metadata = JSON.parse(metadata); } catch { return false; }
+    try {
+      metadata = JSON.parse(metadata);
+    } catch {
+      return false;
+    }
   }
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
   const request = metadata as Record<string, unknown>;
   if (request.request_kind !== "compaction") return false;
   const protocol = request.compaction as Record<string, unknown> | undefined;
-  if (!protocol || protocol.implementation !== "responses" || protocol.strategy !== "memento") {
+  if (protocol?.implementation !== "responses" || protocol.strategy !== "memento") {
     throw new Error("Unsupported native text compaction protocol; expected responses/memento");
   }
   return true;
 }
 
 /** The model summarizes freely; the bridge builds the internal versioned checkpoint. */
-export const COMPACT_PROMPT = "Codex is compacting this conversation. Stop ordinary task work and return a faithful handoff for the next model. Preserve unfinished work and distinguish observed results from attempts.";
+export const COMPACT_PROMPT =
+  "Codex is compacting this conversation. Stop ordinary task work and return a faithful handoff for the next model. Preserve unfinished work and distinguish observed results from attempts.";
 
 /** Mirrors codex-rs core/templates/compact/summary_prefix.md (framing for a replayed summary). */
-export const SUMMARY_PREFIX = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
+export const SUMMARY_PREFIX =
+  "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
 
-export const OPAQUE_COMPACTION_NOTE = "[earlier conversation was compacted; the summary is stored in a format this model cannot read]";
+export const OPAQUE_COMPACTION_NOTE =
+  "[earlier conversation was compacted; the summary is stored in a format this model cannot read]";
 
 /** Codex v1 uses one newline after the prefix; the transparent v2 replay uses two. */
 export function isReadableCompactionSummaryText(value: unknown): value is string {
@@ -246,8 +265,8 @@ export function decodeCompactionSummary(encryptedContent: string): string | null
   }
 }
 
-export const PERMISSIVE_OPENING_TAG = /(?:(?:<|&lt;)\s*compaction(?:\_|\-|\\[_\-])+state\s*(?:>|&gt;))/i;
-export const PERMISSIVE_CLOSING_TAG = /(?:(?:<|&lt;)\s*\/\s*compaction(?:\_|\-|\\[_\-])+state\s*(?:>|&gt;))/i;
+export const PERMISSIVE_OPENING_TAG = /(?:(?:<|&lt;)\s*compaction(?:_|-|\\[_-])+state\s*(?:>|&gt;))/i;
+export const PERMISSIVE_CLOSING_TAG = /(?:(?:<|&lt;)\s*\/\s*compaction(?:_|-|\\[_-])+state\s*(?:>|&gt;))/i;
 
 export interface CompactionStateBounds {
   startTagStart: number;
@@ -256,7 +275,6 @@ export interface CompactionStateBounds {
   endTagEnd: number;
   fenced?: boolean;
 }
-
 
 export function locateCompactionStateBounds(
   summary: string,
@@ -272,8 +290,11 @@ export function locateCompactionStateBounds(
   for (const line of sourceLines) {
     const fenceRun = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
-      if (fenceRun?.[0] === fence.marker && fenceRun.length >= fence.length
-        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+      if (
+        fenceRun?.[0] === fence.marker &&
+        fenceRun.length >= fence.length &&
+        /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)
+      ) {
         fence = undefined;
       }
     } else if (fenceRun) {
@@ -311,8 +332,11 @@ export function locateCompactionStateBounds(
   for (const line of sourceLines) {
     const fenceRun = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
-      if (fenceRun?.[0] === fence.marker && fenceRun.length >= fence.length
-        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+      if (
+        fenceRun?.[0] === fence.marker &&
+        fenceRun.length >= fence.length &&
+        /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)
+      ) {
         fence = undefined;
       }
     } else if (fenceRun) {
@@ -395,8 +419,7 @@ export function inspectCompactionStateFormat(summary: string): {
       if (PERMISSIVE_OPENING_TAG.test(line) || PERMISSIVE_CLOSING_TAG.test(line)) {
         fencedTag = true;
       }
-      if (run?.[0] === fence.marker && run.length >= fence.length
-        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+      if (run?.[0] === fence.marker && run.length >= fence.length && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
         fence = undefined;
       }
     } else if (run) {
@@ -414,7 +437,7 @@ export function inspectCompactionStateFormat(summary: string): {
 }
 
 function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
-  const lines = rawBlock.split(/\r?\n/).map(line => line.trim());
+  const lines = rawBlock.split(/\r?\n/).map((line) => line.trim());
 
   const modifiedFiles: string[] = [];
   const requirements: CompactionRequirement[] = [];
@@ -556,31 +579,31 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
 
 function withoutFencedExamples(summary: string): string {
   let fence: { marker: string; length: number } | undefined;
-  return summary.split(/\r?\n/).map(line => {
-    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence) {
-      if (run?.[0] === fence.marker && run.length >= fence.length
-        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
-        fence = undefined;
+  return summary
+    .split(/\r?\n/)
+    .map((line) => {
+      const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (fence) {
+        if (run?.[0] === fence.marker && run.length >= fence.length && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+          fence = undefined;
+        }
+        return "";
       }
-      return "";
-    }
-    if (run) {
-      fence = { marker: run[0]!, length: run.length };
-      return "";
-    }
-    if (/^(?: {4,}|\t)/.test(line)) return "";
-    return line;
-  }).join("\n");
+      if (run) {
+        fence = { marker: run[0]!, length: run.length };
+        return "";
+      }
+      if (/^(?: {4,}|\t)/.test(line)) return "";
+      return line;
+    })
+    .join("\n");
 }
 
 /** Count all listed requirements, including items the parser cannot represent. */
 export function countCompactionRequirementItems(summary: string): number {
   const normalized = normalizeCompactionStateBlock(summary);
   const bounds = locateCompactionStateBounds(normalized);
-  const text = bounds
-    ? normalized.slice(bounds.openingEnd, bounds.closingStart)
-    : withoutFencedExamples(normalized);
+  const text = bounds ? normalized.slice(bounds.openingEnd, bounds.closingStart) : withoutFencedExamples(normalized);
   let inRequirements = false;
   let count = 0;
   for (const line of text.split(/\r?\n/)) {
@@ -613,9 +636,15 @@ function parseTaglessCompactionState(summary: string): CompactionStateBlock | nu
   if (!hasRequirements || !hasNextActions) return null;
   if (!hasVersion) {
     const structuredHeaders = [
-      "modified_files", "active_hypothesis", "closure_criteria", "verified_achievements",
-      "decisions_and_invariants", "blockers_or_test_failures", "blockers", "pending_obligations",
-    ].filter(field => fields.has(field)).length;
+      "modified_files",
+      "active_hypothesis",
+      "closure_criteria",
+      "verified_achievements",
+      "decisions_and_invariants",
+      "blockers_or_test_failures",
+      "blockers",
+      "pending_obligations",
+    ].filter((field) => fields.has(field)).length;
     if (structuredHeaders < 2) return null;
   }
 
@@ -667,9 +696,10 @@ export function formatCompactionStateBlock(block: CompactionStateBlock): string 
   if (block.verifiedAchievements) {
     parts.push("verified_achievements:");
     if (block.verifiedAchievements.length === 0) parts.push("- None");
-    else for (const achievement of block.verifiedAchievements) {
-      parts.push(`- ${typeof achievement === "string" ? achievement : JSON.stringify(achievement)}`);
-    }
+    else
+      for (const achievement of block.verifiedAchievements) {
+        parts.push(`- ${typeof achievement === "string" ? achievement : JSON.stringify(achievement)}`);
+      }
   }
 
   if (block.decisionsAndInvariants) {
@@ -726,9 +756,19 @@ export function extractStructuredCompactionHandoff(summary: string): {
   // Tagless structured checkpoint
   const lines = normalized.split(/\r?\n/);
   const structuredHeaders = new Set([
-    "version", "original_request_ref", "modified_files", "active_hypothesis", "requirements",
-    "closure_criteria", "verified_achievements", "decisions_and_invariants", "blockers_or_test_failures",
-    "blockers", "pending_obligations", "next_actions", "next_steps",
+    "version",
+    "original_request_ref",
+    "modified_files",
+    "active_hypothesis",
+    "requirements",
+    "closure_criteria",
+    "verified_achievements",
+    "decisions_and_invariants",
+    "blockers_or_test_failures",
+    "blockers",
+    "pending_obligations",
+    "next_actions",
+    "next_steps",
   ]);
   let firstStructuredLine = -1;
   let lastStructuredLine = -1;
@@ -744,7 +784,13 @@ export function extractStructuredCompactionHandoff(summary: string): {
   }
 
   const before = firstStructuredLine > 0 ? lines.slice(0, firstStructuredLine).join("\n").trim() : "";
-  const after = lastStructuredLine >= 0 && lastStructuredLine < lines.length - 1 ? lines.slice(lastStructuredLine + 1).join("\n").trim() : "";
+  const after =
+    lastStructuredLine >= 0 && lastStructuredLine < lines.length - 1
+      ? lines
+          .slice(lastStructuredLine + 1)
+          .join("\n")
+          .trim()
+      : "";
   const narrative = [before, after].filter(Boolean).join("\n\n");
   return { narrative, state };
 }
@@ -784,10 +830,12 @@ export function isOnePixelPngDataUrl(value: unknown): value is string {
   if (typeof value !== "string" || !value.startsWith("data:image/png;base64,")) return false;
   try {
     const png = Buffer.from(value.slice("data:image/png;base64,".length), "base64");
-    return png.length >= 24
-      && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-      && png.readUInt32BE(16) === 1
-      && png.readUInt32BE(20) === 1;
+    return (
+      png.length >= 24 &&
+      png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+      png.readUInt32BE(16) === 1 &&
+      png.readUInt32BE(20) === 1
+    );
   } catch {
     return false;
   }
@@ -813,13 +861,26 @@ export function extractCompactUserMessages(input: unknown): CompactMessageItem[]
     // In particular, a goal continuation is runtime steering, not a retained human message.
     // Exclude it before computing the v1 checkpoint source, or the next request authenticates
     // against a message that native Codex has already discarded.
-    if (compactContentBlocks(rec).some(block => textBlock(block) && (
-      /^<codex_internal_context source="[a-z][a-z0-9_]*">[\s\S]*<\/codex_internal_context>$/.test(block.text!.trim())
-      || /^<goal_context>[\s\S]*<\/goal_context>$/.test(block.text!.trim())
-    ))) continue;
-    if (isReadableCompactionSummaryText(
-      compactContentBlocks(rec).filter(textBlock).map(block => block.text).join(""),
-    )) continue;
+    if (
+      compactContentBlocks(rec).some(
+        (block) =>
+          textBlock(block) &&
+          (/^<codex_internal_context source="[a-z][a-z0-9_]*">[\s\S]*<\/codex_internal_context>$/.test(
+            block.text!.trim(),
+          ) ||
+            /^<goal_context>[\s\S]*<\/goal_context>$/.test(block.text!.trim())),
+      )
+    )
+      continue;
+    if (
+      isReadableCompactionSummaryText(
+        compactContentBlocks(rec)
+          .filter(textBlock)
+          .map((block) => block.text)
+          .join(""),
+      )
+    )
+      continue;
     out.push(structuredClone(rec));
   }
   return out;
@@ -835,8 +896,10 @@ function compactContentBlocks(item: CompactMessageItem): CompactContentBlock[] {
   }
   if (!Array.isArray(item.content)) return [];
   return item.content
-    .filter((block): block is CompactContentBlock => Boolean(block && typeof block === "object" && !Array.isArray(block)))
-    .map(block => structuredClone(block));
+    .filter((block): block is CompactContentBlock =>
+      Boolean(block && typeof block === "object" && !Array.isArray(block)),
+    )
+    .map((block) => structuredClone(block));
 }
 
 function textBlock(block: CompactContentBlock): boolean {
@@ -844,9 +907,7 @@ function textBlock(block: CompactContentBlock): boolean {
 }
 
 function imageBlock(block: CompactContentBlock): boolean {
-  return block.type === "input_image"
-    && typeof block.image_url === "string"
-    && !isOnePixelPngDataUrl(block.image_url);
+  return block.type === "input_image" && typeof block.image_url === "string" && !isOnePixelPngDataUrl(block.image_url);
 }
 
 /**

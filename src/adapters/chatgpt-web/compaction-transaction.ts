@@ -56,7 +56,9 @@ export class CompactionTransactionStore {
     // An empty control submission is still a completed one-shot handoff. The
     // checkpoint validator can then request one bounded repair or reject it.
     transaction.summary = normalized;
-    console.info(`[chatgpt-web] broker trace=${transaction.traceId} accepted compaction handoff chars=${normalized.length}`);
+    console.info(
+      `[chatgpt-web] broker trace=${transaction.traceId} accepted compaction handoff chars=${normalized.length}`,
+    );
     if (transaction.timer) clearTimeout(transaction.timer);
     transaction.timer = undefined;
     if (transaction.waiter) this.consume(transaction);
@@ -75,10 +77,8 @@ export class CompactionTransactionStore {
     return new Promise<string>((resolve, reject) => {
       const waiter: TransactionWaiter = { resolve, reject, ...(signal ? { signal } : {}) };
       if (signal) {
-        waiter.onAbort = () => this.finishError(
-          transaction,
-          new DOMException("compaction transaction aborted", "AbortError"),
-        );
+        waiter.onAbort = () =>
+          this.finishError(transaction, new DOMException("compaction transaction aborted", "AbortError"));
         signal.addEventListener("abort", waiter.onAbort, { once: true });
       }
       transaction.waiter = waiter;

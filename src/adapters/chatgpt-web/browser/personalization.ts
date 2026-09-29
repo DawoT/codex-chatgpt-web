@@ -4,9 +4,8 @@ import { withBrowserTurnAbort } from "./suspension-clock";
 
 export const CHATGPT_UI_SETTLE_MS = 250;
 
-export const settleChatGptUi = (): Promise<void> => (
-  new Promise(resolveSettle => setTimeout(resolveSettle, CHATGPT_UI_SETTLE_MS))
-);
+export const settleChatGptUi = (): Promise<void> =>
+  new Promise((resolveSettle) => setTimeout(resolveSettle, CHATGPT_UI_SETTLE_MS));
 
 export function chatGptConnectorUnavailableError(message: string): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(message, {
@@ -22,30 +21,44 @@ export async function chatGptUnavailableProDetail(menu: Locator): Promise<string
   // localized explanation/date; do not search the conversation or infer a reset time.
   const rows = menu.getByRole("menuitemradio", { name: "Pro", exact: true }).filter({ visible: true });
   try {
-    if (await rows.count() !== 1 || await rows.getAttribute("aria-disabled") !== "true") return undefined;
+    if ((await rows.count()) !== 1 || (await rows.getAttribute("aria-disabled")) !== "true") return undefined;
     await rows.hover({ timeout: 1_500 });
-    return await rows.evaluate(async element => {
-      const deadline = Date.now() + 1_000;
-      do {
-        const ids = element.getAttribute("aria-describedby")?.trim().split(/\s+/).filter(Boolean) ?? [];
-        const tooltips = ids.map(id => document.getElementById(id))
-          .filter((node): node is HTMLElement => node instanceof HTMLElement && node.getAttribute("role") === "tooltip");
-        const visible = tooltips.filter(node => {
-          for (let current: HTMLElement | null = node; current; current = current.parentElement) {
-            const style = getComputedStyle(current);
-            if (!current.isConnected || current.hidden || current.getAttribute("aria-hidden") === "true"
-              || style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+    return await rows.evaluate(
+      async (element) => {
+        const deadline = Date.now() + 1_000;
+        do {
+          const ids = element.getAttribute("aria-describedby")?.trim().split(/\s+/).filter(Boolean) ?? [];
+          const tooltips = ids
+            .map((id) => document.getElementById(id))
+            .filter(
+              (node): node is HTMLElement => node instanceof HTMLElement && node.getAttribute("role") === "tooltip",
+            );
+          const visible = tooltips.filter((node) => {
+            for (let current: HTMLElement | null = node; current; current = current.parentElement) {
+              const style = getComputedStyle(current);
+              if (
+                !current.isConnected ||
+                current.hidden ||
+                current.getAttribute("aria-hidden") === "true" ||
+                style.display === "none" ||
+                style.visibility === "hidden" ||
+                style.opacity === "0"
+              )
+                return false;
+            }
+            return true;
+          });
+          if (visible.length === 1) {
+            const text = visible[0]!.textContent?.replace(/\s+/g, " ").trim();
+            if (text && text.length <= 512) return text;
           }
-          return true;
-        });
-        if (visible.length === 1) {
-          const text = visible[0]!.textContent?.replace(/\s+/g, " ").trim();
-          if (text && text.length <= 512) return text;
-        }
-        await new Promise(resolve => setTimeout(resolve, 50));
-      } while (Date.now() < deadline);
-      return undefined;
-    }, undefined, { timeout: 1_500 });
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        } while (Date.now() < deadline);
+        return undefined;
+      },
+      undefined,
+      { timeout: 1_500 },
+    );
   } catch {
     // Optional UI detail must not replace the existing model-unavailable error.
     return undefined;
@@ -57,7 +70,7 @@ export type ChatGptPersonalizationPreflight = "already-personalized" | "enabled"
 const CHATGPT_PERSONALIZATION_CONTROL_SELECTOR = [
   '[data-testid="thread-header-right-actions"] [aria-haspopup="menu"]',
   '#conversation-header-actions [aria-haspopup="menu"]',
-  '[data-content-sheet-root] > button[aria-expanded][aria-controls]',
+  "[data-content-sheet-root] > button[aria-expanded][aria-controls]",
 ].join(", ");
 const CHATGPT_PERSONALIZATION_CHOICE_SELECTOR = '[role="menuitemradio"], [role="radio"]';
 export const CHATGPT_PERSONALIZATION_PREFLIGHT_TIMEOUT_MS = 60_000;
@@ -94,12 +107,15 @@ async function runChatGptPersonalizationStep<T>(
   const timeoutMs = remainingChatGptPersonalizationMs(deadline, signal);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await withBrowserTurnAbort(Promise.race([
-      operation(),
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new ChatGptPersonalizationDeadlineError()), timeoutMs);
-      }),
-    ]), signal);
+    return await withBrowserTurnAbort(
+      Promise.race([
+        operation(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new ChatGptPersonalizationDeadlineError()), timeoutMs);
+        }),
+      ]),
+      signal,
+    );
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -121,12 +137,9 @@ async function runChatGptPersonalizationOwnedStep<T>(
   return result;
 }
 
-export async function waitForChatGptPersonalizationPoll(
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<void> {
+export async function waitForChatGptPersonalizationPoll(timeoutMs: number, signal?: AbortSignal): Promise<void> {
   if (!signal) {
-    await new Promise(resolve => setTimeout(resolve, timeoutMs));
+    await new Promise((resolve) => setTimeout(resolve, timeoutMs));
     return;
   }
   if (signal.aborted) throw new DOMException("ChatGPT personalization preflight aborted", "AbortError");
@@ -170,9 +183,9 @@ export async function pressChatGptPersonalizationEscape(
 }
 
 async function dismissChatGptPersonalizationMenu(page: Page): Promise<void> {
-  await runChatGptPersonalizationCleanup((deadline, signal) => (
-    pressChatGptPersonalizationEscape(page, deadline, signal)
-  ));
+  await runChatGptPersonalizationCleanup((deadline, signal) =>
+    pressChatGptPersonalizationEscape(page, deadline, signal),
+  );
 }
 
 async function waitForChatGptOwnedPersonalizationMenu(
@@ -234,9 +247,7 @@ async function readChatGptPersonalizationCheckedIndex(
     checked.push(ariaChecked === "true" || dataState === "checked");
   }
   if (checked.filter(Boolean).length !== 1) {
-    throw chatGptConnectorUnavailableError(
-      "ChatGPT personalization menu did not expose one checked state",
-    );
+    throw chatGptConnectorUnavailableError("ChatGPT personalization menu did not expose one checked state");
   }
   return checked[0] ? 0 : 1;
 }
@@ -272,10 +283,8 @@ async function openChatGptStructuralPersonalizationState(
   });
   const menu = await waitForChatGptOwnedPersonalizationMenu(page, control, deadline, signal);
   const choices = menu.locator(CHATGPT_PERSONALIZATION_CHOICE_SELECTOR).filter({ visible: true });
-  if (await runChatGptPersonalizationStep(() => choices.count(), deadline, signal) !== 2) {
-    throw chatGptConnectorUnavailableError(
-      "ChatGPT personalization menu did not expose exactly two checkable states",
-    );
+  if ((await runChatGptPersonalizationStep(() => choices.count(), deadline, signal)) !== 2) {
+    throw chatGptConnectorUnavailableError("ChatGPT personalization menu did not expose exactly two checkable states");
   }
   return {
     menu,
@@ -367,11 +376,7 @@ async function ensureChatGptPersonalizedConnectorAccessWithinDeadline(
   }
   const proveConnectorAccess = async (): Promise<boolean> => {
     if (!proveConfiguredConnectorAccess) return false;
-    return runChatGptPersonalizationOwnedStep(
-      () => proveConfiguredConnectorAccess(abortSignal),
-      deadline,
-      abortSignal,
-    );
+    return runChatGptPersonalizationOwnedStep(() => proveConfiguredConnectorAccess(abortSignal), deadline, abortSignal);
   };
   // The visible sheet can be aria-hidden during hydration. Include those controls in the role
   // query but still require visibility; never select a hidden duplicate or switch locator rules.
@@ -379,7 +384,11 @@ async function ensureChatGptPersonalizedConnectorAccessWithinDeadline(
     .getByRole("button", { name: /^(?:Personalized|Personalizado|个性化)$/i, exact: true, includeHidden: true })
     .filter({ visible: true });
   const unpersonalized = page
-    .getByRole("button", { name: /^(?:Unpersonalized|No personalizado|Despersonalizado|非个性化)$/i, exact: true, includeHidden: true })
+    .getByRole("button", {
+      name: /^(?:Unpersonalized|No personalizado|Despersonalizado|非个性化)$/i,
+      exact: true,
+      includeHidden: true,
+    })
     .filter({ visible: true });
   let personalizedCount = await runChatGptPersonalizationStep(() => personalized.count(), deadline, abortSignal);
   let unpersonalizedCount = await runChatGptPersonalizationStep(() => unpersonalized.count(), deadline, abortSignal);
@@ -435,8 +444,8 @@ async function ensureChatGptPersonalizedConnectorAccessWithinDeadline(
   }
   if (personalizedCount !== 0 || unpersonalizedCount !== 1) {
     throw chatGptConnectorUnavailableError(
-      `ChatGPT exposed an invalid Temporary Chat personalization state`
-      + ` (personalized=${personalizedCount}, unpersonalized=${unpersonalizedCount})`,
+      `ChatGPT exposed an invalid Temporary Chat personalization state` +
+        ` (personalized=${personalizedCount}, unpersonalized=${unpersonalizedCount})`,
     );
   }
 
@@ -446,16 +455,11 @@ async function ensureChatGptPersonalizedConnectorAccessWithinDeadline(
     signal: abortSignal,
   });
   try {
-    const menu = await waitForChatGptOwnedPersonalizationMenu(
-      page,
-      unpersonalized,
-      deadline,
-      abortSignal,
-    );
+    const menu = await waitForChatGptOwnedPersonalizationMenu(page, unpersonalized, deadline, abortSignal);
     const choice = menu
       .locator(CHATGPT_PERSONALIZATION_CHOICE_SELECTOR)
       .filter({ hasText: /^(?:Personalized|Personalizado|个性化)/i });
-    if (await runChatGptPersonalizationStep(() => choice.count(), deadline, abortSignal) !== 1) {
+    if ((await runChatGptPersonalizationStep(() => choice.count(), deadline, abortSignal)) !== 1) {
       throw chatGptConnectorUnavailableError(
         "ChatGPT personalization menu did not expose one exact Personalized choice",
       );
@@ -527,11 +531,12 @@ export async function ensureChatGptPersonalizedConnectorAccess(
     return outcome;
   } catch (error) {
     if (error instanceof ChatGptPersistentBrowserStateError) throw error;
-    if (!abortSignal?.aborted && (
-      error instanceof ChatGptPersonalizationDeadlineError
-      || deadlineController.signal.aborted
-      || Date.now() >= deadline
-    )) {
+    if (
+      !abortSignal?.aborted &&
+      (error instanceof ChatGptPersonalizationDeadlineError ||
+        deadlineController.signal.aborted ||
+        Date.now() >= deadline)
+    ) {
       throw chatGptConnectorUnavailableError("ChatGPT personalization preflight exceeded its readiness deadline");
     }
     throw error;

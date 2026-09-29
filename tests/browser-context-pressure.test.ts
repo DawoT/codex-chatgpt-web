@@ -10,7 +10,10 @@ test("page DOM measurement is throttled per page and only scans changed response
   const observer = new ChatGptPageDomObserver(5_000);
   let scans = 0;
   const page = {
-    evaluate: async () => { scans += 1; return 700_001; },
+    evaluate: async () => {
+      scans += 1;
+      return 700_001;
+    },
   };
   const pressure = new ChatGptBrowserContextPressure();
   await observer.measure(page as never, true, 1_000, () => pressure, 1_000);

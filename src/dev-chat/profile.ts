@@ -3,10 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, posix, resolve, win32 } from "node:path";
 import { expandUserPath, getConfigPath } from "../config";
-import {
-  readLauncherBrowserHostDescriptor,
-  type LauncherBrowserHostDescriptor,
-} from "../launcher-browser-host";
+import { type LauncherBrowserHostDescriptor, readLauncherBrowserHostDescriptor } from "../launcher-browser-host";
 
 import { DEV_LAUNCHER_PROFILE } from "./constants";
 
@@ -30,7 +27,7 @@ function registeredWindowsLauncherInstallLocation(): string | undefined {
       ["query", `HKCU\\Software\\${WINDOWS_LAUNCHER_GUID}`, "/v", "InstallLocation"],
       { encoding: "utf8", windowsHide: true },
     );
-    const match = output.match(/^\s*InstallLocation\s+REG_SZ\s+(.+?)\s*$/mi);
+    const match = output.match(/^\s*InstallLocation\s+REG_SZ\s+(.+?)\s*$/im);
     return match && win32.isAbsolute(match[1]) ? match[1] : undefined;
   } catch {
     return undefined;
@@ -44,12 +41,12 @@ export function resolveDevProfilePaths({
   environment?: NodeJS.ProcessEnv;
   homeDirectory?: string;
 } = {}): DevProfilePaths {
-  const home = resolve(expandUserPath(
-    environment.CODEX_WEB_GPT_DEV_HOME?.trim() || join(homeDirectory, ".codex-chatgpt-web-dev"),
-  ));
-  const productionHome = resolve(expandUserPath(
-    environment.CODEX_CHATGPT_WEB_HOME?.trim() || join(homeDirectory, ".codex-chatgpt-web"),
-  ));
+  const home = resolve(
+    expandUserPath(environment.CODEX_WEB_GPT_DEV_HOME?.trim() || join(homeDirectory, ".codex-chatgpt-web-dev")),
+  );
+  const productionHome = resolve(
+    expandUserPath(environment.CODEX_CHATGPT_WEB_HOME?.trim() || join(homeDirectory, ".codex-chatgpt-web")),
+  );
   if (home === productionHome) {
     throw new Error("DEV profile home must differ from the production codex-chatgpt-web home");
   }
@@ -71,9 +68,7 @@ export interface DevChatExperimentalFeatures {
 }
 
 /** Read the canonical DEV runtime setting consumed by repository chat commands. */
-export function readDevChatExperimentalFeatures(
-  paths = resolveDevProfilePaths(),
-): DevChatExperimentalFeatures {
+export function readDevChatExperimentalFeatures(paths = resolveDevProfilePaths()): DevChatExperimentalFeatures {
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(paths.configPath, "utf8"));
@@ -132,9 +127,11 @@ export function installedLauncherCandidates({
       posix.join(homeDirectory, "Applications", "Codex Web GPT.app", "Contents", "MacOS", "Codex Web GPT"),
     );
   } else if (platform === "win32") {
-    const registeredLocation = windowsInstallLocation?.trim()
-      || (process.platform === "win32" && environment === process.env
-        ? registeredWindowsLauncherInstallLocation() : undefined);
+    const registeredLocation =
+      windowsInstallLocation?.trim() ||
+      (process.platform === "win32" && environment === process.env
+        ? registeredWindowsLauncherInstallLocation()
+        : undefined);
     if (registeredLocation && win32.isAbsolute(registeredLocation)) {
       candidates.push(win32.join(registeredLocation, "Codex Web GPT.exe"));
     } else {
@@ -149,16 +146,18 @@ export function installedLauncherCandidates({
       candidates.push(posix.join(entry, "codex-web-gpt"));
     }
   }
-  return [...new Set(candidates.map(candidate => targetPath.resolve(candidate)))];
+  return [...new Set(candidates.map((candidate) => targetPath.resolve(candidate)))];
 }
 
-export function findInstalledLauncherExecutable(options: Parameters<typeof installedLauncherCandidates>[0] = {}): string {
+export function findInstalledLauncherExecutable(
+  options: Parameters<typeof installedLauncherCandidates>[0] = {},
+): string {
   const candidates = installedLauncherCandidates(options);
   const executable = candidates.find(executableFile);
   if (executable) return executable;
   throw new Error(
-    "Installed Codex Web GPT launcher was not found. Install it first or set CODEX_WEB_GPT_LAUNCHER_EXECUTABLE to its absolute executable path."
-      + ` Checked: ${candidates.join(", ") || "no platform candidates"}`,
+    "Installed Codex Web GPT launcher was not found. Install it first or set CODEX_WEB_GPT_LAUNCHER_EXECUTABLE to its absolute executable path." +
+      ` Checked: ${candidates.join(", ") || "no platform candidates"}`,
   );
 }
 
@@ -194,7 +193,7 @@ export async function waitForDevLauncher(
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
-    await new Promise(resolveWait => setTimeout(resolveWait, 100));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
   throw new Error(`DEV launcher did not become ready within ${timeoutMs}ms: ${lastError}`);
 }
@@ -204,8 +203,11 @@ export async function launchDevProfile(
   options: { executable?: string; timeoutMs?: number } = {},
 ): Promise<{ descriptor: LauncherBrowserHostDescriptor; executable: string; alreadyRunning: boolean }> {
   let existing: LauncherBrowserHostDescriptor | undefined;
-  try { existing = devDescriptor(paths.descriptorPath); }
-  catch { /* A stale or absent descriptor is replaced only by its owning launcher. */ }
+  try {
+    existing = devDescriptor(paths.descriptorPath);
+  } catch {
+    /* A stale or absent descriptor is replaced only by its owning launcher. */
+  }
 
   const executable = options.executable ? resolve(options.executable) : findInstalledLauncherExecutable();
   if (!isAbsolute(executable) || !executableFile(executable)) {

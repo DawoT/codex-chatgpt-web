@@ -19,7 +19,7 @@ describe("service drain lifecycle", () => {
 
   test("releases a verified idle drain", async () => {
     const actions: string[] = [];
-    const lease = await negotiateDrain(async action => {
+    const lease = await negotiateDrain(async (action) => {
       actions.push(action);
       return action === "drain"
         ? { accepting_turns: false, active_http_turns: 0, active_browser_turns: 0 }

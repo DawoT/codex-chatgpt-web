@@ -27,15 +27,22 @@ function harness(options: {
 }) {
   const inside = { name: "text-node-inside-composer" };
   const composer = {
-    focus() { if (options.focusable) fakeDocument.activeElement = composer; },
+    focus() {
+      if (options.focusable) fakeDocument.activeElement = composer;
+    },
     contains: (node: object | null) => node === inside || node === composer,
   };
   const calls: Array<{ command: string; value: string }> = [];
   const selection: FakeSelection = {
     isCollapsed: options.collapsed ?? true,
     anchorNode: options.caretInsideComposer ? inside : { name: "node-in-the-effort-menu" },
-    removeAllRanges() { selection.anchorNode = null; },
-    addRange() { selection.anchorNode = inside; selection.isCollapsed = true; },
+    removeAllRanges() {
+      selection.anchorNode = null;
+    },
+    addRange() {
+      selection.anchorNode = inside;
+      selection.isCollapsed = true;
+    },
   };
   const fakeDocument = {
     activeElement: null as unknown,

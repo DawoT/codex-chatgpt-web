@@ -1,6 +1,6 @@
-import { createInterface } from "node:readline/promises";
 import { existsSync } from "node:fs";
 import { stdin, stdout } from "node:process";
+import { createInterface } from "node:readline/promises";
 import { DEV_CHATGPT_CONNECTOR_NAME, loadConfig } from "../config";
 import {
   inspectLauncherBrowserHost,
@@ -9,27 +9,16 @@ import {
 } from "../launcher-browser-host";
 import { setupDevProfile } from "../setup";
 import { tunnelStatus } from "../tunnel";
-import {
-  createLauncherDevAdapter,
-  DevChatDriver,
-  type DevChatEvent,
-  type DevContextStatus,
-} from "./driver";
-import {
-  createDevContextFiller,
-  DEV_CHAT_MODELS,
-  DevChatStore,
-  type DevChatModel,
-  type DevChatState,
-} from "./session";
-import { startDevChatTransport } from "./transport";
+import { DEV_CONFIG_PURPOSE, DEV_LAUNCHER_PROFILE } from "./constants";
+import { createLauncherDevAdapter, DevChatDriver, type DevChatEvent, type DevContextStatus } from "./driver";
 import {
   activateDevProfileEnvironment,
   launchDevProfile,
   readDevChatExperimentalFeatures,
   resolveDevProfilePaths,
 } from "./profile";
-import { DEV_CONFIG_PURPOSE, DEV_LAUNCHER_PROFILE } from "./constants";
+import { createDevContextFiller, DEV_CHAT_MODELS, type DevChatModel, type DevChatState, DevChatStore } from "./session";
+import { startDevChatTransport } from "./transport";
 
 const DEV_HELP = `Codex Web GPT DEV chat
 
@@ -96,7 +85,9 @@ function modelFromCli(value: string | undefined): DevChatModel | undefined {
   const normalized = value.trim().toLowerCase();
   const slug = normalized.startsWith("chatgpt-web/") ? normalized : `chatgpt-web/${normalized}`;
   if (!(DEV_CHAT_MODELS as readonly string[]).includes(slug)) {
-    throw new Error(`Unknown DEV model ${JSON.stringify(value)}; choose ${DEV_CHAT_MODELS.map(model => model.replace("chatgpt-web/", "")).join(", ")}`);
+    throw new Error(
+      `Unknown DEV model ${JSON.stringify(value)}; choose ${DEV_CHAT_MODELS.map((model) => model.replace("chatgpt-web/", "")).join(", ")}`,
+    );
   }
   return slug as DevChatModel;
 }
@@ -129,9 +120,13 @@ class EventRenderer {
     } else if (event.type === "tool_result") {
       stdout.write(`${dim("simulated")}> ${event.name} ${compactJson(event.receipt)}\n`);
     } else if (event.type === "compaction_start") {
-      stdout.write(`${yellow("compact")}> ${event.reason} browser compaction started (${event.inputItems} input items)\n`);
+      stdout.write(
+        `${yellow("compact")}> ${event.reason} browser compaction started (${event.inputItems} input items)\n`,
+      );
     } else {
-      stdout.write(`${yellow("compact")}> ${event.reason} browser compaction completed (${event.inputItems} replacement items)\n`);
+      stdout.write(
+        `${yellow("compact")}> ${event.reason} browser compaction completed (${event.inputItems} replacement items)\n`,
+      );
     }
   }
 
@@ -154,10 +149,14 @@ function printHeader(
   biggerContext: boolean,
 ): void {
   stdout.write(`${bold("Codex Web GPT DEV")} · ${created ? "created" : "continued"} chat ${cyan(state.name)}\n`);
-  stdout.write(`model ${state.model} · ${mode === "full" ? "tools explicitly simulated" : "browser-only, no outer tools"} · live launcher browser\n`);
+  stdout.write(
+    `model ${state.model} · ${mode === "full" ? "tools explicitly simulated" : "browser-only, no outer tools"} · live launcher browser\n`,
+  );
   stdout.write(`context ${statusLine(status)}\n`);
   if (biggerContext) {
-    stdout.write(`${yellow("Bigger Context experimental")} · adaptive 1/2/3-message context · same-agent compaction handoff · elevated rate-limit/cooldown risk\n`);
+    stdout.write(
+      `${yellow("Bigger Context experimental")} · adaptive 1/2/3-message context · same-agent compaction handoff · elevated rate-limit/cooldown risk\n`,
+    );
   }
   stdout.write(`${dim("Codex route is untouched. No Responses port is bound, replaced, stopped, or restarted.")}\n`);
 }
@@ -183,9 +182,11 @@ async function assertLauncherReady(config: ReturnType<typeof loadConfig>): Promi
 async function executeMessage(driver: DevChatDriver, state: DevChatState, message: string): Promise<void> {
   const renderer = new EventRenderer();
   try {
-    const result = await driver.send(state, message, event => renderer.write(event));
+    const result = await driver.send(state, message, (event) => renderer.write(event));
     renderer.finish();
-    stdout.write(`${dim(`usage ${result.usage.inputTokens.toLocaleString("en-US")} input + ${result.usage.outputTokens.toLocaleString("en-US")} output · context ${statusLine(result.status)}`)}\n`);
+    stdout.write(
+      `${dim(`usage ${result.usage.inputTokens.toLocaleString("en-US")} input + ${result.usage.outputTokens.toLocaleString("en-US")} output · context ${statusLine(result.status)}`)}\n`,
+    );
   } catch (error) {
     renderer.finish();
     throw error;
@@ -199,8 +200,11 @@ async function interactive(driver: DevChatDriver, state: DevChatState): Promise<
   try {
     for (;;) {
       let line: string;
-      try { line = await reader.question(`${cyan(state.name)}> `); }
-      catch { break; }
+      try {
+        line = await reader.question(`${cyan(state.name)}> `);
+      } catch {
+        break;
+      }
       const value = line.trim();
       if (!value) continue;
       try {
@@ -220,17 +224,21 @@ async function interactive(driver: DevChatDriver, state: DevChatState): Promise<
           if (rest.length > 0) throw new Error("Usage: /fill TOKENS");
           const tokens = Number(argument);
           const result = driver.fill(state, tokens);
-          stdout.write(`added ${result.addedTokens.toLocaleString("en-US")} measured synthetic tokens · context ${statusLine(result.status)}\n`);
+          stdout.write(
+            `added ${result.addedTokens.toLocaleString("en-US")} measured synthetic tokens · context ${statusLine(result.status)}\n`,
+          );
         } else if (command === "send-fill") {
           if (rest.length > 0) throw new Error("Usage: /send-fill TOKENS");
           const filler = createDevContextFiller(Number(argument));
-          stdout.write(`sending ${filler.tokens.toLocaleString("en-US")} measured synthetic tokens through the live browser\n`);
+          stdout.write(
+            `sending ${filler.tokens.toLocaleString("en-US")} measured synthetic tokens through the live browser\n`,
+          );
           await executeMessage(driver, state, filler.text);
         } else if (command === "compact") {
           if (argument) throw new Error("Usage: /compact");
           const renderer = new EventRenderer();
           try {
-            const status = await driver.compact(state, event => renderer.write(event));
+            const status = await driver.compact(state, (event) => renderer.write(event));
             renderer.finish();
             stdout.write(`context ${statusLine(status)}\n`);
           } catch (error) {
@@ -279,7 +287,9 @@ export async function runDevCommand(args: string[]): Promise<void> {
       return;
     }
     for (const chat of chats) {
-      stdout.write(`${chat.name}\t${chat.model}\tturns=${chat.turns}\tcompactions=${chat.compactions}\titems=${chat.inputItems}\t${chat.updatedAt}\n`);
+      stdout.write(
+        `${chat.name}\t${chat.model}\tturns=${chat.turns}\tcompactions=${chat.compactions}\titems=${chat.inputItems}\t${chat.updatedAt}\n`,
+      );
     }
     return;
   }
@@ -287,10 +297,10 @@ export async function runDevCommand(args: string[]): Promise<void> {
     if (args.length > 0) throw new Error(`Unknown DEV launcher arguments: ${args.join(" ")}`);
     const launched = await launchDevProfile(paths);
     stdout.write(
-      `${launched.alreadyRunning ? "Opened" : "Started"} isolated DEV launcher`
-      + ` (pid ${launched.descriptor.pid})\n`
-      + `DEV home: ${paths.home}\n`
-      + `ChatGPT session: ${paths.launcherUserData}\n`,
+      `${launched.alreadyRunning ? "Opened" : "Started"} isolated DEV launcher` +
+        ` (pid ${launched.descriptor.pid})\n` +
+        `DEV home: ${paths.home}\n` +
+        `ChatGPT session: ${paths.launcherUserData}\n`,
     );
     return;
   }
@@ -327,10 +337,18 @@ export async function runDevCommand(args: string[]): Promise<void> {
     if (json) stdout.write(`${JSON.stringify(status, null, 2)}\n`);
     else {
       stdout.write(`DEV home: ${paths.home}\n`);
-      stdout.write(`launcher: ${launcher.running ? `running (pid ${launcher.pid})` : `not ready${launcher.error ? ` · ${launcher.error}` : ""}`}\n`);
-      stdout.write(`config: ${config.configured ? `${config.mode} (${config.purpose})` : `not ready${config.error ? ` · ${config.error}` : ""}`}\n`);
-      stdout.write(`MCP runtime: ${mcpRuntime.required ? (mcpRuntime.ready ? "ready" : `not ready${mcpRuntime.detail ? ` · ${mcpRuntime.detail}` : ""}`) : "not required"}\n`);
-      stdout.write(`Bigger Context: ${features.biggerContext ? "enabled (experimental, adaptive 1/2/3 messages; same-agent compaction handoff)" : "disabled"}\n`);
+      stdout.write(
+        `launcher: ${launcher.running ? `running (pid ${launcher.pid})` : `not ready${launcher.error ? ` · ${launcher.error}` : ""}`}\n`,
+      );
+      stdout.write(
+        `config: ${config.configured ? `${config.mode} (${config.purpose})` : `not ready${config.error ? ` · ${config.error}` : ""}`}\n`,
+      );
+      stdout.write(
+        `MCP runtime: ${mcpRuntime.required ? (mcpRuntime.ready ? "ready" : `not ready${mcpRuntime.detail ? ` · ${mcpRuntime.detail}` : ""}`) : "not required"}\n`,
+      );
+      stdout.write(
+        `Bigger Context: ${features.biggerContext ? "enabled (experimental, adaptive 1/2/3 messages; same-agent compaction handoff)" : "disabled"}\n`,
+      );
       stdout.write("Codex route: isolated and unused\nResponses listener: not started\n");
     }
     return;
@@ -383,9 +401,9 @@ export async function runDevCommand(args: string[]): Promise<void> {
       ...(runtimeKeyFile ? { runtimeKeyFile } : {}),
     });
     stdout.write(
-      `Isolated DEV profile configured (${result.mode}) at ${result.configPath}.\n`
-      + "No Codex route, Responses listener, or system service was installed."
-      + " In Full mode, the DEV launcher owns the isolated MCP tunnel.\n",
+      `Isolated DEV profile configured (${result.mode}) at ${result.configPath}.\n` +
+        "No Codex route, Responses listener, or system service was installed." +
+        " In Full mode, the DEV launcher owns the isolated MCP tunnel.\n",
     );
     return;
   }
@@ -399,30 +417,26 @@ export async function runDevCommand(args: string[]): Promise<void> {
   const message = args.join(" ").trim();
   if (!existsSync(paths.configPath)) {
     throw new Error(
-      "DEV profile is not configured. In the window labelled DEV: sign in, run the browser smoke test,"
-      + " and initialize the DEV profile. Complete optional MCP setup only for simulated tool rounds.",
+      "DEV profile is not configured. In the window labelled DEV: sign in, run the browser smoke test," +
+        " and initialize the DEV profile. Complete optional MCP setup only for simulated tool rounds.",
     );
   }
   const config = loadConfig();
   if (config.mode === "full" && config.appName !== DEV_CHATGPT_CONNECTOR_NAME) {
-    throw new Error("DEV connector identity is outdated. Refresh the DEV profile in the launcher before starting a named chat");
+    throw new Error(
+      "DEV connector identity is outdated. Refresh the DEV profile in the launcher before starting a named chat",
+    );
   }
   const runtimeStateRoot = paths.runtimePath;
   const features = readDevChatExperimentalFeatures(paths);
   await assertLauncherReady(config);
-  const transport = config.mode === "full"
-    ? await startDevChatTransport(config, paths.runtimePath)
-    : undefined;
+  const transport = config.mode === "full" ? await startDevChatTransport(config, paths.runtimePath) : undefined;
   let driver: DevChatDriver | undefined;
   try {
     const runtimeConfig = transport?.config ?? config;
-    const runtime = createLauncherDevAdapter(
-      runtimeConfig,
-      runtimeStateRoot,
-      {
-        ...(transport ? { broker: transport.broker } : {}),
-      },
-    );
+    const runtime = createLauncherDevAdapter(runtimeConfig, runtimeStateRoot, {
+      ...(transport ? { broker: transport.broker } : {}),
+    });
     driver = new DevChatDriver(runtimeConfig, store, runtime.adapterFactory, process.cwd(), features);
     const opened = driver.open(name, requestedModel);
     if (requestedModel && opened.state.model !== requestedModel) {
@@ -438,7 +452,10 @@ export async function runDevCommand(args: string[]): Promise<void> {
     ]);
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failures.length > 0) {
-      throw new AggregateError(failures.map(result => result.reason), "DEV chat cleanup failed");
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        "DEV chat cleanup failed",
+      );
     }
   }
 }

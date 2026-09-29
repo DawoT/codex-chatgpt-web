@@ -1,5 +1,3 @@
-import { skillFileTokens } from "./skill-attachments";
-import { estimateTokens } from "../../lib/token-estimate";
 import {
   CHATGPT_WEB_BACKEND_MODEL,
   CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER,
@@ -8,19 +6,25 @@ import {
   resolveChatGptWebMessageTokenBudget,
   resolveChatGptWebTransportLimits,
 } from "../../chatgpt-web-models";
+import { estimateTokens } from "../../lib/token-estimate";
 import type { CodexParsedRequest, CodexUsage } from "../../types";
-import { compiledChatGptWebMessages, estimateChatGptWebImageTokens, estimateCompiledChatGptWebInputTokens } from "./input-tokens";
+import { extractChatGptTurnIdentity } from "./environment";
+import {
+  compiledChatGptWebMessages,
+  estimateChatGptWebImageTokens,
+  estimateCompiledChatGptWebInputTokens,
+} from "./input-tokens";
+import { CHATGPT_WEB_LUNA_MODEL_ID, type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "./model";
+import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT, PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "./preflight-budget";
 import {
   CHATGPT_BIGGER_CONTEXT_PARTS,
-  compileChatGptWebPrompt,
   type ChatGptWebMultipartPartCount,
-  type CompiledChatGptWebPrompt,
   type CompileChatGptWebPromptOptions,
+  type CompiledChatGptWebPrompt,
+  compileChatGptWebPrompt,
 } from "./prompt";
-import { extractChatGptTurnIdentity } from "./environment";
-import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
+import { skillFileTokens } from "./skill-attachments";
 import type { BrokerToolRequest } from "./turn-broker";
-import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT, PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "./preflight-budget";
 
 // The real capability has the same length. Keeping it out of usage accounting would make
 // estimates differ slightly between the prepared browser prompt and later Codex tool rounds.
@@ -46,18 +50,14 @@ export function estimateChatGptWebInputTokens(
     ? { localTools: true }
     : resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities);
   const identity = extractChatGptTurnIdentity(parsed);
-  const compiled = compileChatGptWebPrompt(
-    parsed,
-    capabilities,
-    mode.localTools ? ESTIMATE_TURN_TOKEN : undefined,
-    {
-      ...options,
-      ...(manual ? { manualControl: true as const } : {}),
-      captureLunaCheckpoint: parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID
-        && !parsed._compactionRequest
-        && Boolean(identity.threadId && identity.turnId),
-    },
-  );
+  const compiled = compileChatGptWebPrompt(parsed, capabilities, mode.localTools ? ESTIMATE_TURN_TOKEN : undefined, {
+    ...options,
+    ...(manual ? { manualControl: true as const } : {}),
+    captureLunaCheckpoint:
+      parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID &&
+      !parsed._compactionRequest &&
+      Boolean(identity.threadId && identity.turnId),
+  });
   return estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId);
 }
 
@@ -76,7 +76,9 @@ export function resolveBiggerContextMultipartParts(
     throw new Error("Bigger Context is unavailable for ChatGPT Zero Risk");
   }
   if (parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID) {
-    throw new Error("Bigger Context is unavailable for Luna because its accumulated browser transcript still shares one 28,000-token transport budget");
+    throw new Error(
+      "Bigger Context is unavailable for Luna because its accumulated browser transcript still shares one 28,000-token transport budget",
+    );
   }
   const mode = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities);
   if (parsed._compactionRequest) return CHATGPT_BIGGER_CONTEXT_PARTS;
@@ -85,10 +87,11 @@ export function resolveBiggerContextMultipartParts(
     mode.effort,
     { ...capabilities, experimentalBiggerContext: false },
   );
-  const compile = (parts?: ChatGptWebMultipartPartCount): CompiledChatGptWebPrompt => compileChatGptWebPrompt(
-    parsed, capabilities, mode.localTools ? ESTIMATE_TURN_TOKEN : undefined,
-    { experimentalMultipartParts: parts, experimentalSkillAttachments },
-  );
+  const compile = (parts?: ChatGptWebMultipartPartCount): CompiledChatGptWebPrompt =>
+    compileChatGptWebPrompt(parsed, capabilities, mode.localTools ? ESTIMATE_TURN_TOKEN : undefined, {
+      experimentalMultipartParts: parts,
+      experimentalSkillAttachments,
+    });
   const inline = compile();
   const inputTokens = estimateCompiledChatGptWebInputTokens(inline, parsed.modelId);
   const initialParts = biggerContextPartCount(inputTokens, autoCompactTokenLimit, false);
@@ -96,7 +99,7 @@ export function resolveBiggerContextMultipartParts(
 
   const fits = (compiled: CompiledChatGptWebPrompt): boolean => {
     const messages = compiledChatGptWebMessages(compiled);
-    if (messages.length > 1 && messages.some(message => message.length > PREFLIGHT_MAX_STAGE_CHAR_LIMIT)) {
+    if (messages.length > 1 && messages.some((message) => message.length > PREFLIGHT_MAX_STAGE_CHAR_LIMIT)) {
       return false;
     }
     if (messages.length === 1 && compiled.text.length > PREFLIGHT_SAFE_INLINE_CHAR_LIMIT) {
@@ -108,15 +111,24 @@ export function resolveBiggerContextMultipartParts(
     for (const [index, text] of messages.entries()) {
       const final = index === messages.length - 1;
       const effort = final ? mode.effort : stagingEffort;
-      const { browserComposerCharLimit } = resolveChatGptWebTransportLimits(CHATGPT_WEB_BACKEND_MODEL, effort, capabilities);
+      const { browserComposerCharLimit } = resolveChatGptWebTransportLimits(
+        CHATGPT_WEB_BACKEND_MODEL,
+        effort,
+        capabilities,
+      );
       if (browserComposerCharLimit !== undefined && text.length > browserComposerCharLimit) return false;
       const budget = resolveChatGptWebMessageTokenBudget(
-        CHATGPT_WEB_BACKEND_MODEL, effort, capabilities, final ? estimateChatGptWebImageTokens(compiled) + skillFileTokens(compiled.skillFiles, parsed.modelId) : 0,
+        CHATGPT_WEB_BACKEND_MODEL,
+        effort,
+        capabilities,
+        final ? estimateChatGptWebImageTokens(compiled) + skillFileTokens(compiled.skillFiles, parsed.modelId) : 0,
       );
       if (estimateTokens(text, parsed.modelId) > budget) return false;
     }
-    return estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId)
-      < contextWindow * Math.min(messages.length, CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER);
+    return (
+      estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId) <
+      contextWindow * Math.min(messages.length, CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER)
+    );
   };
   if (!forceMultipart && initialParts === undefined && fits(inline)) return undefined;
   return fits(compile(2)) ? 2 : CHATGPT_BIGGER_CONTEXT_PARTS;
@@ -137,15 +149,15 @@ function roundEvidenceText(evidence: ChatGptWebRoundEvidence): string {
   return JSON.stringify({
     reasoning: evidence.reasoning ?? [],
     ...(evidence.answer !== undefined ? { answer: evidence.answer } : {}),
-    ...(evidence.toolRequests ? {
-      tool_calls: evidence.toolRequests.map(request => ({
-        call_id: request.callId,
-        name: request.wireName,
-        ...(request.freeform
-          ? { input: request.input ?? "" }
-          : { arguments: request.arguments ?? {} }),
-      })),
-    } : {}),
+    ...(evidence.toolRequests
+      ? {
+          tool_calls: evidence.toolRequests.map((request) => ({
+            call_id: request.callId,
+            name: request.wireName,
+            ...(request.freeform ? { input: request.input ?? "" } : { arguments: request.arguments ?? {} }),
+          })),
+        }
+      : {}),
   });
 }
 

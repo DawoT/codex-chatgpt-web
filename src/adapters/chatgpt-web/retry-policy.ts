@@ -16,15 +16,12 @@ interface RetryBudgetEntry {
 }
 
 function exhaustedError(entry: RetryBudgetEntry): ChatGptWebAdapterError {
-  return new ChatGptWebAdapterError(
-    `${entry.lastError.message} ChatGPT remained unavailable after several attempts.`,
-    {
-      status: entry.lastError.status,
-      errorType: entry.lastError.errorType,
-      code: entry.lastError.code,
-      retryable: false,
-    },
-  );
+  return new ChatGptWebAdapterError(`${entry.lastError.message} ChatGPT remained unavailable after several attempts.`, {
+    status: entry.lastError.status,
+    errorType: entry.lastError.errorType,
+    code: entry.lastError.code,
+    retryable: false,
+  });
 }
 
 /**

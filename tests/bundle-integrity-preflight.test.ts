@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +29,7 @@ module.exports = { helper };
     writeFileSync(join(mockDist, "browser-helper.cjs"), validCjs);
 
     // Valid CLI (> 1000 bytes)
-    const validCli = `#!/usr/bin/env bun\n` + `// runtime bundle\n`.repeat(100);
+    const validCli = `#!/usr/bin/env bun\n${`// runtime bundle\n`.repeat(100)}`;
     writeFileSync(join(mockDist, "cli.js"), validCli);
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
@@ -42,7 +42,9 @@ module.exports = { helper };
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
     expect(result.ok).toBe(false);
-    expect(result.errors.some(e => e.includes("Missing required bundle") && e.includes("browser-helper.cjs"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("Missing required bundle") && e.includes("browser-helper.cjs"))).toBe(
+      true,
+    );
   });
 
   test("fails closed when cli.js is missing", () => {
@@ -50,7 +52,7 @@ module.exports = { helper };
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
     expect(result.ok).toBe(false);
-    expect(result.errors.some(e => e.includes("Missing required bundle") && e.includes("cli.js"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("Missing required bundle") && e.includes("cli.js"))).toBe(true);
   });
 
   test("fails closed when browser-helper.cjs contains top-level ESM import (incident regression test)", () => {
@@ -65,7 +67,7 @@ module.exports = { run };
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
     expect(result.ok).toBe(false);
-    expect(result.errors.some(e => e.includes("top-level ESM 'import' statements"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("top-level ESM 'import' statements"))).toBe(true);
   });
 
   test("fails closed when browser-helper.cjs contains top-level ESM export", () => {
@@ -78,7 +80,7 @@ export const helper = () => {};
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
     expect(result.ok).toBe(false);
-    expect(result.errors.some(e => e.includes("top-level ESM 'export' statements"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("top-level ESM 'export' statements"))).toBe(true);
   });
 
   test("fails closed when browser-helper.cjs has syntax errors detected by node -c", () => {
@@ -93,7 +95,7 @@ module.exports = { bad };
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
     expect(result.ok).toBe(false);
-    expect(result.errors.some(e => e.includes("Node syntax check failed"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("Node syntax check failed"))).toBe(true);
   });
 
   test("fails closed when bundles are suspiciously small (truncated/empty builds)", () => {
@@ -102,7 +104,7 @@ module.exports = { bad };
 
     const result = verifyBundleIntegrity({ distDir: mockDist });
     expect(result.ok).toBe(false);
-    expect(result.errors.some(e => e.includes("browser-helper.cjs is suspiciously small"))).toBe(true);
-    expect(result.errors.some(e => e.includes("cli.js is suspiciously small"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("browser-helper.cjs is suspiciously small"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("cli.js is suspiciously small"))).toBe(true);
   });
 });

@@ -35,20 +35,17 @@ function digest(value: string): string {
 }
 
 function resultRef(result: Pick<SessionResult, "sessionId" | "generation" | "turnId" | "operationId">): string {
-  return digest(JSON.stringify([
-    result.sessionId,
-    result.generation,
-    result.turnId,
-    result.operationId,
-  ]));
+  return digest(JSON.stringify([result.sessionId, result.generation, result.turnId, result.operationId]));
 }
 
 function sameResult(left: SessionResult, right: SessionResult): boolean {
-  return left.sessionId === right.sessionId
-    && left.generation === right.generation
-    && left.turnId === right.turnId
-    && left.operationId === right.operationId
-    && left.text === right.text;
+  return (
+    left.sessionId === right.sessionId &&
+    left.generation === right.generation &&
+    left.turnId === right.turnId &&
+    left.operationId === right.operationId &&
+    left.text === right.text
+  );
 }
 
 /** Immutable browser outcomes. The operation identity determines the file name. */
@@ -56,10 +53,11 @@ export class SessionResultStore {
   constructor(private readonly directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const metadata = lstatSync(directory);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()
-      || (process.platform !== "win32" && (
-        metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0
-      ))) {
+    if (
+      !metadata.isDirectory() ||
+      metadata.isSymbolicLink() ||
+      (process.platform !== "win32" && (metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0))
+    ) {
       throw new Error("Session result store requires a private owned directory");
     }
   }
@@ -127,17 +125,24 @@ export class SessionResultStore {
     }
     const path = join(this.directory, `${ref}.json`);
     const metadata = lstatSync(path);
-    if (!metadata.isFile() || metadata.isSymbolicLink()
-      || (process.platform !== "win32" && (
-        metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0
-      ))) {
+    if (
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      (process.platform !== "win32" && (metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0))
+    ) {
       throw new Error("Session result must be a private owned regular file");
     }
     const parsed = JSON.parse(readFileSync(path, "utf8")) as StoredResult;
-    if (typeof parsed.sessionId !== "string" || !Number.isSafeInteger(parsed.generation)
-      || typeof parsed.turnId !== "string" || typeof parsed.operationId !== "string"
-      || typeof parsed.text !== "string" || typeof parsed.textSha256 !== "string"
-      || resultRef(parsed) !== ref || digest(parsed.text) !== parsed.textSha256) {
+    if (
+      typeof parsed.sessionId !== "string" ||
+      !Number.isSafeInteger(parsed.generation) ||
+      typeof parsed.turnId !== "string" ||
+      typeof parsed.operationId !== "string" ||
+      typeof parsed.text !== "string" ||
+      typeof parsed.textSha256 !== "string" ||
+      resultRef(parsed) !== ref ||
+      digest(parsed.text) !== parsed.textSha256
+    ) {
       throw new Error("Session result integrity check failed");
     }
     const { textSha256: _unused, ...result } = parsed;

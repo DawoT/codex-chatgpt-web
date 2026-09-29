@@ -17,13 +17,15 @@ test("doctor reports a newer upstream catalog denial without exposing authorizat
 });
 
 test("doctor does not report an old failure after a successful catalog request", () => {
-  expect(catalogRouteDiagnostic({
-    last_successful_model_catalog_request_at: "2026-09-27T22:32:12.973Z",
-    last_model_catalog_result: {
-      at: "2026-09-27T22:28:00.929Z",
-      status: 401,
-      caller: { client: "other", bearerPresent: true },
-      failure: { stage: "upstream" },
-    },
-  })).toBeUndefined();
+  expect(
+    catalogRouteDiagnostic({
+      last_successful_model_catalog_request_at: "2026-09-27T22:32:12.973Z",
+      last_model_catalog_result: {
+        at: "2026-09-27T22:28:00.929Z",
+        status: 401,
+        caller: { client: "other", bearerPresent: true },
+        failure: { stage: "upstream" },
+      },
+    }),
+  ).toBeUndefined();
 });

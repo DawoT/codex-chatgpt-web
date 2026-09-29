@@ -1,29 +1,33 @@
-import { estimateTokens } from "../../lib/token-estimate";
-import type { CodexParsedRequest } from "../../types";
 import {
   CHATGPT_WEB_PLATFORM_RESERVE_TOKENS,
-  resolveChatGptWebContextLimits,
-  resolveChatGptWebTransportLimits,
   type ChatGptWebAdapterEffort,
   type ChatGptWebBackendModel,
+  resolveChatGptWebContextLimits,
+  resolveChatGptWebTransportLimits,
 } from "../../chatgpt-web-models";
-import type { ChatGptWebCapabilities } from "./model";
-import { resolveChatGptWebModelMode } from "./model";
+import { estimateTokens } from "../../lib/token-estimate";
+import type { CodexParsedRequest } from "../../types";
 import {
   assertChatGptWebInputWithinLimits,
   assertChatGptWebMultipartInputWithinLimits,
   resolveChatGptWebMultipartStagingMode,
 } from "./browser/staging-limits";
+import type { CompactionEvidenceObservation } from "./compaction-evidence";
 import {
   compiledChatGptWebMessages,
   estimateChatGptWebImageTokens,
   measureCompiledChatGptWebInput,
 } from "./input-tokens";
-import { enforcePreflightDeliveryBudget, PREFLIGHT_MAX_STAGE_CHAR_LIMIT, preparePreflightInput } from "./preflight-budget";
+import type { ChatGptWebCapabilities } from "./model";
+import { resolveChatGptWebModelMode } from "./model";
+import {
+  enforcePreflightDeliveryBudget,
+  PREFLIGHT_MAX_STAGE_CHAR_LIMIT,
+  preparePreflightInput,
+} from "./preflight-budget";
 import { compileChatGptWebPrompt } from "./prompt";
 import { skillFileTokens } from "./skill-attachments";
 import { resolveBiggerContextMultipartParts } from "./usage";
-import type { CompactionEvidenceObservation } from "./compaction-evidence";
 
 export const MAX_COMPACTION_REPAIR_PROMPT_CHARS = PREFLIGHT_MAX_STAGE_CHAR_LIMIT;
 
@@ -39,13 +43,14 @@ export function buildCompactionFallbackRepairPrompt(input: {
   const observations = [...input.observations];
   let draftLimit = 15_000;
   const render = (): string => {
-    const draft = input.rejectedDraft.length > draftLimit
-      ? `${input.rejectedDraft.slice(0, Math.ceil(draftLimit / 2))}\n[draft excerpt truncated]\n${input.rejectedDraft.slice(-Math.floor(draftLimit / 2))}`
-      : input.rejectedDraft;
+    const draft =
+      input.rejectedDraft.length > draftLimit
+        ? `${input.rejectedDraft.slice(0, Math.ceil(draftLimit / 2))}\n[draft excerpt truncated]\n${input.rejectedDraft.slice(-Math.floor(draftLimit / 2))}`
+        : input.rejectedDraft;
     return [
       "Repair the previous Codex handoff once. Keep user requirements and observed evidence; do not resume ordinary task work.",
       "Validation issues:",
-      ...input.issues.map(issue => `- ${issue}`),
+      ...input.issues.map((issue) => `- ${issue}`),
       "Original user request:",
       JSON.stringify(input.originalRequest),
       "Latest user request:",
@@ -87,11 +92,11 @@ export function checkpointCompiledRepairFits(
     const promote = options.experimentalBiggerContext || verdict.actionRequired === "promote_multipart";
     const experimentalMultipartParts = promote
       ? resolveBiggerContextMultipartParts(
-        input,
-        capabilities,
-        options.experimentalSkillAttachments,
-        verdict.actionRequired === "promote_multipart",
-      )
+          input,
+          capabilities,
+          options.experimentalSkillAttachments,
+          verdict.actionRequired === "promote_multipart",
+        )
       : undefined;
     const compiled = compileChatGptWebPrompt(input, capabilities, undefined, {
       experimentalSkillAttachments: options.experimentalSkillAttachments,
@@ -112,8 +117,8 @@ export function checkpointCompiledRepairFits(
     }
     const messages = compiledChatGptWebMessages(compiled);
     const stages = messages.slice(0, -1);
-    const maxStageMessageTokens = Math.max(...stages.map(message => estimateTokens(message, request.modelId)));
-    const maxStageChars = Math.max(...stages.map(message => message.length));
+    const maxStageMessageTokens = Math.max(...stages.map((message) => estimateTokens(message, request.modelId)));
+    const maxStageChars = Math.max(...stages.map((message) => message.length));
     const stagingMode = resolveChatGptWebMultipartStagingMode(
       request.modelId,
       capabilities,
@@ -133,8 +138,8 @@ export function checkpointCompiledRepairFits(
         stagingEffort: stagingMode.effort,
         maxStageMessageTokens,
         maxStageChars,
-        finalMessageTokens: estimateTokens(finalMessage, request.modelId)
-          + skillFileTokens(compiled.skillFiles, request.modelId),
+        finalMessageTokens:
+          estimateTokens(finalMessage, request.modelId) + skillFileTokens(compiled.skillFiles, request.modelId),
         finalMessageChars: finalMessage.length,
         finalImageTokens: estimateChatGptWebImageTokens(compiled),
         isCompaction: request._compactionRequest === true,
@@ -156,10 +161,12 @@ export function checkpointRepairPromptFits(
   const tokens = estimateTokens(prompt, modelId);
   const transport = resolveChatGptWebTransportLimits(modelId, effort, capabilities);
   const context = resolveChatGptWebContextLimits(modelId, effort, capabilities);
-  return prompt.length <= MAX_COMPACTION_REPAIR_PROMPT_CHARS
-    && (transport.browserComposerCharLimit === undefined || prompt.length <= transport.browserComposerCharLimit)
-    && (transport.browserMessageTokenLimit === undefined || tokens <= transport.browserMessageTokenLimit)
-    && tokens + CHATGPT_WEB_PLATFORM_RESERVE_TOKENS < context.contextWindow;
+  return (
+    prompt.length <= MAX_COMPACTION_REPAIR_PROMPT_CHARS &&
+    (transport.browserComposerCharLimit === undefined || prompt.length <= transport.browserComposerCharLimit) &&
+    (transport.browserMessageTokenLimit === undefined || tokens <= transport.browserMessageTokenLimit) &&
+    tokens + CHATGPT_WEB_PLATFORM_RESERVE_TOKENS < context.contextWindow
+  );
 }
 
 export function shouldRepairCheckpoint(input: {
@@ -169,11 +176,9 @@ export function shouldRepairCheckpoint(input: {
 }): boolean {
   if (!input.transportFits) return false;
   const observed = input.observedDurationsMs
-    .filter(duration => Number.isFinite(duration) && duration >= 0)
+    .filter((duration) => Number.isFinite(duration) && duration >= 0)
     .sort((a, b) => a - b);
-  const p95 = observed.length > 0
-    ? observed[Math.ceil(observed.length * 0.95) - 1]!
-    : 0;
+  const p95 = observed.length > 0 ? observed[Math.ceil(observed.length * 0.95) - 1]! : 0;
   return input.remainingMs >= Math.max(120_000, Math.ceil(p95 * 1.2));
 }
 

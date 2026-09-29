@@ -11,11 +11,11 @@ export function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Pr
     const onAbort = () => reject(new DOMException("ChatGPT web turn aborted", "AbortError"));
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
-      value => {
+      (value) => {
         signal.removeEventListener("abort", onAbort);
         resolve(value);
       },
-      error => {
+      (error) => {
         signal.removeEventListener("abort", onAbort);
         reject(error);
       },

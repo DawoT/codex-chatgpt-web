@@ -88,7 +88,11 @@ describe("Sprint N: In-Memory Fast-Path Workspace Cache with mtime invalidation"
     const cache = new FastPathWorkspaceCache(1024 * 1024);
     cache.set("/workspace/src/a.ts", { mtimeMs: 1000, size: 10 }, { text: "a", lines: ["a"], isBinary: false });
     cache.set("/workspace/src/sub/b.ts", { mtimeMs: 1000, size: 10 }, { text: "b", lines: ["b"], isBinary: false });
-    cache.set("/workspace/tests/a.test.ts", { mtimeMs: 1000, size: 10 }, { text: "test", lines: ["test"], isBinary: false });
+    cache.set(
+      "/workspace/tests/a.test.ts",
+      { mtimeMs: 1000, size: 10 },
+      { text: "test", lines: ["test"], isBinary: false },
+    );
 
     const purged = cache.invalidatePrefix("/workspace/src");
     expect(purged).toBe(2);

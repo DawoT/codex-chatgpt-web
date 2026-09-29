@@ -1,30 +1,24 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { getConfigDir } from "../../config";
-import type { CodexMessage } from "../../types";
 import {
+  type CompactionRequirement,
   compactionDraftText,
   compactionStateFields,
   countActiveCompactionStates,
   countCompactionRequirementItems,
   extractStructuredCompactionHandoff,
   locateCompactionStateBounds,
-  type CompactionRequirement,
 } from "../../responses/compaction";
-import { evaluateMissionHeadroom } from "./mission-headroom";
+import type { CodexMessage } from "../../types";
 import {
   buildCompactionEvidenceIndex,
   completedExecutionStatus,
   executionResultText,
   hasReportedTestFailures,
 } from "./compaction-evidence";
-import {
-  type WorkspaceState,
-  readWorkspaceState,
-  writeWorkspaceState,
-  ensureWorkspaceState,
-  defaultWorkspaceState,
-} from "./workspace-state";
+import { evaluateMissionHeadroom } from "./mission-headroom";
+import { ensureWorkspaceState, readWorkspaceState, type WorkspaceState, writeWorkspaceState } from "./workspace-state";
 
 export interface AutonomousCompactionContext {
   turnCount: number;
@@ -141,7 +135,7 @@ export function saveTurnCheckpoint(
 
   // Rotate older checkpoints if exceeding retention
   try {
-    const entries = readdirSync(dir).filter(f => f.startsWith("checkpoint_") && f.endsWith(".json"));
+    const entries = readdirSync(dir).filter((f) => f.startsWith("checkpoint_") && f.endsWith(".json"));
     if (entries.length > maxRetention) {
       const sorted = entries.sort(); // Natural alphabetical sort matches epoch and timestamp order
       const excessCount = sorted.length - maxRetention;
@@ -169,7 +163,7 @@ export function listTurnCheckpoints(workspaceRoot: string): TurnCheckpoint[] {
   if (!existsSync(dir)) return [];
 
   try {
-    const entries = readdirSync(dir).filter(f => f.startsWith("checkpoint_") && f.endsWith(".json"));
+    const entries = readdirSync(dir).filter((f) => f.startsWith("checkpoint_") && f.endsWith(".json"));
     const checkpoints: TurnCheckpoint[] = [];
 
     for (const file of entries) {
@@ -195,15 +189,17 @@ export function listTurnCheckpoints(workspaceRoot: string): TurnCheckpoint[] {
  * Extracts candidate source and test file paths referenced in messages.
  */
 export function extractReferencedFilePaths(messages: readonly CodexMessage[]): string[] {
-  const fileRegex = /(?:^|[\s"'`(\[{<])([a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)+\.[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+\.(?:ts|js|tsx|jsx|json|md|py|go|rs|css|html|yaml|yml))(?:$|[\s"'`)\]}>:,;])/g;
+  const fileRegex =
+    /(?:^|[\s"'`([{<])([a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)+\.[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+\.(?:ts|js|tsx|jsx|json|md|py|go|rs|css|html|yaml|yml))(?:$|[\s"'`)\]}>:,;])/g;
   const discovered = new Set<string>();
 
   for (const msg of messages) {
-    const text = typeof msg.content === "string"
-      ? msg.content
-      : Array.isArray(msg.content)
-        ? msg.content.map(p => (p && typeof p === "object" && "text" in p ? String(p.text) : "")).join(" ")
-        : "";
+    const text =
+      typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+          ? msg.content.map((p) => (p && typeof p === "object" && "text" in p ? String(p.text) : "")).join(" ")
+          : "";
 
     if (!text) continue;
 
@@ -229,11 +225,16 @@ export function extractReferencedFilePaths(messages: readonly CodexMessage[]): s
 export function extractModifiedFilePaths(messages: readonly CodexMessage[]): string[] {
   const files = new Set<string>();
   for (const message of messages) {
-    if (message.role !== "toolResult" || message.isError
-      || !["apply_patch", "codex_apply_patch"].includes(message.toolName)) continue;
-    const output = typeof message.content === "string"
-      ? message.content
-      : message.content.map(part => "text" in part && typeof part.text === "string" ? part.text : "").join("\n");
+    if (
+      message.role !== "toolResult" ||
+      message.isError ||
+      !["apply_patch", "codex_apply_patch"].includes(message.toolName)
+    )
+      continue;
+    const output =
+      typeof message.content === "string"
+        ? message.content
+        : message.content.map((part) => ("text" in part && typeof part.text === "string" ? part.text : "")).join("\n");
     if (!/^Success\./m.test(output)) continue;
     for (const match of output.matchAll(/^[AMD]\s+([^\r\n]+)$/gm)) files.add(match[1]!.trim());
   }
@@ -260,15 +261,17 @@ export function validateCompactionQuality(
 
   const detectedFiles = extractReferencedFilePaths(originalMessages);
   const missingInvariants: string[] = [];
-  const messageText = (message: CodexMessage) => typeof message.content === "string"
-    ? message.content
-    : Array.isArray(message.content)
-      ? message.content.map(part => part && typeof part === "object" && "text" in part ? String(part.text) : "").join(" ")
-      : "";
+  const messageText = (message: CodexMessage) =>
+    typeof message.content === "string"
+      ? message.content
+      : Array.isArray(message.content)
+        ? message.content
+            .map((part) => (part && typeof part === "object" && "text" in part ? String(part.text) : ""))
+            .join(" ")
+        : "";
   const sourceText = originalMessages.map(messageText).join("\n");
-  const normalized = (value: unknown) => typeof value === "string"
-    ? value.toLocaleLowerCase("en-US").replace(/\s+/g, " ").trim()
-    : "";
+  const normalized = (value: unknown) =>
+    typeof value === "string" ? value.toLocaleLowerCase("en-US").replace(/\s+/g, " ").trim() : "";
   const normalizedSource = normalized(sourceText);
 
   for (const file of options?.requireStructured ? [] : detectedFiles) {
@@ -279,11 +282,9 @@ export function validateCompactionQuality(
     }
   }
 
-  const hasOnlyFencedState = locateCompactionStateBounds(draft) !== null
-    && locateCompactionStateBounds(draft, { unfencedOnly: true }) === null;
-  const structured = hasOnlyFencedState
-    ? null
-    : extractStructuredCompactionHandoff(draft).state;
+  const hasOnlyFencedState =
+    locateCompactionStateBounds(draft) !== null && locateCompactionStateBounds(draft, { unfencedOnly: true }) === null;
+  const structured = hasOnlyFencedState ? null : extractStructuredCompactionHandoff(draft).state;
   if (options?.requireStructured) {
     if (countActiveCompactionStates(draft) > 1) {
       missingInvariants.push("Multiple active compaction state blocks");
@@ -321,9 +322,7 @@ export function validateCompactionQuality(
         ["blockers_or_test_failures", structured.blockersOrTestFailures],
         ["pending_obligations", structured.pendingObligations ?? []],
       ] as const) {
-        const unique = new Set(values.map(value => normalized(
-          typeof value === "string" ? value : value.result,
-        )));
+        const unique = new Set(values.map((value) => normalized(typeof value === "string" ? value : value.result)));
         if (unique.size !== values.length) missingInvariants.push(`Duplicate ${section} entries`);
       }
       const ids = new Set<string>();
@@ -339,7 +338,10 @@ export function validateCompactionQuality(
         if (!["pending", "blocked", "verified"].includes(requirement.status)) {
           missingInvariants.push(`Invalid status for requirement ${requirement.id}`);
         }
-        if (requirement.status === "verified" && (typeof requirement.evidence !== "string" || !requirement.evidence.trim())) {
+        if (
+          requirement.status === "verified" &&
+          (typeof requirement.evidence !== "string" || !requirement.evidence.trim())
+        ) {
           missingInvariants.push(`Verified requirement ${requirement.id} lacks evidence`);
         }
       }
@@ -354,7 +356,7 @@ export function validateCompactionQuality(
     for (let index = beforeIndex - 1; index >= 0; index--) {
       const message = originalMessages[index]!;
       if (message.role !== "assistant") continue;
-      const call = message.content.findLast(part => part.type === "toolCall" && part.id === toolCallId);
+      const call = message.content.findLast((part) => part.type === "toolCall" && part.id === toolCallId);
       if (call?.type === "toolCall") return call;
     }
     return undefined;
@@ -381,118 +383,168 @@ export function validateCompactionQuality(
     evidence: unknown,
     requirement: unknown,
     allowedResultIndexes?: ReadonlySet<number>,
-  ): boolean => typeof evidence === "string"
-    && evidence.trim().length > 0 && originalMessages.some((message, index) => {
-    if (allowedResultIndexes && !allowedResultIndexes.has(index)) return false;
-    const content = messageText(message);
-    if (!normalized(content).includes(normalized(evidence))) return false;
-    if (message.role === "toolResult") {
-      const testInvocation = /\b(?:bun test|npm test|pnpm test|yarn test|pytest|cargo test|go test)\b[^:\n]*/i.exec(evidence)?.[0]?.trim();
-      const requirementAction = typeof requirement === "string"
-        ? requirement.replace(/^user turn [^:]+:\s*/i, "").trim() : "";
-      const requiresTestExecution = /^(?:test|pytest)\b|^(?:run|execute|rerun|verify)\b[^\n]*\b(?:test|tests|pytest)\b/i
-        .test(requirementAction);
-      const requiresDeployment = /\b(?:deploy|deployed|deployment|publish|published|release)\b/i
-        .test(requirementAction);
-      if (message.toolName === "apply_patch" || message.toolName === "codex_apply_patch") {
-        const callBound = boundToolCall(message.toolCallId, index)?.name === message.toolName;
-        const changedLines = /^([AM])\s+([^\n]+)$/gm;
-        return message.isError !== true && !requiresTestExecution && callBound
-          && /^Success\. Updated the following files:\s*\n/.test(content)
-          && [...content.matchAll(changedLines)].some(match => normalized(match[0]) === normalized(evidence)
-            && typeof requirement === "string" && normalized(requirement).includes(normalized(match[2]!)));
+  ): boolean =>
+    typeof evidence === "string" &&
+    evidence.trim().length > 0 &&
+    originalMessages.some((message, index) => {
+      if (allowedResultIndexes && !allowedResultIndexes.has(index)) return false;
+      const content = messageText(message);
+      if (!normalized(content).includes(normalized(evidence))) return false;
+      if (message.role === "toolResult") {
+        const testInvocation = /\b(?:bun test|npm test|pnpm test|yarn test|pytest|cargo test|go test)\b[^:\n]*/i
+          .exec(evidence)?.[0]
+          ?.trim();
+        const requirementAction =
+          typeof requirement === "string" ? requirement.replace(/^user turn [^:]+:\s*/i, "").trim() : "";
+        const requiresTestExecution =
+          /^(?:test|pytest)\b|^(?:run|execute|rerun|verify)\b[^\n]*\b(?:test|tests|pytest)\b/i.test(requirementAction);
+        const requiresDeployment = /\b(?:deploy|deployed|deployment|publish|published|release)\b/i.test(
+          requirementAction,
+        );
+        if (message.toolName === "apply_patch" || message.toolName === "codex_apply_patch") {
+          const callBound = boundToolCall(message.toolCallId, index)?.name === message.toolName;
+          const changedLines = /^([AM])\s+([^\n]+)$/gm;
+          return (
+            message.isError !== true &&
+            !requiresTestExecution &&
+            callBound &&
+            /^Success\. Updated the following files:\s*\n/.test(content) &&
+            [...content.matchAll(changedLines)].some(
+              (match) =>
+                normalized(match[0]) === normalized(evidence) &&
+                typeof requirement === "string" &&
+                normalized(requirement).includes(normalized(match[2]!)),
+            )
+          );
+        }
+        const command = toolCommand(message.toolCallId, message.toolName, index);
+        let directCommand = command?.trim().replace(/^set\s+-o\s+pipefail\s*;\s*/, "");
+        // Permit only inert, explicit wrappers around a test invocation. Arbitrary shell prefixes
+        // (including echoing a saved result) must never prove that the test actually ran.
+        for (let index = 0; directCommand !== undefined && index < 4; index++) {
+          const wrapper =
+            /^(?:cd\s+(?:[A-Za-z0-9_./-]+|'[^'$`\n]+'|"[^"$`\n]+")\s*&&\s*|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]+\s+)+|timeout\s+[1-9][0-9]*(?:s|m|h)?\s+)/.exec(
+              directCommand,
+            );
+          if (!wrapper) break;
+          directCommand = directCommand.slice(wrapper[0].length);
+        }
+        const deploymentCommand =
+          directCommand !== undefined &&
+          /^(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:deploy|publish|release)|(?:wrangler|vercel|netlify|firebase)\s+deploy)\b(?:\s+[-\w./:=]+)*$/i.test(
+            directCommand,
+          ) &&
+          !/(?:^|\s)(?:-h\b|--(?:help|version|dry[-_]?run|plan|check|preview)\b)/i.test(directCommand) &&
+          !/\bUsage:\s/i.test(content);
+        return (
+          message.isError !== true &&
+          ["exec_command", "write_stdin", "codex_exec", "codex_write_stdin"].includes(message.toolName) &&
+          directCommand !== undefined &&
+          (!testInvocation || normalized(directCommand).startsWith(normalized(testInvocation))) &&
+          (!requiresTestExecution ||
+            /^(?:(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|pytest\b|node\s+--test\b)/i.test(directCommand)) &&
+          (!requiresDeployment || deploymentCommand) &&
+          completedExecutionStatus(content, message.isError) === "succeeded" &&
+          !hasReportedTestFailures(executionResultText(content))
+        );
       }
-      const command = toolCommand(message.toolCallId, message.toolName, index);
-      let directCommand = command?.trim().replace(/^set\s+-o\s+pipefail\s*;\s*/, "");
-      // Permit only inert, explicit wrappers around a test invocation. Arbitrary shell prefixes
-      // (including echoing a saved result) must never prove that the test actually ran.
-      for (let index = 0; directCommand !== undefined && index < 4; index++) {
-        const wrapper = /^(?:cd\s+(?:[A-Za-z0-9_./-]+|'[^'$`\n]+'|"[^"$`\n]+")\s*&&\s*|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:@-]+\s+)+|timeout\s+[1-9][0-9]*(?:s|m|h)?\s+)/.exec(directCommand);
-        if (!wrapper) break;
-        directCommand = directCommand.slice(wrapper[0].length);
-      }
-      const deploymentCommand = directCommand !== undefined
-        && /^(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:deploy|publish|release)|(?:wrangler|vercel|netlify|firebase)\s+deploy)\b(?:\s+[-\w./:=]+)*$/i.test(directCommand)
-        && !/(?:^|\s)(?:-h\b|--(?:help|version|dry[-_]?run|plan|check|preview)\b)/i.test(directCommand)
-        && !/\bUsage:\s/i.test(content);
-      return message.isError !== true
-        && ["exec_command", "write_stdin", "codex_exec", "codex_write_stdin"].includes(message.toolName)
-        && directCommand !== undefined
-        && (!testInvocation || normalized(directCommand).startsWith(normalized(testInvocation)))
-        && (!requiresTestExecution || /^(?:(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|pytest\b|node\s+--test\b)/i.test(directCommand))
-        && (!requiresDeployment || deploymentCommand)
-        && completedExecutionStatus(content, message.isError) === "succeeded"
-        && !hasReportedTestFailures(executionResultText(content));
-    }
-    return false;
-  });
-  const evidenceIndex = new Map(buildCompactionEvidenceIndex(
-    originalMessages,
-    options?.evidenceSessionId ?? "",
-  ).map(observation => [observation.ref, observation]));
+      return false;
+    });
+  const evidenceIndex = new Map(
+    buildCompactionEvidenceIndex(originalMessages, options?.evidenceSessionId ?? "").map((observation) => [
+      observation.ref,
+      observation,
+    ]),
+  );
   for (const requirement of structured?.requirements ?? []) {
     if (requirement.evidenceRefs !== undefined) {
-      if (!Array.isArray(requirement.evidenceRefs) || requirement.evidenceRefs.length === 0
-        || requirement.evidenceRefs.some(ref => typeof ref !== "string" || !evidenceIndex.has(ref))) {
+      if (
+        !Array.isArray(requirement.evidenceRefs) ||
+        requirement.evidenceRefs.length === 0 ||
+        requirement.evidenceRefs.some((ref) => typeof ref !== "string" || !evidenceIndex.has(ref))
+      ) {
         missingInvariants.push(`Requirement ${requirement.id} has an unknown evidence reference`);
-      } else if (requirement.status === "verified"
-        && requirement.evidenceRefs.some(ref => evidenceIndex.get(ref)?.status !== "succeeded")) {
+      } else if (
+        requirement.status === "verified" &&
+        requirement.evidenceRefs.some((ref) => evidenceIndex.get(ref)?.status !== "succeeded")
+      ) {
         missingInvariants.push(`Requirement ${requirement.id} references an unfinished or failed result`);
       }
     }
-    const allowedResultIndexes = requirement.evidenceRefs?.every(ref => evidenceIndex.has(ref))
-      ? new Set(requirement.evidenceRefs.map(ref => evidenceIndex.get(ref)!.messageIndex ?? -1))
+    const allowedResultIndexes = requirement.evidenceRefs?.every((ref) => evidenceIndex.has(ref))
+      ? new Set(requirement.evidenceRefs.map((ref) => evidenceIndex.get(ref)!.messageIndex ?? -1))
       : undefined;
-    const inheritedUnchanged = originalMessages.some(message => {
+    const inheritedUnchanged = originalMessages.some((message) => {
       if (message.role !== "user" || message.origin !== "compaction_summary") return false;
       const prior = extractStructuredCompactionHandoff(messageText(message)).state;
-      return prior?.requirements?.some(item => item.status === "verified"
-        && item.id === requirement.id
-        && item.source === requirement.source
-        && normalized(item.evidence) === normalized(requirement.evidence)) === true;
+      return (
+        prior?.requirements?.some(
+          (item) =>
+            item.status === "verified" &&
+            item.id === requirement.id &&
+            item.source === requirement.source &&
+            normalized(item.evidence) === normalized(requirement.evidence),
+        ) === true
+      );
     });
-    if (requirement.status === "verified" && requirement.evidence
-      && !inheritedUnchanged
-      && !observedEvidence(requirement.evidence, requirement.source, allowedResultIndexes)) {
+    if (
+      requirement.status === "verified" &&
+      requirement.evidence &&
+      !inheritedUnchanged &&
+      !observedEvidence(requirement.evidence, requirement.source, allowedResultIndexes)
+    ) {
       missingInvariants.push(`Verified requirement ${requirement.id} has no completed observation`);
     }
   }
   if (structured?.verifiedAchievements) {
     for (const achievement of structured.verifiedAchievements) {
-      const inheritedUnchanged = originalMessages.some(message => {
+      const inheritedUnchanged = originalMessages.some((message) => {
         if (message.role !== "user" || message.origin !== "compaction_summary") return false;
         const prior = extractStructuredCompactionHandoff(messageText(message)).state;
-        return prior?.verifiedAchievements?.some(item => {
-          if (typeof item === "string" && typeof achievement === "string") {
-            return normalized(item) === normalized(achievement);
-          }
-          if (typeof item !== "string" && typeof achievement !== "string") {
-            return normalized(item.result) === normalized(achievement.result)
-              && normalized(item.evidence) === normalized(achievement.evidence)
-              && JSON.stringify(item.evidenceRefs ?? []) === JSON.stringify(achievement.evidenceRefs ?? []);
-          }
-          return false;
-        }) === true;
+        return (
+          prior?.verifiedAchievements?.some((item) => {
+            if (typeof item === "string" && typeof achievement === "string") {
+              return normalized(item) === normalized(achievement);
+            }
+            if (typeof item !== "string" && typeof achievement !== "string") {
+              return (
+                normalized(item.result) === normalized(achievement.result) &&
+                normalized(item.evidence) === normalized(achievement.evidence) &&
+                JSON.stringify(item.evidenceRefs ?? []) === JSON.stringify(achievement.evidenceRefs ?? [])
+              );
+            }
+            return false;
+          }) === true
+        );
       });
       if (inheritedUnchanged) continue;
       if (typeof achievement !== "string") {
-        if (typeof achievement.result !== "string" || !achievement.result.trim()
-          || typeof achievement.evidence !== "string" || !achievement.evidence.trim()) {
+        if (
+          typeof achievement.result !== "string" ||
+          !achievement.result.trim() ||
+          typeof achievement.evidence !== "string" ||
+          !achievement.evidence.trim()
+        ) {
           missingInvariants.push("Structured achievement lacks result or evidence");
           continue;
         }
         let allowedResultIndexes: Set<number> | undefined;
         if (achievement.evidenceRefs !== undefined) {
-          if (!Array.isArray(achievement.evidenceRefs) || achievement.evidenceRefs.length === 0
-            || achievement.evidenceRefs.some(ref => typeof ref !== "string" || !evidenceIndex.has(ref))) {
+          if (
+            !Array.isArray(achievement.evidenceRefs) ||
+            achievement.evidenceRefs.length === 0 ||
+            achievement.evidenceRefs.some((ref) => typeof ref !== "string" || !evidenceIndex.has(ref))
+          ) {
             missingInvariants.push(`Achievement ${achievement.result} has an unknown evidence reference`);
             continue;
           }
-          if (achievement.evidenceRefs.some(ref => evidenceIndex.get(ref)?.status !== "succeeded")) {
+          if (achievement.evidenceRefs.some((ref) => evidenceIndex.get(ref)?.status !== "succeeded")) {
             missingInvariants.push(`Achievement ${achievement.result} references an unfinished or failed result`);
             continue;
           }
-          allowedResultIndexes = new Set(achievement.evidenceRefs.map(ref => evidenceIndex.get(ref)!.messageIndex ?? -1));
+          allowedResultIndexes = new Set(
+            achievement.evidenceRefs.map((ref) => evidenceIndex.get(ref)!.messageIndex ?? -1),
+          );
         }
         if (!observedEvidence(achievement.evidence, achievement.result, allowedResultIndexes)) {
           missingInvariants.push(`Achievement ${achievement.result} has no completed observation`);
@@ -524,7 +576,7 @@ export function validateCompactionQuality(
         }
       }
       for (const requirement of prior.requirements ?? []) {
-        const next = structured?.requirements?.find(item => item.id === requirement.id);
+        const next = structured?.requirements?.find((item) => item.id === requirement.id);
         if (!next) {
           missingInvariants.push(`Missing prior requirement ${requirement.id}`);
         } else if (requirement.status === "verified" && next.status !== "verified") {
@@ -537,12 +589,15 @@ export function validateCompactionQuality(
     for (const [label, values, retained] of [
       ["decision or invariant", prior.decisionsAndInvariants ?? [], structured?.decisionsAndInvariants ?? []],
       ["blocker or test failure", prior.blockersOrTestFailures, structured?.blockersOrTestFailures ?? []],
-      ["pending obligation", prior.version === 2 && prior.requirements?.length
-        ? [] : prior.pendingObligations ?? [], structured?.pendingObligations ?? []],
+      [
+        "pending obligation",
+        prior.version === 2 && prior.requirements?.length ? [] : (prior.pendingObligations ?? []),
+        structured?.pendingObligations ?? [],
+      ],
     ] as const) {
       for (const value of values) {
         if (normalized(value) === "none") continue;
-        if (!retained.some(item => normalized(item).includes(normalized(value)))) {
+        if (!retained.some((item) => normalized(item).includes(normalized(value)))) {
           missingInvariants.push(`Missing ${label} from prior checkpoint: ${value}`);
         }
       }

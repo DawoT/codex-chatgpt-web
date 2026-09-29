@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ChatGptBrowserWorker } from "../adapters/chatgpt-web/browser-worker";
-import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import type { ChatGptWebCapabilities } from "../adapters/chatgpt-web/model";
+import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import type { CodexProviderConfig } from "../types";
 
 let taskResumeNoteSequence = 0;

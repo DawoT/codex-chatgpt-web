@@ -9,11 +9,15 @@ import {
 import type { ChatGptInstructionLineage } from "./types";
 
 function executionKey(parsed: CodexParsedRequest, payload: unknown): string {
-  return createHash("sha256").update(JSON.stringify({
-    modelId: parsed.modelId,
-    reasoning: parsed.options.reasoning,
-    payload,
-  })).digest("hex");
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        modelId: parsed.modelId,
+        reasoning: parsed.options.reasoning,
+        payload,
+      }),
+    )
+    .digest("hex");
 }
 
 function compactionInputRevision(parsed: CodexParsedRequest): unknown[] {
@@ -30,21 +34,23 @@ function compactionInputRevision(parsed: CodexParsedRequest): unknown[] {
 
 export function chatGptTurnExecutionKey(parsed: CodexParsedRequest): string {
   const identity = extractChatGptTurnIdentity(parsed);
-  if (!identity.turnId) throw new Error("ChatGPT web requires native Codex turn_id metadata for browser-session replay");
+  if (!identity.turnId)
+    throw new Error("ChatGPT web requires native Codex turn_id metadata for browser-session replay");
   return executionKey(parsed, {
     threadId: identity.threadId,
     turnId: identity.turnId,
     purpose: parsed._compactionRequest ? "compaction" : "response",
-    revision: parsed._compactionRequest
-      ? compactionInputRevision(parsed)
-      : extractChatGptTurnUserRevision(parsed),
+    revision: parsed._compactionRequest ? compactionInputRevision(parsed) : extractChatGptTurnUserRevision(parsed),
     ...(!parsed._compactionRequest ? { instructionId: chatGptTurnUserRevisionHistory(parsed).at(-1)?.itemId } : {}),
   });
 }
 
 export function chatGptInstructionLineage(parsed: CodexParsedRequest): ChatGptInstructionLineage {
-  const revisions = chatGptTurnUserRevisionHistory(parsed).map(revision => createHash("sha256")
-    .update(JSON.stringify([revision.itemId ?? null, revision.content])).digest("hex"));
+  const revisions = chatGptTurnUserRevisionHistory(parsed).map((revision) =>
+    createHash("sha256")
+      .update(JSON.stringify([revision.itemId ?? null, revision.content]))
+      .digest("hex"),
+  );
   const current = revisions.pop();
   if (!current) throw new Error("ChatGPT web requires a canonical user instruction");
   return { current, predecessors: new Set(revisions) };
@@ -55,8 +61,7 @@ export function chatGptTurnRoundKey(parsed: CodexParsedRequest): string {
   const identity = extractChatGptTurnIdentity(parsed);
   if (!identity.turnId) throw new Error("ChatGPT web requires native Codex turn_id metadata for round replay");
   const body = parsed._rawBody;
-  if (!body || typeof body !== "object" || Array.isArray(body)
-    || !Array.isArray((body as { input?: unknown }).input)) {
+  if (!body || typeof body !== "object" || Array.isArray(body) || !Array.isArray((body as { input?: unknown }).input)) {
     throw new Error("ChatGPT web requires the complete native Codex input for round replay");
   }
   return executionKey(parsed, {
@@ -70,17 +75,24 @@ export function chatGptTurnRoundKey(parsed: CodexParsedRequest): string {
 /** Stable identity for limiting automatic retries of one native Codex turn. */
 export function chatGptTurnRetryKey(parsed: CodexParsedRequest): string {
   const identity = extractChatGptTurnIdentity(parsed);
-  if (!identity.turnId) throw new Error("ChatGPT web requires native Codex turn_id metadata for browser-turn retry budgeting");
-  return createHash("sha256").update(JSON.stringify({
-    threadId: identity.threadId,
-    turnId: identity.turnId,
-    purpose: parsed._compactionRequest ? "compaction" : "response",
-  })).digest("hex");
+  if (!identity.turnId)
+    throw new Error("ChatGPT web requires native Codex turn_id metadata for browser-turn retry budgeting");
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        threadId: identity.threadId,
+        turnId: identity.turnId,
+        purpose: parsed._compactionRequest ? "compaction" : "response",
+      }),
+    )
+    .digest("hex");
 }
 
 /** One native Codex thread may own at most one live ChatGPT browser surface. */
 export function chatGptNativeThreadOwnershipKey(threadId: string): string {
-  return createHash("sha256").update(JSON.stringify({ kind: "thread", id: threadId })).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify({ kind: "thread", id: threadId }))
+    .digest("hex");
 }
 
 export function chatGptThreadOwnershipKey(parsed: CodexParsedRequest): string {
@@ -98,7 +110,8 @@ export function chatGptThreadOwnershipKey(parsed: CodexParsedRequest): string {
 /** Locate the browser response that a native mid-turn compaction replaces. */
 export function chatGptCompactionSourceExecutionKey(parsed: CodexParsedRequest): string {
   const identity = extractChatGptTurnIdentity(parsed);
-  if (!identity.turnId) throw new Error("ChatGPT web requires native Codex turn_id metadata for browser-session replay");
+  if (!identity.turnId)
+    throw new Error("ChatGPT web requires native Codex turn_id metadata for browser-session replay");
   const source = extractChatGptCompactionSourceRevision(parsed);
   return executionKey(parsed, {
     threadId: identity.threadId,

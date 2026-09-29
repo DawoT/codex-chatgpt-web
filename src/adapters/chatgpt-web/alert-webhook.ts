@@ -78,5 +78,5 @@ export async function dispatchAlertWebhook(
  * Returns the configured webhook URL from the environment, or undefined if not set.
  */
 export function getDefaultAlertWebhookUrl(): string | undefined {
-  return process.env["CODEX_ALERT_WEBHOOK_URL"] || undefined;
+  return process.env.CODEX_ALERT_WEBHOOK_URL || undefined;
 }

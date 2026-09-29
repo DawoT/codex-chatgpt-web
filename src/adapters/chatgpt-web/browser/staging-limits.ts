@@ -1,20 +1,20 @@
 import {
-  CHATGPT_WEB_LUNA_MODEL_ID,
-  CHATGPT_WEB_MODEL_ID,
-  resolveChatGptWebModelMode,
-  type ChatGptWebCapabilities,
-  type ChatGptWebModelMode,
-} from "../model";
-import { CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET } from "../input-tokens";
-import {
   CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER,
   resolveChatGptWebContextLimits,
   resolveChatGptWebMessageTokenBudget,
   resolveChatGptWebTransportLimits,
 } from "../../../chatgpt-web-models";
-import { isChatGptWebMultipartPartCount } from "../prompt";
 import { ChatGptWebAdapterError } from "../adapter-error";
+import { CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET } from "../input-tokens";
+import {
+  CHATGPT_WEB_LUNA_MODEL_ID,
+  CHATGPT_WEB_MODEL_ID,
+  type ChatGptWebCapabilities,
+  type ChatGptWebModelMode,
+  resolveChatGptWebModelMode,
+} from "../model";
 import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT } from "../preflight-budget";
+import { isChatGptWebMultipartPartCount } from "../prompt";
 
 export function assertChatGptWebInputWithinLimits(
   estimatedInputTokens: number,
@@ -27,10 +27,7 @@ export function assertChatGptWebInputWithinLimits(
   if (modelId !== CHATGPT_WEB_MODEL_ID && modelId !== CHATGPT_WEB_LUNA_MODEL_ID) {
     throw new Error(`ChatGPT web context limit is not defined for model: ${modelId}`);
   }
-  if (
-    modelId === CHATGPT_WEB_LUNA_MODEL_ID
-    && estimatedInputTokens > CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET
-  ) {
+  if (modelId === CHATGPT_WEB_LUNA_MODEL_ID && estimatedInputTokens > CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET) {
     throw new ChatGptWebAdapterError(
       `This Luna turn requires ${estimatedInputTokens.toLocaleString("en-US")} estimated input tokens, which exceeds the measured ${CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET.toLocaleString("en-US")}-token ChatGPT Free browser transport budget. Completed Luna history is already replaced by its rolling checkpoint; the remaining payload is the current Codex turn and cannot be reduced by /compact.`,
       { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
@@ -42,11 +39,7 @@ export function assertChatGptWebInputWithinLimits(
     effort,
     capabilities,
   );
-  if (
-    browserComposerCharLimit !== undefined
-    && promptChars !== undefined
-    && promptChars > browserComposerCharLimit
-  ) {
+  if (browserComposerCharLimit !== undefined && promptChars !== undefined && promptChars > browserComposerCharLimit) {
     throw new ChatGptWebAdapterError(
       `This prompt contains ${promptChars.toLocaleString("en-US")} inline characters, which exceeds the measured ${browserComposerCharLimit.toLocaleString("en-US")}-character ChatGPT composer boundary for this account and effort. Run /compact, then retry this Web model.`,
       { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
@@ -96,11 +89,10 @@ export function assertChatGptWebMultipartInputWithinLimits(
   if (modelId !== CHATGPT_WEB_MODEL_ID) {
     throw new Error(`ChatGPT Bigger Context limit is not defined for model: ${modelId}`);
   }
-  const { contextWindow: baseContextWindow } = resolveChatGptWebContextLimits(
-    modelId,
-    effort,
-    { ...capabilities, experimentalBiggerContext: false },
-  );
+  const { contextWindow: baseContextWindow } = resolveChatGptWebContextLimits(modelId, effort, {
+    ...capabilities,
+    experimentalBiggerContext: false,
+  });
   const assertMessageBoundary = (
     label: "stage" | "final part",
     messageTokens: number,
@@ -142,12 +134,7 @@ export function assertChatGptWebMultipartInputWithinLimits(
         { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
       );
     }
-    assertMessageBoundary(
-      "stage",
-      transport.maxStageMessageTokens,
-      transport.maxStageChars,
-      transport.stagingEffort,
-    );
+    assertMessageBoundary("stage", transport.maxStageMessageTokens, transport.maxStageChars, transport.stagingEffort);
     assertMessageBoundary(
       "final part",
       transport.finalMessageTokens,
@@ -176,10 +163,12 @@ export function resolveChatGptWebMultipartStagingMode(
   maxStageChars: number,
 ): ChatGptWebModelMode {
   if (modelId === CHATGPT_WEB_LUNA_MODEL_ID || !capabilities.solAvailable) {
-    throw new ChatGptWebAdapterError(
-      "Bigger Context staging is unavailable for a Luna-only account.",
-      { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
-    );
+    throw new ChatGptWebAdapterError("Bigger Context staging is unavailable for a Luna-only account.", {
+      status: 400,
+      errorType: "invalid_request_error",
+      code: "context_length_exceeded",
+      retryable: false,
+    });
   }
   if (modelId !== CHATGPT_WEB_MODEL_ID) {
     throw new Error(`ChatGPT Bigger Context staging mode is not defined for model: ${modelId}`);
@@ -192,8 +181,7 @@ export function resolveChatGptWebMultipartStagingMode(
     const limits = resolveChatGptWebTransportLimits(modelId, effort, capabilities);
     const messageTokenLimit = resolveChatGptWebMessageTokenBudget(modelId, effort, capabilities);
     const tokenFits = maxStageMessageTokens <= messageTokenLimit;
-    const charsFit = limits.browserComposerCharLimit === undefined
-      || maxStageChars <= limits.browserComposerCharLimit;
+    const charsFit = limits.browserComposerCharLimit === undefined || maxStageChars <= limits.browserComposerCharLimit;
     if (tokenFits && charsFit) return mode;
   }
   throw new ChatGptWebAdapterError(

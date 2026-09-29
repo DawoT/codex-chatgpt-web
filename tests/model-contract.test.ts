@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { CHATGPT_WEB_LUNA_MODEL_ID, CHATGPT_WEB_MODEL_ID, resolveChatGptWebModelMode } from "../src/adapters/chatgpt-web/model";
+import {
+  CHATGPT_WEB_LUNA_MODEL_ID,
+  CHATGPT_WEB_MODEL_ID,
+  resolveChatGptWebModelMode,
+} from "../src/adapters/chatgpt-web/model";
 
 test("the browser adapter maps fixed routed efforts to the visible ChatGPT modes", () => {
   const capabilities = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
@@ -27,39 +31,57 @@ test("the browser adapter maps fixed routed efforts to the visible ChatGPT modes
 });
 
 test("capabilities gate tools and Pro-only efforts explicitly without changing the selected model", () => {
-  expect(resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "high", {
-    localToolsEnabled: false,
-    solAvailable: true,
-    extraHighAvailable: true, proAvailable: true,
-  })).toMatchObject({ localTools: false });
-  expect(() => resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "max", {
-    localToolsEnabled: false,
-    solAvailable: true,
-    extraHighAvailable: false, proAvailable: false,
-  })).toThrow("Pro effort is not available");
-  expect(() => resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "xhigh", {
-    localToolsEnabled: true,
-    solAvailable: true,
-    extraHighAvailable: false, proAvailable: false,
-  })).toThrow("Extra High effort is not available");
-  expect(() => resolveChatGptWebModelMode("unknown", "high", {
-    localToolsEnabled: false,
-    solAvailable: true,
-    extraHighAvailable: true, proAvailable: true,
-  })).toThrow("model is not supported");
-  expect(() => resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "turbo", {
-    localToolsEnabled: false,
-    solAvailable: true,
-    extraHighAvailable: true, proAvailable: true,
-  })).toThrow("effort is not supported");
+  expect(
+    resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "high", {
+      localToolsEnabled: false,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+    }),
+  ).toMatchObject({ localTools: false });
+  expect(() =>
+    resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "max", {
+      localToolsEnabled: false,
+      solAvailable: true,
+      extraHighAvailable: false,
+      proAvailable: false,
+    }),
+  ).toThrow("Pro effort is not available");
+  expect(() =>
+    resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "xhigh", {
+      localToolsEnabled: true,
+      solAvailable: true,
+      extraHighAvailable: false,
+      proAvailable: false,
+    }),
+  ).toThrow("Extra High effort is not available");
+  expect(() =>
+    resolveChatGptWebModelMode("unknown", "high", {
+      localToolsEnabled: false,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+    }),
+  ).toThrow("model is not supported");
+  expect(() =>
+    resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "turbo", {
+      localToolsEnabled: false,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+    }),
+  ).toThrow("effort is not supported");
 });
 
 test("Luna-only capability binds the default model without a UI effort selector", () => {
-  expect(resolveChatGptWebModelMode(CHATGPT_WEB_LUNA_MODEL_ID, "low", {
-    localToolsEnabled: true,
-    solAvailable: false,
-    extraHighAvailable: false, proAvailable: false,
-  })).toEqual({
+  expect(
+    resolveChatGptWebModelMode(CHATGPT_WEB_LUNA_MODEL_ID, "low", {
+      localToolsEnabled: true,
+      solAvailable: false,
+      extraHighAvailable: false,
+      proAvailable: false,
+    }),
+  ).toEqual({
     modelId: CHATGPT_WEB_LUNA_MODEL_ID,
     effort: "low",
     displayLabel: "Luna",
@@ -67,11 +89,14 @@ test("Luna-only capability binds the default model without a UI effort selector"
     thinkEnabled: false,
     localTools: true,
   });
-  expect(resolveChatGptWebModelMode(CHATGPT_WEB_LUNA_MODEL_ID, "medium", {
-    localToolsEnabled: true,
-    solAvailable: false,
-    extraHighAvailable: false, proAvailable: false,
-  })).toEqual({
+  expect(
+    resolveChatGptWebModelMode(CHATGPT_WEB_LUNA_MODEL_ID, "medium", {
+      localToolsEnabled: true,
+      solAvailable: false,
+      extraHighAvailable: false,
+      proAvailable: false,
+    }),
+  ).toEqual({
     modelId: CHATGPT_WEB_LUNA_MODEL_ID,
     effort: "medium",
     displayLabel: "Think",
@@ -79,9 +104,12 @@ test("Luna-only capability binds the default model without a UI effort selector"
     thinkEnabled: true,
     localTools: true,
   });
-  expect(() => resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "low", {
-    localToolsEnabled: false,
-    solAvailable: false,
-    extraHighAvailable: false, proAvailable: false,
-  })).toThrow("Luna-only account");
+  expect(() =>
+    resolveChatGptWebModelMode(CHATGPT_WEB_MODEL_ID, "low", {
+      localToolsEnabled: false,
+      solAvailable: false,
+      extraHighAvailable: false,
+      proAvailable: false,
+    }),
+  ).toThrow("Luna-only account");
 });

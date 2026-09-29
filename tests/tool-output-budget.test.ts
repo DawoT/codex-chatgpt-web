@@ -34,11 +34,7 @@ test("sanitizes content arrays containing text and non-text parts", () => {
   const oversizedText = "x\n".repeat(20_000);
   const imagePart = { type: "image", data: "base64data" };
 
-  const content = [
-    { type: "text", text: normalText },
-    { type: "text", text: oversizedText },
-    imagePart,
-  ];
+  const content = [{ type: "text", text: normalText }, { type: "text", text: oversizedText }, imagePart];
 
   const sanitized = sanitizeToolOutputContent(content) as Array<{ type: string; text?: string }>;
   expect(sanitized).toHaveLength(3);

@@ -10,16 +10,21 @@ const RETIRED_TURN_HANDLE = /(?<![A-Za-z0-9_-])(turn|request|binding)_[A-Za-z0-9
 export function withoutRetiredTurnHandles(contextJson: string): string {
   // Match decoded string values: in serialized JSON a newline's `n` is a word character
   // immediately before the handle. Leave structural keys and native tool-call IDs intact.
-  return JSON.stringify(JSON.parse(contextJson, (_key, value: unknown) => typeof value === "string"
-    ? value.replace(RETIRED_TURN_HANDLE, (_handle, kind: string) => `[retired ${kind} handle]`)
-    : value));
+  return JSON.stringify(
+    JSON.parse(contextJson, (_key, value: unknown) =>
+      typeof value === "string"
+        ? value.replace(RETIRED_TURN_HANDLE, (_handle, kind: string) => `[retired ${kind} handle]`)
+        : value,
+    ),
+  );
 }
 
 export function plainMessageText(message: CodexMessage): string | undefined {
-  if (message.role === "assistant" || message.role === "agentMessage" || message.role === "toolResult") return undefined;
+  if (message.role === "assistant" || message.role === "agentMessage" || message.role === "toolResult")
+    return undefined;
   if (typeof message.content === "string") return message.content;
-  if (message.content.some(part => part.type !== "text")) return undefined;
-  return message.content.map(part => part.type === "text" ? part.text : "").join("\n");
+  if (message.content.some((part) => part.type !== "text")) return undefined;
+  return message.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
 }
 
 export function startsWithControlBlock(message: CodexMessage, tag: string): boolean {
@@ -38,7 +43,7 @@ export function startsWithControlBlock(message: CodexMessage, tag: string): bool
  */
 export function withoutSupersededModelSwitchContracts(messages: readonly CodexMessage[]): CodexMessage[] {
   const switchIndices = messages.flatMap((message, index) =>
-    startsWithControlBlock(message, "<model_switch>") ? [index] : []
+    startsWithControlBlock(message, "<model_switch>") ? [index] : [],
   );
   if (switchIndices.length < 2) return [...messages];
 
@@ -48,8 +53,8 @@ export function withoutSupersededModelSwitchContracts(messages: readonly CodexMe
     dropped.add(index);
     const skillCatalogIndex = index + 1;
     if (
-      skillCatalogIndex < newestSwitchIndex
-      && startsWithControlBlock(messages[skillCatalogIndex]!, "<skills_instructions>")
+      skillCatalogIndex < newestSwitchIndex &&
+      startsWithControlBlock(messages[skillCatalogIndex]!, "<skills_instructions>")
     ) {
       dropped.add(skillCatalogIndex);
     }
@@ -79,7 +84,7 @@ export const HISTORICAL_PARALYSIS_PATTERNS: readonly RegExp[] = [
 ];
 
 export function hasParalysisClaim(text: string): boolean {
-  return HISTORICAL_PARALYSIS_PATTERNS.some(pattern => pattern.test(text));
+  return HISTORICAL_PARALYSIS_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export function sanitizeParalysisProse(text: string): string {
@@ -93,7 +98,7 @@ export function sanitizeParalysisProse(text: string): string {
       if (para.includes("```")) {
         const lines = para.split("\n");
         let inFence = false;
-        const cleanLines = lines.filter(line => {
+        const cleanLines = lines.filter((line) => {
           if (line.trim().startsWith("```")) inFence = !inFence;
           if (inFence) return true;
           return !hasParalysisClaim(line);
@@ -101,7 +106,7 @@ export function sanitizeParalysisProse(text: string): string {
         if (cleanLines.length > 0) retained.push(cleanLines.join("\n"));
       } else {
         const sentences = para.split(/(?<=[.?!])\s+/);
-        const cleanSentences = sentences.filter(s => !hasParalysisClaim(s));
+        const cleanSentences = sentences.filter((s) => !hasParalysisClaim(s));
         if (cleanSentences.length > 0) {
           retained.push(cleanSentences.join(" "));
         }
@@ -118,13 +123,11 @@ export function sanitizeParalysisProse(text: string): string {
   return result;
 }
 
-export function sanitizeHistoricalParalysisClaims(
-  messages: readonly CodexMessage[],
-): CodexMessage[] {
-  return messages.map(message => {
+export function sanitizeHistoricalParalysisClaims(messages: readonly CodexMessage[]): CodexMessage[] {
+  return messages.map((message) => {
     if (message.role !== "assistant") return message;
     let changed = false;
-    const newContent = message.content.map(part => {
+    const newContent = message.content.map((part) => {
       if (part.type !== "text" || !hasParalysisClaim(part.text)) return part;
       changed = true;
       return { ...part, text: sanitizeParalysisProse(part.text) };

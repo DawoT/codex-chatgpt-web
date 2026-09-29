@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { handleReadFile } from "../src/adapters/chatgpt-web/fast-path/file-ops";
+import { join } from "node:path";
 import { handleExecCommand } from "../src/adapters/chatgpt-web/fast-path/exec";
+import { handleReadFile } from "../src/adapters/chatgpt-web/fast-path/file-ops";
 
 describe("Bounded Producers", () => {
   let tempDir: string;
@@ -21,7 +21,13 @@ describe("Bounded Producers", () => {
     let offset = 0;
     let content = "";
     for (let page = 0; page < 10; page += 1) {
-      const res = handleReadFile({ path: "unicode.txt", cwd: tempDir, roots: [tempDir], max_bytes: 5, offset_bytes: offset });
+      const res = handleReadFile({
+        path: "unicode.txt",
+        cwd: tempDir,
+        roots: [tempDir],
+        max_bytes: 5,
+        offset_bytes: offset,
+      });
       expect(Boolean(res.isError)).toBe(false);
       const data = res.structuredContent as any;
       content += data.content;
@@ -35,7 +41,13 @@ describe("Bounded Producers", () => {
 
   it("rejects invalid byte budgets and mixed line/byte pagination", async () => {
     await writeFile(join(tempDir, "budget.txt"), "content");
-    for (const extra of [{ max_bytes: Infinity }, { max_bytes: -1 }, { max_bytes: 1.5 }, { max_bytes: 2 ** 30 }, { max_bytes: 8, offset: 2 }]) {
+    for (const extra of [
+      { max_bytes: Infinity },
+      { max_bytes: -1 },
+      { max_bytes: 1.5 },
+      { max_bytes: 2 ** 30 },
+      { max_bytes: 8, offset: 2 },
+    ]) {
       const res = handleReadFile({ path: "budget.txt", cwd: tempDir, roots: [tempDir], ...extra });
       expect(res.isError).toBe(true);
     }

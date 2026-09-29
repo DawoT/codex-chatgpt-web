@@ -40,27 +40,36 @@ describe("summarizeTask", () => {
 
   test("pytest: parses 'N passed, M failed'", () => {
     const task = makeTask();
-    const tail = "============================= test session starts ==============================\n"
-      + "collected 4 items\n\n"
-      + "========================= 3 passed, 1 failed in 0.50s =========================\n";
+    const tail =
+      "============================= test session starts ==============================\n" +
+      "collected 4 items\n\n" +
+      "========================= 3 passed, 1 failed in 0.50s =========================\n";
     const summary = summarizeTask(task, tail);
-    expect(summary).toBe("completed (exit 0, 1.5s) | pytest: 3 passed, 1 failed | log=/repo/.codex-tmp/tasks/task_1.log");
+    expect(summary).toBe(
+      "completed (exit 0, 1.5s) | pytest: 3 passed, 1 failed | log=/repo/.codex-tmp/tasks/task_1.log",
+    );
   });
 
   test("pytest: parses 'N failed, M passed' summary order", () => {
     const task = makeTask();
-    const summary = summarizeTask(task, "========================= 2 failed, 3 passed in 0.42s =========================\n");
+    const summary = summarizeTask(
+      task,
+      "========================= 2 failed, 3 passed in 0.42s =========================\n",
+    );
     expect(summary).toContain("pytest: 3 passed, 2 failed");
   });
 
   test("cargo: parses 'test result:' counts", () => {
     const task = makeTask();
-    const tail = "   Compiling serde v1.0.0\n"
-      + "    Finished `test` profile [unoptimized + debuginfo]\n"
-      + "     Running unittests src/lib.rs\n\n"
-      + "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n";
+    const tail =
+      "   Compiling serde v1.0.0\n" +
+      "    Finished `test` profile [unoptimized + debuginfo]\n" +
+      "     Running unittests src/lib.rs\n\n" +
+      "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n";
     const summary = summarizeTask(task, tail);
-    expect(summary).toBe("completed (exit 0, 1.5s) | cargo: 10 passed, 0 failed | log=/repo/.codex-tmp/tasks/task_1.log");
+    expect(summary).toBe(
+      "completed (exit 0, 1.5s) | cargo: 10 passed, 0 failed | log=/repo/.codex-tmp/tasks/task_1.log",
+    );
   });
 
   test("go: counts per-package ok/FAIL lines", () => {

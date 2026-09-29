@@ -1,19 +1,23 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import type { ProviderAdapter } from "../src/adapters/base";
 import { chatGptWebExecutionNamespace, createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
 import { listTurnCheckpoints } from "../src/adapters/chatgpt-web/autonomous-compaction";
+import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { extractChatGptTurnEnvironment, extractChatGptTurnUserRevision } from "../src/adapters/chatgpt-web/environment";
+import {
+  SessionActorJournal,
+  SessionActorManager,
+  SessionResultStore,
+} from "../src/adapters/chatgpt-web/session-actor";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
-import { SessionActorJournal, SessionActorManager, SessionResultStore } from "../src/adapters/chatgpt-web/session-actor";
 import { chatGptThreadOwnershipKey } from "../src/adapters/chatgpt-web/turn-execution";
 import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
 import { decodeCompactionSummary } from "../src/responses/compaction";
 import { parseRequest } from "../src/responses/parser";
 import { responseRequest } from "../src/server";
-import type { ProviderAdapter } from "../src/adapters/base";
 
 const requestText = "Continue with the next step";
 
@@ -43,11 +47,20 @@ function fixture(root: string, sandboxMode: "workspace-write" | "read-only" = "w
       type: "message",
       role: "user",
       id: "msg_environment_roundtrip",
-      content: [{ type: "input_text", text: `<environment_context><cwd>${workspace}</cwd><sandbox_mode>${sandboxMode}</sandbox_mode></environment_context>` }],
+      content: [
+        {
+          type: "input_text",
+          text: `<environment_context><cwd>${workspace}</cwd><sandbox_mode>${sandboxMode}</sandbox_mode></environment_context>`,
+        },
+      ],
       internal_chat_message_metadata_passthrough: { turn_id: "turn_compact_roundtrip" },
     },
     source,
-    { type: "message", role: "assistant", content: [{ type: "output_text", text: "Proceed with the implementation." }] },
+    {
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "Proceed with the implementation." }],
+    },
     { type: "compaction_trigger" },
   ];
   const body = {
@@ -81,10 +94,15 @@ next_actions:
 }
 
 function post(body: unknown, config: ReturnType<typeof defaultConfig>, factory: Parameters<typeof responseRequest>[2]) {
-  return responseRequest(new Request("http://127.0.0.1/v1/responses", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }), config, factory, { rememberState: false });
+  return responseRequest(
+    new Request("http://127.0.0.1/v1/responses", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+    config,
+    factory,
+    { rememberState: false },
+  );
 }
 
 for (const scenario of ["accepted", "repaired", "invalid", "persistence-failure"] as const) {
@@ -104,7 +122,7 @@ for (const scenario of ["accepted", "repaired", "invalid", "persistence-failure"
     let browserRuns = 0;
     let continuationRuns = 0;
     try {
-      const response = await post(body, config, provider => {
+      const response = await post(body, config, (provider) => {
         provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
         worker = ChatGptBrowserWorker.forProvider(provider);
         originalRun = worker.run.bind(worker);
@@ -118,7 +136,7 @@ for (const scenario of ["accepted", "repaired", "invalid", "persistence-failure"
         };
         return createChatGptWebAdapter(provider);
       });
-      const result = await response.json() as {
+      const result = (await response.json()) as {
         status: string;
         output?: Array<{ type: string; encrypted_content?: string }>;
         error?: { code?: string };
@@ -143,13 +161,17 @@ for (const scenario of ["accepted", "repaired", "invalid", "persistence-failure"
         expect(checkpoints).toHaveLength(1);
         expect(checkpoints[0]?.compactSummary).toBe(summary ?? "");
         expect(readFileSync(join(workspace, ".agents", "STATE.md"), "utf8")).toContain("REQ-1");
-        const resumed = await post({ ...body, input: [...body.input.slice(0, -1), ...result.output!] }, config, continuationFactory);
+        const resumed = await post(
+          { ...body, input: [...body.input.slice(0, -1), ...result.output!] },
+          config,
+          continuationFactory,
+        );
         expect(resumed.status).toBe(200);
-        expect((await resumed.json() as { status: string }).status).toBe("completed");
+        expect(((await resumed.json()) as { status: string }).status).toBe("completed");
         expect(continuationRuns).toBe(1);
       } else {
         expect(result.status).toBe("failed");
-        expect(result.output?.some(item => item.type === "compaction")).not.toBeTrue();
+        expect(result.output?.some((item) => item.type === "compaction")).not.toBeTrue();
         if (scenario === "invalid") {
           expect(listTurnCheckpoints(workspace)).toHaveLength(0);
         }
@@ -158,14 +180,23 @@ for (const scenario of ["accepted", "repaired", "invalid", "persistence-failure"
           expect(readFileSync(statePath, "utf8")).not.toContain("REQ-1");
         }
         const forgedMetadata = JSON.parse(body.client_metadata["x-codex-turn-metadata"]) as Record<string, unknown>;
-        const forged = await post({
-          ...body,
-          client_metadata: { "x-codex-turn-metadata": JSON.stringify({ ...forgedMetadata, turn_id: "turn_unaccepted_continuation" }) },
-          input: [...body.input.slice(0, -1), {
-            type: "compaction",
-            encrypted_content: "unaccepted checkpoint",
-          }],
-        }, config, continuationFactory);
+        const forged = await post(
+          {
+            ...body,
+            client_metadata: {
+              "x-codex-turn-metadata": JSON.stringify({ ...forgedMetadata, turn_id: "turn_unaccepted_continuation" }),
+            },
+            input: [
+              ...body.input.slice(0, -1),
+              {
+                type: "compaction",
+                encrypted_content: "unaccepted checkpoint",
+              },
+            ],
+          },
+          config,
+          continuationFactory,
+        );
         expect(forged.status).toBe(400);
         expect(continuationRuns).toBe(0);
       }
@@ -185,7 +216,7 @@ test("streaming HTTP compaction emits one completed checkpoint after workspace p
   let originalRun: ChatGptBrowserWorker["run"] | undefined;
   let browserRuns = 0;
   try {
-    const response = await post({ ...body, stream: true }, config, provider => {
+    const response = await post({ ...body, stream: true }, config, (provider) => {
       provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
       worker = ChatGptBrowserWorker.forProvider(provider);
       originalRun = worker.run.bind(worker);
@@ -196,21 +227,26 @@ test("streaming HTTP compaction emits one completed checkpoint after workspace p
       return createChatGptWebAdapter(provider);
     });
     expect(response.status).toBe(200);
-    const events = (await response.text()).split("\n")
-      .filter(line => line.startsWith("data: {"))
-      .map(line => JSON.parse(line.slice(6)) as {
-        type: string;
-        response?: { status: string; output: Array<{ type: string; encrypted_content?: string }> };
-      });
-    const completed = events.filter(event => event.type === "response.completed");
+    const events = (await response.text())
+      .split("\n")
+      .filter((line) => line.startsWith("data: {"))
+      .map(
+        (line) =>
+          JSON.parse(line.slice(6)) as {
+            type: string;
+            response?: { status: string; output: Array<{ type: string; encrypted_content?: string }> };
+          },
+      );
+    const completed = events.filter((event) => event.type === "response.completed");
     expect(completed).toHaveLength(1);
-    expect(events.some(event => event.type === "response.failed")).toBeFalse();
+    expect(events.some((event) => event.type === "response.failed")).toBeFalse();
     expect(completed[0]?.response?.status).toBe("completed");
     expect(completed[0]?.response?.output).toHaveLength(1);
     const compact = completed[0]?.response?.output[0];
     expect(compact?.type).toBe("compaction");
-    expect(listTurnCheckpoints(workspace)[0]?.compactSummary)
-      .toBe(decodeCompactionSummary(compact?.encrypted_content ?? "") ?? "");
+    expect(listTurnCheckpoints(workspace)[0]?.compactSummary).toBe(
+      decodeCompactionSummary(compact?.encrypted_content ?? "") ?? "",
+    );
     expect(browserRuns).toBe(1);
   } finally {
     if (worker && originalRun) worker.run = originalRun;
@@ -232,7 +268,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     let worker: ChatGptBrowserWorker | undefined;
     let originalRun: ChatGptBrowserWorker["run"] | undefined;
     let browserRuns = 0;
-    const factory: Parameters<typeof responseRequest>[2] = provider => {
+    const factory: Parameters<typeof responseRequest>[2] = (provider) => {
       provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
       actorSessionId = `${chatGptWebExecutionNamespace(provider)}:${chatGptThreadOwnershipKey(parseRequest(body))}`;
       worker = ChatGptBrowserWorker.forProvider(provider);
@@ -245,29 +281,28 @@ for (const outcome of ["accepted", "rejected"] as const) {
     };
     try {
       const first = await post(body, config, factory);
-      const firstResult = await first.json() as {
+      const firstResult = (await first.json()) as {
         status: string;
         output?: Array<{ type: string; encrypted_content?: string }>;
       };
       const firstRuns = browserRuns;
       const second = await post(body, config, factory);
-      const secondResult = await second.json() as typeof firstResult;
+      const secondResult = (await second.json()) as typeof firstResult;
       expect(firstResult.status).toBe(outcome === "accepted" ? "completed" : "failed");
       expect(secondResult.status).toBe(firstResult.status);
       expect(browserRuns).toBe(firstRuns);
-      expect(actorJournal.snapshot(actorSessionId!)?.historyRevision)
-        .toBe(outcome === "accepted" ? 1 : 0);
-      expect(actorJournal.snapshot(actorSessionId!)?.compactionEpoch)
-        .toBe(outcome === "accepted" ? 1 : 0);
+      expect(actorJournal.snapshot(actorSessionId!)?.historyRevision).toBe(outcome === "accepted" ? 1 : 0);
+      expect(actorJournal.snapshot(actorSessionId!)?.compactionEpoch).toBe(outcome === "accepted" ? 1 : 0);
       if (outcome === "accepted") {
         expect(firstResult.output?.[0]?.type).toBe("compaction");
         expect(secondResult.output?.[0]?.type).toBe("compaction");
-        expect(decodeCompactionSummary(secondResult.output?.[0]?.encrypted_content ?? ""))
-          .toBe(decodeCompactionSummary(firstResult.output?.[0]?.encrypted_content ?? ""));
+        expect(decodeCompactionSummary(secondResult.output?.[0]?.encrypted_content ?? "")).toBe(
+          decodeCompactionSummary(firstResult.output?.[0]?.encrypted_content ?? ""),
+        );
         expect(listTurnCheckpoints(workspace)).toHaveLength(1);
       } else {
         expect(firstRuns).toBe(2);
-        expect(secondResult.output?.some(item => item.type === "compaction")).not.toBeTrue();
+        expect(secondResult.output?.some((item) => item.type === "compaction")).not.toBeTrue();
         expect(listTurnCheckpoints(workspace)).toHaveLength(0);
       }
     } finally {
@@ -289,7 +324,7 @@ test("HTTP compaction keeps identical native turn ids isolated by thread", async
   let browserRuns = 0;
   try {
     for (const { body, workspace } of sessions) {
-      const response = await post(body, sharedConfig, provider => {
+      const response = await post(body, sharedConfig, (provider) => {
         provider.chatgptWeb!.threadEnvironmentStatePath = join(rootA, "thread-environments.json");
         worker = ChatGptBrowserWorker.forProvider(provider);
         if (!originalRun) originalRun = worker.run.bind(worker);
@@ -299,7 +334,7 @@ test("HTTP compaction keeps identical native turn ids isolated by thread", async
         };
         return createChatGptWebAdapter(provider);
       });
-      const result = await response.json() as {
+      const result = (await response.json()) as {
         status: string;
         output: Array<{ type: string; encrypted_content?: string }>;
       };
@@ -329,10 +364,16 @@ test("concurrent identical HTTP compact requests share one browser result and ch
   let notifyStarted!: () => void;
   let notifySecond!: () => void;
   let releaseBrowser!: (value: string) => void;
-  const started = new Promise<void>(resolve => { notifyStarted = resolve; });
-  const secondAdmitted = new Promise<void>(resolve => { notifySecond = resolve; });
-  const browserResult = new Promise<string>(resolve => { releaseBrowser = resolve; });
-  const factory: Parameters<typeof responseRequest>[2] = provider => {
+  const started = new Promise<void>((resolve) => {
+    notifyStarted = resolve;
+  });
+  const secondAdmitted = new Promise<void>((resolve) => {
+    notifySecond = resolve;
+  });
+  const browserResult = new Promise<string>((resolve) => {
+    releaseBrowser = resolve;
+  });
+  const factory: Parameters<typeof responseRequest>[2] = (provider) => {
     factoryCalls += 1;
     if (factoryCalls === 2) notifySecond();
     provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
@@ -352,12 +393,17 @@ test("concurrent identical HTTP compact requests share one browser result and ch
     await secondAdmitted;
     releaseBrowser(checkpoint());
     const responses = await Promise.all([first, second]);
-    const results = await Promise.all(responses.map(async response => response.json() as Promise<{
-      status: string;
-      output: Array<{ type: string; encrypted_content?: string }>;
-    }>));
-    expect(results.map(result => result.status)).toEqual(["completed", "completed"]);
-    const summaries = results.map(result => decodeCompactionSummary(result.output[0]?.encrypted_content ?? ""));
+    const results = await Promise.all(
+      responses.map(
+        async (response) =>
+          response.json() as Promise<{
+            status: string;
+            output: Array<{ type: string; encrypted_content?: string }>;
+          }>,
+      ),
+    );
+    expect(results.map((result) => result.status)).toEqual(["completed", "completed"]);
+    const summaries = results.map((result) => decodeCompactionSummary(result.output[0]?.encrypted_content ?? ""));
     expect(summaries[0] ?? "").toContain("REQ-1");
     expect(summaries[1]).toBe(summaries[0]);
     expect(browserRuns).toBe(1);
@@ -378,9 +424,13 @@ test("stream disconnect followed by an exact HTTP reconnect keeps one browser ha
   let browserRuns = 0;
   let notifyStarted!: () => void;
   let releaseBrowser!: (value: string) => void;
-  const started = new Promise<void>(resolve => { notifyStarted = resolve; });
-  const browserResult = new Promise<string>(resolve => { releaseBrowser = resolve; });
-  const factory: Parameters<typeof responseRequest>[2] = provider => {
+  const started = new Promise<void>((resolve) => {
+    notifyStarted = resolve;
+  });
+  const browserResult = new Promise<string>((resolve) => {
+    releaseBrowser = resolve;
+  });
+  const factory: Parameters<typeof responseRequest>[2] = (provider) => {
     provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
     worker = ChatGptBrowserWorker.forProvider(provider);
     if (!originalRun) originalRun = worker.run.bind(worker);
@@ -397,7 +447,7 @@ test("stream disconnect followed by an exact HTTP reconnect keeps one browser ha
     await disconnected.body!.cancel();
     const reconnect = post(body, config, factory);
     releaseBrowser(checkpoint());
-    const result = await (await reconnect).json() as {
+    const result = (await (await reconnect).json()) as {
       status: string;
       output: Array<{ type: string; encrypted_content?: string }>;
     };
@@ -422,9 +472,13 @@ test("a changed HTTP compact revision cannot replace an active handoff", async (
   let browserRuns = 0;
   let notifyStarted!: () => void;
   let releaseBrowser!: (value: string) => void;
-  const started = new Promise<void>(resolve => { notifyStarted = resolve; });
-  const browserResult = new Promise<string>(resolve => { releaseBrowser = resolve; });
-  const factory: Parameters<typeof responseRequest>[2] = provider => {
+  const started = new Promise<void>((resolve) => {
+    notifyStarted = resolve;
+  });
+  const browserResult = new Promise<string>((resolve) => {
+    releaseBrowser = resolve;
+  });
+  const factory: Parameters<typeof responseRequest>[2] = (provider) => {
     provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
     worker = ChatGptBrowserWorker.forProvider(provider);
     if (!originalRun) originalRun = worker.run.bind(worker);
@@ -442,22 +496,26 @@ test("a changed HTTP compact revision cannot replace an active handoff", async (
     await started;
     const changed = {
       ...body,
-      input: [body.input[0], { ...source, content: [{ type: "input_text", text: "Replace the original task" }] }, ...body.input.slice(2)],
+      input: [
+        body.input[0],
+        { ...source, content: [{ type: "input_text", text: "Replace the original task" }] },
+        ...body.input.slice(2),
+      ],
     };
-    revisedRequest = post(changed, config, factory).then(response => response.json() as Promise<{
-      status: string;
-      error?: { code?: string };
-    }>);
-    const revised = await Promise.race([
-      revisedRequest,
-      Bun.sleep(200).then(() => null),
-    ]);
+    revisedRequest = post(changed, config, factory).then(
+      (response) =>
+        response.json() as Promise<{
+          status: string;
+          error?: { code?: string };
+        }>,
+    );
+    const revised = await Promise.race([revisedRequest, Bun.sleep(200).then(() => null)]);
     expect(revised).not.toBeNull();
     expect(revised?.status).toBe("failed");
     expect(revised?.error?.code).toBe("compaction_revision_conflict");
     expect(browserRuns).toBe(1);
     releaseBrowser(checkpoint());
-    const original = await (await first).json() as { status: string };
+    const original = (await (await first).json()) as { status: string };
     expect(original.status).toBe("completed");
     expect(listTurnCheckpoints(workspace)).toHaveLength(1);
   } finally {
@@ -477,7 +535,7 @@ test("read-only HTTP compaction returns a checkpoint without writing workspace s
   let originalRun: ChatGptBrowserWorker["run"] | undefined;
   let browserRuns = 0;
   try {
-    const response = await post(body, config, provider => {
+    const response = await post(body, config, (provider) => {
       provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
       worker = ChatGptBrowserWorker.forProvider(provider);
       originalRun = worker.run.bind(worker);
@@ -487,7 +545,7 @@ test("read-only HTTP compaction returns a checkpoint without writing workspace s
       };
       return createChatGptWebAdapter(provider);
     });
-    const result = await response.json() as {
+    const result = (await response.json()) as {
       status: string;
       output: Array<{ type: string; encrypted_content?: string }>;
     };
@@ -516,7 +574,7 @@ test("contradictory sandbox metadata cannot authorize HTTP checkpoint persistenc
   let originalRun: ChatGptBrowserWorker["run"] | undefined;
   let browserRuns = 0;
   try {
-    const response = await post(conflicting, config, provider => {
+    const response = await post(conflicting, config, (provider) => {
       provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
       worker = ChatGptBrowserWorker.forProvider(provider);
       originalRun = worker.run.bind(worker);
@@ -526,9 +584,9 @@ test("contradictory sandbox metadata cannot authorize HTTP checkpoint persistenc
       };
       return createChatGptWebAdapter(provider);
     });
-    const result = await response.json() as { status?: string; output?: Array<{ type: string }> };
+    const result = (await response.json()) as { status?: string; output?: Array<{ type: string }> };
     expect(result.status).not.toBe("completed");
-    expect(result.output?.some(item => item.type === "compaction")).not.toBeTrue();
+    expect(result.output?.some((item) => item.type === "compaction")).not.toBeTrue();
     expect(browserRuns).toBe(0);
     expect(existsSync(join(workspace, ".agents"))).toBeFalse();
   } finally {
@@ -573,11 +631,11 @@ next_actions:
     let originalRun: ChatGptBrowserWorker["run"] | undefined;
     let browserRuns = 0;
     let repairPrompt = "";
-    const factory: Parameters<typeof responseRequest>[2] = provider => {
+    const factory: Parameters<typeof responseRequest>[2] = (provider) => {
       provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
       worker = ChatGptBrowserWorker.forProvider(provider);
       if (!originalRun) originalRun = worker.run.bind(worker);
-      worker.run = async turn => {
+      worker.run = async (turn) => {
         browserRuns += 1;
         if (browserRuns === 1) return invalidDraft;
         const prepared = await turn.prepare();
@@ -624,8 +682,10 @@ test("HTTP handoff timeout and exact replay never persist a late browser result"
   let originalRun: ChatGptBrowserWorker["run"] | undefined;
   let browserRuns = 0;
   let releaseBrowser!: (value: string) => void;
-  const browserResult = new Promise<string>(resolve => { releaseBrowser = resolve; });
-  const factory: Parameters<typeof responseRequest>[2] = provider => {
+  const browserResult = new Promise<string>((resolve) => {
+    releaseBrowser = resolve;
+  });
+  const factory: Parameters<typeof responseRequest>[2] = (provider) => {
     provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
     provider.chatgptWeb!.turnTimeoutMs = 25;
     worker = ChatGptBrowserWorker.forProvider(provider);
@@ -638,13 +698,17 @@ test("HTTP handoff timeout and exact replay never persist a late browser result"
   };
   try {
     const first = await post(body, config, factory);
-    const firstResult = await first.json() as { status: string; output?: Array<{ type: string }>; error?: { code?: string } };
+    const firstResult = (await first.json()) as {
+      status: string;
+      output?: Array<{ type: string }>;
+      error?: { code?: string };
+    };
     expect(firstResult.status).toBe("failed");
     expect(firstResult.error?.code).toBe("compaction_handoff_timeout");
-    expect(firstResult.output?.some(item => item.type === "compaction")).not.toBeTrue();
+    expect(firstResult.output?.some((item) => item.type === "compaction")).not.toBeTrue();
 
     const replay = await post(body, config, factory);
-    const replayResult = await replay.json() as typeof firstResult;
+    const replayResult = (await replay.json()) as typeof firstResult;
     expect(replayResult.status).toBe("failed");
     expect(replayResult.error?.code).toBe("compaction_handoff_timeout");
     expect(browserRuns).toBe(1);

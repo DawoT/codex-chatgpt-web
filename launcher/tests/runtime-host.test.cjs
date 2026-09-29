@@ -104,10 +104,7 @@ test("core setup refuses an implicit Automatic fallback for a new Zero Risk inst
 });
 
 test("Zero Risk can be enabled only from an installed Full harness", async () => {
-  await assert.rejects(
-    hostFor(null).host.setBrowserInteractionMode("manual"),
-    /Install the Codex integration/,
-  );
+  await assert.rejects(hostFor(null).host.setBrowserInteractionMode("manual"), /Install the Codex integration/);
   await assert.rejects(
     hostFor({ mode: "browser-only", browserHost: "launcher" }).host.setBrowserInteractionMode("manual"),
     /Connect the Full MCP harness/,
@@ -137,13 +134,16 @@ test("browser interaction mode changes reuse the transactional setup and refresh
 });
 
 test("switching back from Zero Risk preserves the saved automatic connector identity", async () => {
-  const fixture = hostFor({
-    mode: "full",
-    browserHost: "launcher",
-    appName: "Codex Zero Risk",
-    automaticAppName: "Codex Native2",
-    browserInteractionMode: "manual",
-  }, "manual");
+  const fixture = hostFor(
+    {
+      mode: "full",
+      browserHost: "launcher",
+      appName: "Codex Zero Risk",
+      automaticAppName: "Codex Native2",
+      browserInteractionMode: "manual",
+    },
+    "manual",
+  );
   await fixture.host.setBrowserInteractionMode("automatic");
   const args = fixture.invocation().args;
   assert.equal(args.includes("--app-name"), false);
@@ -249,16 +249,19 @@ test("Zero Risk Pro transaction installs or removes only its explicit model prof
 
 test("DEV setup child environment removes launcher-rebound production aliases", async () => {
   const fixture = devHostFor(null);
-  assert.deepEqual(fixture.host.devSetupEnvironment({
-    KEEP_ME: "yes",
-    CODEX_CHATGPT_WEB_HOME: "/dev",
-    CODEX_HOME: "/dev/codex-home",
-    CODEX_WEB_GPT_DEV_HOME: "/stale-dev",
-    CODEX_WEB_GPT_LAUNCHER_DATA_DIR: "/dev/launcher",
-  }), {
-    KEEP_ME: "yes",
-    CODEX_WEB_GPT_DEV_HOME: path.resolve("/dev"),
-  });
+  assert.deepEqual(
+    fixture.host.devSetupEnvironment({
+      KEEP_ME: "yes",
+      CODEX_CHATGPT_WEB_HOME: "/dev",
+      CODEX_HOME: "/dev/codex-home",
+      CODEX_WEB_GPT_DEV_HOME: "/stale-dev",
+      CODEX_WEB_GPT_LAUNCHER_DATA_DIR: "/dev/launcher",
+    }),
+    {
+      KEEP_ME: "yes",
+      CODEX_WEB_GPT_DEV_HOME: path.resolve("/dev"),
+    },
+  );
 
   let runOptions;
   fixture.host.captureSetupCheckpoint = () => [];
@@ -323,12 +326,15 @@ test("DEV doctor requires live tunnel readiness without probing a Responses list
   try {
     const report = await fixture.host.devDoctor();
     assert.equal(report.ok, true);
-    assert.deepEqual(report.checks.map(check => [check.id, check.status]), [
-      ["dev-profile", "ok"],
-      ["dev-tunnel-credentials", "ok"],
-      ["dev-tunnel-runtime", "ok"],
-      ["responses-listener", "ok"],
-    ]);
+    assert.deepEqual(
+      report.checks.map((check) => [check.id, check.status]),
+      [
+        ["dev-profile", "ok"],
+        ["dev-tunnel-credentials", "ok"],
+        ["dev-tunnel-runtime", "ok"],
+        ["responses-listener", "ok"],
+      ],
+    );
     assert.match(report.checks.at(-1).message, /never starts a Responses listener/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -370,7 +376,8 @@ test("launcher update transaction upgrades its owned full runtime with saved con
     appName: "Codex Native2",
     releaseVersion: "1.1.1",
     solAvailable: true,
-    extraHighAvailable: false, proAvailable: false,
+    extraHighAvailable: false,
+    proAvailable: false,
   });
   fixture.host.bridgeStatus = async () => ({ installed: true, active: true, errors: [] });
 
@@ -528,10 +535,12 @@ test("MCP credential replacement remains explicit and requires a complete new pa
     /Tunnel ID must be/,
   );
   await assert.rejects(
-    Promise.resolve().then(() => fixture.host.setupMcp({
-      replace: true,
-      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
-    })),
+    Promise.resolve().then(() =>
+      fixture.host.setupMcp({
+        replace: true,
+        tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+      }),
+    ),
     /runtime key is required/,
   );
 });
@@ -668,7 +677,9 @@ test("integration removal is accepted only after a new status process observes i
     supervisor: {
       readConfig: () => config,
       readSetupConfig: () => config,
-      stopForSetup: async () => { calls.push("runtime:stop"); },
+      stopForSetup: async () => {
+        calls.push("runtime:stop");
+      },
     },
   });
   host.launcherControlEnvironment = () => ({ CODEX_WEB_GPT_LAUNCHER_CONTROL_TOKEN: "test-token" });
@@ -685,11 +696,7 @@ test("integration removal is accepted only after a new status process observes i
   };
 
   await host.uninstallIntegration();
-  assert.deepEqual(calls, [
-    "runtime:stop",
-    "uninstall --yes --launcher-control",
-    "route status",
-  ]);
+  assert.deepEqual(calls, ["runtime:stop", "uninstall --yes --launcher-control", "route status"]);
 });
 
 test("integration removal rejects a command that leaves an inactive journal behind", async () => {
@@ -703,7 +710,9 @@ test("integration removal rejects a command that leaves an inactive journal behi
     supervisor: {
       readConfig: () => config,
       readSetupConfig: () => config,
-      stopForSetup: async () => { calls.push("runtime:stop"); },
+      stopForSetup: async () => {
+        calls.push("runtime:stop");
+      },
     },
   });
   host.launcherControlEnvironment = () => ({ CODEX_WEB_GPT_LAUNCHER_CONTROL_TOKEN: "test-token" });
@@ -719,16 +728,8 @@ test("integration removal rejects a command that leaves an inactive journal behi
     throw new Error(`Unexpected command: ${action}`);
   };
 
-  await assert.rejects(
-    host.uninstallIntegration(),
-    /integration removal did not persist in the active config/,
-  );
-  assert.deepEqual(calls, [
-    "runtime:stop",
-    "uninstall --yes --launcher-control",
-    "route status",
-    "route status",
-  ]);
+  await assert.rejects(host.uninstallIntegration(), /integration removal did not persist in the active config/);
+  assert.deepEqual(calls, ["runtime:stop", "uninstall --yes --launcher-control", "route status", "route status"]);
 });
 
 test("connector verification uses the current identity and rejects a legacy local runtime", () => {
@@ -757,10 +758,13 @@ test("connector verification uses the current identity and rejects a legacy loca
 test("launcher-controlled CLI operations use the live descriptor token", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-runtime-control-"));
   const descriptorPath = path.join(root, "launcher-browser.json");
-  fs.writeFileSync(descriptorPath, `${JSON.stringify({
-    pid: process.pid,
-    control: { token: "launcher-live-control-token-0123456789abcdefghijkl" },
-  })}\n`);
+  fs.writeFileSync(
+    descriptorPath,
+    `${JSON.stringify({
+      pid: process.pid,
+      control: { token: "launcher-live-control-token-0123456789abcdefghijkl" },
+    })}\n`,
+  );
   const host = new RuntimeHost({
     app: { getPath: () => root },
     logger: { info() {}, warn() {}, error() {} },
@@ -796,14 +800,16 @@ test("failed first-time setup removes its route before restoring the unconfigure
   const supervisor = {
     coreHome,
     configPath,
-    readConfig: () => fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null,
-    readSetupConfig: () => fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null,
+    readConfig: () => (fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null),
+    readSetupConfig: () => (fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : null),
     stopForSetup: async () => {
       stops += 1;
       return { status: "stopped" };
     },
     startIfConfigured: async () => ({ status: fs.existsSync(configPath) ? "ready" : "not-configured" }),
-    clearState: () => { cleared += 1; },
+    clearState: () => {
+      cleared += 1;
+    },
   };
   const host = new RuntimeHost({
     app: { getPath: () => root },
@@ -825,18 +831,15 @@ test("failed first-time setup removes its route before restoring the unconfigure
     throw setupError;
   };
   try {
-    await assert.rejects(
-      host.runSetup("core-setup", ["setup", "--browser-only"], {}),
-      error => {
-        assert.match(error.message, /synthetic setup failure; incomplete first-time setup was rolled back/);
-        assert.equal(error.cause, setupError);
-        return true;
-      },
+    await assert.rejects(host.runSetup("core-setup", ["setup", "--browser-only"], {}), (error) => {
+      assert.match(error.message, /synthetic setup failure; incomplete first-time setup was rolled back/);
+      assert.equal(error.cause, setupError);
+      return true;
+    });
+    assert.deepEqual(
+      calls.map((args) => args.join(" ")),
+      ["setup --browser-only --preflight-only", "setup --browser-only"],
     );
-    assert.deepEqual(calls.map((args) => args.join(" ")), [
-      "setup --browser-only --preflight-only",
-      "setup --browser-only",
-    ]);
     assert.equal(fs.existsSync(configPath), false);
     assert.equal(fs.existsSync(journalPath), false);
     assert.equal(fs.existsSync(recoveryJournalPath), false);
@@ -866,8 +869,13 @@ test("a failed setup preflight leaves the previous runtime running and untouched
       configPath,
       readSetupConfig: () => config,
       readConfig: () => config,
-      stopForSetup: async () => { stops += 1; },
-      startIfConfigured: async () => { starts += 1; return { status: "needs-setup" }; },
+      stopForSetup: async () => {
+        stops += 1;
+      },
+      startIfConfigured: async () => {
+        starts += 1;
+        return { status: "needs-setup" };
+      },
     },
   });
   host.run = async (_name, args) => {
@@ -897,8 +905,13 @@ test("setup preflight keeps the requested setup budget before stopping the curre
     supervisor: {
       readSetupConfig: () => null,
       readConfig: () => null,
-      stopForSetup: async () => { events.push("stop"); },
-      startIfConfigured: async () => { events.push("start"); return { status: "ready" }; },
+      stopForSetup: async () => {
+        events.push("stop");
+      },
+      startIfConfigured: async () => {
+        events.push("start");
+        return { status: "ready" };
+      },
     },
   });
   host.captureSetupCheckpoint = () => [];
@@ -933,19 +946,30 @@ test("a browser-mode commit failure restores the previous runtime inside setup",
     supervisor: {
       readSetupConfig: () => previousConfig,
       readConfig: () => previousConfig,
-      stopForSetup: async () => { stops += 1; },
-      startIfConfigured: async () => { starts += 1; return { status: "ready" }; },
+      stopForSetup: async () => {
+        stops += 1;
+      },
+      startIfConfigured: async () => {
+        starts += 1;
+        return { status: "ready" };
+      },
     },
   });
   host.captureSetupCheckpoint = () => ({ exact: "checkpoint" });
   host.setupCheckpointChanged = () => true;
-  host.restoreSetupCheckpoint = () => { checkpointRestores += 1; };
-  host.restorePreviousRuntime = async () => { runtimeRestores += 1; };
+  host.restoreSetupCheckpoint = () => {
+    checkpointRestores += 1;
+  };
+  host.restorePreviousRuntime = async () => {
+    runtimeRestores += 1;
+  };
   host.run = async () => ({ code: 0, stdout: "", stderr: "" });
 
   await assert.rejects(
     host.runSetup("browser-interaction-mode", ["setup", "--full"], {
-      afterRuntimeReady: async () => { throw new Error("surface ownership failed"); },
+      afterRuntimeReady: async () => {
+        throw new Error("surface ownership failed");
+      },
     }),
     /surface ownership failed/,
   );
@@ -968,8 +992,12 @@ test("launcher delegates an existing terminal-managed installation to the migrat
       if (config.browserHost !== "launcher") throw new Error("not launcher-owned");
       return config;
     },
-    prepareExternalMigration: () => { prepared += 1; },
-    stopForSetup: async () => { launcherStops += 1; },
+    prepareExternalMigration: () => {
+      prepared += 1;
+    },
+    stopForSetup: async () => {
+      launcherStops += 1;
+    },
     startIfConfigured: async () => ({ status: "ready" }),
   };
   const host = new RuntimeHost({
@@ -1007,7 +1035,9 @@ test("failed terminal migration verifies the unchanged previous runtime instead 
       coreHome,
       configPath: path.join(coreHome, "config.json"),
       readSetupConfig: () => config,
-      readConfig: () => { throw new Error("not launcher-owned"); },
+      readConfig: () => {
+        throw new Error("not launcher-owned");
+      },
       prepareExternalMigration() {},
     },
   });
@@ -1018,15 +1048,8 @@ test("failed terminal migration verifies the unchanged previous runtime instead 
     return { code: 0, stdout: '{"ok":true}', stderr: "" };
   };
 
-  await assert.rejects(
-    host.runSetup("core-setup", ["setup", "--browser-only"], {}),
-    /synthetic migration failure$/,
-  );
-  assert.deepEqual(calls, [
-    "setup --browser-only --preflight-only",
-    "setup --browser-only",
-    "doctor --json",
-  ]);
+  await assert.rejects(host.runSetup("core-setup", ["setup", "--browser-only"], {}), /synthetic migration failure$/);
+  assert.deepEqual(calls, ["setup --browser-only --preflight-only", "setup --browser-only", "doctor --json"]);
 });
 
 test("failed fresh-conversation setting restores every mutable setup file before restarting the previous runtime", async () => {
@@ -1055,7 +1078,15 @@ test("failed fresh-conversation setting restores every mutable setup file before
       profileName: "custom",
     },
   };
-  for (const file of [configPath, journalPath, recoveryJournalPath, keyPath, profilePath, codexConfigPath, codexModelsCachePath]) {
+  for (const file of [
+    configPath,
+    journalPath,
+    recoveryJournalPath,
+    keyPath,
+    profilePath,
+    codexConfigPath,
+    codexModelsCachePath,
+  ]) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
   }
   fs.writeFileSync(configPath, `${JSON.stringify(oldConfig)}\n`, { mode: 0o600 });
@@ -1098,7 +1129,10 @@ test("failed fresh-conversation setting restores every mutable setup file before
   });
   host.run = async (_name, args) => {
     if (args.includes("--preflight-only")) return { code: 0, stdout: "", stderr: "" };
-    fs.writeFileSync(configPath, `${JSON.stringify({ ...oldConfig, releaseVersion: "0.2.0", experimentalFreshConversationPerTurn: true })}\n`);
+    fs.writeFileSync(
+      configPath,
+      `${JSON.stringify({ ...oldConfig, releaseVersion: "0.2.0", experimentalFreshConversationPerTurn: true })}\n`,
+    );
     fs.writeFileSync(journalPath, "new journal\n");
     fs.writeFileSync(recoveryJournalPath, "new recovery journal\n");
     fs.writeFileSync(keyPath, "new key\n");
@@ -1109,10 +1143,7 @@ test("failed fresh-conversation setting restores every mutable setup file before
   };
 
   try {
-    await assert.rejects(
-      host.setFreshConversationPerTurn(true),
-      /synthetic updated runtime startup failure$/,
-    );
+    await assert.rejects(host.setFreshConversationPerTurn(true), /synthetic updated runtime startup failure$/);
     assert.equal(startAttempts, 2);
     assert.deepEqual(readConfig(), oldConfig);
     assert.equal(fs.readFileSync(journalPath, "utf8"), "old journal\n");
@@ -1183,7 +1214,10 @@ test("failed terminal migration restores removed launchd ownership before verify
     calls.push(args.join(" "));
     if (args.includes("--preflight-only")) return { code: 0, stdout: "", stderr: "" };
     if (args[0] === "setup") {
-      fs.writeFileSync(configPath, `${JSON.stringify({ ...oldConfig, browserHost: "launcher", releaseVersion: "0.2.0" })}\n`);
+      fs.writeFileSync(
+        configPath,
+        `${JSON.stringify({ ...oldConfig, browserHost: "launcher", releaseVersion: "0.2.0" })}\n`,
+      );
       fs.rmSync(daemonPlist);
       fs.rmSync(tunnelPlist);
     }
@@ -1191,10 +1225,7 @@ test("failed terminal migration restores removed launchd ownership before verify
   };
 
   try {
-    await assert.rejects(
-      host.runSetup("core-setup", ["setup", "--full"], {}),
-      /synthetic launcher startup failure$/,
-    );
+    await assert.rejects(host.runSetup("core-setup", ["setup", "--full"], {}), /synthetic launcher startup failure$/);
     assert.equal(startAttempts, 1);
     assert.deepEqual(readConfig(), oldConfig);
     assert.equal(fs.readFileSync(daemonPlist, "utf8"), "old daemon plist\n");
@@ -1235,12 +1266,16 @@ test("macOS passkey capture uses an isolated launcher-controlled transfer", asyn
     invocation = { name, args, options };
     const statePath = args[args.indexOf("--storage-state") + 1];
     fs.writeFileSync(statePath, `${JSON.stringify({ cookies: [], origins: [] })}\n`, { mode: 0o600 });
-    fs.writeFileSync(`${statePath}.verified.json`, `${JSON.stringify({
-      version: 1,
-      captureComplete: true,
-      source: "isolated-normal-browser-profile",
-      capturedAt: new Date().toISOString(),
-    })}\n`, { mode: 0o600 });
+    fs.writeFileSync(
+      `${statePath}.verified.json`,
+      `${JSON.stringify({
+        version: 1,
+        captureComplete: true,
+        source: "isolated-normal-browser-profile",
+        capturedAt: new Date().toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
     return { code: 0, stdout: "", stderr: "" };
   };
   try {
@@ -1300,18 +1335,25 @@ test("skill file experiment uses the setup transaction in production and DEV, an
   assert.equal(manual.invocation(), undefined);
 });
 
-
 test("fresh-conversation preference uses production and DEV setup without forcing mode or other preferences", async () => {
   for (const makeHost of [hostFor, devHostFor]) {
     for (const mode of ["browser-only", "full"]) {
-      const existing = { mode, browserInteractionMode: "automatic", autoApproveToolCalls: true,
-        experimentalFreshConversationPerTurn: false, experimentalSkillAttachments: true };
+      const existing = {
+        mode,
+        browserInteractionMode: "automatic",
+        autoApproveToolCalls: true,
+        experimentalFreshConversationPerTurn: false,
+        experimentalSkillAttachments: true,
+      };
       const fixture = makeHost(existing);
       for (const enabled of [true, false]) {
         assert.equal((await fixture.host.setFreshConversationPerTurn(enabled)).enabled, enabled);
         const { name, args } = fixture.invocation();
         assert.equal(name, "fresh-conversation-per-turn");
-        assert.deepEqual(args.slice(0, makeHost === devHostFor ? 2 : 1), makeHost === devHostFor ? ["dev", "setup"] : ["setup"]);
+        assert.deepEqual(
+          args.slice(0, makeHost === devHostFor ? 2 : 1),
+          makeHost === devHostFor ? ["dev", "setup"] : ["setup"],
+        );
         assert.equal(args.includes(`--${mode}`), true);
         assert.equal(args.includes(enabled ? "--fresh-conversation" : "--retained-conversation"), true);
         assert.equal(args.includes(enabled ? "--retained-conversation" : "--fresh-conversation"), false);

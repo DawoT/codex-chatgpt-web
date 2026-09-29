@@ -6,7 +6,7 @@ const { configureChatGptAnnouncementDismissal } = require("../electron/browser-a
 const { BrowserHost } = require("../electron/browser-host.cjs");
 
 // Reduced from the live Study Mode announcement, including its portal and close owner.
-const banner = label => `<div data-testid="modal-beacon"><div role="dialog" data-state="open">
+const banner = (label) => `<div data-testid="modal-beacon"><div role="dialog" data-state="open">
   <button id="dismiss" data-testid="close-button" aria-label="${label}"></button>
   <div>Learn anything, step by step</div><button id="try">Try it now</button>
 </div></div>`;
@@ -15,27 +15,39 @@ function fixture(html, origin = "https://chatgpt.com") {
   const window = createWindow(`<html><body>${html}</body></html>`);
   const document = window.document;
   const clicked = [];
-  let notify, connected = false, observers = 0;
+  let notify,
+    connected = false,
+    observers = 0;
   const context = createContext({
-    document, Element: window.Element, location: { origin },
-    getComputedStyle: element => ({ visibility: element.style.visibility || "visible" }),
+    document,
+    Element: window.Element,
+    location: { origin },
+    getComputedStyle: (element) => ({ visibility: element.style.visibility || "visible" }),
     MutationObserver: class {
-      constructor(callback) { notify = callback; observers += 1; }
-      observe() { connected = true; }
-      disconnect() { connected = false; }
+      constructor(callback) {
+        notify = callback;
+        observers += 1;
+      }
+      observe() {
+        connected = true;
+      }
+      disconnect() {
+        connected = false;
+      }
     },
   });
   const prepare = () => {
     for (const element of Array.from(document.querySelectorAll("*"))) {
-      element.getClientRects = () => element.closest('[hidden], [style="display:none"]') ? [] : [{}];
+      element.getClientRects = () => (element.closest('[hidden], [style="display:none"]') ? [] : [{}]);
       if (element.tagName === "BUTTON") element.addEventListener("click", () => clicked.push(element.id));
     }
   };
   prepare();
   return {
-    document, clicked,
-    configure: enabled => runInContext(`(${configureChatGptAnnouncementDismissal})(${enabled})`, context),
-    mutate: html => {
+    document,
+    clicked,
+    configure: (enabled) => runInContext(`(${configureChatGptAnnouncementDismissal})(${enabled})`, context),
+    mutate: (html) => {
       document.body.innerHTML = html;
       prepare();
       if (connected) notify([{ target: document.body, addedNodes: Array.from(document.body.childNodes) }]);
@@ -49,7 +61,9 @@ function fixture(html, origin = "https://chatgpt.com") {
 
 test("announcement dismissal is scoped to its portal and independent of the Close translation", () => {
   for (const label of ["Close", "关闭", "閉じる", "닫기", "Fechar"]) {
-    const f = fixture(`${banner(label)}<div role="dialog"><button id="settings" data-testid="close-button"></button></div>`);
+    const f = fixture(
+      `${banner(label)}<div role="dialog"><button id="settings" data-testid="close-button"></button></div>`,
+    );
     f.configure(true);
     f.configure(true);
     f.notify();
@@ -95,10 +109,15 @@ test("late announcements close, while disconnect stops subsequent DOM handling",
 
 test("mode teardown targets only the primary and automatic surfaces", async () => {
   const touched = [];
-  const view = id => ({ webContents: {
-    isDestroyed: () => false,
-    executeJavaScript: async script => { touched.push(id); assert.match(script, /\)\(false\)$/); },
-  } });
+  const view = (id) => ({
+    webContents: {
+      isDestroyed: () => false,
+      executeJavaScript: async (script) => {
+        touched.push(id);
+        assert.match(script, /\)\(false\)$/);
+      },
+    },
+  });
   const host = Object.assign(Object.create(BrowserHost.prototype), {
     view: view("home"),
     turnTabs: new Map([

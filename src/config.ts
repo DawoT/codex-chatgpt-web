@@ -1,12 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, openSync, closeSync, renameSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, delimiter, dirname, isAbsolute, join, resolve, sep, win32 } from "node:path";
-import { tmpdir } from "node:os";
 import {
-  CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
-  CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL,
-} from "./chatgpt-web-models";
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, delimiter, dirname, isAbsolute, join, resolve, sep, win32 } from "node:path";
+import { CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL, CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL } from "./chatgpt-web-models";
 import type { CodexProviderConfig } from "./types";
 import { VERSION } from "./version";
 
@@ -31,10 +37,12 @@ export function isLegacyChatGptConnectorName(value: string): boolean {
 }
 
 export function legacyChatGptConnectorMigrationMessage(legacyName: string): string {
-  return `Legacy ChatGPT connector ${JSON.stringify(legacyName)} was found, but this release requires`
-    + ` a newly created connector named ${JSON.stringify(CHATGPT_CONNECTOR_NAME)}. Create`
-    + ` ${JSON.stringify(CHATGPT_CONNECTOR_NAME)} against the same tunnel with Authentication set to None;`
-    + ` do not rename or refresh ${JSON.stringify(legacyName)}.`;
+  return (
+    `Legacy ChatGPT connector ${JSON.stringify(legacyName)} was found, but this release requires` +
+    ` a newly created connector named ${JSON.stringify(CHATGPT_CONNECTOR_NAME)}. Create` +
+    ` ${JSON.stringify(CHATGPT_CONNECTOR_NAME)} against the same tunnel with Authentication set to None;` +
+    ` do not rename or refresh ${JSON.stringify(legacyName)}.`
+  );
 }
 
 export interface InteractionConnectorIdentities {
@@ -181,8 +189,8 @@ function renameAtomicFile(source: string, destination: string): void {
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      const transientWindowsError = process.platform === "win32"
-        && (code === "EBUSY" || code === "EPERM" || code === "EACCES");
+      const transientWindowsError =
+        process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "EACCES");
       const delay = WINDOWS_RENAME_RETRY_DELAYS_MS[attempt];
       if (!transientWindowsError || delay === undefined) throw error;
       Atomics.wait(atomicWaitCell, 0, 0, delay);
@@ -198,7 +206,11 @@ export function atomicWriteFile(
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (protectDirectory) {
-    try { chmodSync(directory, 0o700); } catch { /* Windows ACLs are managed by the installer. */ }
+    try {
+      chmodSync(directory, 0o700);
+    } catch {
+      /* Windows ACLs are managed by the installer. */
+    }
   }
   const temp = `${path}.tmp-${process.pid}-${crypto.randomUUID()}`;
   const fd = openSync(temp, "wx", mode);
@@ -207,11 +219,17 @@ export function atomicWriteFile(
     closeSync(fd);
     renameAtomicFile(temp, path);
   } catch (error) {
-    try { closeSync(fd); } catch {}
+    try {
+      closeSync(fd);
+    } catch {}
     rmSync(temp, { force: true });
     throw error;
   }
-  try { chmodSync(path, mode); } catch { /* Windows ACLs are managed by the installer. */ }
+  try {
+    chmodSync(path, mode);
+  } catch {
+    /* Windows ACLs are managed by the installer. */
+  }
 }
 
 export function stripUtf8Bom(text: string): string {
@@ -257,9 +275,7 @@ export function defaultConfig(mode: RuntimeMode = "browser-only"): AppConfig {
 
 export function currentRuntimeCommand(): string[] {
   const executableName = basename(process.execPath).toLowerCase();
-  const bunExecutable = executableName === "bun" || executableName === "bun.exe"
-    ? installedBunExecutable()
-    : undefined;
+  const bunExecutable = executableName === "bun" || executableName === "bun.exe" ? installedBunExecutable() : undefined;
   return runtimeCommandForProcess({
     launcher: process.env.CODEX_CHATGPT_WEB_LAUNCHER,
     executable: process.execPath,
@@ -281,9 +297,9 @@ export function installedBunExecutable({
   const pathDelimiter = platform === "win32" ? ";" : delimiter;
   const pathCandidates = pathValue
     .split(pathDelimiter)
-    .map(part => part.trim().replace(/^"(.*)"$/, "$1"))
+    .map((part) => part.trim().replace(/^"(.*)"$/, "$1"))
     .filter(Boolean)
-    .map(part => join(part, executableName));
+    .map((part) => join(part, executableName));
   const discovered = [
     process.env.CODEX_CHATGPT_WEB_BUN,
     process.env.CODEX_WEB_GPT_BUN,
@@ -338,7 +354,7 @@ export function runtimeCommandForProcess({
 }
 
 function inside(path: string, root: string): boolean {
-  const normalize = (value: string) => process.platform === "win32" ? resolve(value).toLowerCase() : resolve(value);
+  const normalize = (value: string) => (process.platform === "win32" ? resolve(value).toLowerCase() : resolve(value));
   const normalizedPath = normalize(path);
   const normalizedRoot = normalize(root);
   return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}${sep}`);
@@ -351,17 +367,14 @@ export function assertDurableRuntimeCommand(command: string[]): void {
   const ephemeralRoots = [tmpdir(), "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"];
   for (const part of command) {
     if (!isAbsolute(part)) continue;
-    if (ephemeralRoots.some(root => inside(part, root))) {
+    if (ephemeralRoots.some((root) => inside(part, root))) {
       throw new Error(`Runtime command must not reference an ephemeral path: ${part}`);
     }
   }
   if (!existsSync(executable)) throw new Error(`Runtime executable does not exist: ${executable}`);
 }
 
-export function defaultChromeExecutable(
-  platform = process.platform,
-  programFiles = process.env.PROGRAMFILES,
-): string {
+export function defaultChromeExecutable(platform = process.platform, programFiles = process.env.PROGRAMFILES): string {
   if (platform === "darwin") {
     return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   }
@@ -390,8 +403,8 @@ export function loadConfigForSetup(): AppConfig {
     raw.browserHost = "managed-chrome";
   }
   const interactionMode = raw.browserInteractionMode ?? "automatic";
-  const automaticName = raw.automaticAppName
-    ?? (interactionMode === "automatic" ? raw.appName : CHATGPT_CONNECTOR_NAME);
+  const automaticName =
+    raw.automaticAppName ?? (interactionMode === "automatic" ? raw.appName : CHATGPT_CONNECTOR_NAME);
   if (automaticName === ZERO_RISK_CHATGPT_CONNECTOR_NAME) {
     raw.automaticAppName = CHATGPT_CONNECTOR_NAME;
     if (interactionMode === "automatic") raw.appName = CHATGPT_CONNECTOR_NAME;
@@ -400,13 +413,15 @@ export function loadConfigForSetup(): AppConfig {
 }
 
 function parseConfig(value: unknown, path: string): AppConfig {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid configuration object in ${path}`);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`Invalid configuration object in ${path}`);
   const parsed = value as Partial<AppConfig>;
   if (parsed.version !== 3) throw new Error(`Unsupported configuration version in ${path}; rerun setup to migrate it`);
   if (parsed.purpose !== undefined && parsed.purpose !== "dev-harness") {
     throw new Error(`Invalid configuration purpose in ${path}`);
   }
-  if (typeof parsed.releaseVersion !== "string" || !parsed.releaseVersion.trim()) throw new Error(`Missing releaseVersion in ${path}`);
+  if (typeof parsed.releaseVersion !== "string" || !parsed.releaseVersion.trim())
+    throw new Error(`Missing releaseVersion in ${path}`);
   if (parsed.mode !== "browser-only" && parsed.mode !== "full") throw new Error(`Invalid runtime mode in ${path}`);
   const subagentProtocol = parsed.subagentProtocol ?? "compatibility-v1";
   if (subagentProtocol !== "compatibility-v1" && subagentProtocol !== "native") {
@@ -426,7 +441,8 @@ function parseConfig(value: unknown, path: string): AppConfig {
   if (browserInteractionMode === "manual" && parsed.browserHost !== "launcher") {
     throw new Error(`Zero Risk requires the launcher browser host in ${path}`);
   }
-  if (!Number.isInteger(parsed.port) || parsed.port! < 1 || parsed.port! > 65_535) throw new Error(`Invalid port in ${path}`);
+  if (!Number.isInteger(parsed.port) || parsed.port! < 1 || parsed.port! > 65_535)
+    throw new Error(`Invalid port in ${path}`);
   if (!Number.isSafeInteger(parsed.contextWindow) || parsed.contextWindow! <= 0) {
     throw new Error(`Invalid contextWindow in ${path}`);
   }
@@ -435,14 +451,19 @@ function parseConfig(value: unknown, path: string): AppConfig {
     throw new Error(`Invalid autoApproveToolCalls in ${path}`);
   }
   const requiredStrings: Array<keyof AppConfig> = [
-    "appName", "chromeExecutablePath", "storageStatePath", "brokerSocketPath", "controlToken",
+    "appName",
+    "chromeExecutablePath",
+    "storageStatePath",
+    "brokerSocketPath",
+    "controlToken",
   ];
   for (const key of requiredStrings) {
-    if (typeof parsed[key] !== "string" || !(parsed[key] as string).trim()) throw new Error(`Missing ${key} in ${path}`);
+    if (typeof parsed[key] !== "string" || !(parsed[key] as string).trim())
+      throw new Error(`Missing ${key} in ${path}`);
   }
   if (parsed.appName!.length > 80) throw new Error(`appName is too long in ${path}`);
-  const automaticAppName = parsed.automaticAppName
-    ?? (browserInteractionMode === "automatic" ? parsed.appName : CHATGPT_CONNECTOR_NAME);
+  const automaticAppName =
+    parsed.automaticAppName ?? (browserInteractionMode === "automatic" ? parsed.appName : CHATGPT_CONNECTOR_NAME);
   const manualAppName = parsed.manualAppName ?? ZERO_RISK_CHATGPT_CONNECTOR_NAME;
   if (typeof automaticAppName !== "string" || !automaticAppName.trim() || automaticAppName.length > 80) {
     throw new Error(`Invalid automaticAppName in ${path}`);
@@ -457,12 +478,13 @@ function parseConfig(value: unknown, path: string): AppConfig {
   if (parsed.appName !== expectedAppName) {
     throw new Error(`Active appName does not match browserInteractionMode in ${path}; rerun setup`);
   }
-  if (parsed.browserHost === "launcher"
-    && (typeof parsed.browserHostDescriptorPath !== "string" || !parsed.browserHostDescriptorPath.trim())) {
+  if (
+    parsed.browserHost === "launcher" &&
+    (typeof parsed.browserHostDescriptorPath !== "string" || !parsed.browserHostDescriptorPath.trim())
+  ) {
     throw new Error(`Launcher browser host requires browserHostDescriptorPath in ${path}`);
   }
-  if (parsed.browserHost === "launcher"
-    && !isAbsolute(expandUserPath(parsed.browserHostDescriptorPath!))) {
+  if (parsed.browserHost === "launcher" && !isAbsolute(expandUserPath(parsed.browserHostDescriptorPath!))) {
     throw new Error(`Launcher browserHostDescriptorPath must be absolute in ${path}`);
   }
   const brokerEndpoint = expandUserPath(parsed.brokerSocketPath!);
@@ -499,8 +521,11 @@ function parseConfig(value: unknown, path: string): AppConfig {
     validateTunnel(parsed.tunnel, "tunnel");
     if (parsed.automaticTunnel !== undefined) validateTunnel(parsed.automaticTunnel, "automaticTunnel");
     if (parsed.manualTunnel !== undefined) validateTunnel(parsed.manualTunnel, "manualTunnel");
-    if (parsed.automaticTunnel && parsed.manualTunnel
-      && parsed.automaticTunnel.tunnelId === parsed.manualTunnel.tunnelId) {
+    if (
+      parsed.automaticTunnel &&
+      parsed.manualTunnel &&
+      parsed.automaticTunnel.tunnelId === parsed.manualTunnel.tunnelId
+    ) {
       throw new Error(`Automatic and Zero Risk must use different Tunnel IDs in ${path}`);
     }
     const activeTunnel = browserInteractionMode === "manual" ? parsed.manualTunnel : parsed.automaticTunnel;
@@ -511,8 +536,11 @@ function parseConfig(value: unknown, path: string): AppConfig {
       throw new Error(`Active tunnel does not match browserInteractionMode in ${path}; rerun MCP setup`);
     }
   }
-  if (!Array.isArray(parsed.runtimeCommand) || parsed.runtimeCommand.length === 0
-    || parsed.runtimeCommand.some(part => typeof part !== "string" || !part.trim())) {
+  if (
+    !Array.isArray(parsed.runtimeCommand) ||
+    parsed.runtimeCommand.length === 0 ||
+    parsed.runtimeCommand.some((part) => typeof part !== "string" || !part.trim())
+  ) {
     throw new Error(`Invalid runtimeCommand in ${path}`);
   }
   assertDurableRuntimeCommand(parsed.runtimeCommand as string[]);
@@ -525,15 +553,16 @@ function parseConfig(value: unknown, path: string): AppConfig {
   if (parsed.solAvailable !== undefined && typeof parsed.solAvailable !== "boolean") {
     throw new Error(`Invalid solAvailable in ${path}`);
   }
-  if (parsed.experimentalBiggerContext !== undefined
-    && typeof parsed.experimentalBiggerContext !== "boolean") {
+  if (parsed.experimentalBiggerContext !== undefined && typeof parsed.experimentalBiggerContext !== "boolean") {
     throw new Error(`Invalid experimentalBiggerContext in ${path}`);
   }
   if (parsed.zeroRiskProEnabled !== undefined && typeof parsed.zeroRiskProEnabled !== "boolean") {
     throw new Error(`Invalid zeroRiskProEnabled in ${path}`);
   }
-  if (parsed.stallTimeoutSec !== undefined
-    && (!Number.isFinite(parsed.stallTimeoutSec) || parsed.stallTimeoutSec <= 0)) {
+  if (
+    parsed.stallTimeoutSec !== undefined &&
+    (!Number.isFinite(parsed.stallTimeoutSec) || parsed.stallTimeoutSec <= 0)
+  ) {
     throw new Error(`Invalid stallTimeoutSec in ${path}`);
   }
   const solAvailable = parsed.solAvailable !== false;
@@ -542,8 +571,10 @@ function parseConfig(value: unknown, path: string): AppConfig {
     throw new Error(`Invalid experimentalSkillAttachments in ${path}`);
   }
   const experimentalSkillAttachments = parsed.experimentalSkillAttachments === true;
-  if (parsed.experimentalFreshConversationPerTurn !== undefined
-    && typeof parsed.experimentalFreshConversationPerTurn !== "boolean") {
+  if (
+    parsed.experimentalFreshConversationPerTurn !== undefined &&
+    typeof parsed.experimentalFreshConversationPerTurn !== "boolean"
+  ) {
     throw new Error(`Invalid experimentalFreshConversationPerTurn in ${path}`);
   }
   const experimentalFreshConversationPerTurn = parsed.experimentalFreshConversationPerTurn === true;
@@ -581,11 +612,13 @@ function parseConfig(value: unknown, path: string): AppConfig {
     }
     let workspaces: string[] = [];
     if (raw.workspaces !== undefined) {
-      if (!Array.isArray(raw.workspaces)
-        || raw.workspaces.some(entry => typeof entry !== "string" || !entry.trim())) {
+      if (
+        !Array.isArray(raw.workspaces) ||
+        raw.workspaces.some((entry) => typeof entry !== "string" || !entry.trim())
+      ) {
         throw new Error(`Invalid chatFirst.workspaces in ${path}; it must be an array of non-empty path strings`);
       }
-      workspaces = raw.workspaces.map(entry => {
+      workspaces = raw.workspaces.map((entry) => {
         const expanded = expandUserPath(entry);
         if (!isAbsolute(expanded)) {
           throw new Error(`chatFirst.workspaces entries must be absolute in ${path}: ${entry}`);
@@ -652,20 +685,24 @@ export function saveConfig(config: AppConfig): void {
 
 export function providerConfig(config: AppConfig): CodexProviderConfig {
   const manual = config.browserInteractionMode === "manual";
-  const model = manual
-    ? CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL
-    : config.solAvailable ? "gpt-5.6-sol" : "gpt-5.6-luna";
+  const model = manual ? CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL : config.solAvailable ? "gpt-5.6-sol" : "gpt-5.6-luna";
   const models = manual
     ? [
-      CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
-      ...(config.zeroRiskProEnabled ? [CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL] : []),
-    ]
+        CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
+        ...(config.zeroRiskProEnabled ? [CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL] : []),
+      ]
     : [model];
   const efforts = manual
     ? ["low"]
     : config.solAvailable
-    ? ["low", "medium", "high", ...(config.extraHighAvailable === true ? ["xhigh"] : []), ...(config.proAvailable ? ["max"] : [])]
-    : ["low", "medium"];
+      ? [
+          "low",
+          "medium",
+          "high",
+          ...(config.extraHighAvailable === true ? ["xhigh"] : []),
+          ...(config.proAvailable ? ["max"] : []),
+        ]
+      : ["low", "medium"];
   return {
     adapter: "chatgpt-web",
     baseUrl: "https://chatgpt.com",
@@ -673,10 +710,10 @@ export function providerConfig(config: AppConfig): CodexProviderConfig {
     liveModels: false,
     defaultModel: model,
     contextWindow: config.contextWindow,
-    modelInputModalities: Object.fromEntries(models.map(model => [model, manual ? ["text"] : ["text", "image"]])),
-    modelReasoningEfforts: Object.fromEntries(models.map(modelId => [modelId, efforts])),
+    modelInputModalities: Object.fromEntries(models.map((model) => [model, manual ? ["text"] : ["text", "image"]])),
+    modelReasoningEfforts: Object.fromEntries(models.map((modelId) => [modelId, efforts])),
     modelDefaultReasoningEfforts: Object.fromEntries(
-      models.map(modelId => [modelId, manual ? "low" : config.solAvailable ? "high" : "low"]),
+      models.map((modelId) => [modelId, manual ? "low" : config.solAvailable ? "high" : "low"]),
     ),
     noReasoningModels: [],
     chatgptWeb: {

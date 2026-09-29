@@ -9,14 +9,16 @@ export interface BrowserHelperPromptSelection {
 export function createBrowserHelperPromptSelection(): BrowserHelperPromptSelection {
   let settle!: (prepared: CompiledChatGptWebPrompt | undefined) => void;
   let settled = false;
-  const selected = new Promise<CompiledChatGptWebPrompt | undefined>(resolve => { settle = resolve; });
+  const selected = new Promise<CompiledChatGptWebPrompt | undefined>((resolve) => {
+    settle = resolve;
+  });
   const finish = (prepared: CompiledChatGptWebPrompt | undefined): void => {
     if (settled) return;
     settled = true;
     settle(prepared);
   };
   return {
-    select: prepared => finish(prepared),
+    select: (prepared) => finish(prepared),
     cancel: () => finish(undefined),
     wait: async () => {
       const prepared = await selected;

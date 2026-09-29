@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Real-Time Dogfooding Audit & Verification Sentinel
- * 
+ *
  * Runs end-to-end dogfooding checks directly on the codex-chatgpt-web repository:
  * 1. Live Daemon & Tunnel Health (/healthz, /v1/models)
  * 2. Live MCP Tool Output Spooler (.agents/scratch/outputs/)
@@ -15,14 +15,23 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { spoolToolOutput, resolveProjectScratchDirectory } from "../src/adapters/chatgpt-web/tool-spooler";
-import { readWorkspaceState, writeWorkspaceState, resolveWorkspaceStatePath } from "../src/adapters/chatgpt-web/workspace-state";
-import { resolveSubagentWorkspace, resolveSubagentScratchDir, writeSubagentResult, readSubagentResult } from "../src/adapters/chatgpt-web/subagent-workspace";
+import {
+  listTurnCheckpoints,
+  saveTurnCheckpoint,
+  validateCompactionQuality,
+} from "../src/adapters/chatgpt-web/autonomous-compaction";
 import { evaluatePreflightBudget, preparePreflightInput } from "../src/adapters/chatgpt-web/preflight-budget";
-import { saveTurnCheckpoint, listTurnCheckpoints, validateCompactionQuality, mergeCompactionIntoWorkspaceState } from "../src/adapters/chatgpt-web/autonomous-compaction";
 import { pruneCodexSessions } from "../src/adapters/chatgpt-web/session-store-pruner";
+import {
+  readSubagentResult,
+  resolveSubagentScratchDir,
+  resolveSubagentWorkspace,
+  writeSubagentResult,
+} from "../src/adapters/chatgpt-web/subagent-workspace";
+import { resolveProjectScratchDirectory, spoolToolOutput } from "../src/adapters/chatgpt-web/tool-spooler";
+import { readWorkspaceState, resolveWorkspaceStatePath } from "../src/adapters/chatgpt-web/workspace-state";
 import type { CodexMessage, CodexParsedRequest } from "../src/types";
 
 const REPO_ROOT = process.cwd();
@@ -38,7 +47,13 @@ interface AuditResult {
 
 const results: AuditResult[] = [];
 
-function recordResult(step: string, passed: boolean, durationMs: number, details: string, metadata?: Record<string, unknown>) {
+function recordResult(
+  step: string,
+  passed: boolean,
+  durationMs: number,
+  details: string,
+  metadata?: Record<string, unknown>,
+) {
   results.push({ step, passed, durationMs, details, metadata });
   const icon = passed ? "✅ [PASS]" : "❌ [FAIL]";
   console.log(`${icon} ${step} (${durationMs.toFixed(1)}ms): ${details}`);
@@ -49,7 +64,12 @@ async function auditLiveDaemon(): Promise<void> {
   try {
     const healthRes = await fetch(`${DAEMON_URL}/healthz`, { signal: AbortSignal.timeout(3000) });
     if (!healthRes.ok) {
-      recordResult("1. Live Daemon Health", false, performance.now() - start, `Daemon returned HTTP ${healthRes.status}`);
+      recordResult(
+        "1. Live Daemon Health",
+        false,
+        performance.now() - start,
+        `Daemon returned HTTP ${healthRes.status}`,
+      );
       return;
     }
     const health = (await healthRes.json()) as {
@@ -69,7 +89,12 @@ async function auditLiveDaemon(): Promise<void> {
       health,
     );
   } catch (error) {
-    recordResult("1. Live Daemon Health", false, performance.now() - start, `Connection error to ${DAEMON_URL}: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "1. Live Daemon Health",
+      false,
+      performance.now() - start,
+      `Connection error to ${DAEMON_URL}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -83,7 +108,7 @@ function auditLiveSpooling(): void {
       toolName: "git_log_audit",
     });
 
-    const scratchDir = resolveProjectScratchDirectory(REPO_ROOT);
+    const _scratchDir = resolveProjectScratchDirectory(REPO_ROOT);
     const logExists = spooled.filePath ? existsSync(spooled.filePath) : false;
 
     recordResult(
@@ -94,7 +119,12 @@ function auditLiveSpooling(): void {
       { spooledChars: realGitLog.length, summaryChars: spooled.text.length, path: spooled.filePath },
     );
   } catch (error) {
-    recordResult("2. Live Tool Output Spooler", false, performance.now() - start, `Spooling error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "2. Live Tool Output Spooler",
+      false,
+      performance.now() - start,
+      `Spooling error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -105,7 +135,12 @@ function auditLiveWorkspaceState(): void {
     const state = readWorkspaceState(REPO_ROOT);
 
     if (!state) {
-      recordResult("3. Live Workspace State", false, performance.now() - start, `Could not read .agents/STATE.md from ${statePath}`);
+      recordResult(
+        "3. Live Workspace State",
+        false,
+        performance.now() - start,
+        `Could not read .agents/STATE.md from ${statePath}`,
+      );
       return;
     }
 
@@ -121,7 +156,12 @@ function auditLiveWorkspaceState(): void {
       { activePhase: state.activePhase, milestonesCount: state.completedMilestones.length },
     );
   } catch (error) {
-    recordResult("3. Live Workspace State", false, performance.now() - start, `State sync error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "3. Live Workspace State",
+      false,
+      performance.now() - start,
+      `State sync error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -151,7 +191,12 @@ function auditLiveSubagentWorkspace(): void {
       { subagentId, status: loaded?.status },
     );
   } catch (error) {
-    recordResult("4. Live Subagent Isolation", false, performance.now() - start, `Subagent error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "4. Live Subagent Isolation",
+      false,
+      performance.now() - start,
+      `Subagent error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -169,7 +214,7 @@ function auditLivePreflightGuardian(): void {
         role: "toolResult",
         toolCallId: `call_audit_${i}`,
         toolName: "read_file",
-        content: `Source chunk #${i}:\n` + "// safe code line audit\n".repeat(1000),
+        content: `Source chunk #${i}:\n${"// safe code line audit\n".repeat(1000)}`,
         isError: false,
         timestamp: Date.now() + i,
       });
@@ -190,7 +235,9 @@ function auditLivePreflightGuardian(): void {
     };
 
     const verdict = evaluatePreflightBudget(request, mockCapabilities, { experimentalBiggerContext: false });
-    const { input: preservedInput } = preparePreflightInput(request, mockCapabilities, { experimentalBiggerContext: false });
+    const { input: preservedInput } = preparePreflightInput(request, mockCapabilities, {
+      experimentalBiggerContext: false,
+    });
     const preserved = JSON.stringify(preservedInput) === JSON.stringify(request);
     recordResult(
       "5. Live Preflight Budget Guardian",
@@ -200,7 +247,12 @@ function auditLivePreflightGuardian(): void {
       { actionRequired: verdict.actionRequired },
     );
   } catch (error) {
-    recordResult("5. Live Preflight Budget Guardian", false, performance.now() - start, `Preflight error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "5. Live Preflight Budget Guardian",
+      false,
+      performance.now() - start,
+      `Preflight error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -210,7 +262,8 @@ function auditLiveCompactionAndCheckpoints(): void {
     const existingCheckpoints = listTurnCheckpoints(REPO_ROOT);
     const nextEpoch = (existingCheckpoints[0]?.epoch ?? 0) + 1;
 
-    const summary = "Dogfooding live checkpoint: verified spooler, workspace state, subagents, and preflight budget in codex-chatgpt-web.";
+    const summary =
+      "Dogfooding live checkpoint: verified spooler, workspace state, subagents, and preflight budget in codex-chatgpt-web.";
     const checkpointPath = saveTurnCheckpoint(REPO_ROOT, {
       epoch: nextEpoch,
       turnCount: 10,
@@ -237,7 +290,12 @@ function auditLiveCompactionAndCheckpoints(): void {
       { checkpointPath, epoch: nextEpoch, totalCheckpoints: checkpointsAfter.length },
     );
   } catch (error) {
-    recordResult("6. Live Checkpoints & Quality Gate", false, performance.now() - start, `Compaction audit error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "6. Live Checkpoints & Quality Gate",
+      false,
+      performance.now() - start,
+      `Compaction audit error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -270,34 +328,53 @@ async function auditLiveTransportAndSessionStore(): Promise<void> {
       allOk,
       performance.now() - start,
       `HEAD probe: ${headRes.status} OK | WS 426: ${wsRes.status} (SSE signaled) | Auth Guard: ${modelsRes.status} | Sessions scanned: ${pruneScan.scannedFiles} (${(pruneScan.totalInitialBytes / (1024 * 1024 * 1024)).toFixed(2)} GB)`,
-      { headStatus: headRes.status, wsStatus: wsRes.status, modelsStatus: modelsRes.status, scannedSessions: pruneScan.scannedFiles },
+      {
+        headStatus: headRes.status,
+        wsStatus: wsRes.status,
+        modelsStatus: modelsRes.status,
+        scannedSessions: pruneScan.scannedFiles,
+      },
     );
   } catch (error) {
-    recordResult("7. Live Transport & Session Store", false, performance.now() - start, `Transport audit error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "7. Live Transport & Session Store",
+      false,
+      performance.now() - start,
+      `Transport audit error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
-
 
 async function auditLiveSessionJanitor(): Promise<void> {
   const start = performance.now();
   try {
     const healthRes = await fetch(`${DAEMON_URL}/healthz`, { signal: AbortSignal.timeout(3000) });
     if (!healthRes.ok) {
-      recordResult("8. Live Session Janitor Health", false, performance.now() - start, `Daemon /healthz returned HTTP ${healthRes.status}`);
+      recordResult(
+        "8. Live Session Janitor Health",
+        false,
+        performance.now() - start,
+        `Daemon /healthz returned HTTP ${healthRes.status}`,
+      );
       return;
     }
-    const healthData = await healthRes.json() as Record<string, unknown>;
-    const janitor = healthData["session_janitor"] as Record<string, unknown> | undefined;
+    const healthData = (await healthRes.json()) as Record<string, unknown>;
+    const janitor = healthData.session_janitor as Record<string, unknown> | undefined;
     if (!janitor) {
-      recordResult("8. Live Session Janitor Health", false, performance.now() - start, "session_janitor key missing from /healthz response");
+      recordResult(
+        "8. Live Session Janitor Health",
+        false,
+        performance.now() - start,
+        "session_janitor key missing from /healthz response",
+      );
       return;
     }
-    const enabled = janitor["enabled"] === true;
-    const running = janitor["running"] === true;
-    const runsCount = (janitor["runs_count"] as number) ?? 0;
+    const enabled = janitor.enabled === true;
+    const running = janitor.running === true;
+    const runsCount = (janitor.runs_count as number) ?? 0;
     const allOk = enabled && running && runsCount >= 1;
-    const lastPrunedCount = (janitor["last_pruned_count"] as number) ?? 0;
-    const lastReclaimedBytes = (janitor["last_reclaimed_bytes"] as number) ?? 0;
+    const lastPrunedCount = (janitor.last_pruned_count as number) ?? 0;
+    const lastReclaimedBytes = (janitor.last_reclaimed_bytes as number) ?? 0;
     recordResult(
       "8. Live Session Janitor Health",
       allOk,
@@ -306,10 +383,14 @@ async function auditLiveSessionJanitor(): Promise<void> {
       { enabled, running, runsCount, lastPrunedCount, lastReclaimedBytes },
     );
   } catch (error) {
-    recordResult("8. Live Session Janitor Health", false, performance.now() - start, `Session janitor audit error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "8. Live Session Janitor Health",
+      false,
+      performance.now() - start,
+      `Session janitor audit error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
-
 
 async function auditLiveObservabilityEndpoints(): Promise<void> {
   const start = performance.now();
@@ -317,15 +398,21 @@ async function auditLiveObservabilityEndpoints(): Promise<void> {
     // Step 9a: GET /metrics → Prometheus text
     const metricsRes = await fetch(`${DAEMON_URL}/metrics`, { signal: AbortSignal.timeout(3000) });
     if (!metricsRes.ok) {
-      recordResult("9. Live Observability Endpoints", false, performance.now() - start, `/metrics returned HTTP ${metricsRes.status}`);
+      recordResult(
+        "9. Live Observability Endpoints",
+        false,
+        performance.now() - start,
+        `/metrics returned HTTP ${metricsRes.status}`,
+      );
       return;
     }
     const ct = metricsRes.headers.get("content-type") ?? "";
     const metricsBody = await metricsRes.text();
-    const hasPrometheusFormat = ct.includes("text/plain") && metricsBody.includes("# TYPE") && metricsBody.includes("codex_chatgpt_web_");
+    const hasPrometheusFormat =
+      ct.includes("text/plain") && metricsBody.includes("# TYPE") && metricsBody.includes("codex_chatgpt_web_");
 
     // Step 9b: GET /admin/status → 401 without auth, 200 with auth
-    const token = process.env["CODEX_CONTROL_TOKEN"] ?? "";
+    const token = process.env.CODEX_CONTROL_TOKEN ?? "";
     const statusUnauth = await fetch(`${DAEMON_URL}/admin/status`, { signal: AbortSignal.timeout(3000) });
     const unauthOk = statusUnauth.status === 401;
 
@@ -337,8 +424,8 @@ async function auditLiveObservabilityEndpoints(): Promise<void> {
     const statusReachable = statusRes.status === 200 || statusRes.status === 401;
     let statusSections = false;
     if (statusRes.status === 200) {
-      const statusBody = await statusRes.json() as Record<string, unknown>;
-      statusSections = !!(statusBody["status"] && statusBody["daemon"] && statusBody["metrics"] && statusBody["alerts"]);
+      const statusBody = (await statusRes.json()) as Record<string, unknown>;
+      statusSections = !!(statusBody.status && statusBody.daemon && statusBody.metrics && statusBody.alerts);
     } else {
       statusSections = true; // endpoint exists, auth required = correct behavior
     }
@@ -349,10 +436,20 @@ async function auditLiveObservabilityEndpoints(): Promise<void> {
       allOk,
       performance.now() - start,
       `/metrics: ${metricsRes.status} (${ct.split(";")[0]}) | /admin/status no-auth: ${statusUnauth.status} | /admin/status auth: ${statusRes.status}`,
-      { metricsStatus: metricsRes.status, hasPrometheusFormat, unauthStatus: statusUnauth.status, authStatus: statusRes.status },
+      {
+        metricsStatus: metricsRes.status,
+        hasPrometheusFormat,
+        unauthStatus: statusUnauth.status,
+        authStatus: statusRes.status,
+      },
     );
   } catch (error) {
-    recordResult("9. Live Observability Endpoints", false, performance.now() - start, `Observability audit error: ${error instanceof Error ? error.message : String(error)}`);
+    recordResult(
+      "9. Live Observability Endpoints",
+      false,
+      performance.now() - start,
+      `Observability audit error: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -375,7 +472,7 @@ async function runRealtimeDogfoodAudit() {
 
   console.log("\n==================================================================");
   const total = results.length;
-  const passed = results.filter(r => r.passed).length;
+  const passed = results.filter((r) => r.passed).length;
   const allPassed = passed === total;
 
   if (allPassed) {
@@ -388,12 +485,20 @@ async function runRealtimeDogfoodAudit() {
   // Write audit summary report into .agents/dogfood-audit-report.json
   try {
     const reportPath = join(REPO_ROOT, ".agents", "dogfood-audit-report.json");
-    writeFileSync(reportPath, JSON.stringify({
-      timestamp: new Date().toISOString(),
-      summary: allPassed ? "ALL_SYSTEMS_OPERATIONAL" : "ISSUES_DETECTED",
-      stats: { total, passed, failed: total - passed },
-      results,
-    }, null, 2), "utf-8");
+    writeFileSync(
+      reportPath,
+      JSON.stringify(
+        {
+          timestamp: new Date().toISOString(),
+          summary: allPassed ? "ALL_SYSTEMS_OPERATIONAL" : "ISSUES_DETECTED",
+          stats: { total, passed, failed: total - passed },
+          results,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
     console.log(`📄 Reporte de auditoría guardado en: ${reportPath}`);
   } catch {
     // Ignore report write error

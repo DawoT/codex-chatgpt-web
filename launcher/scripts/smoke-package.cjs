@@ -6,9 +6,7 @@ const { validateRuntimeBundle } = require("../electron/runtime-install.cjs");
 
 const launcherRoot = path.resolve(__dirname, "..");
 const artifactsDirectory = path.join(launcherRoot, "artifacts");
-const launcherManifest = JSON.parse(
-  fs.readFileSync(path.join(launcherRoot, "package.json"), "utf8"),
-);
+const launcherManifest = JSON.parse(fs.readFileSync(path.join(launcherRoot, "package.json"), "utf8"));
 const expectedVersion = launcherManifest.version;
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-package-smoke-"));
 const markerPath = path.join(scratch, "ready.json");
@@ -43,7 +41,7 @@ function windowsInstallLocation() {
   if (result.status !== 0) {
     throw new Error(`Windows installer did not register ${registryKey}: ${result.stderr?.trim() || "no output"}`);
   }
-  const match = result.stdout.match(/^\s*InstallLocation\s+REG_SZ\s+(.+?)\s*$/mi);
+  const match = result.stdout.match(/^\s*InstallLocation\s+REG_SZ\s+(.+?)\s*$/im);
   if (!match || !path.win32.isAbsolute(match[1])) {
     throw new Error(`Windows installer registered an invalid InstallLocation: ${result.stdout.trim()}`);
   }
@@ -51,7 +49,8 @@ function windowsInstallLocation() {
 }
 
 function artifact(pattern, label) {
-  const matches = fs.readdirSync(artifactsDirectory)
+  const matches = fs
+    .readdirSync(artifactsDirectory)
     .filter((name) => pattern.test(name))
     .sort();
   if (matches.length !== 1) {
@@ -112,33 +111,31 @@ try {
   run(command, args, { env });
   if (!fs.existsSync(markerPath)) throw new Error("Packaged launcher did not write its readiness marker");
   const marker = JSON.parse(fs.readFileSync(markerPath, "utf8"));
-  if (marker.ok !== true
-    || marker.packaged !== true
-    || marker.runtimeVerified !== true
-    || marker.version !== expectedVersion
-    || marker.platform !== process.platform) {
+  if (
+    marker.ok !== true ||
+    marker.packaged !== true ||
+    marker.runtimeVerified !== true ||
+    marker.version !== expectedVersion ||
+    marker.platform !== process.platform
+  ) {
     throw new Error(`Unexpected packaged launcher marker: ${JSON.stringify(marker)}`);
   }
-  const installedRuntime = path.join(
-    coreHome,
-    "versions",
-    `${expectedVersion}-${process.platform}-${process.arch}`,
-  );
-  const installedManifest = JSON.parse(
-    fs.readFileSync(path.join(installedRuntime, "manifest.json"), "utf8"),
-  );
+  const installedRuntime = path.join(coreHome, "versions", `${expectedVersion}-${process.platform}-${process.arch}`);
+  const installedManifest = JSON.parse(fs.readFileSync(path.join(installedRuntime, "manifest.json"), "utf8"));
   validateRuntimeBundle(installedRuntime, {
     version: expectedVersion,
     platform: process.platform,
     arch: process.arch,
   });
-  if (installedManifest.schemaVersion !== 2
-    || installedManifest.appVersion !== expectedVersion
-    || installedManifest.platform !== process.platform
-    || installedManifest.arch !== process.arch
-    || !Array.isArray(installedManifest.files)
-    || installedManifest.files.length === 0
-    || !/^[a-f0-9]{64}$/.test(installedManifest.bundleId)) {
+  if (
+    installedManifest.schemaVersion !== 2 ||
+    installedManifest.appVersion !== expectedVersion ||
+    installedManifest.platform !== process.platform ||
+    installedManifest.arch !== process.arch ||
+    !Array.isArray(installedManifest.files) ||
+    installedManifest.files.length === 0 ||
+    !/^[a-f0-9]{64}$/.test(installedManifest.bundleId)
+  ) {
     throw new Error(`Packaged launcher installed the wrong durable runtime: ${JSON.stringify(installedManifest)}`);
   }
   process.stdout.write(`PACKAGED_LAUNCHER_SMOKE_OK ${process.platform}/${process.arch}\n`);
@@ -147,10 +144,7 @@ try {
     if (macAppBundle) {
       const launchServices =
         "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
-      run(
-        launchServices,
-        ["-u", macAppBundle],
-      );
+      run(launchServices, ["-u", macAppBundle]);
       run(launchServices, ["-gc"]);
     }
   } finally {

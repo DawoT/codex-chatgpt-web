@@ -11,9 +11,7 @@ function redactText(value) {
     .replace(/tunnel_[a-f0-9]{32}/g, "[tunnel-id]")
     .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[runtime-key]")
     .replace(/\bBearer\s+[A-Za-z0-9._~-]{20,}\b/gi, "Bearer [redacted]");
-  return redacted.length > MAX_LOG_STRING_CHARS
-    ? `${redacted.slice(0, MAX_LOG_STRING_CHARS)}…[truncated]`
-    : redacted;
+  return redacted.length > MAX_LOG_STRING_CHARS ? `${redacted.slice(0, MAX_LOG_STRING_CHARS)}…[truncated]` : redacted;
 }
 
 function redactHttpUrls(value) {
@@ -44,7 +42,9 @@ function sanitizeForExport(value, seen = new WeakSet()) {
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      /^(?:prompt|response|html|dom|content|visibleRows|sidebarRows|sidebarTitles|conversationTitle|conversationTitles|chatTitle|chatTitles)$/i.test(key)
+      /^(?:prompt|response|html|dom|content|visibleRows|sidebarRows|sidebarTitles|conversationTitle|conversationTitles|chatTitle|chatTitles)$/i.test(
+        key,
+      )
         ? "[redacted]"
         : sanitizeForExport(item, seen),
     ]),
@@ -55,15 +55,18 @@ function exportSanitizedLogs({ filePath, destinationPath }) {
   const sourcePaths = [`${filePath}.1`, filePath];
   const destination = path.resolve(destinationPath);
   const destinationStat = fs.statSync(destination, { throwIfNoEntry: false });
-  if (sourcePaths.some(sourcePath => {
-    if (path.resolve(sourcePath) === destination) return true;
-    if (!destinationStat) return false;
-    const sourceStat = fs.statSync(sourcePath, { throwIfNoEntry: false });
-    return sourceStat && (
-      (sourceStat.ino !== 0 && sourceStat.dev === destinationStat.dev && sourceStat.ino === destinationStat.ino)
-      || fs.realpathSync(sourcePath) === fs.realpathSync(destination)
-    );
-  })) {
+  if (
+    sourcePaths.some((sourcePath) => {
+      if (path.resolve(sourcePath) === destination) return true;
+      if (!destinationStat) return false;
+      const sourceStat = fs.statSync(sourcePath, { throwIfNoEntry: false });
+      return (
+        sourceStat &&
+        ((sourceStat.ino !== 0 && sourceStat.dev === destinationStat.dev && sourceStat.ino === destinationStat.ino) ||
+          fs.realpathSync(sourcePath) === fs.realpathSync(destination))
+      );
+    })
+  ) {
     throw new Error("Refusing to overwrite a launcher source log with an exported diagnostic");
   }
   const records = [];
@@ -78,17 +81,18 @@ function exportSanitizedLogs({ filePath, destinationPath }) {
     for (const line of lines) {
       try {
         const record = JSON.parse(line);
-        if (!record
-          || typeof record.at !== "string"
-          || !["debug", "info", "warning", "error"].includes(record.level)
-          || typeof record.event !== "string") continue;
+        if (
+          !record ||
+          typeof record.at !== "string" ||
+          !["debug", "info", "warning", "error"].includes(record.level) ||
+          typeof record.event !== "string"
+        )
+          continue;
         records.push({
           at: record.at,
           level: record.level,
           event: record.event,
-          detail: record.detail && typeof record.detail === "object"
-            ? sanitizeForExport(record.detail)
-            : {},
+          detail: record.detail && typeof record.detail === "object" ? sanitizeForExport(record.detail) : {},
         });
       } catch {}
     }
@@ -97,7 +101,7 @@ function exportSanitizedLogs({ filePath, destinationPath }) {
   // the identity check. A failed write leaves the previous export intact.
   writePrivateFileAtomic(
     destination,
-    records.length > 0 ? `${records.map(record => JSON.stringify(record)).join("\n")}\n` : "",
+    records.length > 0 ? `${records.map((record) => JSON.stringify(record)).join("\n")}\n` : "",
     { protectDirectory: false },
   );
   return records.length;
@@ -112,9 +116,7 @@ function sanitize(value, seen = new WeakSet()) {
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      /(?:authorization|cookie|runtimeKey|controlToken)/i.test(key)
-        ? "[redacted]"
-        : sanitize(item, seen),
+      /(?:authorization|cookie|runtimeKey|controlToken)/i.test(key) ? "[redacted]" : sanitize(item, seen),
     ]),
   );
 }
@@ -132,17 +134,18 @@ function readRecent(filePath) {
     for (let index = lines.length - 1; index >= 0; index -= 1) {
       try {
         const record = JSON.parse(lines[index]);
-        if (!record
-          || typeof record.at !== "string"
-          || !["debug", "info", "warning", "error"].includes(record.level)
-          || typeof record.event !== "string") continue;
+        if (
+          !record ||
+          typeof record.at !== "string" ||
+          !["debug", "info", "warning", "error"].includes(record.level) ||
+          typeof record.event !== "string"
+        )
+          continue;
         records.push({
           at: record.at,
           level: record.level,
           event: record.event,
-          detail: record.detail && typeof record.detail === "object"
-            ? sanitize(record.detail)
-            : {},
+          detail: record.detail && typeof record.detail === "object" ? sanitize(record.detail) : {},
         });
         if (records.length === MAX_MEMORY_RECORDS) return records.reverse();
       } catch {}

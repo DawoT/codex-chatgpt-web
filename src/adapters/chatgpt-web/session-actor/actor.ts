@@ -4,9 +4,10 @@
  * state beyond that queue. quiesce() reports when the queue has been observed
  * quiet, which mailbox eviction (manager dispose) waits for.
  */
+
+import type { SessionActorJournal } from "./journal";
 import type { SessionAcknowledgement, SessionCommand } from "./types";
 import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
-import { SessionActorJournal } from "./journal";
 
 export class SessionActor {
   private tail: Promise<unknown> = Promise.resolve();
@@ -22,7 +23,10 @@ export class SessionActor {
       return Promise.reject(new Error("Session actor command addressed another session"));
     }
     const result = this.tail.then(() => this.journal.apply(command));
-    this.tail = result.then(() => undefined, () => undefined);
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
@@ -43,7 +47,15 @@ export class SessionActor {
     type: SessionCommand["type"],
     turnId: string,
     operationId: string,
-    fields: Pick<SessionCommand, "historyRevision" | "parentOperationId" | "toolBatchRevision" | "surfaceId" | "surfaceGeneration" | "checkpointRef"> = {},
+    fields: Pick<
+      SessionCommand,
+      | "historyRevision"
+      | "parentOperationId"
+      | "toolBatchRevision"
+      | "surfaceId"
+      | "surfaceGeneration"
+      | "checkpointRef"
+    > = {},
     expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     const result = this.tail.then(() => {
@@ -53,10 +65,10 @@ export class SessionActor {
       }
       const prior = this.journal.findLocalTransition(this.sessionId, generation, type, operationId);
       if (prior) {
-        if (prior.command.turnId !== turnId
-          || Object.entries(fields).some(([key, value]) => (
-            prior.command[key as keyof SessionCommand] !== value
-          ))) {
+        if (
+          prior.command.turnId !== turnId ||
+          Object.entries(fields).some(([key, value]) => prior.command[key as keyof SessionCommand] !== value)
+        ) {
           throw new Error("Session actor local event duplicate has different contents");
         }
         return prior.acknowledgement;
@@ -73,7 +85,10 @@ export class SessionActor {
         ...fields,
       });
     });
-    this.tail = result.then(() => undefined, () => undefined);
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
@@ -83,23 +98,21 @@ export class SessionActor {
     outcome: "not_sent" | "completed",
     evidenceRef: string,
   ): Promise<number> {
-    const result = this.tail.then(() => this.journal.reconcileOperation(
-      this.sessionId,
-      generation,
-      operationId,
-      outcome,
-      evidenceRef,
-    ));
-    this.tail = result.then(() => undefined, () => undefined);
+    const result = this.tail.then(() =>
+      this.journal.reconcileOperation(this.sessionId, generation, operationId, outcome, evidenceRef),
+    );
+    this.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
   async launch(
     intent: SessionCommand,
-    effect: (emit: (
-      type: "operation_accepted" | "operation_completed",
-      resultRef?: string,
-    ) => Promise<void>) => Promise<void>,
+    effect: (
+      emit: (type: "operation_accepted" | "operation_completed", resultRef?: string) => Promise<void>,
+    ) => Promise<void>,
   ): Promise<{ acknowledgement: SessionAcknowledgement; settled: Promise<void> }> {
     if (intent.type !== "operation_intent") {
       throw new Error("Session actor can launch only a recorded operation intent");
@@ -116,10 +129,7 @@ export class SessionActor {
       throw new Error("Session actor operation requires reconciliation before an external effect");
     }
     let producerSequence = 0;
-    const emit = async (
-      type: "operation_accepted" | "operation_completed",
-      resultRef?: string,
-    ): Promise<void> => {
+    const emit = async (type: "operation_accepted" | "operation_completed", resultRef?: string): Promise<void> => {
       producerSequence += 1;
       const result = await this.dispatch({
         ...intent,
@@ -132,20 +142,23 @@ export class SessionActor {
         throw new Error(`Session actor effect result rejected: ${result.status.replaceAll("_", " ")}`);
       }
     };
-    const settled = Promise.resolve().then(() => effect(emit)).catch(async error => {
-      const pending = this.journal.operation(this.sessionId, intent.generation, intent.operationId);
-      if (pending?.state === "intent" || pending?.state === "accepted") {
-        await this.dispatch({
-          ...intent,
-          type: "operation_uncertain",
-          producerId: `effect:${intent.operationId}`,
-          producerSequence: producerSequence + 1,
-        });
-      }
-      throw error;
-    }).finally(() => {
-      if (this.effects.get(key) === settled) this.effects.delete(key);
-    });
+    const settled = Promise.resolve()
+      .then(() => effect(emit))
+      .catch(async (error) => {
+        const pending = this.journal.operation(this.sessionId, intent.generation, intent.operationId);
+        if (pending?.state === "intent" || pending?.state === "accepted") {
+          await this.dispatch({
+            ...intent,
+            type: "operation_uncertain",
+            producerId: `effect:${intent.operationId}`,
+            producerSequence: producerSequence + 1,
+          });
+        }
+        throw error;
+      })
+      .finally(() => {
+        if (this.effects.get(key) === settled) this.effects.delete(key);
+      });
     this.effects.set(key, settled);
     void settled.catch(() => {});
     return { acknowledgement, settled };

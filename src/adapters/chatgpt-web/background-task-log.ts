@@ -1,13 +1,4 @@
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readSync,
-  unlinkSync,
-} from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 interface FileIdentity {
@@ -37,7 +28,11 @@ export function createTaskLog(cwd: string, taskId: string): TaskLog {
     directories.push({ path, dev: stat.dev, ino: stat.ino });
   }
   const path = join(cwd, ".codex-tmp", "tasks", `${taskId}.log`);
-  const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+  const fd = openSync(
+    path,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+    0o600,
+  );
   try {
     const stat = fstatSync(fd);
     return { path, fd, identity: { path, dev: stat.dev, ino: stat.ino }, directories };
@@ -48,7 +43,7 @@ export function createTaskLog(cwd: string, taskId: string): TaskLog {
 }
 
 function unchangedDirectories(log: TaskLog): boolean {
-  return log.directories.every(identity => {
+  return log.directories.every((identity) => {
     const stat = lstatSync(identity.path);
     return stat.isDirectory() && !stat.isSymbolicLink() && stat.dev === identity.dev && stat.ino === identity.ino;
   });
@@ -84,7 +79,8 @@ export function removeTaskLog(log: TaskLog): boolean {
   try {
     if (!unchangedDirectories(log)) return false;
     const stat = lstatSync(log.path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.dev !== log.identity.dev || stat.ino !== log.identity.ino) return false;
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.dev !== log.identity.dev || stat.ino !== log.identity.ino)
+      return false;
     unlinkSync(log.path);
     return true;
   } catch (error) {

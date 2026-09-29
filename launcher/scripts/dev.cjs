@@ -43,31 +43,33 @@ const waitForVite = async () => {
   throw new Error("Vite did not become ready on 127.0.0.1:4178");
 };
 
-void waitForVite().then(() => {
-  electron = spawn(electronBin, [root, "--dev-profile"], {
-    cwd: root,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      VITE_DEV_SERVER_URL: "http://127.0.0.1:4178",
-      CODEX_WEB_GPT_BUN: bun,
-      CODEX_CHATGPT_WEB_BUN: bun,
-    },
-  });
-  electron.once("exit", (code) => {
-    stop();
-    process.exitCode = code ?? 0;
-  });
-  electron.once("error", (error) => {
-    console.error(`Electron failed to start: ${error.message}`);
+void waitForVite()
+  .then(() => {
+    electron = spawn(electronBin, [root, "--dev-profile"], {
+      cwd: root,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        VITE_DEV_SERVER_URL: "http://127.0.0.1:4178",
+        CODEX_WEB_GPT_BUN: bun,
+        CODEX_CHATGPT_WEB_BUN: bun,
+      },
+    });
+    electron.once("exit", (code) => {
+      stop();
+      process.exitCode = code ?? 0;
+    });
+    electron.once("error", (error) => {
+      console.error(`Electron failed to start: ${error.message}`);
+      stop();
+      process.exitCode = 1;
+    });
+  })
+  .catch((error) => {
+    console.error(error);
     stop();
     process.exitCode = 1;
   });
-}).catch((error) => {
-  console.error(error);
-  stop();
-  process.exitCode = 1;
-});
 
 vite.once("exit", (code) => {
   if (!stopped && code !== 0) {

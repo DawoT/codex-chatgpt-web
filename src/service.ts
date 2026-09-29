@@ -3,7 +3,7 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import type { AppConfig } from "./config";
 import { assertDurableRuntimeCommand, atomicWriteFile, getConfigDir } from "./config";
-import { runCommand, runChecked } from "./process";
+import { runChecked, runCommand } from "./process";
 
 const LABEL = "io.github.codex-chatgpt-web.daemon";
 
@@ -43,7 +43,7 @@ async function bootstrapService(path: string, timeoutMs = 20_000): Promise<void>
     const result = runCommand("launchctl", ["bootstrap", launchDomain(), path]);
     if (result.status === 0) return;
     lastError = result.stderr.trim() || result.stdout.trim() || `exit status ${result.status}`;
-    await new Promise(resolveWait => setTimeout(resolveWait, 100));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
   throw new Error(`launchctl bootstrap ${launchDomain()} ${path} failed after ${timeoutMs}ms: ${lastError}`);
 }
@@ -51,7 +51,7 @@ async function bootstrapService(path: string, timeoutMs = 20_000): Promise<void>
 async function waitForServiceUnloaded(timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (getServiceStatus().loaded && Date.now() < deadline) {
-    await new Promise(resolveWait => setTimeout(resolveWait, 50));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
   }
   if (getServiceStatus().loaded) throw new Error(`launchd did not unload ${LABEL} after ${timeoutMs}ms`);
 }
@@ -67,7 +67,7 @@ function plist(config: AppConfig): string {
   <string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-${args.map(arg => `    <string>${xml(arg)}</string>`).join("\n")}
+${args.map((arg) => `    <string>${xml(arg)}</string>`).join("\n")}
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -94,8 +94,7 @@ ${args.map(arg => `    <string>${xml(arg)}</string>`).join("\n")}
 function assertMacOs(): void {
   if (process.platform !== "darwin") {
     throw new Error(
-      "Terminal-managed background services require macOS. "
-      + "Use the Codex Web GPT launcher on Windows or Linux.",
+      "Terminal-managed background services require macOS. " + "Use the Codex Web GPT launcher on Windows or Linux.",
     );
   }
 }
@@ -139,7 +138,10 @@ export interface DrainLease {
   release: () => Promise<void>;
 }
 
-async function control(config: AppConfig, action: "drain" | "resume" | "cancel-turns"): Promise<Record<string, unknown>> {
+async function control(
+  config: AppConfig,
+  action: "drain" | "resume" | "cancel-turns",
+): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
@@ -149,7 +151,7 @@ async function control(config: AppConfig, action: "drain" | "resume" | "cancel-t
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json() as Record<string, unknown>;
+    return (await response.json()) as Record<string, unknown>;
   } finally {
     clearTimeout(timeout);
   }
@@ -172,12 +174,16 @@ export async function interruptActiveTurn(
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const result = await response.json() as Record<string, unknown>;
+    const result = (await response.json()) as Record<string, unknown>;
     const cancelledHttpTurns = result.cancelled_http_turns;
     const cancelledBrowserTurns = result.cancelled_browser_turns;
-    if (result.status !== "ok"
-      || !Number.isInteger(cancelledHttpTurns) || (cancelledHttpTurns as number) < 0
-      || !Number.isInteger(cancelledBrowserTurns) || (cancelledBrowserTurns as number) < 0) {
+    if (
+      result.status !== "ok" ||
+      !Number.isInteger(cancelledHttpTurns) ||
+      (cancelledHttpTurns as number) < 0 ||
+      !Number.isInteger(cancelledBrowserTurns) ||
+      (cancelledBrowserTurns as number) < 0
+    ) {
       throw new Error("daemon returned an invalid interrupt acknowledgement");
     }
     return {
@@ -196,9 +202,14 @@ export async function cancelActiveTurns(config: AppConfig): Promise<{
   const result = await control(config, "cancel-turns");
   const cancelledHttpTurns = result.cancelled_http_turns;
   const cancelledBrowserTurns = result.cancelled_browser_turns;
-  if (!Number.isInteger(cancelledHttpTurns) || (cancelledHttpTurns as number) < 0
-    || !Number.isInteger(cancelledBrowserTurns) || (cancelledBrowserTurns as number) < 0
-    || result.active_http_turns !== 0 || result.active_browser_turns !== 0) {
+  if (
+    !Number.isInteger(cancelledHttpTurns) ||
+    (cancelledHttpTurns as number) < 0 ||
+    !Number.isInteger(cancelledBrowserTurns) ||
+    (cancelledBrowserTurns as number) < 0 ||
+    result.active_http_turns !== 0 ||
+    result.active_browser_turns !== 0
+  ) {
     throw new Error("daemon did not acknowledge complete active-turn cancellation");
   }
   return {
@@ -224,7 +235,14 @@ export async function negotiateDrain(
     if ((activeHttp as number) > 0 || (activeBrowser as number) > 0) {
       throw new Error(`daemon has ${activeHttp} active HTTP turn(s) and ${activeBrowser} active browser turn(s)`);
     }
-    return { release: async () => { if (drained) { await controlAction("resume"); drained = false; } } };
+    return {
+      release: async () => {
+        if (drained) {
+          await controlAction("resume");
+          drained = false;
+        }
+      },
+    };
   } catch (error) {
     let resumeError: unknown;
     if (drainAttempted) {
@@ -239,13 +257,15 @@ export async function negotiateDrain(
     const compensation = resumeError
       ? `; compensating resume also failed: ${resumeError instanceof Error ? resumeError.message : String(resumeError)}`
       : "";
-    throw new Error(`Refusing to stop or restart because atomic idleness could not be proven: ${message}${compensation}`);
+    throw new Error(
+      `Refusing to stop or restart because atomic idleness could not be proven: ${message}${compensation}`,
+    );
   }
 }
 
 async function acquireDrain(config: AppConfig): Promise<DrainLease> {
   if (!getServiceStatus().loaded) return { release: async () => {} };
-  return negotiateDrain(action => control(config, action));
+  return negotiateDrain((action) => control(config, action));
 }
 
 async function releaseDrainAfterFailure(lease: DrainLease, failure: unknown): Promise<never> {
@@ -281,7 +301,7 @@ export async function restartService(config: AppConfig): Promise<ServiceStatus> 
 export function removeLegacyRuntimeArtifacts(config: AppConfig): void {
   const legacyWrapper = join(getConfigDir(), "bin", "serve-with-playwright.sh");
   const legacyVendor = join(getConfigDir(), "vendor");
-  if (config.runtimeCommand.some(part => part === legacyWrapper || part.startsWith(`${legacyVendor}/`))) {
+  if (config.runtimeCommand.some((part) => part === legacyWrapper || part.startsWith(`${legacyVendor}/`))) {
     throw new Error("Refusing to remove legacy runtime artifacts while the active service still references them");
   }
   rmSync(legacyWrapper, { force: true });

@@ -1,31 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-
-import {
-  pruneScratchDirectory,
-  spoolToolOutput,
-  resolveProjectScratchDirectory,
-  type PruningPolicy,
-} from "../src/adapters/chatgpt-web/tool-spooler";
+import { join } from "node:path";
 import {
   gcSubagentWorkspaces,
-  resolveSubagentWorkspace,
-  resolveSubagentScratchDir,
-  writeSubagentResult,
   listSubagentWorkspaces,
+  resolveSubagentScratchDir,
+  resolveSubagentWorkspace,
+  writeSubagentResult,
 } from "../src/adapters/chatgpt-web/subagent-workspace";
+import { type PruningPolicy, pruneScratchDirectory, spoolToolOutput } from "../src/adapters/chatgpt-web/tool-spooler";
 
 describe("Sprint Z: Storage Hygiene, Rolling Retention & Subagent GC", () => {
   let testWorkspace: string;
@@ -146,7 +130,7 @@ describe("Sprint Z: Storage Hygiene, Rolling Retention & Subagent GC", () => {
       });
 
       expect(spooled.spooled).toBe(true);
-      const remainingLogs = readdirSync(testScratchDir).filter(f => f.endsWith(".log"));
+      const remainingLogs = readdirSync(testScratchDir).filter((f) => f.endsWith(".log"));
       expect(remainingLogs.length).toBeLessThanOrEqual(3);
     });
   });

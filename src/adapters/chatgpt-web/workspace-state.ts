@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -11,7 +12,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { getConfigDir } from "../../config";
-import { randomBytes } from "node:crypto";
 
 export interface WorkspaceState {
   goal: string;
@@ -81,9 +81,8 @@ function tryAcquireLockSync(lockPath: string, staleLockTtlMs: number): boolean {
     closeSync(fd);
     return true;
   } catch (error: unknown) {
-    const code = error !== null && typeof error === "object" && "code" in error
-      ? (error as { code: unknown }).code
-      : undefined;
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? (error as { code: unknown }).code : undefined;
 
     if (code === "EEXIST") {
       // Check if stale by mtime
@@ -91,7 +90,9 @@ function tryAcquireLockSync(lockPath: string, staleLockTtlMs: number): boolean {
         const st = statSync(lockPath);
         const age = Date.now() - st.mtimeMs;
         if (age > staleLockTtlMs) {
-          try { unlinkSync(lockPath); } catch {}
+          try {
+            unlinkSync(lockPath);
+          } catch {}
           return tryAcquireLockSync(lockPath, staleLockTtlMs);
         }
         // Check if owning PID is dead
@@ -102,11 +103,14 @@ function tryAcquireLockSync(lockPath: string, staleLockTtlMs: number): boolean {
             try {
               process.kill(parsed.pid, 0);
             } catch (killErr: unknown) {
-              const killCode = killErr !== null && typeof killErr === "object" && "code" in killErr
-                ? (killErr as { code: unknown }).code
-                : undefined;
+              const killCode =
+                killErr !== null && typeof killErr === "object" && "code" in killErr
+                  ? (killErr as { code: unknown }).code
+                  : undefined;
               if (killCode === "ESRCH") {
-                try { unlinkSync(lockPath); } catch {}
+                try {
+                  unlinkSync(lockPath);
+                } catch {}
                 return tryAcquireLockSync(lockPath, staleLockTtlMs);
               }
             }
@@ -140,7 +144,7 @@ export async function withStateLock<T>(
       if (Date.now() >= deadline) {
         throw new Error(`Timeout after ${timeoutMs}ms waiting to acquire state lock: ${lockPath}`);
       }
-      await new Promise(res => setTimeout(res, retryIntervalMs));
+      await new Promise((res) => setTimeout(res, retryIntervalMs));
     }
   }
 
@@ -153,11 +157,7 @@ export async function withStateLock<T>(
   }
 }
 
-export function withStateLockSync<T>(
-  workspaceRoot: string,
-  action: () => T,
-  options: StateLockOptions = {},
-): T {
+export function withStateLockSync<T>(workspaceRoot: string, action: () => T, options: StateLockOptions = {}): T {
   const lockPath = resolveStateLockPath(workspaceRoot);
   const dir = dirname(lockPath);
   mkdirSync(dir, { recursive: true });
@@ -289,7 +289,10 @@ export function parseWorkspaceState(markdown: string): WorkspaceState {
     }
 
     const header = headerMatch[1].trim().toLowerCase();
-    const contentLines = lines.slice(1).map(l => l.trim()).filter(Boolean);
+    const contentLines = lines
+      .slice(1)
+      .map((l) => l.trim())
+      .filter(Boolean);
 
     if (header === "bridge custom sections") {
       const encoded = contentLines.join("\n").match(/^```json\n([\s\S]*)\n```$/)?.[1];
@@ -306,24 +309,27 @@ export function parseWorkspaceState(markdown: string): WorkspaceState {
         }
       }
     } else if (header.includes("goal") || header.includes("mission")) {
-      state.goal = contentLines.filter(l => !l.startsWith(">")).join("\n").trim();
+      state.goal = contentLines
+        .filter((l) => !l.startsWith(">"))
+        .join("\n")
+        .trim();
     } else if (header.includes("active phase") || header.includes("phase")) {
       state.activePhase = contentLines.join("\n").trim();
     } else if (header.includes("completed")) {
       state.completedMilestones = contentLines
-        .filter(l => l.startsWith("-") || l.startsWith("*"))
+        .filter((l) => l.startsWith("-") || l.startsWith("*"))
         .map(cleanListItem)
-        .filter(item => !item.startsWith("(No completed milestones"));
+        .filter((item) => !item.startsWith("(No completed milestones"));
     } else if (header.includes("decisions") || header.includes("invariants")) {
       state.invariantsAndDecisions = contentLines
-        .filter(l => l.startsWith("-") || l.startsWith("*"))
+        .filter((l) => l.startsWith("-") || l.startsWith("*"))
         .map(cleanListItem)
-        .filter(item => !item.startsWith("(None recorded"));
+        .filter((item) => !item.startsWith("(None recorded"));
     } else if (header.includes("blockers") || header.includes("open items")) {
       state.blockersAndOpenItems = contentLines
-        .filter(l => l.startsWith("-") || l.startsWith("*"))
+        .filter((l) => l.startsWith("-") || l.startsWith("*"))
         .map(cleanListItem)
-        .filter(item => !item.toLowerCase().startsWith("none"));
+        .filter((item) => !item.toLowerCase().startsWith("none"));
     } else if (header.includes("next") || header.includes("immediate")) {
       state.nextImmediateAction = contentLines.join("\n").trim();
     }

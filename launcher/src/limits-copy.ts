@@ -5,7 +5,8 @@ const en = {
   subtitle: "Public ChatGPT limits and the messages observed by this launcher.",
   notConfigured: "Not configured",
   setupTitle: "Keep track of the messages sent here",
-  setupBody: "Set up tracking to detect your ChatGPT plan in the launcher browser. Available for Pro 5x ($100) and Pro 20x ($200).",
+  setupBody:
+    "Set up tracking to detect your ChatGPT plan in the launcher browser. Available for Pro 5x ($100) and Pro 20x ($200).",
   setup: "Set up tracking",
   checking: "Checking your plan…",
   recheck: "Check plan again",
@@ -17,16 +18,19 @@ const en = {
   actionError: "Could not complete this action.",
   sourceError: "Could not open the OpenAI reference.",
   zeroRisk: "Unavailable in Zero Risk",
-  zeroRiskBody: "Plan detection and usage tracking are unavailable in Zero Risk mode. Public reference limits remain available.",
+  zeroRiskBody:
+    "Plan detection and usage tracking are unavailable in Zero Risk mode. Public reference limits remain available.",
   proOnly: "Tracking is available for Pro plans only",
-  unsupportedBody: "This account was not identified as Pro 5x ($100) or Pro 20x ($200). Plus and other plans cannot be tracked here; their numeric limits are unknown.",
+  unsupportedBody:
+    "This account was not identified as Pro 5x ($100) or Pro 20x ($200). Plus and other plans cannot be tracked here; their numeric limits are unknown.",
   paused: "Tracking not active",
   active: "Launcher tracking on",
   estimate: "Estimated",
   observedTitle: "Observed usage",
   observedBody: "Messages recorded in local rolling windows, compared with the published reference.",
   scopeTitle: "Only activity through this launcher is counted",
-  scopeBody: "Usage outside this launcher is excluded. These estimates are not your account’s remaining allowance. Rolling 24-hour and 7-day windows do not establish ChatGPT’s reset time.",
+  scopeBody:
+    "Usage outside this launcher is excluded. These estimates are not your account’s remaining allowance. Rolling 24-hour and 7-day windows do not establish ChatGPT’s reset time.",
   noWindows: "No usage windows are available yet.",
   rollingDay: "Rolling 24 hours",
   rollingWeek: "Rolling 7 days",
@@ -38,10 +42,12 @@ const en = {
   sharedUnknown: "Includes {count} with an unknown Pro model",
   lowerBound: "At least {count}",
   modelTotalUnknown: "Model total unknown",
-  attributionBody: "Some Pro messages have an unknown model. Model-specific counts are lower bounds; shared totals include those messages.",
+  attributionBody:
+    "Some Pro messages have an unknown model. Model-specific counts are lower bounds; shared totals include those messages.",
   combined: "Both Pro models",
   history: "Saved history",
-  historyBody: "The last 7 days of messages are saved on this device across launcher restarts. Recording begins when tracking is enabled; earlier activity is excluded.",
+  historyBody:
+    "The last 7 days of messages are saved on this device across launcher restarts. Recording begins when tracking is enabled; earlier activity is excluded.",
   totalMessages: "Messages · last 7 days",
   unknownPro: "Pro model not identified",
   unknownProBody: "These messages cannot be assigned to a specific Pro model.",
@@ -49,7 +55,8 @@ const en = {
   checked: "Plan checked",
   unknown: "Unknown",
   referenceTitle: "Public reference limits",
-  referenceBody: "Chat allowances for GPT-6 Pro and GPT-5.6 Sol Pro. These are reference values, not account readings. Work and Codex allowances are separate.",
+  referenceBody:
+    "Chat allowances for GPT-6 Pro and GPT-5.6 Sol Pro. These are reference values, not account readings. Work and Codex allowances are separate.",
   asOf: "As of {date}",
   source: "OpenAI reference",
   referenceOnly: "Reference only",
@@ -58,7 +65,8 @@ const en = {
   week: "{count} / week",
   month: "{count} / month",
   otherPlans: "Plus & other plans",
-  otherPlansBody: "Numeric allowances unknown. Launcher tracking is available only for Pro 5x ($100) and Pro 20x ($200).",
+  otherPlansBody:
+    "Numeric allowances unknown. Launcher tracking is available only for Pro 5x ($100) and Pro 20x ($200).",
   businessBody: "Business allowances are shown for reference only. Business tracking is not supported.",
 };
 
@@ -113,7 +121,8 @@ const zhCN: LimitsCopy = {
   checked: "套餐检查时间",
   unknown: "未知",
   referenceTitle: "公开参考限额",
-  referenceBody: "GPT-6 Pro 和 GPT-5.6 Sol Pro 在 Chat 中的额度。这些是参考值，并非账户实际读数。Work 和 Codex 使用独立额度。",
+  referenceBody:
+    "GPT-6 Pro 和 GPT-5.6 Sol Pro 在 Chat 中的额度。这些是参考值，并非账户实际读数。Work 和 Codex 使用独立额度。",
   asOf: "截至 {date}",
   source: "OpenAI 参考资料",
   referenceOnly: "仅供参考",
@@ -175,7 +184,8 @@ const zhTW: LimitsCopy = {
   checked: "方案檢查時間",
   unknown: "未知",
   referenceTitle: "公開參考額度",
-  referenceBody: "GPT-6 Pro 和 GPT-5.6 Sol Pro 在 Chat 中的額度。這些是參考值，並非帳戶實際讀數。Work 和 Codex 使用獨立額度。",
+  referenceBody:
+    "GPT-6 Pro 和 GPT-5.6 Sol Pro 在 Chat 中的額度。這些是參考值，並非帳戶實際讀數。Work 和 Codex 使用獨立額度。",
   asOf: "截至 {date}",
   source: "OpenAI 參考資料",
   referenceOnly: "僅供參考",
@@ -193,7 +203,8 @@ const ja: LimitsCopy = {
   subtitle: "ChatGPT の公開上限と、このランチャーで観測したメッセージ数。",
   notConfigured: "未設定",
   setupTitle: "ここから送信したメッセージを記録",
-  setupBody: "追跡を設定すると、ランチャーのブラウザで ChatGPT のプランを確認します。Pro 5x ($100) と Pro 20x ($200) に対応しています。",
+  setupBody:
+    "追跡を設定すると、ランチャーのブラウザで ChatGPT のプランを確認します。Pro 5x ($100) と Pro 20x ($200) に対応しています。",
   setup: "追跡を設定",
   checking: "プランを確認中…",
   recheck: "プランを再確認",
@@ -207,14 +218,16 @@ const ja: LimitsCopy = {
   zeroRisk: "Zero Risk では利用不可",
   zeroRiskBody: "Zero Risk モードではプランの検出と利用状況の追跡はできません。公開上限は引き続き参照できます。",
   proOnly: "追跡は Pro プランのみ対応",
-  unsupportedBody: "このアカウントを Pro 5x ($100) または Pro 20x ($200) と確認できませんでした。Plus などのプランは追跡できず、具体的な上限値も不明です。",
+  unsupportedBody:
+    "このアカウントを Pro 5x ($100) または Pro 20x ($200) と確認できませんでした。Plus などのプランは追跡できず、具体的な上限値も不明です。",
   paused: "追跡は無効",
   active: "ランチャーの追跡が有効",
   estimate: "推定",
   observedTitle: "観測した使用量",
   observedBody: "ローカルのローリング期間内で記録されたメッセージ数を、公開上限と比較します。",
   scopeTitle: "このランチャー経由の利用のみ集計",
-  scopeBody: "ランチャー以外での利用は含まれません。推定値はアカウントの残り利用枠ではありません。直近24時間・7日間の集計から ChatGPT のリセット時刻は特定できません。",
+  scopeBody:
+    "ランチャー以外での利用は含まれません。推定値はアカウントの残り利用枠ではありません。直近24時間・7日間の集計から ChatGPT のリセット時刻は特定できません。",
   noWindows: "集計期間のデータはまだありません。",
   rollingDay: "直近24時間",
   rollingWeek: "直近7日間",
@@ -226,10 +239,12 @@ const ja: LimitsCopy = {
   sharedUnknown: "Pro モデル不明の {count} 件を含む",
   lowerBound: "少なくとも {count}",
   modelTotalUnknown: "モデル別の合計は不明",
-  attributionBody: "モデルが不明な Pro メッセージがあります。モデル別の件数は下限値です。共有の合計にはこれらのメッセージも含まれます。",
+  attributionBody:
+    "モデルが不明な Pro メッセージがあります。モデル別の件数は下限値です。共有の合計にはこれらのメッセージも含まれます。",
   combined: "両 Pro モデルの合計",
   history: "保存された履歴",
-  historyBody: "直近7日間のメッセージをこの端末に保存し、再起動後も保持します。記録は追跡の有効化時点から始まり、それ以前の利用は含まれません。",
+  historyBody:
+    "直近7日間のメッセージをこの端末に保存し、再起動後も保持します。記録は追跡の有効化時点から始まり、それ以前の利用は含まれません。",
   totalMessages: "メッセージ数 · 直近7日間",
   unknownPro: "Pro モデル未特定",
   unknownProBody: "これらのメッセージは特定の Pro モデルに割り当てられません。",
@@ -237,7 +252,8 @@ const ja: LimitsCopy = {
   checked: "プラン確認日時",
   unknown: "不明",
   referenceTitle: "公開されている参考上限",
-  referenceBody: "Chat での GPT-6 Pro と GPT-5.6 Sol Pro の利用枠です。参考値であり、アカウントから取得した値ではありません。Work と Codex の利用枠は別です。",
+  referenceBody:
+    "Chat での GPT-6 Pro と GPT-5.6 Sol Pro の利用枠です。参考値であり、アカウントから取得した値ではありません。Work と Codex の利用枠は別です。",
   asOf: "{date} 時点",
   source: "OpenAI の参考資料",
   referenceOnly: "参考情報のみ",
@@ -255,7 +271,8 @@ const ko: LimitsCopy = {
   subtitle: "ChatGPT의 공개 한도와 이 런처에서 관측한 메시지 사용량입니다.",
   notConfigured: "설정되지 않음",
   setupTitle: "여기에서 보낸 메시지를 기록하세요",
-  setupBody: "추적을 설정하면 런처 브라우저에서 ChatGPT 요금제를 확인합니다. Pro 5x ($100) 및 Pro 20x ($200)을 지원합니다.",
+  setupBody:
+    "추적을 설정하면 런처 브라우저에서 ChatGPT 요금제를 확인합니다. Pro 5x ($100) 및 Pro 20x ($200)을 지원합니다.",
   setup: "추적 설정",
   checking: "요금제 확인 중…",
   recheck: "요금제 다시 확인",
@@ -267,16 +284,19 @@ const ko: LimitsCopy = {
   actionError: "이 작업을 완료하지 못했습니다.",
   sourceError: "OpenAI 참고 자료를 열지 못했습니다.",
   zeroRisk: "Zero Risk에서는 사용 불가",
-  zeroRiskBody: "Zero Risk 모드에서는 요금제 확인과 사용량 추적을 사용할 수 없습니다. 공개 참고 한도는 계속 볼 수 있습니다.",
+  zeroRiskBody:
+    "Zero Risk 모드에서는 요금제 확인과 사용량 추적을 사용할 수 없습니다. 공개 참고 한도는 계속 볼 수 있습니다.",
   proOnly: "추적은 Pro 요금제만 지원합니다",
-  unsupportedBody: "이 계정을 Pro 5x ($100) 또는 Pro 20x ($200)으로 확인하지 못했습니다. Plus와 기타 요금제는 추적할 수 없으며 구체적인 한도도 알 수 없습니다.",
+  unsupportedBody:
+    "이 계정을 Pro 5x ($100) 또는 Pro 20x ($200)으로 확인하지 못했습니다. Plus와 기타 요금제는 추적할 수 없으며 구체적인 한도도 알 수 없습니다.",
   paused: "추적 비활성",
   active: "런처 추적 활성",
   estimate: "추정치",
   observedTitle: "관측된 사용량",
   observedBody: "로컬 이동 집계 기간에 기록된 메시지 수를 공개 참고 한도와 비교합니다.",
   scopeTitle: "이 런처를 통한 사용만 집계합니다",
-  scopeBody: "런처 외부에서의 사용량은 제외됩니다. 이 추정치는 계정의 남은 사용량이 아닙니다. 최근 24시간 및 7일 집계로는 ChatGPT의 초기화 시각을 알 수 없습니다.",
+  scopeBody:
+    "런처 외부에서의 사용량은 제외됩니다. 이 추정치는 계정의 남은 사용량이 아닙니다. 최근 24시간 및 7일 집계로는 ChatGPT의 초기화 시각을 알 수 없습니다.",
   noWindows: "아직 집계 기간 데이터가 없습니다.",
   rollingDay: "최근 24시간",
   rollingWeek: "최근 7일",
@@ -288,10 +308,12 @@ const ko: LimitsCopy = {
   sharedUnknown: "Pro 모델 미확인 메시지 {count}개 포함",
   lowerBound: "최소 {count}",
   modelTotalUnknown: "모델별 총사용량 미확인",
-  attributionBody: "모델을 알 수 없는 Pro 메시지가 있습니다. 모델별 수치는 최솟값이며, 공유 합계에는 해당 메시지가 포함됩니다.",
+  attributionBody:
+    "모델을 알 수 없는 Pro 메시지가 있습니다. 모델별 수치는 최솟값이며, 공유 합계에는 해당 메시지가 포함됩니다.",
   combined: "두 Pro 모델 합계",
   history: "저장된 기록",
-  historyBody: "최근 7일의 메시지를 이 기기에 저장하며 재시작 후에도 유지합니다. 기록은 추적을 활성화한 시점부터 시작되며 이전 활동은 제외됩니다.",
+  historyBody:
+    "최근 7일의 메시지를 이 기기에 저장하며 재시작 후에도 유지합니다. 기록은 추적을 활성화한 시점부터 시작되며 이전 활동은 제외됩니다.",
   totalMessages: "메시지 · 최근 7일",
   unknownPro: "Pro 모델 미확인",
   unknownProBody: "이 메시지들은 특정 Pro 모델에 배정할 수 없습니다.",
@@ -299,7 +321,8 @@ const ko: LimitsCopy = {
   checked: "요금제 확인",
   unknown: "알 수 없음",
   referenceTitle: "공개 참고 한도",
-  referenceBody: "Chat에서의 GPT-6 Pro 및 GPT-5.6 Sol Pro 사용 한도입니다. 계정에서 읽은 값이 아닌 참고 값입니다. Work와 Codex 한도는 별도입니다.",
+  referenceBody:
+    "Chat에서의 GPT-6 Pro 및 GPT-5.6 Sol Pro 사용 한도입니다. 계정에서 읽은 값이 아닌 참고 값입니다. Work와 Codex 한도는 별도입니다.",
   asOf: "{date} 기준",
   source: "OpenAI 참고 자료",
   referenceOnly: "참고용",

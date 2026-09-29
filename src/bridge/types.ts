@@ -14,11 +14,7 @@ export function sseEvent(name: string, data: Record<string, unknown>): string {
   return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-export const PLAINTEXT_COLLABORATION_CALLS = new Set([
-  "spawn_agent",
-  "send_message",
-  "followup_task",
-]);
+export const PLAINTEXT_COLLABORATION_CALLS = new Set(["spawn_agent", "send_message", "followup_task"]);
 
 /**
  * Codex MultiAgent V2 normally treats collaboration message arguments as backend ciphertext.

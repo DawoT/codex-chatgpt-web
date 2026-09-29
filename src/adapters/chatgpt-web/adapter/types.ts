@@ -3,9 +3,9 @@ import type {
   LauncherManualTurnOwner,
   LauncherManualTurnStart,
 } from "../../../launcher-browser-host";
-import type { TurnBrokerOwner } from "../turn-broker";
 import type { SubagentConcurrencyGovernor } from "../concurrency";
 import type { SessionActorManager } from "../session-actor";
+import type { TurnBrokerOwner } from "../turn-broker";
 
 /** Keep the Responses bridge alive during every awaited phase of a browser turn. */
 export const CHATGPT_WEB_ADAPTER_HEARTBEAT_MS = 10_000;

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { basename, isAbsolute, relative, resolve } from "node:path";
-import { expandUserPath, type AppConfig } from "../../config";
+import { type AppConfig, expandUserPath } from "../../config";
 import type { ChatGptTurnEnvironment } from "./environment";
 
 export const CHAT_FIRST_SANDBOX_MODES = ["readOnly", "workspaceWrite", "dangerFullAccess"] as const;
@@ -29,8 +29,8 @@ function validatedChatFirst(config: AppConfig): { mode: ChatFirstSandboxMode; wo
   const mode = config.chatFirst.sandboxMode;
   if (!(CHAT_FIRST_SANDBOX_MODES as readonly string[]).includes(mode)) {
     throw new ChatFirstEnvironmentError(
-      `chat-first sandboxMode ${JSON.stringify(mode)} in config.json is not one of:`
-      + ` ${CHAT_FIRST_SANDBOX_MODES.join(", ")}`,
+      `chat-first sandboxMode ${JSON.stringify(mode)} in config.json is not one of:` +
+        ` ${CHAT_FIRST_SANDBOX_MODES.join(", ")}`,
     );
   }
   const configured = config.chatFirst.workspaces?.length ? config.chatFirst.workspaces : [];
@@ -86,7 +86,7 @@ export function resolveChatFirstWorkspace(
   const { mode, workspaces } = validatedChatFirst(config);
   if (mode === "dangerFullAccess") {
     let cwd = homedir();
-    if (requested !== undefined && requested.trim()) {
+    if (requested?.trim()) {
       const expanded = expandUserPath(requested.trim());
       if (!isAbsolute(expanded)) {
         throw new ChatFirstEnvironmentError(
@@ -111,19 +111,19 @@ export function resolveChatFirstWorkspace(
   const requestedPath = isAbsolute(expanded) ? resolve(expanded) : undefined;
   const requestedName = basename(trimmed);
 
-  if (requestedPath && workspaces.some(workspace => pathIdentity(workspace) === pathIdentity(requestedPath))) {
+  if (requestedPath && workspaces.some((workspace) => pathIdentity(workspace) === pathIdentity(requestedPath))) {
     return { cwd: requestedPath, roots, writableRoots };
   }
-  const byName = workspaces.filter(workspace => basename(workspace) === requestedName);
+  const byName = workspaces.filter((workspace) => basename(workspace) === requestedName);
   if (byName.length === 1) {
     return { cwd: byName[0]!, roots, writableRoots };
   }
-  if (requestedPath && roots.some(root => matchesPath(root, requestedPath))) {
+  if (requestedPath && roots.some((root) => matchesPath(root, requestedPath))) {
     return { cwd: requestedPath, roots, writableRoots };
   }
 
   throw new ChatFirstEnvironmentError(
-    `chat-first workspace ${JSON.stringify(requested)} does not match any configured chat-first workspace`
-    + `; valid chat-first workspaces: ${roots.map(root => JSON.stringify(root)).join(", ")}`,
+    `chat-first workspace ${JSON.stringify(requested)} does not match any configured chat-first workspace` +
+      `; valid chat-first workspaces: ${roots.map((root) => JSON.stringify(root)).join(", ")}`,
   );
 }

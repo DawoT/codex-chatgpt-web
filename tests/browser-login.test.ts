@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,7 +17,7 @@ test("login starts with normal Chrome and captures state in a headed Keychain-aw
   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-login-"));
   const executable = join(root, "fake-chrome");
   const argsLog = join(root, "args.log");
-  writeFileSync(executable, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CODEX_LOGIN_ARG_LOG\"\n", { mode: 0o700 });
+  writeFileSync(executable, '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$CODEX_LOGIN_ARG_LOG"\n', { mode: 0o700 });
   chmodSync(executable, 0o700);
   const previousLog = process.env.CODEX_LOGIN_ARG_LOG;
   process.env.CODEX_LOGIN_ARG_LOG = argsLog;
@@ -47,17 +47,21 @@ test("passkey login authenticates in normal Chrome before isolated offline pipe 
   const executable = join(root, "fake-chrome");
   const argsLog = join(root, "args.log");
   const pidLog = join(root, "pid.log");
-  writeFileSync(executable, [
-    "#!/bin/sh",
-    "printf '%s\\n' \"$*\" >> \"$CODEX_LOGIN_ARG_LOG\"",
-    "case \"$*\" in",
-    "  *--remote-debugging-pipe*) exit 0 ;;",
-    "esac",
-    "printf '%s\\n' \"$$\" > \"$CODEX_LOGIN_PID_LOG\"",
-    "trap 'exit 0' TERM INT HUP",
-    "while :; do sleep 1; done",
-    "",
-  ].join("\n"), { mode: 0o700 });
+  writeFileSync(
+    executable,
+    [
+      "#!/bin/sh",
+      'printf \'%s\\n\' "$*" >> "$CODEX_LOGIN_ARG_LOG"',
+      'case "$*" in',
+      "  *--remote-debugging-pipe*) exit 0 ;;",
+      "esac",
+      'printf \'%s\\n\' "$$" > "$CODEX_LOGIN_PID_LOG"',
+      "trap 'exit 0' TERM INT HUP",
+      "while :; do sleep 1; done",
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
   chmodSync(executable, 0o700);
   const previousArgs = process.env.CODEX_LOGIN_ARG_LOG;
   const previousPid = process.env.CODEX_LOGIN_PID_LOG;
@@ -68,14 +72,19 @@ test("passkey login authenticates in normal Chrome before isolated offline pipe 
     config.chromeExecutablePath = executable;
     config.storageStatePath = join(root, "transfer", "storage-state.json");
     let continueLogin!: () => void;
-    const continuation = new Promise<void>(resolve => { continueLogin = resolve; });
+    const continuation = new Promise<void>((resolve) => {
+      continueLogin = resolve;
+    });
     const capture = captureSystemBrowserLogin(config, { continuation, timeoutMs: 5_000 });
     for (let attempt = 0; attempt < 100 && !existsSync(pidLog); attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(existsSync(pidLog)).toBe(true);
     continueLogin();
-    const error = await capture.then(() => undefined, caught => caught as Error);
+    const error = await capture.then(
+      () => undefined,
+      (caught) => caught as Error,
+    );
     expect(error).toBeInstanceOf(Error);
 
     const launches = readFileSync(argsLog, "utf8").trim().split("\n");
@@ -88,7 +97,7 @@ test("passkey login authenticates in normal Chrome before isolated offline pipe 
     expect(launches[1]).toContain("--headless");
     expect(launches[1]).toContain("--restore-last-session");
     expect(launches[1]).toContain("--disable-background-networking");
-    expect(readdirSync(join(root, "transfer")).filter(name => name.startsWith("login-profile-"))).toEqual([]);
+    expect(readdirSync(join(root, "transfer")).filter((name) => name.startsWith("login-profile-"))).toEqual([]);
   } finally {
     if (previousArgs === undefined) delete process.env.CODEX_LOGIN_ARG_LOG;
     else process.env.CODEX_LOGIN_ARG_LOG = previousArgs;
@@ -123,10 +132,8 @@ test("passkey storage capture excludes identity-provider and partitioned state",
       { origin: "https://accounts.google.com", localStorage: [{ name: "idp", value: "removed" }] },
     ],
   });
-  expect(state.cookies.map(value => value.name)).toEqual(["chatgpt", "openai"]);
-  expect(state.origins).toEqual([
-    { origin: "https://chatgpt.com", localStorage: [{ name: "chat", value: "kept" }] },
-  ]);
+  expect(state.cookies.map((value) => value.name)).toEqual(["chatgpt", "openai"]);
+  expect(state.origins).toEqual([{ origin: "https://chatgpt.com", localStorage: [{ name: "chat", value: "kept" }] }]);
 });
 
 test("a storage-state file is not trusted without a verification marker", () => {

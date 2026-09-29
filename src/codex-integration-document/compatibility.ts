@@ -1,3 +1,9 @@
+import type {
+  LegacyCodexIntegrationJournalV5,
+  LegacyCodexIntegrationJournalV6,
+  PreviousAgentAssignment,
+  PreviousFeatureAssignment,
+} from "../codex-integration-shared";
 import {
   MANAGED_MULTI_AGENT_LINE,
   MANAGED_MULTI_AGENT_V2_LINE,
@@ -6,19 +12,7 @@ import {
   MIN_COMPATIBILITY_V1_AGENT_DEPTH,
   managedAgentMaxDepthLine,
 } from "../codex-integration-shared";
-import type {
-  LegacyCodexIntegrationJournalV5,
-  LegacyCodexIntegrationJournalV6,
-  PreviousAgentAssignment,
-  PreviousFeatureAssignment,
-} from "../codex-integration-shared";
-import {
-  insertDocumentLine,
-  parseDocument,
-  removeDocumentLine,
-  renderDocument,
-  splitLines,
-} from "./document-parser";
+import { insertDocumentLine, parseDocument, removeDocumentLine, renderDocument, splitLines } from "./document-parser";
 import {
   findAgentMaxDepthAssignment,
   findBooleanAssignmentInTable,
@@ -39,19 +33,17 @@ export function installCompatibilityV1Features(text: string): {
 } {
   const document = parseDocument(text);
   const foundMultiAgent = findFeatureAssignment(document.lines, "multi_agent");
-  const featureSeparatorInserted = !foundMultiAgent.tablePresent
-    && document.lines.length > 0
-    && Boolean(document.lines.at(-1)?.trim());
+  const featureSeparatorInserted =
+    !foundMultiAgent.tablePresent && document.lines.length > 0 && Boolean(document.lines.at(-1)?.trim());
   const previousMultiAgent: PreviousFeatureAssignment = featureSeparatorInserted
     ? { ...foundMultiAgent, separatorInserted: true }
     : foundMultiAgent;
   const previousMultiAgentV2 = findMultiAgentV2Assignment(document.lines);
   const foundAgentMaxDepth = findAgentMaxDepthAssignment(document.lines);
-  const previousAgentMaxDepth: PreviousAgentAssignment = !foundAgentMaxDepth.tablePresent
-    && document.lines.length > 0
-    && Boolean(document.lines.at(-1)?.trim())
-    ? { ...foundAgentMaxDepth, separatorInserted: true }
-    : foundAgentMaxDepth;
+  const previousAgentMaxDepth: PreviousAgentAssignment =
+    !foundAgentMaxDepth.tablePresent && document.lines.length > 0 && document.lines.at(-1)?.trim()
+      ? { ...foundAgentMaxDepth, separatorInserted: true }
+      : foundAgentMaxDepth;
   const installedAgentMaxDepth = Math.max(
     previousAgentMaxDepth.present ? Number(previousAgentMaxDepth.value) : 0,
     MIN_COMPATIBILITY_V1_AGENT_DEPTH,
@@ -63,11 +55,7 @@ export function installCompatibilityV1Features(text: string): {
     }
     document.lines[previousMultiAgentV2.index] = managedMultiAgentV2AssignmentLine(previousMultiAgentV2);
   } else if (previousMultiAgentV2.tableName === "features.multi_agent_v2") {
-    const current = findBooleanAssignmentInTable(
-      document.lines,
-      "features.multi_agent_v2",
-      "enabled",
-    );
+    const current = findBooleanAssignmentInTable(document.lines, "features.multi_agent_v2", "enabled");
     if (current.index !== undefined) {
       document.lines[current.index] = MANAGED_MULTI_AGENT_V2_TABLE_LINE;
     } else {
@@ -96,21 +84,18 @@ function verifyInstalledBooleanFeature(
 ): void {
   const current = findFeatureAssignment(splitLines(text), key);
   if (current.value !== expectedValue || current.rawLine !== managedLine) {
-    throw new Error(
-      `Codex [features].${key} changed after setup; refusing to overwrite the user's newer value`,
-    );
+    throw new Error(`Codex [features].${key} changed after setup; refusing to overwrite the user's newer value`);
   }
 }
 
-function verifyInstalledMultiAgentV2Feature(
-  text: string,
-  previous: PreviousFeatureAssignment,
-): void {
+function verifyInstalledMultiAgentV2Feature(text: string, previous: PreviousFeatureAssignment): void {
   if (previous.inlineTable) {
     const current = findMultiAgentV2Assignment(splitLines(text));
-    if (!current.inlineTable
-      || current.value !== "false"
-      || current.rawLine !== managedMultiAgentV2AssignmentLine(previous)) {
+    if (
+      !current.inlineTable ||
+      current.value !== "false" ||
+      current.rawLine !== managedMultiAgentV2AssignmentLine(previous)
+    ) {
       throw new Error(
         "Codex [features].multi_agent_v2 changed after setup; refusing to overwrite the user's newer value",
       );
@@ -119,9 +104,11 @@ function verifyInstalledMultiAgentV2Feature(
   }
   if (previous.tableName !== "features.multi_agent_v2") {
     const current = findMultiAgentV2Assignment(splitLines(text));
-    if (current.tableName !== "features"
-      || current.value !== "false"
-      || current.rawLine !== MANAGED_MULTI_AGENT_V2_LINE) {
+    if (
+      current.tableName !== "features" ||
+      current.value !== "false" ||
+      current.rawLine !== MANAGED_MULTI_AGENT_V2_LINE
+    ) {
       throw new Error(
         "Codex [features].multi_agent_v2 changed after setup; refusing to overwrite the user's newer value",
       );
@@ -165,7 +152,7 @@ export function restoreBooleanFeature(
       if (!table) throw new Error("Managed Codex [features] table is missing");
       const remaining = document.lines
         .slice(table.headerIndex + 1, table.endIndex)
-        .filter(line => line.trim().length > 0);
+        .filter((line) => line.trim().length > 0);
       if (remaining.length === 0) {
         const headerIndex = table.headerIndex;
         removeDocumentLine(document, headerIndex);
@@ -178,10 +165,7 @@ export function restoreBooleanFeature(
   return renderDocument(document);
 }
 
-export function restoreMultiAgentV2Feature(
-  text: string,
-  previous: PreviousFeatureAssignment,
-): string {
+export function restoreMultiAgentV2Feature(text: string, previous: PreviousFeatureAssignment): string {
   if (previous.inlineTable) {
     verifyInstalledMultiAgentV2Feature(text, previous);
     if (!previous.rawLine) {
@@ -194,21 +178,11 @@ export function restoreMultiAgentV2Feature(
     return renderDocument(document);
   }
   if (previous.tableName !== "features.multi_agent_v2") {
-    return restoreBooleanFeature(
-      text,
-      "multi_agent_v2",
-      "false",
-      MANAGED_MULTI_AGENT_V2_LINE,
-      previous,
-    );
+    return restoreBooleanFeature(text, "multi_agent_v2", "false", MANAGED_MULTI_AGENT_V2_LINE, previous);
   }
   verifyInstalledMultiAgentV2Feature(text, previous);
   const document = parseDocument(text);
-  const current = findBooleanAssignmentInTable(
-    document.lines,
-    "features.multi_agent_v2",
-    "enabled",
-  );
+  const current = findBooleanAssignmentInTable(document.lines, "features.multi_agent_v2", "enabled");
   if (current.index === undefined) throw new Error("Managed Codex multi_agent_v2.enabled is missing");
   if (previous.present) {
     if (!previous.rawLine) {
@@ -225,12 +199,7 @@ export function verifyInstalledFeatures(
   text: string,
   journal: LegacyCodexIntegrationJournalV6 | LegacyCodexIntegrationJournalV5,
 ): void {
-  verifyInstalledBooleanFeature(
-    text,
-    "remote_compaction_v2",
-    "false",
-    MANAGED_REMOTE_COMPACTION_LINE,
-  );
+  verifyInstalledBooleanFeature(text, "remote_compaction_v2", "false", MANAGED_REMOTE_COMPACTION_LINE);
   verifyInstalledBooleanFeature(text, "multi_agent", "true", MANAGED_MULTI_AGENT_LINE);
   if (journal.version === 6) {
     verifyInstalledMultiAgentV2Feature(text, journal.previousMultiAgentV2);
@@ -245,8 +214,10 @@ export function verifyCompatibilityV1Features(
   verifyInstalledBooleanFeature(text, "multi_agent", "true", MANAGED_MULTI_AGENT_LINE);
   verifyInstalledMultiAgentV2Feature(text, previousMultiAgentV2);
   const depth = findAgentMaxDepthAssignment(splitLines(text));
-  if (depth.value !== String(installedAgentMaxDepth)
-    || depth.rawLine !== managedAgentMaxDepthLine(installedAgentMaxDepth)) {
+  if (
+    depth.value !== String(installedAgentMaxDepth) ||
+    depth.rawLine !== managedAgentMaxDepthLine(installedAgentMaxDepth)
+  ) {
     throw new Error(
       "Codex [agents].max_depth changed after Compatibility V1 setup; refusing to overwrite the user's newer value",
     );
@@ -255,8 +226,10 @@ export function verifyCompatibilityV1Features(
 
 function verifyCompatibilityV1AgentDepth(text: string, installedAgentMaxDepth: number): void {
   const depth = findAgentMaxDepthAssignment(splitLines(text));
-  if (depth.value !== String(installedAgentMaxDepth)
-    || depth.rawLine !== managedAgentMaxDepthLine(installedAgentMaxDepth)) {
+  if (
+    depth.value !== String(installedAgentMaxDepth) ||
+    depth.rawLine !== managedAgentMaxDepthLine(installedAgentMaxDepth)
+  ) {
     throw new Error(
       "Codex [agents].max_depth changed after Compatibility V1 setup; refusing to overwrite the user's newer value",
     );
@@ -284,7 +257,7 @@ export function restoreCompatibilityV1AgentDepth(
       if (!table) throw new Error("Managed Codex [agents] table is missing");
       const remaining = document.lines
         .slice(table.headerIndex + 1, table.endIndex)
-        .filter(line => line.trim().length > 0);
+        .filter((line) => line.trim().length > 0);
       if (remaining.length === 0) {
         const headerIndex = table.headerIndex;
         removeDocumentLine(document, headerIndex);
@@ -311,11 +284,7 @@ export function restoreCompatibilityV1Features(
     MANAGED_MULTI_AGENT_LINE,
     previousMultiAgent,
   );
-  restored = restoreCompatibilityV1AgentDepth(
-    restored,
-    previousAgentMaxDepth,
-    installedAgentMaxDepth,
-  );
+  restored = restoreCompatibilityV1AgentDepth(restored, previousAgentMaxDepth, installedAgentMaxDepth);
   return restored;
 }
 
@@ -323,9 +292,8 @@ export function restoreManagedFeatures(
   text: string,
   journal: LegacyCodexIntegrationJournalV6 | LegacyCodexIntegrationJournalV5,
 ): string {
-  const withoutMultiAgentV2 = journal.version === 6
-    ? restoreMultiAgentV2Feature(text, journal.previousMultiAgentV2)
-    : text;
+  const withoutMultiAgentV2 =
+    journal.version === 6 ? restoreMultiAgentV2Feature(text, journal.previousMultiAgentV2) : text;
   const withoutMultiAgent = restoreBooleanFeature(
     withoutMultiAgentV2,
     "multi_agent",

@@ -43,11 +43,7 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
   describe("Validation Failure Diagnostics (Exact User Error Scenario)", () => {
     it("detects when model outputs an empty or malformed XML block missing all mandatory sections and modified files", () => {
       // The model emits the tags but none of the required v2 checklist sections
-      const emptyXmlBlock = [
-        "Summary of work so far:",
-        "<compaction_state>",
-        "</compaction_state>",
-      ].join("\n");
+      const emptyXmlBlock = ["Summary of work so far:", "<compaction_state>", "</compaction_state>"].join("\n");
 
       const verdict = validateCompactionQuality(samplePatchedMessages, emptyXmlBlock, {
         requireStructured: true,
@@ -166,7 +162,6 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       );
       expect(fencedVerdict.valid).toBe(false);
       expect(fencedVerdict.missingInvariants).toContain("Missing structured compaction state");
-
     });
   });
 
@@ -278,10 +273,7 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
         body: JSON.stringify({
           model: "chatgpt-web/high",
           stream: true,
-          input: [
-            { type: "message", role: "user", content: "Fix catalog" },
-            { type: "compaction_trigger" },
-          ],
+          input: [{ type: "message", role: "user", content: "Fix catalog" }, { type: "compaction_trigger" }],
         }),
       });
 
@@ -331,12 +323,14 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
         options: { reasoning: "high" },
         _compactionRequest: true,
         _rawBody: {
-          input: [{
-            type: "message",
-            role: "user",
-            content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
-            internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
-          }],
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
+              internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
+            },
+          ],
         },
       };
 
@@ -381,10 +375,7 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       expect(verdict.valid).toBe(true);
       expect(verdict.missingInvariants).toHaveLength(0);
 
-      const versionless = canonicalizeCompactionHandoff(
-        parsedReq,
-        summaryWithoutFiles.replace("version: 2\n", ""),
-      );
+      const versionless = canonicalizeCompactionHandoff(parsedReq, summaryWithoutFiles.replace("version: 2\n", ""));
       const versionlessVerdict = validateCompactionQuality(samplePatchedMessages, versionless, {
         requireStructured: true,
       });
@@ -425,32 +416,41 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       );
       expect(fencedTaglessExample).toContain("```text");
       expect(fencedTaglessExample).not.toContain("original_request_ref: sha256:");
-      expect(validateCompactionQuality(samplePatchedMessages, fencedTaglessExample, {
-        requireStructured: true,
-      }).valid).toBe(false);
+      expect(
+        validateCompactionQuality(samplePatchedMessages, fencedTaglessExample, {
+          requireStructured: true,
+        }).valid,
+      ).toBe(false);
 
       const indentedExample = canonicalizeCompactionHandoff(
         parsedReq,
-        `Example only:\n${summaryWithoutFiles.replace(/<\/?compaction_state>\n?/g, "")
-          .split("\n").map(line => `    ${line}`).join("\n")}`,
+        `Example only:\n${summaryWithoutFiles
+          .replace(/<\/?compaction_state>\n?/g, "")
+          .split("\n")
+          .map((line) => `    ${line}`)
+          .join("\n")}`,
       );
       expect(indentedExample).not.toContain("original_request_ref: sha256:");
-      expect(validateCompactionQuality(samplePatchedMessages, indentedExample, {
-        requireStructured: true,
-      }).valid).toBe(false);
+      expect(
+        validateCompactionQuality(samplePatchedMessages, indentedExample, {
+          requireStructured: true,
+        }).valid,
+      ).toBe(false);
 
       const arrayRequirement = canonicalizeCompactionHandoff(
         parsedReq,
         summaryWithoutFiles.replace(
           '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"}',
-          '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"}\n'
-            + '- [{"id":"REQ-2","status":"pending","source":"Run tests"}]',
+          '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"}\n' +
+            '- [{"id":"REQ-2","status":"pending","source":"Run tests"}]',
         ),
       );
       expect(arrayRequirement).toContain('- [{"id":"REQ-2","status":"pending","source":"Run tests"}]');
-      expect(validateCompactionQuality(samplePatchedMessages, arrayRequirement, {
-        requireStructured: true,
-      }).missingInvariants).toContain("Invalid mission requirement item");
+      expect(
+        validateCompactionQuality(samplePatchedMessages, arrayRequirement, {
+          requireStructured: true,
+        }).missingInvariants,
+      ).toContain("Invalid mission requirement item");
     });
 
     it("keeps an empty checkpoint invalid so repair can recover the actual requirements", () => {
@@ -463,21 +463,21 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
         options: { reasoning: "high" },
         _compactionRequest: true,
         _rawBody: {
-          input: [{
-            type: "message",
-            role: "user",
-            content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
-            internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
-          }],
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
+              internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
+            },
+          ],
         },
       };
 
       // Model returned only empty tags or bare narrative
-      const emptyBlockDraft = [
-        "Here is the summary of work so far.",
-        "<compaction_state>",
-        "</compaction_state>",
-      ].join("\n");
+      const emptyBlockDraft = ["Here is the summary of work so far.", "<compaction_state>", "</compaction_state>"].join(
+        "\n",
+      );
 
       const canonicalized = canonicalizeCompactionHandoff(parsedReq, emptyBlockDraft);
 
@@ -504,12 +504,14 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
         options: { reasoning: "high" },
         _compactionRequest: true,
         _rawBody: {
-          input: [{
-            type: "message",
-            role: "user",
-            content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
-            internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
-          }],
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
+              internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
+            },
+          ],
         },
       };
 
@@ -570,16 +572,19 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
         options: { reasoning: "high" },
         _compactionRequest: true,
         _rawBody: {
-          input: [{
-            type: "message",
-            role: "user",
-            content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
-            internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
-          }],
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
+              internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
+            },
+          ],
         },
       };
 
-      const collapsedSummary = '<compaction_state> version: 2 original\\_request\\_ref: "Actualizar catalogo" modified\\_files: - None active\\_hypothesis: "Complete catalog import scripts and verify generated outputs." requirements: - {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"} closure\\_criteria: - "All catalog scripts run without errors" verified\\_achievements: decisions\\_and\\_invariants: - "Keep sample files under .agents/scratch/" blockers\\_or\\_test\\_failures: - "None" pending\\_obligations: - "Run catalog build script" next\\_actions: - "Run catalog build script" </compaction_state>';
+      const collapsedSummary =
+        '<compaction_state> version: 2 original\\_request\\_ref: "Actualizar catalogo" modified\\_files: - None active\\_hypothesis: "Complete catalog import scripts and verify generated outputs." requirements: - {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"} closure\\_criteria: - "All catalog scripts run without errors" verified\\_achievements: decisions\\_and\\_invariants: - "Keep sample files under .agents/scratch/" blockers\\_or\\_test\\_failures: - "None" pending\\_obligations: - "Run catalog build script" next\\_actions: - "Run catalog build script" </compaction_state>';
 
       const canonicalized = canonicalizeCompactionHandoff(parsedReq, collapsedSummary);
 
@@ -587,7 +592,9 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       expect(canonicalized).toContain("version: 2");
       expect(canonicalized).toContain("modified_files:\n");
       expect(canonicalized).toContain("/home/deuz/projects/Allpa Craft/scripts/import-catalog-csv.mjs");
-      expect(canonicalized).toContain("active_hypothesis: \"Complete catalog import scripts and verify generated outputs.\"");
+      expect(canonicalized).toContain(
+        'active_hypothesis: "Complete catalog import scripts and verify generated outputs."',
+      );
       expect(canonicalized).toContain("</compaction_state>");
 
       const verdict = validateCompactionQuality(samplePatchedMessages, canonicalized, {

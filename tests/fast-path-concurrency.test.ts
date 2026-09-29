@@ -1,15 +1,15 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 import {
-  isReadOnlyFastPathTool,
-  isMutatingFastPathTool,
   dispatchFastPathTool,
   executeFastPathBatch,
   type FastPathToolCall,
+  isMutatingFastPathTool,
+  isReadOnlyFastPathTool,
 } from "../src/adapters/chatgpt-web/fast-path-handlers";
-import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 
 describe("Sprint X: Concurrent Fast-Path Batch Execution", () => {
   let tmpDir: string;
@@ -47,11 +47,7 @@ describe("Sprint X: Concurrent Fast-Path Batch Execution", () => {
   });
 
   test("dispatchFastPathTool returns error for unknown tool without throwing", async () => {
-    const res = await dispatchFastPathTool(
-      "non_existent_tool",
-      {},
-      { cwd: tmpDir, roots: [tmpDir], cache },
-    );
+    const res = await dispatchFastPathTool("non_existent_tool", {}, { cwd: tmpDir, roots: [tmpDir], cache });
     expect(res.isError).toBe(true);
     expect(res.structuredContent.error).toContain("Unsupported fast-path tool");
   });

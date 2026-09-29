@@ -1,18 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 import {
   CHATGPT_WEB_MAX_READ_FILE_BYTES,
+  type FastPathToolResult,
   handlePatchFile,
   handleReadFile,
   handleWriteFile,
   resolveSafeWorkspacePath,
-  type FastPathToolResult,
 } from "../src/adapters/chatgpt-web/fast-path-handlers";
-import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 
 function payload(res: FastPathToolResult): Record<string, any> {
   return res.structuredContent as Record<string, any>;
@@ -35,7 +44,9 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
       const root = mkdtempSync(join(tmpdir(), "cgw-mutation-escape-"));
       try {
         expect(() => resolveSafeWorkspacePath("../escape.ts", root, [root])).toThrow("outside allowed sandbox roots");
-        expect(() => resolveSafeWorkspacePath("../../etc/shadow", root, [root])).toThrow("outside allowed sandbox roots");
+        expect(() => resolveSafeWorkspacePath("../../etc/shadow", root, [root])).toThrow(
+          "outside allowed sandbox roots",
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
@@ -94,7 +105,13 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
         writeFileSync(filePath, "Initial content", "utf8");
 
         const updated = "Updated content";
-        const res = handleWriteFile({ path: "target.txt", content: updated, overwrite: true, cwd: root, roots: [root] });
+        const res = handleWriteFile({
+          path: "target.txt",
+          content: updated,
+          overwrite: true,
+          cwd: root,
+          roots: [root],
+        });
         expect(res.isError).toBeUndefined();
         const out = payload(res);
         expect(out.overwrote).toBe(true);
@@ -135,7 +152,9 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
         symlinkSync(join(outsideDir, "victim.txt"), join(root, "link.txt"));
 
         const options = { content: "hacked", overwrite: true, cwd: root, roots: [root] };
-        expect(() => handleWriteFile({ ...options, path: join(outsideDir, "victim.txt") })).toThrow("outside allowed sandbox roots");
+        expect(() => handleWriteFile({ ...options, path: join(outsideDir, "victim.txt") })).toThrow(
+          "outside allowed sandbox roots",
+        );
         expect(() => handleWriteFile({ ...options, path: "../escape.txt" })).toThrow("outside allowed sandbox roots");
         expect(() => handleWriteFile({ ...options, path: "link.txt" })).toThrow("outside allowed sandbox roots");
         expect(readFileSync(join(outsideDir, "victim.txt"), "utf8")).toBe("secret");
@@ -294,12 +313,24 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
     test("reports missing files and directories as errors", () => {
       const root = mkdtempSync(join(tmpdir(), "cgw-patch-edge-"));
       try {
-        const missing = handlePatchFile({ path: "nope.txt", target_content: "a", replacement_content: "b", cwd: root, roots: [root] });
+        const missing = handlePatchFile({
+          path: "nope.txt",
+          target_content: "a",
+          replacement_content: "b",
+          cwd: root,
+          roots: [root],
+        });
         expect(missing.isError).toBe(true);
         expect(payload(missing).error).toContain("File does not exist");
 
         mkdirSync(join(root, "folder"));
-        const dir = handlePatchFile({ path: "folder", target_content: "a", replacement_content: "b", cwd: root, roots: [root] });
+        const dir = handlePatchFile({
+          path: "folder",
+          target_content: "a",
+          replacement_content: "b",
+          cwd: root,
+          roots: [root],
+        });
         expect(dir.isError).toBe(true);
         expect(payload(dir).error).toContain("directory");
       } finally {
@@ -382,9 +413,9 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
         // follow the link and create the target outside the sandbox.
         symlinkSync(join(outsideDir, "not-yet.txt"), join(root, "dangling.txt"));
 
-        expect(() =>
-          handleWriteFile({ path: "dangling.txt", content: "x", cwd: root, roots: [root] }),
-        ).toThrow("Cannot verify symlink safety");
+        expect(() => handleWriteFile({ path: "dangling.txt", content: "x", cwd: root, roots: [root] })).toThrow(
+          "Cannot verify symlink safety",
+        );
         expect(existsSync(join(outsideDir, "not-yet.txt"))).toBe(false);
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -461,11 +492,21 @@ describe("Sprint G: Fast-Path Mutation Tools (codex_write_file, codex_patch_file
         // ...and for patches of existing files.
         writeFileSync(join(root, "docs", "existing.txt"), "original");
         expect(() =>
-          handlePatchFile({ ...options, path: "docs/existing.txt", target_content: "original", replacement_content: "mutated" }),
+          handlePatchFile({
+            ...options,
+            path: "docs/existing.txt",
+            target_content: "original",
+            replacement_content: "mutated",
+          }),
         ).toThrow("outside allowed writable roots");
         expect(readFileSync(join(root, "docs", "existing.txt"), "utf8")).toBe("original");
 
-        const patched = handlePatchFile({ ...options, path: "src/inside.txt", target_content: "ok", replacement_content: "ok patched" });
+        const patched = handlePatchFile({
+          ...options,
+          path: "src/inside.txt",
+          target_content: "ok",
+          replacement_content: "ok patched",
+        });
         expect(patched.isError).toBeUndefined();
         expect(readFileSync(join(root, "src", "inside.txt"), "utf8")).toBe("ok patched");
       } finally {

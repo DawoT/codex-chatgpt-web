@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  preserveHeadTailOutput,
-  truncateToolOutputText,
-} from "../src/adapters/chatgpt-web/fast-path-handlers";
+import { preserveHeadTailOutput, truncateToolOutputText } from "../src/adapters/chatgpt-web/fast-path-handlers";
 
 describe("Sprint V: Diagnostic-Aware Head/Tail Output Preservation", () => {
   test("preserves output intact when within maxChars limit", () => {
@@ -12,10 +9,7 @@ describe("Sprint V: Diagnostic-Aware Head/Tail Output Preservation", () => {
   });
 
   test("preserves initial command and final failure stack trace across large output", () => {
-    const lines: string[] = [
-      "$ bun test ./tests",
-      "Running 895 tests across 75 files...",
-    ];
+    const lines: string[] = ["$ bun test ./tests", "Running 895 tests across 75 files..."];
     for (let i = 1; i <= 1000; i++) {
       lines.push(`PASS tests/feature-${i}.test.ts [1.2ms]`);
     }
@@ -43,7 +37,7 @@ describe("Sprint V: Diagnostic-Aware Head/Tail Output Preservation", () => {
   });
 
   test("respects explicit headChars and tailChars when provided", () => {
-    const text = "START_BLOCK\n" + "x\n".repeat(5000) + "END_BLOCK";
+    const text = `START_BLOCK\n${"x\n".repeat(5000)}END_BLOCK`;
     const custom = truncateToolOutputText(text, 1000, {
       headChars: 150,
       tailChars: 250,
@@ -55,7 +49,7 @@ describe("Sprint V: Diagnostic-Aware Head/Tail Output Preservation", () => {
   });
 
   test("safely handles small custom maxChars without negative omitted calculation", () => {
-    const text = "A".repeat(500) + "\n" + "B".repeat(500);
+    const text = `${"A".repeat(500)}\n${"B".repeat(500)}`;
     const small = truncateToolOutputText(text, 400);
 
     expect(small).toContain("characters omitted");

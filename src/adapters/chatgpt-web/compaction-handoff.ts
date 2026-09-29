@@ -1,17 +1,35 @@
 import { createHash } from "node:crypto";
+import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
+import {
+  COMPACT_PROMPT,
+  type CompactionRequirement,
+  type CompactionStateBlock,
+  compactionStateFields,
+  countActiveCompactionStates,
+  countCompactionRequirementItems,
+  extractStructuredCompactionHandoff,
+  formatCompactionStateBlock,
+  LATEST_USER_PROMPT_MARKER,
+  locateCompactionStateBounds,
+  normalizeCompactionStateBlock,
+  ORIGINAL_USER_REQUEST_MARKER,
+  parseCompactionState,
+} from "../../responses/compaction";
+import type { CodexContentPart, CodexParsedRequest, CodexToolResultMessage } from "../../types";
 import { parseDataUrl } from "../image";
-import type {
-  CodexContentPart,
-  CodexParsedRequest,
-  CodexToolResultMessage,
-} from "../../types";
-import { extractChatGptCompactionSourceRevision } from "./environment";
-import { extractChatGptTurnIdentity } from "./environment";
-import { boundedCompactionRepairObservations, buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "./compaction-evidence";
-import type { ChatGptBrowserWorker } from "./browser-worker";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
+import { extractModifiedFilePaths } from "./autonomous-compaction";
+import type { ChatGptBrowserWorker } from "./browser-worker";
+import {
+  boundedCompactionRepairObservations,
+  buildCompactionEvidenceIndex,
+  selectCompactionRepairEvidence,
+} from "./compaction-evidence";
+import { checkpointRepairPromptFits } from "./compaction-repair";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
+import { extractChatGptCompactionSourceRevision, extractChatGptTurnIdentity } from "./environment";
 import type { ChatGptWebCapabilities } from "./model";
+import { resolveChatGptWebModelMode } from "./model";
 import {
   activeCompactionToolResultInstruction,
   structuredCompactionHandoffInstruction,
@@ -20,31 +38,12 @@ import {
 } from "./native-compaction-control";
 import type { BrokerToolResult, TurnBroker, TurnBrokerOwner } from "./turn-broker";
 import type { ChatGptTurnSession } from "./turn-execution";
-import { checkpointRepairPromptFits } from "./compaction-repair";
-import { resolveChatGptWebModelMode } from "./model";
-import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
-import { extractModifiedFilePaths } from "./autonomous-compaction";
-import {
-  COMPACT_PROMPT,
-  LATEST_USER_PROMPT_MARKER,
-  ORIGINAL_USER_REQUEST_MARKER,
-  compactionStateFields,
-  countActiveCompactionStates,
-  countCompactionRequirementItems,
-  locateCompactionStateBounds,
-  extractStructuredCompactionHandoff,
-  formatCompactionStateBlock,
-  normalizeCompactionStateBlock,
-  parseCompactionState,
-  type CompactionStateBlock,
-  type CompactionRequirement,
-} from "../../responses/compaction";
 
 export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
 
 function brokerContent(content: string | CodexContentPart[]): unknown[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  return content.map(part => {
+  return content.map((part) => {
     if (part.type === "text") return { type: "text", text: part.text };
     const parsed = parseDataUrl(part.imageUrl);
     if (parsed) return { type: "image", data: parsed.base64, mimeType: parsed.mediaType };
@@ -63,9 +62,13 @@ function structuredContent(text: string): unknown | undefined {
 
 function toolResult(message: CodexToolResultMessage): BrokerToolResult {
   const content = brokerContent(message.content);
-  const text = typeof message.content === "string"
-    ? message.content
-    : message.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+  const text =
+    typeof message.content === "string"
+      ? message.content
+      : message.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
   const structured = structuredContent(text);
   return {
     content,
@@ -96,10 +99,12 @@ function withZeroRiskCompactionInstruction(result: BrokerToolResult): BrokerTool
 
 function interruptedByZeroRiskCompaction(): BrokerToolResult {
   return {
-    content: [{
-      type: "text",
-      text: zeroRiskActiveCompactionToolResultInstruction(false),
-    }],
+    content: [
+      {
+        type: "text",
+        text: zeroRiskActiveCompactionToolResultInstruction(false),
+      },
+    ],
     isError: true,
   };
 }
@@ -107,29 +112,30 @@ function interruptedByZeroRiskCompaction(): BrokerToolResult {
 function userPromptText(content: unknown): string | undefined {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return undefined;
-  const text = content.flatMap(part => {
-    if (!part || typeof part !== "object" || Array.isArray(part)) return [];
-    const value = part as { type?: unknown; text?: unknown };
-    return (value.type === "input_text" || value.type === "text") && typeof value.text === "string"
-      ? [value.text]
-      : [];
-  }).join("\n");
+  const text = content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object" || Array.isArray(part)) return [];
+      const value = part as { type?: unknown; text?: unknown };
+      return (value.type === "input_text" || value.type === "text") && typeof value.text === "string"
+        ? [value.text]
+        : [];
+    })
+    .join("\n");
   return text || undefined;
 }
 
 function freeformCompactionState(parsed: CodexParsedRequest, summary: string, digest: string): CompactionStateBlock {
-  const previous = parsed.context.messages.findLast(message => message.role === "user"
-    && message.origin === "compaction_summary");
-  const prior = previous
-    ? extractStructuredCompactionHandoff(userPromptText(previous.content) ?? "").state
-    : null;
+  const previous = parsed.context.messages.findLast(
+    (message) => message.role === "user" && message.origin === "compaction_summary",
+  );
+  const prior = previous ? extractStructuredCompactionHandoff(userPromptText(previous.content) ?? "").state : null;
   const checkpointIndex = previous ? parsed.context.messages.lastIndexOf(previous) : -1;
   const requirements: CompactionRequirement[] = [...(prior?.requirements ?? [])];
-  const sources = new Set(requirements.map(requirement => requirement.source));
-  const ids = new Set(requirements.map(requirement => requirement.id));
+  const sources = new Set(requirements.map((requirement) => requirement.source));
+  const ids = new Set(requirements.map((requirement) => requirement.id));
   for (const message of parsed.context.messages.slice(checkpointIndex + 1)) {
-    if (message.role !== "user" || message.origin === "codex_skill"
-      || message.origin === "compaction_summary") continue;
+    if (message.role !== "user" || message.origin === "codex_skill" || message.origin === "compaction_summary")
+      continue;
     const source = userPromptText(message.content)?.trim();
     if (!source || source === COMPACT_PROMPT || sources.has(source)) continue;
     const hash = createHash("sha256").update(source).digest("hex");
@@ -149,7 +155,9 @@ function freeformCompactionState(parsed: CodexParsedRequest, summary: string, di
   return {
     version: 2,
     originalRequestRef: `sha256:${digest}`,
-    modifiedFiles: [...new Set([...(prior?.modifiedFiles ?? []), ...extractModifiedFilePaths(parsed.context.messages)])],
+    modifiedFiles: [
+      ...new Set([...(prior?.modifiedFiles ?? []), ...extractModifiedFilePaths(parsed.context.messages)]),
+    ],
     activeHypothesis: "Continue the user requirements described in the checkpoint narrative.",
     requirements,
     closureCriteria: prior?.closureCriteria?.length
@@ -163,10 +171,7 @@ function freeformCompactionState(parsed: CodexParsedRequest, summary: string, di
   };
 }
 
-export function canonicalizeCompactionHandoff(
-  parsed: CodexParsedRequest,
-  summary: string,
-): string {
+export function canonicalizeCompactionHandoff(parsed: CodexParsedRequest, summary: string): string {
   const normalized = summary.trim();
   if (!normalized) throw new Error("ChatGPT returned an empty structured compaction handoff");
   const latestUserPrompt = userPromptText(extractChatGptCompactionSourceRevision(parsed).content);
@@ -184,8 +189,9 @@ export function canonicalizeCompactionHandoff(
   }
   body = normalizeCompactionStateBlock(body);
 
-  const previous = parsed.context.messages.filter(message => message.role === "user"
-    && message.origin === "compaction_summary");
+  const previous = parsed.context.messages.filter(
+    (message) => message.role === "user" && message.origin === "compaction_summary",
+  );
   let originalRequest: string | undefined;
   if (previous.length > 0) {
     for (const checkpoint of previous.toReversed()) {
@@ -194,8 +200,11 @@ export function canonicalizeCompactionHandoff(
       if (!marker) continue;
       try {
         const record = JSON.parse(marker[1]!) as { sha256?: unknown; text?: unknown };
-        if (typeof record.text === "string" && typeof record.sha256 === "string"
-          && createHash("sha256").update(record.text).digest("hex") === record.sha256) {
+        if (
+          typeof record.text === "string" &&
+          typeof record.sha256 === "string" &&
+          createHash("sha256").update(record.text).digest("hex") === record.sha256
+        ) {
           originalRequest = record.text;
         }
       } catch {
@@ -210,8 +219,9 @@ export function canonicalizeCompactionHandoff(
       throw new Error("Trusted compaction summaries have no recoverable original-request marker");
     }
   } else {
-    const firstUser = parsed.context.messages.find(message => message.role === "user"
-      && message.origin !== "codex_skill");
+    const firstUser = parsed.context.messages.find(
+      (message) => message.role === "user" && message.origin !== "codex_skill",
+    );
     originalRequest = firstUser ? userPromptText(firstUser.content) : undefined;
   }
   if (originalRequest !== undefined) {
@@ -224,12 +234,16 @@ export function canonicalizeCompactionHandoff(
       }
       body = body.slice(0, originalOffset).trimEnd();
     }
-    if (body.trim().length >= 50
-      && !/<\/?compaction_state\b/i.test(body)
-      && !/^ {0,3}(?:`{3,}|~{3,})/m.test(body)
-      && !/^ {4,}(?:version|original_request_ref|modified_files|active_hypothesis|requirements|closure_criteria|next_actions):/m.test(body)
-      && !locateCompactionStateBounds(body)
-      && extractStructuredCompactionHandoff(body).state?.version !== 2) {
+    if (
+      body.trim().length >= 50 &&
+      !/<\/?compaction_state\b/i.test(body) &&
+      !/^ {0,3}(?:`{3,}|~{3,})/m.test(body) &&
+      !/^ {4,}(?:version|original_request_ref|modified_files|active_hypothesis|requirements|closure_criteria|next_actions):/m.test(
+        body,
+      ) &&
+      !locateCompactionStateBounds(body) &&
+      extractStructuredCompactionHandoff(body).state?.version !== 2
+    ) {
       body = `${body}\n\n${formatCompactionStateBlock(freeformCompactionState(parsed, body, digest))}`;
     }
     const bounds = locateCompactionStateBounds(body);
@@ -250,16 +264,17 @@ export function canonicalizeCompactionHandoff(
     }
 
     const fields = compactionStateFields(body);
-    const completeDraft = !bounds?.fenced
-      && (bounds !== null || !/^ {0,3}(?:`{3,}|~{3,})/m.test(body))
-      && state?.version === 2
-      && countActiveCompactionStates(body) <= 1
-      && state.activeHypothesis?.trim()
-      && state.requirements?.length
-      && countCompactionRequirementItems(body) === state.requirements.length
-      && state.closureCriteria?.length
-      && state.nextActions.length === 1
-      && [
+    const completeDraft =
+      !bounds?.fenced &&
+      (bounds !== null || !/^ {0,3}(?:`{3,}|~{3,})/m.test(body)) &&
+      state?.version === 2 &&
+      countActiveCompactionStates(body) <= 1 &&
+      state.activeHypothesis?.trim() &&
+      state.requirements?.length &&
+      countCompactionRequirementItems(body) === state.requirements.length &&
+      state.closureCriteria?.length &&
+      state.nextActions.length === 1 &&
+      [
         "version",
         "modified_files",
         "active_hypothesis",
@@ -269,15 +284,15 @@ export function canonicalizeCompactionHandoff(
         "decisions_and_invariants",
         "pending_obligations",
         "next_actions",
-      ].every(field => fields.has(field))
-      && (fields.has("blockers_or_test_failures") || fields.has("blockers"));
+      ].every((field) => fields.has(field)) &&
+      (fields.has("blockers_or_test_failures") || fields.has("blockers"));
 
     // Only normalize a complete, explicitly versioned draft. Missing fields,
     // conflicting IDs and extra actions must remain visible to validation/repair.
     if (state && completeDraft) {
       const detectedFiles = extractModifiedFilePaths(parsed.context.messages);
       const existingFiles = (state.modifiedFiles ?? []).filter(
-        f => f && f.toLowerCase() !== "none" && f.toLowerCase() !== "- none",
+        (f) => f && f.toLowerCase() !== "none" && f.toLowerCase() !== "- none",
       );
       const injectedFiles: string[] = [];
       for (const f of detectedFiles) {
@@ -287,11 +302,13 @@ export function canonicalizeCompactionHandoff(
         }
       }
       if (injectedFiles.length > 0) {
-        console.info(`[chatgpt-web] compaction_file_reconciliation ${JSON.stringify({
-          schemaVersion: 1,
-          source: "successful_patch_history",
-          insertedCount: injectedFiles.length,
-        })}`);
+        console.info(
+          `[chatgpt-web] compaction_file_reconciliation ${JSON.stringify({
+            schemaVersion: 1,
+            source: "successful_patch_history",
+            insertedCount: injectedFiles.length,
+          })}`,
+        );
       }
 
       const canonicalState: CompactionStateBlock = {
@@ -344,11 +361,11 @@ function withCompactionAbort<T>(promise: Promise<T>, signal?: AbortSignal): Prom
     const onAbort = () => reject(abortReason(signal));
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
-      value => {
+      (value) => {
         signal.removeEventListener("abort", onAbort);
         resolve(value);
       },
-      error => {
+      (error) => {
         signal.removeEventListener("abort", onAbort);
         reject(error);
       },
@@ -373,9 +390,7 @@ export async function settleActiveCompactionSource(
     const outstanding = source.outstanding();
     const results = currentToolResults(parsed, source);
     if (results.size !== outstanding.length) {
-      throw new Error(
-        `Codex supplied ${results.size} of ${outstanding.length} required tool results for compaction`,
-      );
+      throw new Error(`Codex supplied ${results.size} of ${outstanding.length} required tool results for compaction`);
     }
     let token: string | undefined;
     try {
@@ -383,11 +398,7 @@ export async function settleActiveCompactionSource(
       broker.requestCompaction(token, interruptedByActiveCompaction());
       for (const request of outstanding) {
         const result = results.get(request.callId)!;
-        await broker.completeTool(
-          token,
-          request.callId,
-          toolResult(result),
-        );
+        await broker.completeTool(token, request.callId, toolResult(result));
         source.runtime.externalProgress.recordToolResult();
         source.markResultDelivered(request.callId);
       }
@@ -436,10 +447,7 @@ export async function settleActiveZeroRiskCompactionSource(
     let token: string | undefined;
     try {
       token = await source.runtime.token;
-      const interruptedQueued = await broker.requestCompaction(
-        token,
-        interruptedByZeroRiskCompaction(),
-      );
+      const interruptedQueued = await broker.requestCompaction(token, interruptedByZeroRiskCompaction());
       for (const [index, request] of outstanding.entries()) {
         const result = results.get(request.callId)!;
         const canonical = toolResult(result);
@@ -456,8 +464,7 @@ export async function settleActiveZeroRiskCompactionSource(
       const browserOutcome = await withCompactionAbort(source.browserOutcome, signal);
       if (browserOutcome.type === "error") throw browserOutcome.error;
       await withCompactionAbort(source.physicalSettlement, signal);
-      const instructionDelivered = outstanding.length > 0
-        || await broker.compactionDeliveryCount(token) > 0;
+      const instructionDelivered = outstanding.length > 0 || (await broker.compactionDeliveryCount(token)) > 0;
       if (!instructionDelivered) return undefined;
       const summary = browserOutcome.answer.trim();
       if (!summary) throw new Error("The active Zero Risk response returned an empty compaction summary");
@@ -492,9 +499,7 @@ export async function requestRetainedCompactionHandoff(
     operationTimeoutMs,
   );
   deadlineTimer.unref?.();
-  const operationSignal = signal
-    ? AbortSignal.any([signal, deadline.signal])
-    : deadline.signal;
+  const operationSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
   const browserAbort = new AbortController();
   const abortBrowser = () => browserAbort.abort(operationSignal.reason);
   let transaction: CompactionTransactionHandle | undefined;
@@ -503,11 +508,14 @@ export async function requestRetainedCompactionHandoff(
   else operationSignal.addEventListener("abort", abortBrowser, { once: true });
   try {
     const transactionPromise = broker.beginCompactionTransaction(traceId, operationTimeoutMs);
-    void transactionPromise.then(lateTransaction => {
-      if (operationSignal.aborted && transaction !== lateTransaction) {
-        broker.abortCompactionTransaction(lateTransaction.token);
-      }
-    }, () => {});
+    void transactionPromise.then(
+      (lateTransaction) => {
+        if (operationSignal.aborted && transaction !== lateTransaction) {
+          broker.abortCompactionTransaction(lateTransaction.token);
+        }
+      },
+      () => {},
+    );
     transaction = await withCompactionAbort(transactionPromise, operationSignal);
     const allObservations = buildCompactionEvidenceIndex(
       parsed.context.messages,
@@ -521,22 +529,13 @@ export async function requestRetainedCompactionHandoff(
       instruction = structuredCompactionRepairInstruction(transaction, repairIssues, selected);
       const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
       while (
-        !checkpointRepairPromptFits(
-          instruction,
-          parsed.modelId as ChatGptWebBackendModel,
-          effort,
-          capabilities,
-        ) && selected.length > 0
+        !checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities) &&
+        selected.length > 0
       ) {
         selected.pop();
         instruction = structuredCompactionRepairInstruction(transaction, repairIssues, selected);
       }
-      if (!checkpointRepairPromptFits(
-        instruction,
-        parsed.modelId as ChatGptWebBackendModel,
-        effort,
-        capabilities,
-      )) {
+      if (!checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities)) {
         throw new ChatGptWebAdapterError("Checkpoint repair exceeds the measured browser transport budget", {
           status: 413,
           errorType: "invalid_request_error",
@@ -546,28 +545,16 @@ export async function requestRetainedCompactionHandoff(
       }
     } else {
       const selected = boundedCompactionRepairObservations(allObservations.slice(-6));
-      instruction = structuredCompactionHandoffInstruction(
-        transaction,
-        selected,
-      );
+      instruction = structuredCompactionHandoffInstruction(transaction, selected);
       const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
       while (
-        !checkpointRepairPromptFits(
-          instruction,
-          parsed.modelId as ChatGptWebBackendModel,
-          effort,
-          capabilities,
-        ) && selected.length > 0
+        !checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities) &&
+        selected.length > 0
       ) {
         selected.pop();
         instruction = structuredCompactionHandoffInstruction(transaction, selected);
       }
-      if (!checkpointRepairPromptFits(
-        instruction,
-        parsed.modelId as ChatGptWebBackendModel,
-        effort,
-        capabilities,
-      )) {
+      if (!checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities)) {
         throw new ChatGptWebAdapterError("Checkpoint handoff exceeds the measured browser transport budget", {
           status: 413,
           errorType: "invalid_request_error",
@@ -601,19 +588,16 @@ export async function requestRetainedCompactionHandoff(
         { status: 409, errorType: "invalid_request_error", code: "compaction_handoff_missing", retryable: false },
       );
     });
-    const summary = await withCompactionAbort(
-      Promise.race([
-        handoff,
-        browserWithoutHandoff,
-      ]),
-      operationSignal,
-    );
+    const summary = await withCompactionAbort(Promise.race([handoff, browserWithoutHandoff]), operationSignal);
     // The one-shot control submission is the terminal event for this purpose-built response.
     // ChatGPT may render no assistant text after a tool-only response, and therefore no Copy
     // action. End our owned turn explicitly and wait for the launcher/helper cleanup handshake.
     browserAbort.abort(new ChatGptCompactionHandoffAccepted());
     await withCompactionAbort(
-      browser.then(() => undefined, () => undefined),
+      browser.then(
+        () => undefined,
+        () => undefined,
+      ),
       operationSignal,
     );
     return summary;
@@ -625,7 +609,10 @@ export async function requestRetainedCompactionHandoff(
       // physical settlement separately, so this helper must not turn its own deadline into an
       // unbounded wait when the worker does not acknowledge abort immediately.
       await withCompactionAbort(
-        browser.then(() => undefined, () => undefined),
+        browser.then(
+          () => undefined,
+          () => undefined,
+        ),
         operationSignal,
       ).catch(() => {});
     }
@@ -735,17 +722,19 @@ export function runStructuredCompactionOnce(
     ? structuredCompactionRevisionScopes.get(owner.revisionScopeKey)
     : undefined;
   if (scopeOwner) {
-    return Promise.reject(new ChatGptWebAdapterError(
-      scopeOwner === key
-        ? "The completed checkpoint result is no longer available for replay; the native turn must not be resubmitted"
-        : "A different compact request revision already owns this native turn and checkpoint epoch",
-      {
-        status: 409,
-        errorType: "invalid_request_error",
-        code: scopeOwner === key ? "checkpoint_result_unavailable" : "compaction_revision_conflict",
-        retryable: false,
-      },
-    ));
+    return Promise.reject(
+      new ChatGptWebAdapterError(
+        scopeOwner === key
+          ? "The completed checkpoint result is no longer available for replay; the native turn must not be resubmitted"
+          : "A different compact request revision already owns this native turn and checkpoint epoch",
+        {
+          status: 409,
+          errorType: "invalid_request_error",
+          code: scopeOwner === key ? "checkpoint_result_unavailable" : "compaction_revision_conflict",
+          retryable: false,
+        },
+      ),
+    );
   }
   const abort = new AbortController();
   const previousOwner = structuredCompactionOwners.get(owner.ownerKey);
@@ -753,26 +742,33 @@ export function runStructuredCompactionOnce(
   const promise = Promise.resolve().then(async () => {
     if (previousOwner) await withCompactionAbort(previousOwner, abort.signal);
     if (abort.signal.aborted) throw abortReason(abort.signal);
-    return start(abort.signal, settlement => { physicalSettlements.push(settlement); });
+    return start(abort.signal, (settlement) => {
+      physicalSettlements.push(settlement);
+    });
   });
   // Return a deadline failure promptly while the physical owner still blocks new work.
   // Replay a failed exact request instead of resubmitting the original history to ChatGPT.
   // Explicit cancellation releases the key; settled replays also expire after the cache TTL.
-  const ownerSettlement = promise.then(() => false, () => true).then(async failed => {
-    run.failed = failed;
-    await Promise.allSettled(physicalSettlements);
-    run.active = false;
-    run.settledAt = Date.now();
-    if (structuredCompactionOwners.get(owner.ownerKey) === ownerSettlement) {
-      structuredCompactionOwners.delete(owner.ownerKey);
-    }
-    if (failed && abort.signal.aborted && structuredCompactionRuns.get(key) === run) {
-      structuredCompactionRuns.delete(key);
-      if (run.revisionScopeKey && structuredCompactionRevisionScopes.get(run.revisionScopeKey) === key) {
-        structuredCompactionRevisionScopes.delete(run.revisionScopeKey);
+  const ownerSettlement = promise
+    .then(
+      () => false,
+      () => true,
+    )
+    .then(async (failed) => {
+      run.failed = failed;
+      await Promise.allSettled(physicalSettlements);
+      run.active = false;
+      run.settledAt = Date.now();
+      if (structuredCompactionOwners.get(owner.ownerKey) === ownerSettlement) {
+        structuredCompactionOwners.delete(owner.ownerKey);
       }
-    }
-  });
+      if (failed && abort.signal.aborted && structuredCompactionRuns.get(key) === run) {
+        structuredCompactionRuns.delete(key);
+        if (run.revisionScopeKey && structuredCompactionRevisionScopes.get(run.revisionScopeKey) === key) {
+          structuredCompactionRevisionScopes.delete(run.revisionScopeKey);
+        }
+      }
+    });
   const run: CachedCompactionRun = {
     failed: false,
     ownerKey: owner.ownerKey,
@@ -808,7 +804,10 @@ function beginCancelStructuredCompactionRuns(
   for (const run of active) {
     if (!run.abort.signal.aborted) run.abort.abort(reason);
   }
-  return { cancelled: active.length, settlement: Promise.allSettled(active.map(run => run.settlement)).then(() => undefined) };
+  return {
+    cancelled: active.length,
+    settlement: Promise.allSettled(active.map((run) => run.settlement)).then(() => undefined),
+  };
 }
 
 /** Begin cancelling the structured compaction owned by one exact native Codex turn. */
@@ -821,23 +820,24 @@ export function cancelStructuredCompactionNativeTurn(
   // boundary, so either registration wins and is aborted below, or interruption wins and the later
   // registration rejects without invoking its detached work.
   rememberStructuredCompactionInterruption(threadId, turnId, reason);
-  const runs = [...structuredCompactionRuns.values()].filter(run => (
-    run.active
-    && run.nativeThreadId === threadId
-    && run.nativeTurnId === turnId
-  ));
+  const runs = [...structuredCompactionRuns.values()].filter(
+    (run) => run.active && run.nativeThreadId === threadId && run.nativeTurnId === turnId,
+  );
   for (const run of runs) {
     if (!run.abort.signal.aborted) run.abort.abort(reason);
   }
   return {
     cancelled: runs.length,
-    settlement: Promise.allSettled(runs.map(run => run.settlement)).then(() => undefined),
+    settlement: Promise.allSettled(runs.map((run) => run.settlement)).then(() => undefined),
   };
 }
 
 /** Cancel a user-requested compaction without treating an HTTP observer disconnect as terminal. */
-export function beginCancelStructuredCompactionTrace(traceId: string, reason: Error): { cancelled: number; settlement: Promise<void> } {
-  return beginCancelStructuredCompactionRuns(run => run.traceIds.has(traceId), reason);
+export function beginCancelStructuredCompactionTrace(
+  traceId: string,
+  reason: Error,
+): { cancelled: number; settlement: Promise<void> } {
+  return beginCancelStructuredCompactionRuns((run) => run.traceIds.has(traceId), reason);
 }
 
 export async function cancelStructuredCompactionTrace(traceId: string, reason: Error): Promise<number> {

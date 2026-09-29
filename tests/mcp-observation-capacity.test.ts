@@ -9,13 +9,14 @@ test("ambiguous IDs remain uncorrelated until all replies settle and then releas
     close: async () => {},
     send: async () => {},
   };
-  observeMcpToolCalls(transport, new Set(["codex_exec"]), event => events.push(event));
-  const receive = (id: number) => transport.onmessage?.({
-    jsonrpc: "2.0",
-    id,
-    method: "tools/call",
-    params: { name: "codex_exec" },
-  });
+  observeMcpToolCalls(transport, new Set(["codex_exec"]), (event) => events.push(event));
+  const receive = (id: number) =>
+    transport.onmessage?.({
+      jsonrpc: "2.0",
+      id,
+      method: "tools/call",
+      params: { name: "codex_exec" },
+    });
   const reply = (id: number) => transport.send({ jsonrpc: "2.0", id, result: {} });
 
   for (let id = 0; id < 1024; id++) {
@@ -31,7 +32,7 @@ test("ambiguous IDs remain uncorrelated until all replies settle and then releas
     await reply(id);
     await reply(id);
   }
-  expect(events.filter(event => event.event === "reply_sent")).toHaveLength(0);
+  expect(events.filter((event) => event.event === "reply_sent")).toHaveLength(0);
   receive(2000);
   expect(events.at(-1)).toMatchObject({ event: "call_received", tool: "codex_exec" });
   await reply(2000);
@@ -44,11 +45,12 @@ test("a duplicate arriving while send is pending invalidates its correlation", a
   const transport: Transport = {
     start: async () => {},
     close: async () => {},
-    send: () => new Promise<void>(resolve => {
-      finishSend = resolve;
-    }),
+    send: () =>
+      new Promise<void>((resolve) => {
+        finishSend = resolve;
+      }),
   };
-  observeMcpToolCalls(transport, new Set(["codex_exec"]), event => events.push(event));
+  observeMcpToolCalls(transport, new Set(["codex_exec"]), (event) => events.push(event));
   const request = {
     jsonrpc: "2.0" as const,
     id: 1,
@@ -60,7 +62,7 @@ test("a duplicate arriving while send is pending invalidates its correlation", a
   transport.onmessage?.(request);
   finishSend();
   await pending;
-  expect(events.filter(event => event.event === "reply_sent")).toHaveLength(0);
+  expect(events.filter((event) => event.event === "reply_sent")).toHaveLength(0);
 });
 
 test("failed ambiguous replies release tracking without reporting a correlated failure", async () => {
@@ -73,7 +75,7 @@ test("failed ambiguous replies release tracking without reporting a correlated f
       throw failure;
     },
   };
-  observeMcpToolCalls(transport, new Set(["codex_exec"]), event => events.push(event));
+  observeMcpToolCalls(transport, new Set(["codex_exec"]), (event) => events.push(event));
   const request = {
     jsonrpc: "2.0" as const,
     id: 1,
@@ -85,7 +87,7 @@ test("failed ambiguous replies release tracking without reporting a correlated f
   for (let reply = 0; reply < 2; reply++) {
     await expect(transport.send({ jsonrpc: "2.0", id: 1, result: {} })).rejects.toBe(failure);
   }
-  expect(events.filter(event => event.event === "reply_send_failed")).toHaveLength(0);
+  expect(events.filter((event) => event.event === "reply_send_failed")).toHaveLength(0);
   transport.onmessage?.(request);
   expect(events.at(-1)).toMatchObject({ event: "call_received", call: 2 });
 });

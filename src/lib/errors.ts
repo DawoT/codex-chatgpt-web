@@ -17,16 +17,13 @@ function isSubscriptionGateMessage(text: string): boolean {
 }
 
 function isAuthenticationMessage(text: string): boolean {
-  const accessDeniedWithCredentialCue = (
-    text.includes("access denied") ||
-    text.includes("accessdeniedexception")
-  ) && (
-    text.includes("authentication") ||
-    text.includes("credential") ||
-    text.includes("api key") ||
-    text.includes("token") ||
-    text.includes("signature")
-  );
+  const accessDeniedWithCredentialCue =
+    (text.includes("access denied") || text.includes("accessdeniedexception")) &&
+    (text.includes("authentication") ||
+      text.includes("credential") ||
+      text.includes("api key") ||
+      text.includes("token") ||
+      text.includes("signature"));
   return (
     text.includes("authentication failed") ||
     text.includes("authentication") ||
@@ -80,11 +77,7 @@ export function classifyError(status: number, type: string, message: string): Co
   if (type === "client_cancelled") {
     return { message, type: "client_cancelled", code: "client_cancelled" };
   }
-  if (
-    status === 499 ||
-    type === "client_closed_request" ||
-    isClientClosedMessage(text)
-  ) {
+  if (status === 499 || type === "client_closed_request" || isClientClosedMessage(text)) {
     return { message, type: "invalid_request_error", code: "client_closed_request" };
   }
   if (
@@ -123,25 +116,14 @@ export function classifyError(status: number, type: string, message: string): Co
   }
   // HTTP 401 and explicit auth failures are authoritative even when provider text
   // also advertises an upgrade or subscription.
-  if (
-    status === 401 ||
-    type === "authentication_error" ||
-    isAuthenticationMessage(text)
-  ) {
+  if (status === 401 || type === "authentication_error" || isAuthenticationMessage(text)) {
     return { message, type: "authentication_error", code: "invalid_api_key" };
   }
   // Subscription labels are valid only in a known permission context.
-  if (
-    (status === 403 || type === "permission_error") &&
-    isSubscriptionGateMessage(text)
-  ) {
+  if ((status === 403 || type === "permission_error") && isSubscriptionGateMessage(text)) {
     return { message, type: "permission_error", code: "subscription_required" };
   }
-  if (
-    status === 403 ||
-    type === "permission_error" ||
-    isPermissionMessage(text)
-  ) {
+  if (status === 403 || type === "permission_error" || isPermissionMessage(text)) {
     return { message, type: "permission_error", code: "permission_denied" };
   }
   if (
@@ -199,7 +181,8 @@ export function inferHttpStatusFromAdapterMessage(message: string): number {
     lower.includes("rate limit") ||
     lower.includes("too many requests") ||
     lower.includes("throttling")
-  ) return 429;
+  )
+    return 429;
   // Strong authentication signals win when a message contains mixed auth and
   // subscription/permission wording.
   if (isAuthenticationMessage(lower)) return 401;
@@ -209,20 +192,23 @@ export function inferHttpStatusFromAdapterMessage(message: string): number {
     lower.includes("overloaded") ||
     lower.includes("temporarily") ||
     lower.includes("server is busy")
-  ) return 503;
+  )
+    return 503;
   if (
     lower.includes("invalid") ||
     lower.includes("not found") ||
     lower.includes("unsupported") ||
     lower.includes("malformed") ||
     lower.includes("unimplemented")
-  ) return 400;
+  )
+    return 400;
   if (
     lower.includes("timed out") ||
     lower.includes("timeout") ||
     lower.includes("etimedout") ||
     lower.includes("deadline")
-  ) return 504;
+  )
+    return 504;
   return 502;
 }
 
@@ -234,19 +220,20 @@ export function adapterFailureFromMessage(message: string): { httpStatus: number
   if (retryAfterSeconds && !/please try again in /i.test(message)) {
     finalMessage = `${message} Please try again in ${retryAfterSeconds}s.`;
   }
-  const errorType = httpStatus === 499
-    ? "client_closed_request"
-    : httpStatus === 429
-      ? "rate_limit_error"
-      : httpStatus === 401
-        ? "authentication_error"
-        : httpStatus === 403
-          ? "permission_error"
-          : httpStatus === 503 || httpStatus === 504
-            ? "server_error"
-            : httpStatus === 400
-              ? "invalid_request_error"
-              : "upstream_error";
+  const errorType =
+    httpStatus === 499
+      ? "client_closed_request"
+      : httpStatus === 429
+        ? "rate_limit_error"
+        : httpStatus === 401
+          ? "authentication_error"
+          : httpStatus === 403
+            ? "permission_error"
+            : httpStatus === 503 || httpStatus === 504
+              ? "server_error"
+              : httpStatus === 400
+                ? "invalid_request_error"
+                : "upstream_error";
   return {
     httpStatus,
     error: classifyError(httpStatus, errorType, finalMessage),
@@ -254,20 +241,21 @@ export function adapterFailureFromMessage(message: string): { httpStatus: number
 }
 
 /** Map a terminal Responses error object to the HTTP status we record in /api/logs. */
-export function httpStatusFromTerminalError(error: {
-  type?: string;
-  code?: string | null;
-  message?: string;
-} | undefined): number {
+export function httpStatusFromTerminalError(
+  error:
+    | {
+        type?: string;
+        code?: string | null;
+        message?: string;
+      }
+    | undefined,
+): number {
   if (!error) return 502;
   if (error.code === "client_closed_request" || error.code === "client_cancelled") return 499;
   if (error.type === "rate_limit_error" || error.code === "rate_limit_exceeded") return 429;
   if (error.type === "authentication_error" || error.code === "invalid_api_key") return 401;
-  if (
-    error.type === "permission_error" ||
-    error.code === "permission_denied" ||
-    error.code === "subscription_required"
-  ) return 403;
+  if (error.type === "permission_error" || error.code === "permission_denied" || error.code === "subscription_required")
+    return 403;
   if (error.type === "insufficient_quota" || error.code === "insufficient_quota") return 429;
   if (error.type === "server_error" && error.code === "server_is_overloaded") return 503;
   // Client-closed messages often arrive as invalid_request_error after classifyError; check message

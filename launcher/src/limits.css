@@ -423,7 +423,9 @@
 }
 
 @keyframes limits-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @container (max-width: 540px) {

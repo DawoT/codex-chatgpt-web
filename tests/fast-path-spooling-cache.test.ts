@@ -1,22 +1,14 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  handleReadFile,
-  handleListDir,
-  handleGrep,
-  handleWriteFile,
-  handlePatchFile,
-  dispatchFastPathTool,
-} from "../src/adapters/chatgpt-web/fast-path-handlers";
 import { FastPathWorkspaceCache, workspaceFileCache } from "../src/adapters/chatgpt-web/fast-path-cache";
+import { handleGrep, handleListDir, handleReadFile } from "../src/adapters/chatgpt-web/fast-path-handlers";
+import { asMcpResult } from "../src/adapters/chatgpt-web/mcp-server";
 import {
   DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
   sanitizeToolOutputWithSpooler,
-  spoolToolOutput,
 } from "../src/adapters/chatgpt-web/tool-spooler";
-import { asMcpResult } from "../src/adapters/chatgpt-web/mcp-server";
 
 describe("Sprint AA: Fast-Path Universal Spooling & Mutation Cache Coherence", () => {
   let tempDir: string;
@@ -40,7 +32,7 @@ describe("Sprint AA: Fast-Path Universal Spooling & Mutation Cache Coherence", (
       writeFileSync(filePath, "original content v1", "utf-8");
 
       const localCache = new FastPathWorkspaceCache();
-      const read1 = handleReadFile({
+      const _read1 = handleReadFile({
         path: "source.txt",
         cwd: tempDir,
         roots: [tempDir],
@@ -50,7 +42,7 @@ describe("Sprint AA: Fast-Path Universal Spooling & Mutation Cache Coherence", (
       expect(localCache.getStats().entryCount).toBe(1);
 
       // Verify cache hit
-      const readCached = handleReadFile({
+      const _readCached = handleReadFile({
         path: "source.txt",
         cwd: tempDir,
         roots: [tempDir],
@@ -146,7 +138,10 @@ describe("Sprint AA: Fast-Path Universal Spooling & Mutation Cache Coherence", (
       const subDir = join(tempDir, "many_files");
       mkdirSync(subDir, { recursive: true });
       for (let i = 1; i <= 80; i++) {
-        writeFileSync(join(subDir, `generated_service_module_file_${i.toString().padStart(3, "0")}.ts`), `// File ${i}`);
+        writeFileSync(
+          join(subDir, `generated_service_module_file_${i.toString().padStart(3, "0")}.ts`),
+          `// File ${i}`,
+        );
       }
 
       const listRes = handleListDir({
@@ -240,8 +235,9 @@ describe("Sprint AA: Fast-Path Universal Spooling & Mutation Cache Coherence", (
         workspaceRoot: tempDir,
       });
 
-      expect(mcpOutput.content[0]?.offloadedPath).toBeDefined();
-      expect(existsSync(mcpOutput.content[0]?.offloadedPath!)).toBe(true);
+      const offloadedPath = mcpOutput.content[0]?.offloadedPath;
+      expect(offloadedPath).toBeDefined();
+      expect(existsSync(offloadedPath!)).toBe(true);
       expect(mcpOutput.structuredContent).toBeDefined();
       expect(mcpOutput.structuredContent?.spooled).toBe(true);
       expect(mcpOutput.structuredContent?.offloadedPath).toBe(mcpOutput.content[0]?.offloadedPath);

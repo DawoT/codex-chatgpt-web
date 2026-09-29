@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -78,7 +78,7 @@ const build = await Bun.build({
   naming: "cli.js",
 });
 if (!build.success) {
-  throw new Error(`Runtime bundle failed: ${build.logs.map(log => log.message).join("; ")}`);
+  throw new Error(`Runtime bundle failed: ${build.logs.map((log) => log.message).join("; ")}`);
 }
 
 const browserHelperBuild = await Bun.build({
@@ -92,7 +92,7 @@ const browserHelperBuild = await Bun.build({
   naming: "browser-helper.cjs",
 });
 if (!browserHelperBuild.success) {
-  throw new Error(`Browser helper bundle failed: ${browserHelperBuild.logs.map(log => log.message).join("; ")}`);
+  throw new Error(`Browser helper bundle failed: ${browserHelperBuild.logs.map((log) => log.message).join("; ")}`);
 }
 
 copyFileSync(join(root, "package.json"), join(appDir, "package.json"));
@@ -110,13 +110,16 @@ cpSync(embeddedBunExecutable(), join(runtimeDir, bunName));
 if (process.platform !== "win32") chmodSync(join(runtimeDir, bunName), 0o755);
 
 const launcherName = process.platform === "win32" ? "codex-chatgpt-web.cmd" : "codex-chatgpt-web";
-const launcher = process.platform === "win32" ? `@echo off
+const launcher =
+  process.platform === "win32"
+    ? `@echo off
 setlocal
 chcp 65001 >nul
 set "ROOT=%~dp0.."
 set "CODEX_CHATGPT_WEB_LAUNCHER=%~f0"
 "%ROOT%\\runtime\\bun.exe" "%ROOT%\\app\\cli.js" %*
-` : `#!/bin/sh
+`
+    : `#!/bin/sh
 set -eu
 invoked="$0"
 case "$invoked" in
@@ -139,17 +142,20 @@ exec "$root/runtime/bun" "$root/app/cli.js" "$@"
 writeFileSync(join(binDir, launcherName), launcher, process.platform === "win32" ? undefined : { mode: 0o755 });
 if (process.platform !== "win32") chmodSync(join(binDir, launcherName), 0o755);
 
-const notices = Bun.spawnSync([
-  process.execPath,
-  "run",
-  join(root, "scripts", "generate-third-party-notices.ts"),
-  join(output, "THIRD_PARTY_NOTICES.txt"),
-  "--include-launcher",
-], {
-  cwd: root,
-  stdout: "pipe",
-  stderr: "pipe",
-});
+const notices = Bun.spawnSync(
+  [
+    process.execPath,
+    "run",
+    join(root, "scripts", "generate-third-party-notices.ts"),
+    join(output, "THIRD_PARTY_NOTICES.txt"),
+    "--include-launcher",
+  ],
+  {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
+);
 if (notices.exitCode !== 0) {
   throw new Error(`Third-party notices failed: ${notices.stderr.toString() || notices.stdout.toString()}`);
 }
@@ -170,7 +176,9 @@ function runtimeManifestFiles(): RuntimeManifestFile[] {
   const canonicalRoot = realpathSync(output);
   const files: RuntimeManifestFile[] = [];
   const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => comparePaths(left.name, right.name))) {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      comparePaths(left.name, right.name),
+    )) {
       const absolutePath = join(directory, entry.name);
       const relativePath = relative(output, absolutePath).split(sep).join("/");
       if (relativePath === "manifest.json") continue;
@@ -212,18 +220,25 @@ function bundleIdFor(files: RuntimeManifestFile[]): string {
 
 const playwrightPackage = join(appDir, "node_modules", "playwright-core", "package.json");
 const files = runtimeManifestFiles();
-writeFileSync(join(output, "manifest.json"), `${JSON.stringify({
-  schemaVersion: 2,
-  appVersion: VERSION,
-  buildCommit,
-  bundleId: bundleIdFor(files),
-  bunVersion: Bun.version,
-  platform: process.platform,
-  arch: process.arch,
-  launcher: `bin/${launcherName}`,
-  entrypoint: "app/cli.js",
-  playwright: JSON.parse(readFileSync(playwrightPackage, "utf8")).version,
-  files,
-}, null, 2)}\n`);
+writeFileSync(
+  join(output, "manifest.json"),
+  `${JSON.stringify(
+    {
+      schemaVersion: 2,
+      appVersion: VERSION,
+      buildCommit,
+      bundleId: bundleIdFor(files),
+      bunVersion: Bun.version,
+      platform: process.platform,
+      arch: process.arch,
+      launcher: `bin/${launcherName}`,
+      entrypoint: "app/cli.js",
+      playwright: JSON.parse(readFileSync(playwrightPackage, "utf8")).version,
+      files,
+    },
+    null,
+    2,
+  )}\n`,
+);
 
 process.stdout.write(`${output}\n`);

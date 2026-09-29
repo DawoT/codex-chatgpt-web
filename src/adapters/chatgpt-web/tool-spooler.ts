@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { truncateToolOutputText } from "./fast-path-handlers";
 import { runtimeMetrics } from "./runtime-metrics";
 
@@ -10,7 +10,7 @@ import { runtimeMetrics } from "./runtime-metrics";
  * Intercepts tool outputs exceeding the safety threshold and spools the full raw
  * payload to disk, returning a compact structured summary (head + tail + file path)
  * to ChatGPT Web. This prevents context exhaustion while preserving total auditability.
- * 
+ *
  * Sprint Z: Storage Hygiene & Rolling FIFO/TTL Retention Policy.
  */
 
@@ -68,10 +68,7 @@ function sanitizeForFileName(input: string): string {
  * Prunes the scratch outputs directory enforcing max files (FIFO), max total bytes,
  * and maximum age (TTL) policies.
  */
-export function pruneScratchDirectory(
-  scratchDir: string,
-  policy: PruningPolicy = {},
-): PruneResult {
+export function pruneScratchDirectory(scratchDir: string, policy: PruningPolicy = {}): PruneResult {
   if (!existsSync(scratchDir)) {
     return { deletedCount: 0, deletedBytes: 0, remainingCount: 0, remainingBytes: 0 };
   }
@@ -216,7 +213,11 @@ export function spoolToolOutput(text: string, options: ToolSpoolerOptions = {}):
     const targetFilePath = join(scratchDir, filename);
     write(targetFilePath, text, "utf-8");
     // Record spooler write metrics (non-blocking, never throws)
-    try { runtimeMetrics.recordSpoolerWrite(text.length); } catch { /* ignore */ }
+    try {
+      runtimeMetrics.recordSpoolerWrite(text.length);
+    } catch {
+      /* ignore */
+    }
 
     // Opportunistically prune scratch directory according to retention policy
     try {
@@ -258,7 +259,7 @@ export function spoolToolOutput(text: string, options: ToolSpoolerOptions = {}):
       filePath: targetFilePath,
       originalLength: text.length,
     };
-  } catch (error) {
+  } catch (_error) {
     // Fail-safe: if disk writing fails for any reason, fallback to in-memory truncation
     const fallbackText = truncateToolOutputText(text, maxChars);
     return {
@@ -275,14 +276,14 @@ export function spoolToolOutput(text: string, options: ToolSpoolerOptions = {}):
 export function sanitizeToolOutputWithSpooler(content: unknown[], options: ToolSpoolerOptions = {}): unknown[] {
   if (!Array.isArray(content)) return content;
 
-  return content.map(part => {
+  return content.map((part) => {
     if (
-      part !== null
-      && typeof part === "object"
-      && !Array.isArray(part)
-      && "type" in part
-      && (part as { type: unknown }).type === "text"
-      && typeof (part as { text?: unknown }).text === "string"
+      part !== null &&
+      typeof part === "object" &&
+      !Array.isArray(part) &&
+      "type" in part &&
+      (part as { type: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
     ) {
       const textPart = part as { type: "text"; text: string; [key: string]: unknown };
       const spooled = spoolToolOutput(textPart.text, options);

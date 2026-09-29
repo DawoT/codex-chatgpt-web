@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { callTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
+import { callTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import { defaultBrokerEndpoint } from "../src/config";
 
 test("compaction closes queued tool traces as cancelled without claiming execution", async () => {
@@ -17,13 +17,16 @@ test("compaction closes queued tool traces as cancelled without claiming executi
   const sink = new TelemetryTraceSink(join(root, "logs", "mcp"));
   const traceId = randomUUID();
   try {
-    const token = await broker.register({
-      cwd: root,
-      roots: [root],
-      writableRoots: [root],
-      sandboxPolicy: { type: "dangerFullAccess" },
-      tools: [{ name: "exec_command", description: "Run", parameters: { type: "object" } }],
-    }, 10_000);
+    const token = await broker.register(
+      {
+        cwd: root,
+        roots: [root],
+        writableRoots: [root],
+        sandboxPolicy: { type: "dangerFullAccess" },
+        tools: [{ name: "exec_command", description: "Run", parameters: { type: "object" } }],
+      },
+      10_000,
+    );
     const claimed = await callTurnBroker<{ bindingId: string }>(broker.socketPath, {
       method: "claim",
       token,
@@ -41,20 +44,22 @@ test("compaction closes queued tool traces as cancelled without claiming executi
       await Bun.sleep(10);
       events = await sink.query({ traceId });
     }
-    expect(events.map(row => row.metadata?.event)).toEqual(["broker_queued"]);
-    expect(broker.requestCompaction(token, {
-      content: [{ type: "text", text: "compact instead" }],
-      isError: true,
-    })).toBe(1);
+    expect(events.map((row) => row.metadata?.event)).toEqual(["broker_queued"]);
+    expect(
+      broker.requestCompaction(token, {
+        content: [{ type: "text", text: "compact instead" }],
+        isError: true,
+      }),
+    ).toBe(1);
     await expect(invocation).resolves.toMatchObject({ isError: true });
     const deadline = Date.now() + 1000;
     while (events.length < 2 && Date.now() < deadline) {
       await Bun.sleep(10);
       events = await sink.query({ traceId });
     }
-    expect(events.map(row => row.metadata?.event).sort()).toEqual(["broker_compaction_cancelled", "broker_queued"]);
-    const cancelled = events.find(row => row.metadata?.event === "broker_compaction_cancelled");
-    const queued = events.find(row => row.metadata?.event === "broker_queued");
+    expect(events.map((row) => row.metadata?.event).sort()).toEqual(["broker_compaction_cancelled", "broker_queued"]);
+    const cancelled = events.find((row) => row.metadata?.event === "broker_compaction_cancelled");
+    const queued = events.find((row) => row.metadata?.event === "broker_queued");
     expect(cancelled?.terminalState).toBe("cancelled");
     expect(cancelled?.brokerCallId).toBe(queued?.brokerCallId);
     expect(cancelled?.metadata?.elapsed_ms).toBeGreaterThanOrEqual(0);

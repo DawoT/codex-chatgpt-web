@@ -38,7 +38,7 @@ export async function notifyLauncherTurn(
       signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
     });
     if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (response.status === 409 && body.code === "turn_cancelled") {
         throw new LauncherBrowserTurnCancelledError(
           typeof body.error === "string" ? body.error : `Browser turn ${activity.traceId} was cancelled by the user`,
@@ -52,7 +52,7 @@ export async function notifyLauncherTurn(
       const detail = typeof body.error === "string" ? body.error : "";
       throw new Error(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
     }
-    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (activity.phase === "start") {
       if (typeof body.surfaceId !== "string" || !/^[A-Za-z0-9_-]{32}$/.test(body.surfaceId)) {
         throw new Error("Launcher browser control channel returned an invalid turn surface id");
@@ -79,10 +79,16 @@ export async function notifyLauncherTurn(
     return {};
   } catch (error) {
     if (signal?.aborted) throw new DOMException("Launcher browser acquisition cancelled", "AbortError");
-    if (controller.signal.aborted) throw new Error(`Launcher browser control ${activity.phase} timed out after ${timeoutMs}ms`);
-    if (error instanceof LauncherBrowserTurnCancelledError
-      || error instanceof LauncherRetainedConversationUnavailableError) throw error;
-    throw new Error(`Launcher browser control channel failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (controller.signal.aborted)
+      throw new Error(`Launcher browser control ${activity.phase} timed out after ${timeoutMs}ms`);
+    if (
+      error instanceof LauncherBrowserTurnCancelledError ||
+      error instanceof LauncherRetainedConversationUnavailableError
+    )
+      throw error;
+    throw new Error(
+      `Launcher browser control channel failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -109,14 +115,16 @@ export async function releaseLauncherRetainedConversation(
       body: JSON.stringify({ conversationKey }),
       signal: controller.signal,
     });
-    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok || !Number.isSafeInteger(body.released) || Number(body.released) < 0) {
       const detail = typeof body.error === "string" ? `: ${body.error}` : "";
       throw new Error(`HTTP ${response.status}${detail}`);
     }
     return Number(body.released);
   } catch (error) {
-    throw new Error(`Launcher retained conversation release failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Launcher retained conversation release failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     clearTimeout(timer);
   }

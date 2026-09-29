@@ -1,7 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { availableChatGptWebModelRoutes, chatGptWebRouteEfforts } from "../src/chatgpt-web-models";
 import { defaultConfig } from "../src/config";
 import { augmentNativeModelCatalog } from "../src/model-catalog";
@@ -18,14 +18,20 @@ function runCodex(args: string[], env = process.env): { stdout: string; stderr: 
     maxBuffer: 16 * 1024 * 1024,
   });
   if (result.status !== 0) {
-    throw new Error(`Codex ${args.join(" ")} failed: ${result.error?.message || result.stderr || result.signal || `exit ${result.status}`}`);
+    throw new Error(
+      `Codex ${args.join(" ")} failed: ${result.error?.message || result.stderr || result.signal || `exit ${result.status}`}`,
+    );
   }
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
 const bundled = runCodex(["debug", "models", "--bundled"]);
 const sourceCatalog = JSON.parse(bundled.stdout) as { models?: unknown[] };
-if (!sourceCatalog.models?.some(model => model && typeof model === "object" && (model as { slug?: string }).slug === "gpt-5.6-sol")) {
+if (
+  !sourceCatalog.models?.some(
+    (model) => model && typeof model === "object" && (model as { slug?: string }).slug === "gpt-5.6-sol",
+  )
+) {
   throw new Error("Bundled Codex catalog has no gpt-5.6-sol template");
 }
 
@@ -39,14 +45,17 @@ config.subagentProtocol = protocol === "v1" ? "compatibility-v1" : "native";
 const catalogPath = join(root, "augmented-models.json");
 const augmentedCatalog = augmentNativeModelCatalog(sourceCatalog, config);
 writeFileSync(catalogPath, `${JSON.stringify(augmentedCatalog)}\n`);
-writeFileSync(join(process.env.CODEX_HOME, "config.toml"), [
-  `model_catalog_json = ${JSON.stringify(catalogPath)}`,
-  "",
-  "[features]",
-  "multi_agent = true",
-  `multi_agent_v2 = ${protocol === "v2"}`,
-  "",
-].join("\n"));
+writeFileSync(
+  join(process.env.CODEX_HOME, "config.toml"),
+  [
+    `model_catalog_json = ${JSON.stringify(catalogPath)}`,
+    "",
+    "[features]",
+    "multi_agent = true",
+    `multi_agent_v2 = ${protocol === "v2"}`,
+    "",
+  ].join("\n"),
+);
 try {
   const isolatedEnv = { ...process.env, CODEX_HOME: process.env.CODEX_HOME };
   const result = runCodex(["debug", "models"], isolatedEnv);
@@ -60,48 +69,59 @@ try {
       priority?: number;
     }>;
   };
-  const web = catalog.models?.filter(model => model.slug?.startsWith("chatgpt-web/")) ?? [];
-  const expected = availableChatGptWebModelRoutes(config, true).map(route => ({
-    slug: route.slug, visibility: route.legacy ? "hide" : "list", effort: chatGptWebRouteEfforts(route, config).join(","),
+  const web = catalog.models?.filter((model) => model.slug?.startsWith("chatgpt-web/")) ?? [];
+  const expected = availableChatGptWebModelRoutes(config, true).map((route) => ({
+    slug: route.slug,
+    visibility: route.legacy ? "hide" : "list",
+    effort: chatGptWebRouteEfforts(route, config).join(","),
   }));
-  const actual = web.map(model => ({
+  const actual = web.map((model) => ({
     slug: model.slug,
     visibility: model.visibility,
     effort: Array.isArray(model.supported_reasoning_levels)
-      ? (model.supported_reasoning_levels as Array<{ effort?: string }>).map(level => level.effort).join(",")
+      ? (model.supported_reasoning_levels as Array<{ effort?: string }>).map((level) => level.effort).join(",")
       : "",
   }));
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`Codex did not preserve the grouped and legacy ChatGPT Web model contract: ${JSON.stringify(actual)}`);
-  }
-  const nativeSol = catalog.models?.find(model => model.slug === "gpt-5.6-sol");
-  const webPro = catalog.models?.find(model => model.slug === "chatgpt-web/pro");
-  if (nativeSol?.multi_agent_version !== protocol || webPro?.multi_agent_version !== protocol) {
     throw new Error(
-      `Codex did not preserve ${protocol} catalog metadata: ${JSON.stringify({ nativeSol, webPro })}`,
+      `Codex did not preserve the grouped and legacy ChatGPT Web model contract: ${JSON.stringify(actual)}`,
     );
   }
+  const nativeSol = catalog.models?.find((model) => model.slug === "gpt-5.6-sol");
+  const webPro = catalog.models?.find((model) => model.slug === "chatgpt-web/pro");
+  if (nativeSol?.multi_agent_version !== protocol || webPro?.multi_agent_version !== protocol) {
+    throw new Error(`Codex did not preserve ${protocol} catalog metadata: ${JSON.stringify({ nativeSol, webPro })}`);
+  }
   const features = runCodex(["features", "list"], isolatedEnv).stdout;
-  if (!/^multi_agent\s+stable\s+true$/m.test(features)
-    || !new RegExp(`^multi_agent_v2\\s+stable\\s+${protocol === "v2"}$`, "m").test(features)) {
+  if (
+    !/^multi_agent\s+stable\s+true$/m.test(features) ||
+    !new RegExp(`^multi_agent_v2\\s+stable\\s+${protocol === "v2"}$`, "m").test(features)
+  ) {
     throw new Error(`Codex did not load the ${protocol} feature override:\n${features}`);
   }
   const spawnOverrides = (catalog.models ?? [])
-    .filter(model => model.supported_in_api === true && model.visibility === "list")
+    .filter((model) => model.supported_in_api === true && model.visibility === "list")
     .toSorted((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
     .slice(0, 5)
-    .map(model => model.slug);
+    .map((model) => model.slug);
   // Verify the installed Codex preserves the emitted catalog's admission ordering.
   // Native model priorities can change independently of this bridge release.
-  const expectedSpawnOverrides = (augmentedCatalog.models as Array<{
-    slug: string; visibility: string; supported_in_api: boolean; priority?: number;
-  }>)
-    .filter(model => model.supported_in_api && model.visibility === "list")
+  const expectedSpawnOverrides = (
+    augmentedCatalog.models as Array<{
+      slug: string;
+      visibility: string;
+      supported_in_api: boolean;
+      priority?: number;
+    }>
+  )
+    .filter((model) => model.supported_in_api && model.visibility === "list")
     .toSorted((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
     .slice(0, 5)
-    .map(model => model.slug);
+    .map((model) => model.slug);
   if (JSON.stringify(spawnOverrides) !== JSON.stringify(expectedSpawnOverrides)) {
-    throw new Error(`Codex did not preserve the bounded ${protocol} subagent roster: ${JSON.stringify(spawnOverrides)}`);
+    throw new Error(
+      `Codex did not preserve the bounded ${protocol} subagent roster: ${JSON.stringify(spawnOverrides)}`,
+    );
   }
   process.stdout.write(`NATIVE_CODEX_CATALOG_SMOKE_${protocol.toUpperCase()}_OK\n`);
 } finally {

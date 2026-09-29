@@ -82,25 +82,29 @@ function request(url, redirects = 0) {
       reject(new Error(`Refusing non-HTTPS update URL: ${parsed.protocol}`));
       return;
     }
-    const req = https.get(parsed, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": USER_AGENT,
+    const req = https.get(
+      parsed,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": USER_AGENT,
+        },
       },
-    }, (response) => {
-      if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
-        response.resume();
-        const next = new URL(response.headers.location, parsed).toString();
-        request(next, redirects + 1).then(resolve, reject);
-        return;
-      }
-      if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error(`Update download failed with HTTP ${response.statusCode}`));
-        return;
-      }
-      resolve(response);
-    });
+      (response) => {
+        if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
+          response.resume();
+          const next = new URL(response.headers.location, parsed).toString();
+          request(next, redirects + 1).then(resolve, reject);
+          return;
+        }
+        if (response.statusCode !== 200) {
+          response.resume();
+          reject(new Error(`Update download failed with HTTP ${response.statusCode}`));
+          return;
+        }
+        resolve(response);
+      },
+    );
     req.setTimeout(60_000, () => req.destroy(new Error("Update request timed out")));
     req.once("error", reject);
   });
@@ -158,9 +162,9 @@ function findMacApplication(root) {
 }
 
 function linuxUpdateInstallation() {
-  const guidance = "Quit Codex Web GPT, run install-launcher.sh from the README once, then reopen the installed app. Your settings and browser profile are preserved.";
-  const target = process.env.CODEX_WEB_GPT_APPIMAGE?.trim()
-    || process.env.APPIMAGE?.trim();
+  const guidance =
+    "Quit Codex Web GPT, run install-launcher.sh from the README once, then reopen the installed app. Your settings and browser profile are preserved.";
+  const target = process.env.CODEX_WEB_GPT_APPIMAGE?.trim() || process.env.APPIMAGE?.trim();
   if (!target || !path.isAbsolute(target)) {
     throw new Error(`The running Linux AppImage path is unavailable. ${guidance}`);
   }
@@ -228,12 +232,7 @@ function defaultDependencies() {
     },
     linuxRunnerSource() {
       if (typeof process.resourcesPath === "string" && process.resourcesPath) {
-        const unpacked = path.join(
-          process.resourcesPath,
-          "app.asar.unpacked",
-          "assets",
-          "linux-appimage-runner.sh",
-        );
+        const unpacked = path.join(process.resourcesPath, "app.asar.unpacked", "assets", "linux-appimage-runner.sh");
         if (fs.statSync(unpacked, { throwIfNoEntry: false })?.isFile()) return unpacked;
       }
       const source = path.resolve(__dirname, "..", "assets", "linux-appimage-runner.sh");
@@ -372,7 +371,9 @@ function createUpdateController({
   }
 
   function cancelInstall(launch) {
-    try { launch?.child?.kill(); } catch {}
+    try {
+      launch?.child?.kill();
+    } catch {}
     if (launch?.tempRoot) fs.rmSync(launch.tempRoot, { recursive: true, force: true });
     if (candidate) transition({ status: "available", version: candidate.version });
   }

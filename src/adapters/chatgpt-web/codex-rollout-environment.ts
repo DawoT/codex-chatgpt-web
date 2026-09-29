@@ -5,15 +5,15 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
-  readdirSync,
   realpathSync,
 } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, toNamespacedPath } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { expandUserPath } from "../../config";
 import { findTopLevelAssignment } from "../../codex-integration-document";
+import { expandUserPath } from "../../config";
 import type { CodexTool } from "../../types";
 import type {
   ChatGptRootThreadMetadata,
@@ -30,14 +30,11 @@ const ROLLOUT_READ_CHUNK_BYTES = 64 * 1024;
 const MAX_ROLLOUT_JSON_LINE_BYTES = 16 * 1024 * 1024;
 const MAX_ROLLOUT_DIRECTORY_ENTRIES = 100_000;
 
-type IndexedRollout =
-  | { kind: "unavailable" }
-  | { kind: "absent" }
-  | { kind: "found"; path: string };
+type IndexedRollout = { kind: "unavailable" } | { kind: "absent" } | { kind: "found"; path: string };
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -69,10 +66,7 @@ function configuredSqliteHome(codexHome: string, explicit?: string): string {
 
   const configPath = join(codexHome, "config.toml");
   if (existsSync(configPath)) {
-    const configured = findTopLevelAssignment(
-      readFileSync(configPath, "utf8").split(/\r\n|\n|\r/),
-      "sqlite_home",
-    );
+    const configured = findTopLevelAssignment(readFileSync(configPath, "utf8").split(/\r\n|\n|\r/), "sqlite_home");
     if (configured.present) {
       const value = configured.value?.trim();
       if (!value) throw new Error("sqlite_home in Codex config must not be empty");
@@ -84,22 +78,21 @@ function configuredSqliteHome(codexHome: string, explicit?: string): string {
   return resolve(environmentValue ? expandUserPath(environmentValue) : codexHome);
 }
 
-function indexedRollout(
-  sqliteHome: string,
-  identity: RolloutIdentity,
-): IndexedRollout {
+function indexedRollout(sqliteHome: string, identity: RolloutIdentity): IndexedRollout {
   const databasePath = join(sqliteHome, "state_5.sqlite");
   if (!existsSync(databasePath)) return { kind: "unavailable" };
   let database: Database | undefined;
   try {
     database = new Database(databasePath, { readonly: true, strict: true });
-    const row = database.query(`
+    const row = database
+      .query(`
       SELECT t.rollout_path, t.agent_path, e.parent_thread_id, e.status
       FROM threads AS t
       LEFT JOIN thread_spawn_edges AS e ON e.child_thread_id = t.id
       WHERE t.id = ?
       LIMIT 1
-    `).get(identity.threadId) as {
+    `)
+      .get(identity.threadId) as {
       rollout_path?: unknown;
       agent_path?: unknown;
       parent_thread_id?: unknown;
@@ -108,8 +101,9 @@ function indexedRollout(
     if (!row) return { kind: "absent" };
     const child = "parentThreadId" in identity;
     const matchesOwner = child
-      ? matchesAgentPath(row.agent_path, identity.agentName)
-        && row.parent_thread_id === identity.parentThreadId && row.status === "open"
+      ? matchesAgentPath(row.agent_path, identity.agentName) &&
+        row.parent_thread_id === identity.parentThreadId &&
+        row.status === "open"
       : row.parent_thread_id == null && (row.agent_path == null || row.agent_path === "/root");
     if (typeof row.rollout_path !== "string" || !matchesOwner) {
       throw new Error(`Codex state does not authenticate the requested ${child ? "subagent" : "root thread"} rollout`);
@@ -241,7 +235,7 @@ function verifyHistoricalEnvironmentMessages(
   turnId: string,
   messages: ChatGptUnattributedEnvironmentMessage[],
 ): void {
-  const pending = new Map(messages.map(message => [message.id, message.content]));
+  const pending = new Map(messages.map((message) => [message.id, message.content]));
   if (pending.size !== messages.length) throw new Error("Codex environment history repeats a message id");
   let position = 0;
   let carry = Buffer.alloc(0);
@@ -258,7 +252,8 @@ function verifyHistoricalEnvironmentMessages(
       const line = data.subarray(start, end);
       start = end + 1;
       if (!line.length) continue;
-      if (line.length > MAX_ROLLOUT_JSON_LINE_BYTES) throw new Error("Codex rollout JSONL record exceeds the bounded record size");
+      if (line.length > MAX_ROLLOUT_JSON_LINE_BYTES)
+        throw new Error("Codex rollout JSONL record exceeds the bounded record size");
       const item = parseJsonLine(line);
       const payload = record(item.payload);
       // Core writes task_started before this turn's environment update. Merely finding matching
@@ -267,29 +262,38 @@ function verifyHistoricalEnvironmentMessages(
         if (pending.size === 0) return;
         throw new Error("Codex rollout does not authenticate the historical environment messages");
       }
-      if (item.type !== "response_item" || payload?.type !== "message" || payload.role !== "user"
-        || typeof payload.id !== "string" || !pending.has(payload.id)) continue;
+      if (
+        item.type !== "response_item" ||
+        payload?.type !== "message" ||
+        payload.role !== "user" ||
+        typeof payload.id !== "string" ||
+        !pending.has(payload.id)
+      )
+        continue;
       if (!isDeepStrictEqual(payload.content, pending.get(payload.id))) {
         throw new Error("Historical environment message differs from its native Codex record");
       }
       pending.delete(payload.id);
     }
     carry = Buffer.from(data.subarray(start));
-    if (carry.length > MAX_ROLLOUT_JSON_LINE_BYTES) throw new Error("Codex rollout JSONL record exceeds the bounded record size");
+    if (carry.length > MAX_ROLLOUT_JSON_LINE_BYTES)
+      throw new Error("Codex rollout JSONL record exceeds the bounded record size");
   }
   throw new Error("Codex rollout has no current task boundary for environment history");
 }
 
-function validateSessionMeta(
-  item: Record<string, unknown>,
-  identity: RolloutIdentity,
-): void {
+function validateSessionMeta(item: Record<string, unknown>, identity: RolloutIdentity): void {
   const payload = record(item.payload);
   if (!("parentThreadId" in identity)) {
-    if (item.type !== "session_meta" || payload?.id !== identity.threadId
-      || typeof payload.source !== "string" || payload.source === "subagent"
-      || payload.parent_thread_id != null || payload.thread_source === "subagent"
-      || (payload.agent_path != null && payload.agent_path !== "/root")) {
+    if (
+      item.type !== "session_meta" ||
+      payload?.id !== identity.threadId ||
+      typeof payload.source !== "string" ||
+      payload.source === "subagent" ||
+      payload.parent_thread_id != null ||
+      payload.thread_source === "subagent" ||
+      (payload.agent_path != null && payload.agent_path !== "/root")
+    ) {
       throw new Error("Codex rollout session metadata does not authenticate the requested root thread");
     }
     return;
@@ -298,19 +302,21 @@ function validateSessionMeta(
   const source = record(payload?.source);
   const subagent = record(source?.subagent);
   const spawn = record(subagent?.thread_spawn);
-  if (item.type !== "session_meta"
-    || payload?.id !== lineage.threadId
-    || payload.parent_thread_id !== lineage.parentThreadId
-    || !matchesAgentPath(payload.agent_path, lineage.agentName)
-    || payload.thread_source !== "subagent"
-    || spawn?.parent_thread_id !== lineage.parentThreadId
-    || !matchesAgentPath(spawn.agent_path, lineage.agentName)) {
+  if (
+    item.type !== "session_meta" ||
+    payload?.id !== lineage.threadId ||
+    payload.parent_thread_id !== lineage.parentThreadId ||
+    !matchesAgentPath(payload.agent_path, lineage.agentName) ||
+    payload.thread_source !== "subagent" ||
+    spawn?.parent_thread_id !== lineage.parentThreadId ||
+    !matchesAgentPath(spawn.agent_path, lineage.agentName)
+  ) {
     throw new Error("Codex rollout session metadata does not authenticate the requested subagent");
   }
 }
 
 function absolutePaths(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || value.some(path => typeof path !== "string" || !isAbsolute(path))) {
+  if (!Array.isArray(value) || value.some((path) => typeof path !== "string" || !isAbsolute(path))) {
     throw new Error(`Codex rollout ${field} is invalid`);
   }
   const unique = new Map<string, string>();
@@ -328,16 +334,18 @@ function validGlobScanMaxDepth(value: unknown): boolean {
 function validRestrictiveEntry(entryValue: unknown): { rootRead: boolean } | undefined {
   const entry = record(entryValue);
   const path = record(entry?.path);
-  if (!entry || !path
-    || (entry.access !== "read" && entry.access !== "deny")
-    || (entry.missing_path_behavior !== undefined && entry.missing_path_behavior !== "skip")) return undefined;
+  if (
+    !entry ||
+    !path ||
+    (entry.access !== "read" && entry.access !== "deny") ||
+    (entry.missing_path_behavior !== undefined && entry.missing_path_behavior !== "skip")
+  )
+    return undefined;
   if (path.type === "special") {
     const special = record(path.value)?.kind;
     if (typeof special !== "string" || !special) return undefined;
     return {
-      rootRead: special === "root"
-        && entry.access === "read"
-        && entry.missing_path_behavior === undefined,
+      rootRead: special === "root" && entry.access === "read" && entry.missing_path_behavior === undefined,
     };
   }
   if (path.type === "path") {
@@ -355,10 +363,13 @@ function exactManagedReadOnlyProfile(
 ): boolean {
   const fileSystem = record(value.file_system);
   const entries = fileSystem?.entries;
-  if (fileSystem?.type !== "restricted"
-    || !validGlobScanMaxDepth(fileSystem.glob_scan_max_depth)
-    || !Array.isArray(entries)
-    || value.network !== expectedNetwork) return false;
+  if (
+    fileSystem?.type !== "restricted" ||
+    !validGlobScanMaxDepth(fileSystem.glob_scan_max_depth) ||
+    !Array.isArray(entries) ||
+    value.network !== expectedNetwork
+  )
+    return false;
   let rootReads = 0;
   for (const entry of entries) {
     const restrictive = validRestrictiveEntry(entry);
@@ -375,10 +386,7 @@ function networkAccess(value: Record<string, unknown>, field: string): boolean {
   return value.network_access === true;
 }
 
-function splitPolicyMatchesProfile(
-  splitValue: unknown,
-  profileFileSystem: Record<string, unknown>,
-): boolean {
+function splitPolicyMatchesProfile(splitValue: unknown, profileFileSystem: Record<string, unknown>): boolean {
   if (splitValue === undefined || splitValue === null) return true;
   const split = record(splitValue);
   if (!split) return false;
@@ -388,8 +396,10 @@ function splitPolicyMatchesProfile(
   if (profileType === "unrestricted") {
     return split.entries === undefined && split.glob_scan_max_depth === undefined;
   }
-  return isDeepStrictEqual(split.entries, profileFileSystem.entries)
-    && split.glob_scan_max_depth === profileFileSystem.glob_scan_max_depth;
+  return (
+    isDeepStrictEqual(split.entries, profileFileSystem.entries) &&
+    split.glob_scan_max_depth === profileFileSystem.glob_scan_max_depth
+  );
 }
 
 function exactManagedWorkspaceWriteProfile(
@@ -399,20 +409,26 @@ function exactManagedWorkspaceWriteProfile(
   sandbox: Record<string, unknown>,
 ): { networkAccess: boolean; writableRoots: string[] } | undefined {
   const fileSystem = record(profile.file_system);
-  if (fileSystem?.type !== "restricted"
-    || !validGlobScanMaxDepth(fileSystem.glob_scan_max_depth)
-    || !Array.isArray(fileSystem.entries)
-    || (profile.network !== "restricted" && profile.network !== "enabled")) return undefined;
+  if (
+    fileSystem?.type !== "restricted" ||
+    !validGlobScanMaxDepth(fileSystem.glob_scan_max_depth) ||
+    !Array.isArray(fileSystem.entries) ||
+    (profile.network !== "restricted" && profile.network !== "enabled")
+  )
+    return undefined;
 
   const rawWritableRoots = sandbox.writable_roots ?? [];
-  if (!Array.isArray(rawWritableRoots)
-    || rawWritableRoots.some(path => typeof path !== "string" || !isAbsolute(path))
-    || (sandbox.exclude_tmpdir_env_var !== undefined && typeof sandbox.exclude_tmpdir_env_var !== "boolean")
-    || (sandbox.exclude_slash_tmp !== undefined && typeof sandbox.exclude_slash_tmp !== "boolean")) return undefined;
-  const expectedWritableRoots = [cwd, ...rawWritableRoots.map(path => resolve(path as string))];
-  const uniqueExpectedWritableRoots = [...new Map(expectedWritableRoots.map(path => (
-    [pathIdentity(path), path] as const
-  ))).values()];
+  if (
+    !Array.isArray(rawWritableRoots) ||
+    rawWritableRoots.some((path) => typeof path !== "string" || !isAbsolute(path)) ||
+    (sandbox.exclude_tmpdir_env_var !== undefined && typeof sandbox.exclude_tmpdir_env_var !== "boolean") ||
+    (sandbox.exclude_slash_tmp !== undefined && typeof sandbox.exclude_slash_tmp !== "boolean")
+  )
+    return undefined;
+  const expectedWritableRoots = [cwd, ...rawWritableRoots.map((path) => resolve(path as string))];
+  const uniqueExpectedWritableRoots = [
+    ...new Map(expectedWritableRoots.map((path) => [pathIdentity(path), path] as const)).values(),
+  ];
   // Native Codex can grant an output directory outside its project roots and can
   // repeat a grant while composing policies. Compare the exact sets below instead.
 
@@ -423,9 +439,13 @@ function exactManagedWorkspaceWriteProfile(
   for (const value of fileSystem.entries) {
     const entry = record(value);
     const path = record(entry?.path);
-    if (!entry || !path
-      || (entry.access !== "read" && entry.access !== "write" && entry.access !== "deny")
-      || (entry.missing_path_behavior !== undefined && entry.missing_path_behavior !== "skip")) return undefined;
+    if (
+      !entry ||
+      !path ||
+      (entry.access !== "read" && entry.access !== "write" && entry.access !== "deny") ||
+      (entry.missing_path_behavior !== undefined && entry.missing_path_behavior !== "skip")
+    )
+      return undefined;
 
     if (path.type === "special") {
       const special = record(path.value)?.kind;
@@ -441,10 +461,12 @@ function exactManagedWorkspaceWriteProfile(
         projectRootsWrite += 1;
         continue;
       }
-      if ((special === "slash_tmp" || special === "tmpdir")
-        && entry.access === "write"
-        && entry.missing_path_behavior === undefined
-        && !specialWrites.has(special)) {
+      if (
+        (special === "slash_tmp" || special === "tmpdir") &&
+        entry.access === "write" &&
+        entry.missing_path_behavior === undefined &&
+        !specialWrites.has(special)
+      ) {
         specialWrites.add(special);
         continue;
       }
@@ -464,30 +486,34 @@ function exactManagedWorkspaceWriteProfile(
       }
       continue;
     }
-    if (path.type !== "path"
-      || typeof path.path !== "string"
-      || !isAbsolute(path.path)
-      || entry.missing_path_behavior !== undefined) return undefined;
+    if (
+      path.type !== "path" ||
+      typeof path.path !== "string" ||
+      !isAbsolute(path.path) ||
+      entry.missing_path_behavior !== undefined
+    )
+      return undefined;
     directWrites.push(resolve(path.path));
   }
 
   if (rootRead !== 1 || projectRootsWrite > 1) return undefined;
-  const uniqueDirectWrites = [...new Map(directWrites.map(path => (
-    [pathIdentity(path), path] as const
-  ))).values()];
+  const uniqueDirectWrites = [...new Map(directWrites.map((path) => [pathIdentity(path), path] as const)).values()];
   const expectedIdentities = new Set(uniqueExpectedWritableRoots.map(pathIdentity));
-  if (uniqueDirectWrites.some(path => !expectedIdentities.has(pathIdentity(path)))) return undefined;
+  if (uniqueDirectWrites.some((path) => !expectedIdentities.has(pathIdentity(path)))) return undefined;
   if (projectRootsWrite === 0 && uniqueDirectWrites.length !== uniqueExpectedWritableRoots.length) return undefined;
   if (projectRootsWrite === 1) {
     const rootIdentities = new Set(roots.map(pathIdentity));
-    if (rootIdentities.size !== expectedIdentities.size
-      || [...rootIdentities].some(path => !expectedIdentities.has(path))) return undefined;
+    if (
+      rootIdentities.size !== expectedIdentities.size ||
+      [...rootIdentities].some((path) => !expectedIdentities.has(path))
+    )
+      return undefined;
   }
 
   const expectsSlashTmp = sandbox.exclude_slash_tmp !== true;
   const expectsTmpdir = sandbox.exclude_tmpdir_env_var !== true;
-  if (specialWrites.has("slash_tmp") !== expectsSlashTmp
-    || specialWrites.has("tmpdir") !== expectsTmpdir) return undefined;
+  if (specialWrites.has("slash_tmp") !== expectsSlashTmp || specialWrites.has("tmpdir") !== expectsTmpdir)
+    return undefined;
 
   return {
     networkAccess: profile.network === "enabled",
@@ -507,11 +533,10 @@ function environmentFromTurnContext(
     throw new Error("Codex rollout cwd is invalid");
   }
   const cwd = resolve(payload.cwd);
-  const declaredRoots = payload.workspace_roots === undefined
-    ? []
-    : absolutePaths(payload.workspace_roots, "workspace_roots");
+  const declaredRoots =
+    payload.workspace_roots === undefined ? [] : absolutePaths(payload.workspace_roots, "workspace_roots");
   const roots = declaredRoots.length > 0 ? declaredRoots : [cwd];
-  if (!roots.some(root => contains(root, cwd))) {
+  if (!roots.some((root) => contains(root, cwd))) {
     throw new Error("Codex rollout cwd is outside its workspace roots");
   }
 
@@ -524,9 +549,11 @@ function environmentFromTurnContext(
     const split = payload.file_system_sandbox_policy;
     if (split !== undefined && split !== null) {
       const unrestricted = record(split);
-      if (unrestricted?.kind !== "unrestricted"
-        || unrestricted.entries !== undefined
-        || unrestricted.glob_scan_max_depth !== undefined) {
+      if (
+        unrestricted?.kind !== "unrestricted" ||
+        unrestricted.entries !== undefined ||
+        unrestricted.glob_scan_max_depth !== undefined
+      ) {
         throw new Error("Codex rollout split filesystem policy conflicts with full access");
       }
     }
@@ -542,9 +569,11 @@ function environmentFromTurnContext(
     const enabled = networkAccess(sandbox, "read-only");
     const expectedNetwork = enabled ? "enabled" : "restricted";
     const fileSystem = record(permissionProfile.file_system);
-    if (!fileSystem
-      || !exactManagedReadOnlyProfile(permissionProfile, expectedNetwork)
-      || !splitPolicyMatchesProfile(payload.file_system_sandbox_policy, fileSystem)) {
+    if (
+      !fileSystem ||
+      !exactManagedReadOnlyProfile(permissionProfile, expectedNetwork) ||
+      !splitPolicyMatchesProfile(payload.file_system_sandbox_policy, fileSystem)
+    ) {
       throw new Error("Codex rollout read-only permission profile is inconsistent");
     }
     return {
@@ -558,10 +587,12 @@ function environmentFromTurnContext(
   if (permissionProfile.type === "managed" && sandbox.type === "workspace-write") {
     const fileSystem = record(permissionProfile.file_system);
     const workspace = exactManagedWorkspaceWriteProfile(permissionProfile, roots, cwd, sandbox);
-    if (!fileSystem
-      || !workspace
-      || networkAccess(sandbox, "workspace-write") !== workspace.networkAccess
-      || !splitPolicyMatchesProfile(payload.file_system_sandbox_policy, fileSystem)) {
+    if (
+      !fileSystem ||
+      !workspace ||
+      networkAccess(sandbox, "workspace-write") !== workspace.networkAccess ||
+      !splitPolicyMatchesProfile(payload.file_system_sandbox_policy, fileSystem)
+    ) {
       throw new Error("Codex rollout workspace-write permission profile is inconsistent");
     }
     return {
@@ -579,25 +610,25 @@ function environmentFromTurnContext(
   throw new Error("Codex rollout permission profile cannot be represented safely by the Web bridge");
 }
 
-function validateMetadataConsistency(
-  lineage: RolloutIdentity,
-  environment: ChatGptTurnEnvironment,
-): void {
+function validateMetadataConsistency(lineage: RolloutIdentity, environment: ChatGptTurnEnvironment): void {
   // Request sandbox/workspace fields are diagnostic only. They narrow a rollout-derived authority
   // here and never create or expand it.
   const owner = "parentThreadId" in lineage ? "subagent" : "thread";
-  if (lineage.sandboxType === "platform"
-    ? environment.sandboxPolicy.type === "dangerFullAccess"
-    : environment.sandboxPolicy.type !== lineage.sandboxType) {
+  if (
+    lineage.sandboxType === "platform"
+      ? environment.sandboxPolicy.type === "dangerFullAccess"
+      : environment.sandboxPolicy.type !== lineage.sandboxType
+  ) {
     throw new Error(`ChatGPT Web ${owner} sandbox metadata conflicts with its Codex rollout`);
   }
-  if (lineage.workspaceRoots.length > 0
-    && !lineage.workspaceRoots.some(root => contains(root, environment.cwd))) {
+  if (lineage.workspaceRoots.length > 0 && !lineage.workspaceRoots.some((root) => contains(root, environment.cwd))) {
     throw new Error(`ChatGPT Web ${owner} workspace metadata does not contain its Codex rollout cwd`);
   }
-  if (lineage.workspaceRoots.some(root => !environment.roots.some(rolloutRoot => (
-    contains(rolloutRoot, root) || contains(root, rolloutRoot)
-  )))) {
+  if (
+    lineage.workspaceRoots.some(
+      (root) => !environment.roots.some((rolloutRoot) => contains(rolloutRoot, root) || contains(root, rolloutRoot)),
+    )
+  ) {
     throw new Error(`ChatGPT Web ${owner} workspace metadata conflicts with its Codex rollout roots`);
   }
 }
@@ -616,15 +647,17 @@ export function resolveCurrentCodexRolloutEnvironment(options: {
   const nativeTurnId = CODEX_ID.test(turnId);
   if (!nativeThreadId && !nativeTurnId) return undefined;
   const singleCompactionSource = typeof compactionSourceTurnId === "string" ? compactionSourceTurnId : undefined;
-  if (!nativeThreadId || !nativeTurnId || (singleCompactionSource !== undefined && !CODEX_ID.test(singleCompactionSource))
-    || ("parentThreadId" in lineage && !CODEX_ID.test(lineage.parentThreadId))) {
+  if (
+    !nativeThreadId ||
+    !nativeTurnId ||
+    (singleCompactionSource !== undefined && !CODEX_ID.test(singleCompactionSource)) ||
+    ("parentThreadId" in lineage && !CODEX_ID.test(lineage.parentThreadId))
+  ) {
     throw new Error("Codex thread metadata contains an invalid native identifier");
   }
 
   const indexed = indexedRollout(configuredSqliteHome(codexHome, options.sqliteHome), lineage);
-  const candidates = indexed.kind === "found"
-    ? [indexed.path]
-    : scanCanonicalRollouts(codexHome, lineage.threadId);
+  const candidates = indexed.kind === "found" ? [indexed.path] : scanCanonicalRollouts(codexHome, lineage.threadId);
   if (candidates.length === 0) {
     if (!("parentThreadId" in lineage)) return undefined;
     throw new Error("Codex has no canonical rollout for the requested subagent thread");
@@ -642,13 +675,14 @@ export function resolveCurrentCodexRolloutEnvironment(options: {
       if (!latest) throw new Error("Codex rollout has no complete turn context");
       const latestTurnId = typeof latest.turn_id === "string" ? latest.turn_id : undefined;
       const matchesTurn = latestTurnId === turnId;
-      const matchesCompactionSource = typeof compactionSourceTurnId === "string"
-        ? latestTurnId === compactionSourceTurnId
-        : compactionSourceTurnId instanceof Set
-          ? (latestTurnId !== undefined && compactionSourceTurnId.has(latestTurnId))
-          : Array.isArray(compactionSourceTurnId)
-            ? (latestTurnId !== undefined && compactionSourceTurnId.includes(latestTurnId))
-            : false;
+      const matchesCompactionSource =
+        typeof compactionSourceTurnId === "string"
+          ? latestTurnId === compactionSourceTurnId
+          : compactionSourceTurnId instanceof Set
+            ? latestTurnId !== undefined && compactionSourceTurnId.has(latestTurnId)
+            : Array.isArray(compactionSourceTurnId)
+              ? latestTurnId !== undefined && compactionSourceTurnId.includes(latestTurnId)
+              : false;
       if (!matchesTurn && (compactionSourceTurnId === undefined || !matchesCompactionSource)) {
         if (indexed.kind === "found") {
           throw new Error("Latest Codex rollout turn context does not belong to the requested turn");

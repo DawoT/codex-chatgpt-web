@@ -12,7 +12,7 @@ export function useLimits(api: LimitsApi, manualMode: boolean) {
   const [settingUp, setSettingUp] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
-  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [_refreshVersion, setRefreshVersion] = useState(0);
   const mounted = useRef(false);
   const setupInFlight = useRef(false);
   const requestVersion = useRef(0);
@@ -53,7 +53,7 @@ export function useLimits(api: LimitsApi, manualMode: boolean) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [api, manualMode, refreshVersion]);
+  }, [api]);
 
   const setup = async () => {
     if (manualMode || !snapshot || setupInFlight.current) return null;
@@ -79,10 +79,13 @@ export function useLimits(api: LimitsApi, manualMode: boolean) {
     }
   };
 
-  const needsAttention = !manualMode && readError === null && snapshot?.enabled === true
-    && snapshot.disabledReason !== "zero-risk"
-    && (snapshot.plan === "pro_100" || snapshot.plan === "pro_200")
-    && snapshot.windows.some(limitNeedsAttention);
+  const needsAttention =
+    !manualMode &&
+    readError === null &&
+    snapshot?.enabled === true &&
+    snapshot.disabledReason !== "zero-risk" &&
+    (snapshot.plan === "pro_100" || snapshot.plan === "pro_200") &&
+    snapshot.windows.some(limitNeedsAttention);
 
   return { snapshot, reading, settingUp, readError, setupError, refresh, setup, needsAttention };
 }

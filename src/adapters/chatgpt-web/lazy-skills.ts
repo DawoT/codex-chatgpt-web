@@ -14,11 +14,7 @@ export interface ParsedSkillBlock {
   rawText: string;
 }
 
-export function parseSkillFrontmatter(
-  content: string,
-  filePath: string,
-  fallbackName?: string,
-): SkillMetadata {
+export function parseSkillFrontmatter(content: string, filePath: string, fallbackName?: string): SkillMetadata {
   const defaultName = fallbackName || basename(dirname(filePath)) || "custom-skill";
   let name = defaultName;
   let description = `${defaultName.charAt(0).toUpperCase() + defaultName.slice(1)} skill instructions`;
@@ -132,7 +128,7 @@ function parseSkillsFromXml(xml: string): ParsedSkillBlock[] {
 export function parseSkillsFromMarkdown(content: string): ParsedSkillBlock[] {
   const blocks: ParsedSkillBlock[] = [];
   const roots: Record<string, string> = {};
-  const rootRegex = /-\s*`?([a-zA-Z0-9_-]+)`?\s*=\s*`?([^\`\r\n]+)`?/g;
+  const rootRegex = /-\s*`?([a-zA-Z0-9_-]+)`?\s*=\s*`?([^`\r\n]+)`?/g;
   let rm: RegExpExecArray | null;
   while ((rm = rootRegex.exec(content)) !== null) {
     roots[rm[1]] = rm[2].trim();
@@ -142,7 +138,7 @@ export function parseSkillsFromMarkdown(content: string): ParsedSkillBlock[] {
   if (!skillsSecMatch) return blocks;
 
   const section = skillsSecMatch[1];
-  const itemRegex = /^[ \t]*-\s+([a-zA-Z0-9_\-\.]+):\s*([\s\S]*?)\s*\(file:\s*([^\)\r\n]+)\)/gm;
+  const itemRegex = /^[ \t]*-\s+([a-zA-Z0-9_\-.]+):\s*([\s\S]*?)\s*\(file:\s*([^)\r\n]+)\)/gm;
   let sm: RegExpExecArray | null;
   while ((sm = itemRegex.exec(section)) !== null) {
     const name = sm[1].trim();
@@ -230,7 +226,7 @@ export function transformSkillsInstructionsBlock(
   // In continuation turns within a retained conversation, the full catalog was already established.
   // Unless a skill was explicitly requested, omit the redundant 70+ row table to eliminate prompt bloat.
   if (options?.isContinuation) {
-    const requested = skills.filter(skill => isSkillExplicitlyRequested(skill.name, userInstruction));
+    const requested = skills.filter((skill) => isSkillExplicitlyRequested(skill.name, userInstruction));
     if (requested.length === 0) {
       return [
         "<skills_instructions>",
@@ -248,7 +244,8 @@ export function transformSkillsInstructionsBlock(
 
   for (const skill of skills) {
     const isExplicit = isSkillExplicitlyRequested(skill.name, userInstruction);
-    const isRel = !isExplicit && autoExpandedCount < MAX_AUTO_EXPANDED_SKILLS && isSkillRelevant(skill.name, userInstruction);
+    const isRel =
+      !isExplicit && autoExpandedCount < MAX_AUTO_EXPANDED_SKILLS && isSkillRelevant(skill.name, userInstruction);
 
     if (isExplicit || isRel) {
       if (isRel) autoExpandedCount++;
@@ -257,12 +254,9 @@ export function transformSkillsInstructionsBlock(
         try {
           let fileText = readFileSync(skill.location, "utf-8").trim();
           if (fileText.length > MAX_SKILL_EXPANDED_CHARS) {
-            fileText = fileText.slice(0, MAX_SKILL_EXPANDED_CHARS) + "\n\n...[Skill instructions truncated for prompt economy]...";
+            fileText = `${fileText.slice(0, MAX_SKILL_EXPANDED_CHARS)}\n\n...[Skill instructions truncated for prompt economy]...`;
           }
-          expandedBlock = [
-            `### Active Skill: ${skill.name} (${skill.location})`,
-            fileText,
-          ].join("\n");
+          expandedBlock = [`### Active Skill: ${skill.name} (${skill.location})`, fileText].join("\n");
         } catch {
           expandedBlock = null;
         }
@@ -286,11 +280,7 @@ export function transformSkillsInstructionsBlock(
   const parts: string[] = ["<skills_instructions>"];
 
   if (expanded.length > 0) {
-    parts.push(
-      "<!-- Active and relevant skills expanded inline for immediate guidance -->",
-      ...expanded,
-      "",
-    );
+    parts.push("<!-- Active and relevant skills expanded inline for immediate guidance -->", ...expanded, "");
   }
 
   if (indexed.length > 0) {

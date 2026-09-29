@@ -2,19 +2,19 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseRequest } from "../src/responses/parser";
 import { extractChatGptTurnUserRevision } from "../src/adapters/chatgpt-web/environment";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
-import { estimateChatGptWebInputTokens } from "../src/adapters/chatgpt-web/usage";
 import { ChatGptMarkdownBuffer } from "../src/adapters/chatgpt-web/markdown";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import {
-  CHATGPT_LUNA_CHECKPOINT_MAX_TOKENS,
   CHATGPT_LUNA_CHECKPOINT_MARKER,
+  CHATGPT_LUNA_CHECKPOINT_MAX_TOKENS,
+  type ChatGptLunaCheckpoint,
   ChatGptLunaCheckpointStore,
   ChatGptLunaCheckpointStream,
   hashChatGptLunaAnswer,
-  type ChatGptLunaCheckpoint,
 } from "../src/adapters/chatgpt-web/rolling-checkpoint";
+import { estimateChatGptWebInputTokens } from "../src/adapters/chatgpt-web/usage";
+import { parseRequest } from "../src/responses/parser";
 
 const roots: string[] = [];
 
@@ -40,11 +40,7 @@ function message(role: "developer" | "user" | "assistant", text: string, turnId:
   };
 }
 
-function request(
-  threadId: string,
-  turnId: string,
-  input: Record<string, unknown>[],
-) {
+function request(threadId: string, turnId: string, input: Record<string, unknown>[]) {
   return parseRequest({
     model: "gpt-5.6-luna",
     input,
@@ -73,7 +69,7 @@ test("Luna checkpoint stream hides a marker split across arbitrary DOM deltas", 
 });
 
 test("Luna checkpoint marker survives the real ChatGPT DOM-to-Markdown serializer", () => {
-  const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 0);
+  const buffer = new ChatGptMarkdownBuffer((markdown) => markdown, 0);
   const domCheckpoint = "State:\n- Inspect src/foo_bar.ts and preserve *literal* [evidence].";
   const segments = [
     { key: "answer", html: "<p>Visible answer.</p>", text: "Visible answer.", streamable: true },
@@ -131,14 +127,21 @@ test("Luna checkpoint stream preserves the answer and skips the cache when the m
 test("Luna checkpoint stream still rejects a marker that was lost by Markdown serialization", () => {
   const stream = new ChatGptLunaCheckpointStream();
   stream.push("A normal answer whose Markdown stream omitted the marker.");
-  expect(() => stream.finishOptional(
-    `A normal answer.\n\n${CHATGPT_LUNA_CHECKPOINT_MARKER}\nState:\n- preserved only in DOM text`,
-  )).toThrow("not preserved in the Markdown stream");
+  expect(() =>
+    stream.finishOptional(
+      `A normal answer.\n\n${CHATGPT_LUNA_CHECKPOINT_MARKER}\nState:\n- preserved only in DOM text`,
+    ),
+  ).toThrow("not preserved in the Markdown stream");
 });
 
 test("Luna prompt requests the strict private checkpoint only when capture is enabled", () => {
   const parsed = request("thread_prompt", "turn_prompt", [message("user", "Inspect it.", "turn_prompt")]);
-  const capabilities = { localToolsEnabled: false, solAvailable: false, extraHighAvailable: false, proAvailable: false };
+  const capabilities = {
+    localToolsEnabled: false,
+    solAvailable: false,
+    extraHighAvailable: false,
+    proAvailable: false,
+  };
   const normal = compileChatGptWebPrompt(parsed, capabilities);
   const rolling = compileChatGptWebPrompt(parsed, capabilities, undefined, { captureLunaCheckpoint: true });
   expect(normal.text).not.toContain(CHATGPT_LUNA_CHECKPOINT_MARKER);
@@ -178,18 +181,22 @@ test("Luna checkpoint replaces only exact-parent history and preserves the curre
   ]);
   const applied = new ChatGptLunaCheckpointStore(path).apply(next);
   expect(applied.applied).toBe(true);
-  expect(extractChatGptTurnUserRevision(applied.parsed)).toEqual(
-    extractChatGptTurnUserRevision(next),
-  );
+  expect(extractChatGptTurnUserRevision(applied.parsed)).toEqual(extractChatGptTurnUserRevision(next));
   const encoded = JSON.stringify(applied.parsed.context.messages);
   expect(encoded).toContain("Compressed Luna task history");
   expect(encoded).toContain("Fresh operational contract");
   expect(encoded).toContain("Continue with the second step");
   expect(encoded).not.toContain("Old operational contract");
   expect(encoded).not.toContain("Original task");
-  const capabilities = { localToolsEnabled: false, solAvailable: false, extraHighAvailable: false, proAvailable: false };
-  expect(estimateChatGptWebInputTokens(applied.parsed, capabilities))
-    .toBeLessThan(estimateChatGptWebInputTokens(next, capabilities));
+  const capabilities = {
+    localToolsEnabled: false,
+    solAvailable: false,
+    extraHighAvailable: false,
+    proAvailable: false,
+  };
+  expect(estimateChatGptWebInputTokens(applied.parsed, capabilities)).toBeLessThan(
+    estimateChatGptWebInputTokens(next, capabilities),
+  );
 
   const continued = request(threadId, nextTurnId, [
     message("developer", "Old operational contract", sourceTurnId),
@@ -216,8 +223,9 @@ test("Luna checkpoint replaces only exact-parent history and preserves the curre
   expect(continuedEncoded).toContain("Current-turn progress commentary");
   expect(continuedEncoded).toContain("current tool evidence");
   expect(continuedEncoded).not.toContain("Original task");
-  expect(estimateChatGptWebInputTokens(appliedContinuation.parsed, capabilities))
-    .toBeGreaterThan(estimateChatGptWebInputTokens(applied.parsed, capabilities));
+  expect(estimateChatGptWebInputTokens(appliedContinuation.parsed, capabilities)).toBeGreaterThan(
+    estimateChatGptWebInputTokens(applied.parsed, capabilities),
+  );
 
   const branch = request(threadId, "turn_branch", [
     message("assistant", "A different parent answer.", sourceTurnId),

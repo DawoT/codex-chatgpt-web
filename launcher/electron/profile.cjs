@@ -12,12 +12,7 @@ function resolveUserPath(value, homeDir = os.homedir()) {
   return path.resolve(value);
 }
 
-function resolveLauncherProfile({
-  argv = process.argv,
-  env = process.env,
-  homeDir = os.homedir(),
-  appData,
-} = {}) {
+function resolveLauncherProfile({ argv = process.argv, env = process.env, homeDir = os.homedir(), appData } = {}) {
   if (typeof appData !== "string" || !path.isAbsolute(appData)) {
     throw new Error("Launcher profile resolution requires an absolute appData path");
   }

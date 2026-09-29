@@ -1,17 +1,17 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { chromium, type BrowserContext, type BrowserContextOptions } from "playwright-core";
-import type { AppConfig } from "./config";
-import { atomicWriteFile } from "./config";
+import { type BrowserContext, type BrowserContextOptions, chromium } from "playwright-core";
 import {
   assertAuthenticatedChatGptPage,
   assertTemporaryChatPage,
-  CHATGPT_TEMPORARY_CHAT_URL,
   CHATGPT_COMPOSER_SELECTOR,
+  CHATGPT_TEMPORARY_CHAT_URL,
   detectChatGptAccountCapabilities,
 } from "./chatgpt-session";
 import type { ChatGptWebAccountCapabilities } from "./chatgpt-web-models";
+import type { AppConfig } from "./config";
+import { atomicWriteFile } from "./config";
 
 export interface BrowserLoginResult {
   storageStatePath: string;
@@ -68,7 +68,7 @@ function removeTemporaryChromeTabSessions(profileDir: string): void {
 
 async function waitForBrowserExit(browser: ChildProcess, timeoutMs: number): Promise<boolean> {
   if (browserProcessExited(browser)) return true;
-  return await new Promise(resolve => {
+  return await new Promise((resolve) => {
     let settled = false;
     const finish = (exited: boolean) => {
       if (settled) return;
@@ -95,43 +95,44 @@ async function stopOwnedLoginBrowser(browser: ChildProcess): Promise<void> {
   if (!browser.kill("SIGKILL") && !browserProcessExited(browser)) {
     throw new Error("The dedicated Chrome login process refused forced termination");
   }
-  if (!await forced) throw new Error("The dedicated Chrome login process did not exit");
+  if (!(await forced)) throw new Error("The dedicated Chrome login process did not exit");
 }
 
 function allowedLoginStorageHost(rawHostname: string): boolean {
   const hostname = rawHostname.toLowerCase();
-  if (!/^[a-z0-9.-]+$/.test(hostname)
-    || hostname.startsWith(".")
-    || hostname.endsWith(".")
-    || hostname.includes("..")) return false;
+  if (!/^[a-z0-9.-]+$/.test(hostname) || hostname.startsWith(".") || hostname.endsWith(".") || hostname.includes(".."))
+    return false;
   try {
     const parsed = new URL(`https://${hostname}/`);
-    if (parsed.hostname !== hostname
-      || parsed.host !== hostname
-      || parsed.username
-      || parsed.password
-      || parsed.pathname !== "/"
-      || parsed.search
-      || parsed.hash) return false;
+    if (
+      parsed.hostname !== hostname ||
+      parsed.host !== hostname ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    )
+      return false;
   } catch {
     return false;
   }
-  return LOGIN_STORAGE_ROOT_DOMAINS.some(root => hostname === root || hostname.endsWith(`.${root}`));
+  return LOGIN_STORAGE_ROOT_DOMAINS.some((root) => hostname === root || hostname.endsWith(`.${root}`));
 }
 
-export function sanitizeBrowserLoginStorageState(
-  storageState: BrowserLoginStorageState,
-): BrowserLoginStorageState {
+export function sanitizeBrowserLoginStorageState(storageState: BrowserLoginStorageState): BrowserLoginStorageState {
   return {
     cookies: storageState.cookies
-      .filter(cookie => !Object.prototype.hasOwnProperty.call(cookie, "partitionKey")
-        && allowedLoginStorageHost(cookie.domain.replace(/^\.+/, "")))
-      .map(cookie => ({ ...cookie })),
+      .filter(
+        (cookie) =>
+          !Object.hasOwn(cookie, "partitionKey") && allowedLoginStorageHost(cookie.domain.replace(/^\.+/, "")),
+      )
+      .map((cookie) => ({ ...cookie })),
     origins: storageState.origins
-      .filter(origin => origin.origin === CHATGPT_ORIGIN)
-      .map(origin => ({
+      .filter((origin) => origin.origin === CHATGPT_ORIGIN)
+      .map((origin) => ({
         origin: origin.origin,
-        localStorage: origin.localStorage.map(item => ({ ...item })),
+        localStorage: origin.localStorage.map((item) => ({ ...item })),
       })),
   };
 }
@@ -140,10 +141,7 @@ export function loginVerificationMarkerPath(storageStatePath: string): string {
   return `${storageStatePath}.verified.json`;
 }
 
-function writeVerificationMarker(
-  storageStatePath: string,
-  capabilities: ChatGptWebAccountCapabilities,
-): void {
+function writeVerificationMarker(storageStatePath: string, capabilities: ChatGptWebAccountCapabilities): void {
   const marker: LoginVerificationMarker = {
     version: 1,
     authenticated: true,
@@ -168,10 +166,14 @@ async function inspectStoredState(
     try {
       const verifierPage = await verifierContext.newPage();
       await verifierPage.goto(CHATGPT_TEMPORARY_CHAT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
-      await verifierPage.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true }).first().waitFor({ state: "visible", timeout: 60_000 });
+      await verifierPage
+        .locator(CHATGPT_COMPOSER_SELECTOR)
+        .filter({ visible: true })
+        .first()
+        .waitFor({ state: "visible", timeout: 60_000 });
       await assertAuthenticatedChatGptPage(verifierPage);
       await assertTemporaryChatPage(verifierPage);
-      return { ...await detectChatGptAccountCapabilities(verifierPage), url: verifierPage.url() };
+      return { ...(await detectChatGptAccountCapabilities(verifierPage)), url: verifierPage.url() };
     } finally {
       await verifierContext.close();
     }
@@ -184,15 +186,19 @@ export async function inspectBrowserLoginCapabilities(config: AppConfig): Promis
   if (!browserLoginStateExists(config)) throw new Error("ChatGPT login state is missing or unverified");
   const inspected = await inspectStoredState(config, config.storageStatePath);
   writeVerificationMarker(config.storageStatePath, inspected);
-  return { solAvailable: inspected.solAvailable, extraHighAvailable: inspected.extraHighAvailable, proAvailable: inspected.proAvailable };
+  return {
+    solAvailable: inspected.solAvailable,
+    extraHighAvailable: inspected.extraHighAvailable,
+    proAvailable: inspected.proAvailable,
+  };
 }
 
-export function storedBrowserLoginCapabilities(
-  config: AppConfig,
-): Partial<ChatGptWebAccountCapabilities> {
+export function storedBrowserLoginCapabilities(config: AppConfig): Partial<ChatGptWebAccountCapabilities> {
   if (!browserLoginStateExists(config)) return {};
   try {
-    const marker = JSON.parse(readFileSync(loginVerificationMarkerPath(config.storageStatePath), "utf8")) as Partial<LoginVerificationMarker>;
+    const marker = JSON.parse(
+      readFileSync(loginVerificationMarkerPath(config.storageStatePath), "utf8"),
+    ) as Partial<LoginVerificationMarker>;
     return {
       ...(typeof marker.solAvailable === "boolean" ? { solAvailable: marker.solAvailable } : {}),
       ...(typeof marker.extraHighAvailable === "boolean" ? { extraHighAvailable: marker.extraHighAvailable } : {}),
@@ -226,9 +232,13 @@ export async function captureSystemBrowserLogin(
 
   const profileParent = dirname(config.storageStatePath);
   mkdirSync(profileParent, { recursive: true, mode: 0o700 });
-  try { chmodSync(profileParent, 0o700); } catch {}
+  try {
+    chmodSync(profileParent, 0o700);
+  } catch {}
   const profileDir = mkdtempSync(join(profileParent, "login-profile-"));
-  try { chmodSync(profileDir, 0o700); } catch {}
+  try {
+    chmodSync(profileDir, 0o700);
+  } catch {}
   process.stdout.write(
     "Sign in with your passkey in the dedicated Chrome window. When Temporary Chat is ready, return to Codex Web GPT and choose Continue.\n",
   );
@@ -237,14 +247,18 @@ export async function captureSystemBrowserLogin(
   let context: BrowserContext | undefined;
   let primaryError: unknown;
   try {
-    const loginBrowser = spawn(config.chromeExecutablePath, [
-      `--user-data-dir=${profileDir}`,
-      "--new-window",
-      "--disable-background-mode",
-      "--no-first-run",
-      "--no-default-browser-check",
-      CHATGPT_TEMPORARY_CHAT_URL,
-    ], { env: process.env, stdio: "ignore" });
+    const loginBrowser = spawn(
+      config.chromeExecutablePath,
+      [
+        `--user-data-dir=${profileDir}`,
+        "--new-window",
+        "--disable-background-mode",
+        "--no-first-run",
+        "--no-default-browser-check",
+        CHATGPT_TEMPORARY_CHAT_URL,
+      ],
+      { env: process.env, stdio: "ignore" },
+    );
     let continuationRequested = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -288,12 +302,7 @@ export async function captureSystemBrowserLogin(
       chromiumSandbox: true,
       offline: true,
       serviceWorkers: "block",
-      ignoreDefaultArgs: [
-        "--no-sandbox",
-        "--enable-automation",
-        "--password-store=basic",
-        "--use-mock-keychain",
-      ],
+      ignoreDefaultArgs: ["--no-sandbox", "--enable-automation", "--password-store=basic", "--use-mock-keychain"],
       args: [
         "--disable-background-mode",
         "--disable-background-networking",
@@ -304,12 +313,14 @@ export async function captureSystemBrowserLogin(
       timeout: Math.min(30_000, remainingTime()),
     });
     await context.setOffline(true);
-    await context.route("**/*", route => route.fulfill({
-      status: 200,
-      contentType: "text/html",
-      body: "<!doctype html><meta charset=\"utf-8\"><title>Private login-state capture</title>",
-    }));
-    const page = context.pages()[0] ?? await context.newPage();
+    await context.route("**/*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: '<!doctype html><meta charset="utf-8"><title>Private login-state capture</title>',
+      }),
+    );
+    const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(CHATGPT_TEMPORARY_CHAT_URL, {
       waitUntil: "domcontentloaded",
       timeout: Math.min(60_000, remainingTime()),
@@ -348,8 +359,8 @@ export async function captureSystemBrowserLogin(
   if (primaryError) {
     if (cleanupError) {
       throw new Error(
-        `${primaryError instanceof Error ? primaryError.message : String(primaryError)}; temporary-profile cleanup also failed:`
-        + ` ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        `${primaryError instanceof Error ? primaryError.message : String(primaryError)}; temporary-profile cleanup also failed:` +
+          ` ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
       );
     }
     throw primaryError;
@@ -375,21 +386,27 @@ export async function loginToChatGpt(
   options: { timeoutMs?: number } = {},
 ): Promise<BrowserLoginResult> {
   if (!existsSync(config.chromeExecutablePath)) {
-    throw new Error(`Google Chrome was not found at ${config.chromeExecutablePath}. Pass --chrome with its executable path.`);
+    throw new Error(
+      `Google Chrome was not found at ${config.chromeExecutablePath}. Pass --chrome with its executable path.`,
+    );
   }
   const profileDir = join(dirname(config.storageStatePath), "login-profile");
   mkdirSync(profileDir, { recursive: true, mode: 0o700 });
   process.stdout.write(
     "A normal Chrome window is open. Sign in to ChatGPT, confirm that the composer is visible, then quit this dedicated Chrome instance completely.\n",
   );
-  const loginBrowser = spawn(config.chromeExecutablePath, [
-    `--user-data-dir=${profileDir}`,
-    "--new-window",
-    "--disable-background-mode",
-    "--no-first-run",
-    "--no-default-browser-check",
-    CHATGPT_TEMPORARY_CHAT_URL,
-  ], { env: process.env, stdio: "ignore" });
+  const loginBrowser = spawn(
+    config.chromeExecutablePath,
+    [
+      `--user-data-dir=${profileDir}`,
+      "--new-window",
+      "--disable-background-mode",
+      "--no-first-run",
+      "--no-default-browser-check",
+      CHATGPT_TEMPORARY_CHAT_URL,
+    ],
+    { env: process.env, stdio: "ignore" },
+  );
   const loginExit = await new Promise<number>((resolveExit, rejectExit) => {
     loginBrowser.once("error", rejectExit);
     loginBrowser.once("exit", (code, signal) => {
@@ -406,7 +423,7 @@ export async function loginToChatGpt(
     args: ["--no-first-run", "--no-default-browser-check"],
   });
   try {
-    const page = context.pages()[0] ?? await context.newPage();
+    const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(CHATGPT_TEMPORARY_CHAT_URL, {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
@@ -450,7 +467,8 @@ export function browserLoginStateExists(config: AppConfig): boolean {
 }
 
 export async function checkBrowserEngine(config: AppConfig): Promise<void> {
-  if (!existsSync(config.chromeExecutablePath)) throw new Error(`Google Chrome was not found at ${config.chromeExecutablePath}`);
+  if (!existsSync(config.chromeExecutablePath))
+    throw new Error(`Google Chrome was not found at ${config.chromeExecutablePath}`);
   const browser = await chromium.launch({
     executablePath: config.chromeExecutablePath,
     headless: true,
@@ -459,7 +477,8 @@ export async function checkBrowserEngine(config: AppConfig): Promise<void> {
   try {
     const page = await browser.newPage();
     await page.goto("about:blank");
-    if (await page.evaluate(() => document.readyState) !== "complete") throw new Error("Browser page did not reach complete state");
+    if ((await page.evaluate(() => document.readyState)) !== "complete")
+      throw new Error("Browser page did not reach complete state");
   } finally {
     await browser.close();
   }

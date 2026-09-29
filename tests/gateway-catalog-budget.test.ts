@@ -7,6 +7,7 @@ test("nested catalog refuses oversized UTF-8 payloads before interpreting JSON",
     tools: [{ name: "facts_query", description: "界".repeat(360_000) }],
   });
   expect(text.length).toBeLessThan(1024 * 1024);
-  expect(() => gatewayToolCatalogPage({ content: [{ type: "text", text }] }, new Set()))
-    .toThrow("1 MiB response budget");
+  expect(() => gatewayToolCatalogPage({ content: [{ type: "text", text }] }, new Set())).toThrow(
+    "1 MiB response budget",
+  );
 });

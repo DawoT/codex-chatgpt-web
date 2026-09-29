@@ -76,7 +76,8 @@ function condenseCodeBlock(lang: string, code: string): string {
   }
 
   const lastLine = lines.length > 1 ? lines[lines.length - 1]!.trim() : "";
-  const trailingLine = lastLine === "}" || lastLine === ");" || lastLine === "]" || lastLine === "end" ? `\n${lastLine}` : "";
+  const trailingLine =
+    lastLine === "}" || lastLine === ");" || lastLine === "]" || lastLine === "end" ? `\n${lastLine}` : "";
 
   return `\`\`\`${lang}\n${headLines.join("\n")}\n${comment} [... implementation details omitted for context budget ...]${trailingLine}\n\`\`\``;
 }
@@ -94,12 +95,12 @@ function findBoundary(text: string, targetIndex: number, searchForward = false):
   const chunk = text.slice(start, end);
 
   if (searchForward) {
-    const match = chunk.match(/[\n\.\s]/);
+    const match = chunk.match(/[\n.\s]/);
     if (match && match.index !== undefined) {
       return start + match.index + 1;
     }
   } else {
-    const matches = [...chunk.matchAll(/[\n\.\s]/g)];
+    const matches = [...chunk.matchAll(/[\n.\s]/g)];
     if (matches.length > 0) {
       const lastMatch = matches[matches.length - 1]!;
       if (lastMatch.index !== undefined) {
@@ -120,7 +121,7 @@ export function condenseVerboseProseWithSyntaxAwareness(text: string, maxChars =
     return text;
   }
 
-  const codeFenceRegex = /```([a-zA-Z0-9_\-\.]*)\n([\s\S]*?)```/g;
+  const codeFenceRegex = /```([a-zA-Z0-9_\-.]*)\n([\s\S]*?)```/g;
   let hasCodeFences = false;
   let lastIndex = 0;
   const parts: string[] = [];
@@ -156,7 +157,7 @@ export function condenseVerboseProseWithSyntaxAwareness(text: string, maxChars =
     }
 
     // If still over budget, compress prose segments surrounding the code blocks
-    const compressedParts = parts.map(part => {
+    const compressedParts = parts.map((part) => {
       if (part.startsWith("```") && part.endsWith("```")) {
         return part;
       }

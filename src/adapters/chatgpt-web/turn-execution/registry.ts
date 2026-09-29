@@ -33,7 +33,7 @@ export class ChatGptTurnSessions {
       existing.touch();
       return existing;
     }
-    const active = [...this.entries.values()].filter(session => session.isActive()).length;
+    const active = [...this.entries.values()].filter((session) => session.isActive()).length;
     if (maxActive !== MAX_CHATGPT_BROWSER_TABS && maxActive !== MAX_CHATGPT_LAUNCHER_PENDING_TURNS) {
       throw new Error("ChatGPT browser turn registry capacity is invalid");
     }
@@ -42,7 +42,8 @@ export class ChatGptTurnSessions {
         `ChatGPT Web supports at most ${maxActive} simultaneous browser turns; close or finish a browser tab before starting another`,
       );
     }
-    if (this.entries.size >= this.maxEntries) throw new Error(`ChatGPT web session registry is full (${this.maxEntries} entries)`);
+    if (this.entries.size >= this.maxEntries)
+      throw new Error(`ChatGPT web session registry is full (${this.maxEntries} entries)`);
     const session = new ChatGptTurnSession(start(), traceId, ownerKey, nativeTurnId, nativeThreadId, instruction);
     this.entries.set(key, session);
     const conversationKey = session.conversationKey();
@@ -74,13 +75,17 @@ export class ChatGptTurnSessions {
         await awaitWithAbort(pending, signal);
         continue;
       }
-      const activeOwner = [...this.entries].find(([ownedKey, session]) => (
-        ownedKey !== key && session.ownerKey === ownerKey && !session.isPhysicallySettled()
-      ));
+      const activeOwner = [...this.entries].find(
+        ([ownedKey, session]) => ownedKey !== key && session.ownerKey === ownerKey && !session.isPhysicallySettled(),
+      );
       if (activeOwner) {
         const [ownedKey, ownedSession] = activeOwner;
-        if (ownedSession.isActive() && instruction && ownedSession.instruction
-          && instruction.current !== ownedSession.instruction) {
+        if (
+          ownedSession.isActive() &&
+          instruction &&
+          ownedSession.instruction &&
+          instruction.current !== ownedSession.instruction
+        ) {
           if (!instruction.predecessors.has(ownedSession.instruction)) throw chatGptTurnSupersededError();
           // Native steering can return the old tool result and a new instruction in one request.
           // Waiting for the old browser here deadlocks before that result can be consumed. Retire
@@ -98,7 +103,16 @@ export class ChatGptTurnSessions {
         continue;
       }
       if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
-      return this.getOrCreate(key, start, traceId, ownerKey, nativeTurnId, nativeThreadId, instruction?.current, maxActive);
+      return this.getOrCreate(
+        key,
+        start,
+        traceId,
+        ownerKey,
+        nativeTurnId,
+        nativeThreadId,
+        instruction?.current,
+        maxActive,
+      );
     }
   }
 
@@ -137,7 +151,7 @@ export class ChatGptTurnSessions {
   ): Promise<number> {
     if (!preservedExecutionKey) throw new Error("Preserved ChatGPT response execution key is required");
     const outcome = preserved.settledOutcome();
-    if (!outcome || outcome.type !== "final") {
+    if (outcome?.type !== "final") {
       throw new Error("Only a settled final ChatGPT response can survive retained-conversation retirement");
     }
     return this.closeConversationAndWait(conversationKey, {
@@ -155,9 +169,7 @@ export class ChatGptTurnSessions {
       await pending;
       return 0;
     }
-    const matches = [...this.entries].filter(([, session]) => (
-      session.conversationKey() === conversationKey
-    ));
+    const matches = [...this.entries].filter(([, session]) => session.conversationKey() === conversationKey);
     if (matches.length === 0) return 0;
     if (preserved && !matches.some(([, session]) => session === preserved.session)) {
       throw new Error("The final ChatGPT response does not own the retained conversation being retired");
@@ -168,8 +180,7 @@ export class ChatGptTurnSessions {
     }
     this.conversationHeads.delete(conversationKey);
     for (const [key, session] of matches) {
-      if (this.entries.get(key) === session
-        && (session !== preserved?.session || key !== preserved.executionKey)) {
+      if (this.entries.get(key) === session && (session !== preserved?.session || key !== preserved.executionKey)) {
         this.entries.delete(key);
       }
       if (session.isActive()) session.cancel();
@@ -178,11 +189,11 @@ export class ChatGptTurnSessions {
       }
     }
     if (preserved) this.entries.set(preserved.executionKey, preserved.session);
-    const release = matches.findLast(([, session]) => (
-      session.runtime.releaseRetainedConversation !== undefined
-    ))?.[1].runtime.releaseRetainedConversation;
-    const retirement = Promise.all(matches.map(([, session]) => session.physicalSettlement))
-      .then(async () => { await release?.(); });
+    const release = matches.findLast(([, session]) => session.runtime.releaseRetainedConversation !== undefined)?.[1]
+      .runtime.releaseRetainedConversation;
+    const retirement = Promise.all(matches.map(([, session]) => session.physicalSettlement)).then(async () => {
+      await release?.();
+    });
     this.conversationRetirements.set(conversationKey, retirement);
     try {
       await retirement;
@@ -222,18 +233,15 @@ export class ChatGptTurnSessions {
   }
 
   /** Cancel only active responses whose exact native turn ids Codex marked as interrupted. */
-  retireAbortedOwnerTurns(
-    ownerKey: string,
-    abortedTurnIds: ReadonlySet<string>,
-    keepKey: string,
-  ): number {
-    const matches = [...this.entries].filter(([key, session]) => (
-      key !== keepKey
-      && session.ownerKey === ownerKey
-      && session.nativeTurnId !== undefined
-      && abortedTurnIds.has(session.nativeTurnId)
-      && session.isActive()
-    ));
+  retireAbortedOwnerTurns(ownerKey: string, abortedTurnIds: ReadonlySet<string>, keepKey: string): number {
+    const matches = [...this.entries].filter(
+      ([key, session]) =>
+        key !== keepKey &&
+        session.ownerKey === ownerKey &&
+        session.nativeTurnId !== undefined &&
+        abortedTurnIds.has(session.nativeTurnId) &&
+        session.isActive(),
+    );
     for (const [key, session] of matches) {
       this.entries.delete(key);
       this.forgetConversationHead(session);
@@ -258,17 +266,20 @@ export class ChatGptTurnSessions {
 
   /** Revoke execution immediately; keep physical cleanup tracked independently of the UI receipt. */
   beginCancelTrace(traceId: string, reason: Error): { cancelled: number; settlement: Promise<void> } {
-    const sessions = [...this.entries.values()]
-      .filter(session => session.traceId === traceId && session.isActive());
+    const sessions = [...this.entries.values()].filter((session) => session.traceId === traceId && session.isActive());
     for (const session of sessions) session.cancel(reason);
-    return { cancelled: sessions.length, settlement: Promise.all(sessions.map(session => session.physicalSettlement)).then(() => undefined) };
+    return {
+      cancelled: sessions.length,
+      settlement: Promise.all(sessions.map((session) => session.physicalSettlement)).then(() => undefined),
+    };
   }
 
   activeActorOwnerForTrace(traceId: string): { sessionId: string; turnId: string } | null {
     const owners = [...this.entries.values()]
-      .filter(session => session.traceId === traceId && session.isActive()
-        && session.ownerKey && session.nativeTurnId)
-      .map(session => ({ sessionId: session.ownerKey!, turnId: session.nativeTurnId! }));
+      .filter(
+        (session) => session.traceId === traceId && session.isActive() && session.ownerKey && session.nativeTurnId,
+      )
+      .map((session) => ({ sessionId: session.ownerKey!, turnId: session.nativeTurnId! }));
     if (owners.length > 1) throw new Error("Browser trace has ambiguous active actor ownership");
     return owners[0] ?? null;
   }
@@ -281,23 +292,18 @@ export class ChatGptTurnSessions {
    * `settlement`, so replacement turns still serialize behind the real teardown without blocking
    * the hook acknowledgement itself.
    */
-  cancelNativeTurn(
-    threadId: string,
-    turnId: string,
-    reason: Error,
-  ): { cancelled: number; settlement: Promise<void> } {
-    const matches = [...this.entries].filter(([, session]) => (
-      session.nativeThreadId === threadId
-      && session.nativeTurnId === turnId
-    ));
+  cancelNativeTurn(threadId: string, turnId: string, reason: Error): { cancelled: number; settlement: Promise<void> } {
+    const matches = [...this.entries].filter(
+      ([, session]) => session.nativeThreadId === threadId && session.nativeTurnId === turnId,
+    );
     for (const [key, session] of matches) {
       if (this.entries.get(key) !== session) continue;
       this.entries.delete(key);
       this.forgetConversationHead(session);
     }
-    const settlement = Promise.all(
-      matches.map(([key, session]) => this.beginRetirement(key, session, reason)),
-    ).then(() => undefined);
+    const settlement = Promise.all(matches.map(([key, session]) => this.beginRetirement(key, session, reason))).then(
+      () => undefined,
+    );
     return { cancelled: matches.length, settlement };
   }
 
@@ -352,7 +358,10 @@ export class ChatGptTurnSessions {
       const previous = this.ownerRetirements.get(ownerKey);
       const ownerRetirement = previous
         ? Promise.allSettled([previous, retirement]).then(() => undefined)
-        : retirement.then(() => undefined, () => undefined);
+        : retirement.then(
+            () => undefined,
+            () => undefined,
+          );
       this.ownerRetirements.set(ownerKey, ownerRetirement);
       const forgetOwnerRetirement = () => {
         if (this.ownerRetirements.get(ownerKey) === ownerRetirement) {
@@ -365,17 +374,17 @@ export class ChatGptTurnSessions {
       const previous = this.conversationRetirements.get(conversationKey);
       const conversationRetirement = previous
         ? Promise.allSettled([previous, retirement]).then(() => undefined)
-        : retirement.then(() => undefined, () => undefined);
+        : retirement.then(
+            () => undefined,
+            () => undefined,
+          );
       this.conversationRetirements.set(conversationKey, conversationRetirement);
       const forgetConversationRetirement = () => {
         if (this.conversationRetirements.get(conversationKey) === conversationRetirement) {
           this.conversationRetirements.delete(conversationKey);
         }
       };
-      void conversationRetirement.then(
-        forgetConversationRetirement,
-        forgetConversationRetirement,
-      );
+      void conversationRetirement.then(forgetConversationRetirement, forgetConversationRetirement);
     }
     return retirement;
   }

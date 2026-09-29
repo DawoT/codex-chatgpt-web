@@ -13,11 +13,9 @@ const root = resolve(import.meta.dir, "..");
 const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as PackageJson;
 const argumentsList = process.argv.slice(2);
 const includeLauncher = argumentsList.includes("--include-launcher");
-const destinationArgument = argumentsList.find(argument => argument !== "--include-launcher");
+const destinationArgument = argumentsList.find((argument) => argument !== "--include-launcher");
 const visited = new Map<string, { directory: string; manifest: PackageJson }>();
-const bundledLicenseOverrides = new Map([
-  ["tiktoken@1.0.22", join(root, "LICENSES", "tiktoken-MIT.txt")],
-]);
+const bundledLicenseOverrides = new Map([["tiktoken@1.0.22", join(root, "LICENSES", "tiktoken-MIT.txt")]]);
 
 function packageDirectory(name: string, from: string): string | undefined {
   let cursor = from;
@@ -39,7 +37,8 @@ function visit(name: string, from: string, optional = false): void {
   }
   if (visited.has(directory)) return;
   const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8")) as PackageJson;
-  if (!manifest.name || !manifest.version || !manifest.license) throw new Error(`Incomplete package metadata: ${directory}`);
+  if (!manifest.name || !manifest.version || !manifest.license)
+    throw new Error(`Incomplete package metadata: ${directory}`);
   visited.set(directory, { directory, manifest });
   for (const dependency of Object.keys(manifest.dependencies ?? {})) visit(dependency, directory);
   for (const dependency of Object.keys(manifest.optionalDependencies ?? {})) visit(dependency, directory, true);
@@ -54,8 +53,8 @@ if (includeLauncher) {
 
 function licenseFiles(directory: string): string[] {
   return readdirSync(directory)
-    .filter(name => /^(licen[cs]e|copying|notice)(?:\..*)?$/i.test(name))
-    .filter(name => statSync(join(directory, name)).isFile())
+    .filter((name) => /^(licen[cs]e|copying|notice)(?:\..*)?$/i.test(name))
+    .filter((name) => statSync(join(directory, name)).isFile())
     .sort();
 }
 
@@ -67,21 +66,28 @@ const sections = [...visited.values()]
     const override = bundledLicenseOverrides.get(identity);
     if (files.length === 0 && !override) throw new Error(`No license/notice file found for ${identity}`);
     if (override && !existsSync(override)) throw new Error(`Bundled license override is missing for ${identity}`);
-    const license = typeof manifest.license === "string" ? manifest.license : manifest.license?.type ?? "unknown";
+    const license = typeof manifest.license === "string" ? manifest.license : (manifest.license?.type ?? "unknown");
     return [
       "=".repeat(80),
       `${identity} (${license})`,
       ...(override
-        ? ["-".repeat(80), `bundled license: ${override.slice(root.length + 1)}`, "-".repeat(80), readFileSync(override, "utf8").trim()]
-        : files.flatMap(file => ["-".repeat(80), file, "-".repeat(80), readFileSync(join(directory, file), "utf8").trim()])),
+        ? [
+            "-".repeat(80),
+            `bundled license: ${override.slice(root.length + 1)}`,
+            "-".repeat(80),
+            readFileSync(override, "utf8").trim(),
+          ]
+        : files.flatMap((file) => [
+            "-".repeat(80),
+            file,
+            "-".repeat(80),
+            readFileSync(join(directory, file), "utf8").trim(),
+          ])),
     ].join("\n");
   });
 
 const bunLicense = readFileSync(join(root, "LICENSES", "Bun-1.4.2.md"), "utf8").trim();
-const libnotifyLicense = readFileSync(
-  join(root, "LICENSES", "libnotify-0.8.7-LGPL-2.1.md"),
-  "utf8",
-).trim();
+const libnotifyLicense = readFileSync(join(root, "LICENSES", "libnotify-0.8.7-LGPL-2.1.md"), "utf8").trim();
 const output = [
   "codex-chatgpt-web third-party notices",
   "",

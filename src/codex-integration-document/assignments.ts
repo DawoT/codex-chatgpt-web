@@ -1,14 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
+import type { CodexModelContextOverride, ManagedAssignmentKey, PreviousAssignment } from "../codex-integration-shared";
 import { getCodexConfigPath } from "../codex-integration-shared";
-import type {
-  CodexModelContextOverride,
-  ManagedAssignmentKey,
-  PreviousAssignment,
-} from "../codex-integration-shared";
 import { decodeTomlString, splitLines, stripTomlComment } from "./document-parser";
 
 export function firstTableIndex(lines: string[]): number {
-  const index = lines.findIndex(line => /^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(line));
+  const index = lines.findIndex((line) => /^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(line));
   return index < 0 ? lines.length : index;
 }
 

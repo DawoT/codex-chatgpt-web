@@ -4,37 +4,49 @@ const en = {
   product: "Codex Web GPT",
   devBadge: "DEV",
   devSetupTitle: "Set up the isolated DEV profile",
-  devSetupSubtitle: "This browser, account, configuration, and runtime data stay separate from the normal launcher and Codex.",
+  devSetupSubtitle:
+    "This browser, account, configuration, and runtime data stay separate from the normal launcher and Codex.",
   devCoreSetup: "DEV profile",
   devStepInstall: "Initialize DEV harness",
-  devStepInstallBody: "Store account capabilities in the isolated DEV home. No Codex route, Responses listener, or system service is installed; Full mode supervises only its isolated MCP tunnel.",
+  devStepInstallBody:
+    "Store account capabilities in the isolated DEV home. No Codex route, Responses listener, or system service is installed; Full mode supervises only its isolated MCP tunnel.",
   devInstall: "Initialize profile",
   devReinstall: "Refresh profile",
   devMcpTitle: "Simulated tools over MCP",
   devMcpSubtitle: "Connect this separate ChatGPT account to the isolated repository harness.",
-  devMcpBody: "The DEV launcher keeps its isolated MCP tunnel ready. Named repository chats attach to it and return explicit simulated receipts for tool actions.",
-  devConnectorIsolationNotice: "Create a separate connector with the exact DEV name below. Keep Codex Native2 unchanged so production and repository development can run side by side.",
+  devMcpBody:
+    "The DEV launcher keeps its isolated MCP tunnel ready. Named repository chats attach to it and return explicit simulated receipts for tool actions.",
+  devConnectorIsolationNotice:
+    "Create a separate connector with the exact DEV name below. Keep Codex Native2 unchanged so production and repository development can run side by side.",
   devSettingsTitle: "DEV profile settings",
   devKeepRunningBody: "Keep the isolated browser session and DEV MCP tunnel available when this window closes.",
   biggerContext: "Bigger Context (experimental)",
-  biggerContextBody: "Warning: keeps small turns as one message, then splits large context across two or six messages. The final part starts the task without an extra request. It triples the model context and compaction thresholds; restart Codex after changing it. Extra requests may increase rate limits or temporary cooldowns. Disabled by default.",
+  biggerContextBody:
+    "Warning: keeps small turns as one message, then splits large context across two or six messages. The final part starts the task without an extra request. It triples the model context and compaction thresholds; restart Codex after changing it. Extra requests may increase rate limits or temporary cooldowns. Disabled by default.",
   skillAttachments: "Skills as files (experimental)",
-  skillAttachmentsBody: "Upload explicitly selected Codex skills as named text files instead of inline instructions. Other skills still load through tools. Off by default; uses the same attachment limit as images.",
+  skillAttachmentsBody:
+    "Upload explicitly selected Codex skills as named text files instead of inline instructions. Other skills still load through tools. Off by default; uses the same attachment limit as images.",
   manualSkillAttachmentsUnavailable: "Skill uploads require automatic browser interaction.",
   savedChats: "Save chats in ChatGPT",
-  savedChatsBody: "Keep task conversations in ChatGPT history. ChatGPT memory and custom instructions may apply. Off by default.",
+  savedChatsBody:
+    "Keep task conversations in ChatGPT history. ChatGPT memory and custom instructions may apply. Off by default.",
   freshConversation: "New browser chat for each turn",
-  freshConversationBody: "Rebuild context from the same Codex task in a new browser chat for each turn. This may help when ChatGPT loses access to tools, but can send more context and be slower. Off by default.",
-  manualFreshConversationUnavailable: "Available only with Automation. Your preference is saved while Zero Risk is active.",
+  freshConversationBody:
+    "Rebuild context from the same Codex task in a new browser chat for each turn. This may help when ChatGPT loses access to tools, but can send more context and be slower. Off by default.",
+  manualFreshConversationUnavailable:
+    "Available only with Automation. Your preference is saved while Zero Risk is active.",
   biggerContextRecommendationTitle: "Use up to 3× more context",
-  biggerContextRecommendationBody: "Bigger Context sends large tasks in multiple messages so ChatGPT Web can use up to three times more context. It remains experimental and can increase rate limits or temporary cooldowns.",
-  biggerContextRecommendationToggleBody: "Stage large tasks across multiple messages and raise the model context and compaction limits.",
+  biggerContextRecommendationBody:
+    "Bigger Context sends large tasks in multiple messages so ChatGPT Web can use up to three times more context. It remains experimental and can increase rate limits or temporary cooldowns.",
+  biggerContextRecommendationToggleBody:
+    "Stage large tasks across multiple messages and raise the model context and compaction limits.",
   tagline: "ChatGPT Web inside the native Codex harness",
   chooseLanguage: "Choose your language",
   chooseLanguageHint: "You can change this later in Settings.",
   continue: "Continue",
   supportTitle: "Before we start",
-  supportBody: "Star the repository and open my X profile to help more developers find Codex Web GPT. I share product updates and useful Codex tips on X.",
+  supportBody:
+    "Star the repository and open my X profile to help more developers find Codex Web GPT. I share product updates and useful Codex tips on X.",
   star: "Star on GitHub",
   starred: "GitHub opened",
   follow: "Open my X",
@@ -61,7 +73,8 @@ const en = {
   showSidebar: "Show sidebar",
   resizeSidebar: "Resize sidebar",
   hideTab: "Close tab",
-  browserTabLimit: "Up to five simultaneous ChatGPT Web tabs. The limit avoids excessive parallel traffic on your ChatGPT account.",
+  browserTabLimit:
+    "Up to five simultaneous ChatGPT Web tabs. The limit avoids excessive parallel traffic on your ChatGPT account.",
   browserAddress: "ChatGPT browser",
   noActiveTask: "No active task",
   noActiveTaskBody: "ChatGPT will appear here when Codex starts a Web model turn.",
@@ -72,11 +85,14 @@ const en = {
   setupSubtitle: "Three checks make ChatGPT Web available in the native Codex model picker.",
   coreSetup: "Core setup",
   interactionMode: "ChatGPT interaction",
-  interactionModeOnboardingBody: "Choose how the launcher should work with ChatGPT. With Automation is selected by default. You can change this later in Settings.",
+  interactionModeOnboardingBody:
+    "Choose how the launcher should work with ChatGPT. With Automation is selected by default. You can change this later in Settings.",
   automaticInteraction: "With Automation",
-  automaticInteractionBody: "Automatically sends prompts and reads ChatGPT page state. Controlled retries avoid repeated sends, but browser automation may conflict with OpenAI terms or account policies.",
+  automaticInteractionBody:
+    "Automatically sends prompts and reads ChatGPT page state. Controlled retries avoid repeated sends, but browser automation may conflict with OpenAI terms or account policies.",
   manualInteraction: "Zero Risk",
-  manualInteractionBody: "Never reads or changes ChatGPT. The launcher prepares the prompt; you paste it, choose the connector, model, and effort, and send it yourself.",
+  manualInteractionBody:
+    "Never reads or changes ChatGPT. The launcher prepares the prompt; you paste it, choose the connector, model, and effort, and send it yourself.",
   optional: "Optional",
   required: "Required",
   stepAccount: "Sign in to ChatGPT",
@@ -94,18 +110,21 @@ const en = {
   runSmoke: "Run smoke test",
   smokePassed: "Smoke test passed",
   stepInstall: "Install into Codex",
-  stepInstallBody: "Add the ChatGPT Web models without replacing Codex's native catalog. Any current custom route is saved and restored when the bridge is turned off.",
+  stepInstallBody:
+    "Add the ChatGPT Web models without replacing Codex's native catalog. Any current custom route is saved and restored when the bridge is turned off.",
   zeroRiskModelSettings: "Zero Risk model profiles",
   zeroRiskModelSettingsBody: "Choose which model rows are installed into Codex.",
   zeroRiskDefaultProfile: "Default",
   zeroRiskDefaultProfileBody: "Install only ChatGPT Web — Zero Risk.",
   zeroRiskProProfile: "Pro",
   zeroRiskProProfileBody: "Also install ChatGPT Web — Zero Risk Pro.",
-  zeroRiskProProfileInfo: "Provides roughly 250,000 usable tokens before compaction. Select ChatGPT Pro manually for every turn. A ChatGPT Pro account is required; without it the turn will likely fail, and the larger limit may not work with every effort. Zero Risk cannot verify your subscription or selection.",
+  zeroRiskProProfileInfo:
+    "Provides roughly 250,000 usable tokens before compaction. Select ChatGPT Pro manually for every turn. A ChatGPT Pro account is required; without it the turn will likely fail, and the larger limit may not work with every effort. Zero Risk cannot verify your subscription or selection.",
   install: "Install models",
   reinstall: "Reinstall",
   awaitingCodex: "Restart Codex",
-  restartCodex: "Fully quit Codex, including its background process, then reopen it to refresh the model picker. Signing out and back in or only closing the window is not a restart. Keep this launcher open.",
+  restartCodex:
+    "Fully quit Codex, including its background process, then reopen it to refresh the model picker. Signing out and back in or only closing the window is not a restart. Keep this launcher open.",
   mcpTitle: "Native Codex tools over MCP",
   mcpSubtitle: "Connect ChatGPT to the active Codex harness through an OpenAI tunnel.",
   mcpBody: "Let every available ChatGPT Web effort, including Pro, use the active Codex harness.",
@@ -121,13 +140,16 @@ const en = {
   pauseGuideVideo: "Pause video",
   closeGuideVideo: "Close expanded guide video",
   mcpStepOne: "Create a tunnel and API key",
-  mcpStepOneBody: "Create an OpenAI tunnel, copy its Tunnel ID, and create a regular API key with Tunnels Read + Use (free; the key is required only to run the tunnel). (Don't forget to create a ChatGPT workspace.)",
+  mcpStepOneBody:
+    "Create an OpenAI tunnel, copy its Tunnel ID, and create a regular API key with Tunnels Read + Use (free; the key is required only to run the tunnel). (Don't forget to create a ChatGPT workspace.)",
   openTunnels: "Open Tunnels",
   openKeys: "Create API key",
   mcpStepTwo: "Connect the local harness",
-  mcpStepTwoBody: "Paste the Tunnel ID and API key. The tunnel must belong to the same OpenAI account that will use the ChatGPT plugin. The key stays in private local storage and is never written to launcher logs.",
+  mcpStepTwoBody:
+    "Paste the Tunnel ID and API key. The tunnel must belong to the same OpenAI account that will use the ChatGPT plugin. The key stays in private local storage and is never written to launcher logs.",
   mcpStepTwoHint: "You can add the MCP connector in ChatGPT only after this step succeeds and the tunnel is running.",
-  mcpCatalogRequired: "Connect harness is unavailable until the Codex models are installed and verified. Return to Setup, click Install models, restart Codex once, and wait for the model catalog check to complete.",
+  mcpCatalogRequired:
+    "Connect harness is unavailable until the Codex models are installed and verified. Return to Setup, click Install models, restart Codex once, and wait for the model catalog check to complete.",
   tunnelId: "Tunnel ID",
   runtimeKey: "API key (not Admin key)",
   connect: "Connect harness",
@@ -137,10 +159,14 @@ const en = {
   replaceCredentials: "Replace credentials",
   keepCredentials: "Keep saved credentials",
   mcpStepThree: "Attach the ChatGPT connector",
-  mcpStepThreeBody: "Before creating the connector, enable Developer Mode in ChatGPT Settings. In ChatGPT Plugins, create a new connector, choose Tunnel, select the tunnel you created, set Authentication to None, and use the exact connector name shown below. Open Permissions and choose Allow all actions; Allow low-risk actions blocks command and patch calls before they reach this runtime. The outer Codex harness still enforces its sandbox and approvals. Then verify the runtime.",
-  manualMcpStepThreeBody: "Create the separate connector shown below with the exact name Codex Zero Risk and select it yourself in every Zero Risk turn. Zero Risk requires its own tunnel and credentials, separate from Automatic mode. The launcher never inspects the ChatGPT DOM in this mode.",
-  connectorMigrationNotice: "Upgrading from Codex Native? Leave the old connector untouched and create Codex Native2 as a new connector. Do not rename or refresh Codex Native. Verify runtime rejects a legacy-only setup.",
-  manualConnectorNotice: "Codex Zero Risk is a separate connector. Select it yourself before sending every Zero Risk prompt; the launcher intentionally does not inspect ChatGPT to verify that choice.",
+  mcpStepThreeBody:
+    "Before creating the connector, enable Developer Mode in ChatGPT Settings. In ChatGPT Plugins, create a new connector, choose Tunnel, select the tunnel you created, set Authentication to None, and use the exact connector name shown below. Open Permissions and choose Allow all actions; Allow low-risk actions blocks command and patch calls before they reach this runtime. The outer Codex harness still enforces its sandbox and approvals. Then verify the runtime.",
+  manualMcpStepThreeBody:
+    "Create the separate connector shown below with the exact name Codex Zero Risk and select it yourself in every Zero Risk turn. Zero Risk requires its own tunnel and credentials, separate from Automatic mode. The launcher never inspects the ChatGPT DOM in this mode.",
+  connectorMigrationNotice:
+    "Upgrading from Codex Native? Leave the old connector untouched and create Codex Native2 as a new connector. Do not rename or refresh Codex Native. Verify runtime rejects a legacy-only setup.",
+  manualConnectorNotice:
+    "Codex Zero Risk is a separate connector. Select it yourself before sending every Zero Risk prompt; the launcher intentionally does not inspect ChatGPT to verify that choice.",
   openConnectors: "Open ChatGPT Plugins",
   connectorName: "Connector name",
   verifyRuntime: "Verify runtime",
@@ -150,7 +176,7 @@ const en = {
   doctorTunnelKeyStored: "Tunnel runtime key is stored privately",
   doctorTunnelRuntimeOwned: "Launcher owns the tunnel runtime",
   doctorTunnelRuntimeReady: "Tunnel runtime reports healthy and ready",
-  doctorConnectorAvailable: "ChatGPT connector \"{name}\" is available",
+  doctorConnectorAvailable: 'ChatGPT connector "{name}" is available',
   activityTitle: "Runtime activity",
   activitySubtitle: "Local diagnostics. Export a privacy-safe copy before sharing; raw logs stay on this device.",
   recentActivity: "Recent events",
@@ -164,9 +190,11 @@ const en = {
   keepRunningOnCloseBody: "Hide the launcher in the system tray so native and ChatGPT Web models remain available.",
   showDuringTurns: "Show browser during turns",
   showDuringTurnsBody: "Reveal the embedded ChatGPT surface whenever a browser turn is active.",
-  manualBiggerContextUnavailable: "Zero Risk already uses a fixed 3× compaction interval. Its prompts remain single-part and manual.",
+  manualBiggerContextUnavailable:
+    "Zero Risk already uses a fixed 3× compaction interval. Its prompts remain single-part and manual.",
   manualPromptTitle: "Send this turn in ChatGPT",
-  manualPromptInstruction: "The prompt is already in your clipboard. Paste it into the open ChatGPT tab, choose the model and effort you want, select the Codex Zero Risk connector, send it, then confirm below.",
+  manualPromptInstruction:
+    "The prompt is already in your clipboard. Paste it into the open ChatGPT tab, choose the model and effort you want, select the Codex Zero Risk connector, send it, then confirm below.",
   manualPromptCopy: "Copy prompt",
   manualPromptCancel: "Cancel turn",
   manualPromptSent: "Sent",
@@ -195,7 +223,8 @@ const en = {
   error: "Something went wrong",
   dismiss: "Dismiss",
   sessionReminderTitle: "Refresh your ChatGPT session",
-  sessionReminderBody: "We recommend signing in again every two days. A stale ChatGPT session can interrupt Web model turns and MCP tools.",
+  sessionReminderBody:
+    "We recommend signing in again every two days. A stale ChatGPT session can interrupt Web model turns and MCP tools.",
   logOut: "Log out",
   checkingLocalRuntime: "Checking local runtime",
   doctorConfigValid: "Configuration is valid ({path})",
@@ -216,34 +245,41 @@ const zh: Record<keyof typeof en, string> = {
   devSetupSubtitle: "此浏览器、账户、配置和运行数据与普通启动器及 Codex 完全分离。",
   devCoreSetup: "DEV 配置",
   devStepInstall: "初始化 DEV Harness",
-  devStepInstallBody: "仅在隔离的 DEV home 中保存账户能力，不安装 Codex 路由、Responses 监听器或系统服务；Full 模式只监管其隔离的 MCP Tunnel。",
+  devStepInstallBody:
+    "仅在隔离的 DEV home 中保存账户能力，不安装 Codex 路由、Responses 监听器或系统服务；Full 模式只监管其隔离的 MCP Tunnel。",
   devInstall: "初始化配置",
   devReinstall: "刷新配置",
   devMcpTitle: "通过 MCP 使用模拟工具",
   devMcpSubtitle: "将这个独立 ChatGPT 账户连接到隔离的仓库 Harness。",
   devMcpBody: "DEV 启动器会保持隔离的 MCP Tunnel 就绪。命名仓库聊天连接到该 Tunnel，并为工具动作返回明确的模拟回执。",
-  devConnectorIsolationNotice: "请使用下方准确的 DEV 名称新建独立连接器。保留 Codex Native2 不变，让生产使用和仓库开发可以同时运行。",
+  devConnectorIsolationNotice:
+    "请使用下方准确的 DEV 名称新建独立连接器。保留 Codex Native2 不变，让生产使用和仓库开发可以同时运行。",
   devSettingsTitle: "DEV 配置设置",
   devKeepRunningBody: "窗口关闭后保持隔离的浏览器会话和 DEV MCP Tunnel 可用。",
   biggerContext: "更大上下文（实验性）",
-  biggerContextBody: "警告：较小回合仍作为一条消息发送；较大的上下文会拆分为两条或六条消息，最后一部分会直接开始任务，不会额外发送请求。模型上下文和压缩阈值将扩大三倍；更改后请重启 Codex。额外请求可能提高触发速率限制或临时冷却的概率。默认关闭。",
+  biggerContextBody:
+    "警告：较小回合仍作为一条消息发送；较大的上下文会拆分为两条或六条消息，最后一部分会直接开始任务，不会额外发送请求。模型上下文和压缩阈值将扩大三倍；更改后请重启 Codex。额外请求可能提高触发速率限制或临时冷却的概率。默认关闭。",
   skillAttachments: "技能作为文件（实验性）",
-  skillAttachmentsBody: "将明确选择的 Codex 技能作为命名文本文件上传，而不是内联指令。其他技能仍通过工具读取。默认关闭；与图片共用附件数量限制。",
+  skillAttachmentsBody:
+    "将明确选择的 Codex 技能作为命名文本文件上传，而不是内联指令。其他技能仍通过工具读取。默认关闭；与图片共用附件数量限制。",
   manualSkillAttachmentsUnavailable: "上传技能需要自动浏览器交互模式。",
   savedChats: "在 ChatGPT 中保存聊天",
   savedChatsBody: "将任务对话保留在 ChatGPT 历史记录中。可能应用 ChatGPT 记忆和自定义指令。默认关闭。",
   freshConversation: "每轮使用新的浏览器聊天",
-  freshConversationBody: "每轮在新的浏览器聊天中重建同一个 Codex 任务的上下文。这可能有助于解决 ChatGPT 丢失工具访问的问题，但可能发送更多上下文，速度也可能更慢。默认关闭。",
+  freshConversationBody:
+    "每轮在新的浏览器聊天中重建同一个 Codex 任务的上下文。这可能有助于解决 ChatGPT 丢失工具访问的问题，但可能发送更多上下文，速度也可能更慢。默认关闭。",
   manualFreshConversationUnavailable: "仅在自动化模式下可用。启用零风险模式时会保留此偏好设置。",
   biggerContextRecommendationTitle: "使用多达 3 倍的上下文",
-  biggerContextRecommendationBody: "Bigger Context 通过多条消息发送大型任务，让 ChatGPT Web 使用多达三倍的上下文。此功能仍处于实验阶段，可能增加触发速率限制或临时冷却的概率。",
+  biggerContextRecommendationBody:
+    "Bigger Context 通过多条消息发送大型任务，让 ChatGPT Web 使用多达三倍的上下文。此功能仍处于实验阶段，可能增加触发速率限制或临时冷却的概率。",
   biggerContextRecommendationToggleBody: "将大型任务分成多条消息，并提高模型上下文与压缩限制。",
   tagline: "在原生 Codex Harness 中运行 ChatGPT Web",
   chooseLanguage: "选择语言",
   chooseLanguageHint: "稍后可以在设置中更改。",
   continue: "继续",
   supportTitle: "开始之前",
-  supportBody: "请为仓库 Star，并打开我的 X 主页，帮助更多开发者发现 Codex Web GPT。我会在 X 分享产品更新和实用的 Codex 技巧。",
+  supportBody:
+    "请为仓库 Star，并打开我的 X 主页，帮助更多开发者发现 Codex Web GPT。我会在 X 分享产品更新和实用的 Codex 技巧。",
   star: "在 GitHub 上 Star",
   starred: "已打开 GitHub",
   follow: "打开我的 X",
@@ -283,9 +319,11 @@ const zh: Record<keyof typeof en, string> = {
   interactionMode: "ChatGPT 交互方式",
   interactionModeOnboardingBody: "选择启动器与 ChatGPT 的交互方式。默认选择自动化模式，稍后可以在设置中更改。",
   automaticInteraction: "自动化模式",
-  automaticInteractionBody: "自动发送提示并读取 ChatGPT 页面状态。受控重试可避免重复发送，但浏览器自动化可能与 OpenAI 条款或账户政策冲突。",
+  automaticInteractionBody:
+    "自动发送提示并读取 ChatGPT 页面状态。受控重试可避免重复发送，但浏览器自动化可能与 OpenAI 条款或账户政策冲突。",
   manualInteraction: "零风险",
-  manualInteractionBody: "绝不读取或更改 ChatGPT。启动器会准备提示；你需要自行粘贴并发送，并手动选择连接器、模型和 effort。",
+  manualInteractionBody:
+    "绝不读取或更改 ChatGPT。启动器会准备提示；你需要自行粘贴并发送，并手动选择连接器、模型和 effort。",
   optional: "可选",
   required: "必需",
   stepAccount: "登录 ChatGPT",
@@ -303,18 +341,21 @@ const zh: Record<keyof typeof en, string> = {
   runSmoke: "运行冒烟测试",
   smokePassed: "冒烟测试通过",
   stepInstall: "安装到 Codex",
-  stepInstallBody: "将 ChatGPT Web 模型添加到 Codex，且不替换原生模型目录。当前自定义路由会被保存，并在关闭 Bridge 时恢复。",
+  stepInstallBody:
+    "将 ChatGPT Web 模型添加到 Codex，且不替换原生模型目录。当前自定义路由会被保存，并在关闭 Bridge 时恢复。",
   zeroRiskModelSettings: "Zero Risk 模型配置",
   zeroRiskModelSettingsBody: "选择要安装到 Codex 的模型条目。",
   zeroRiskDefaultProfile: "默认",
   zeroRiskDefaultProfileBody: "仅安装 ChatGPT Web — Zero Risk。",
   zeroRiskProProfile: "Pro",
   zeroRiskProProfileBody: "同时安装 ChatGPT Web — Zero Risk Pro。",
-  zeroRiskProProfileInfo: "压缩前可使用约 250,000 个 token。每个回合都必须手动选择 ChatGPT Pro，并且需要 ChatGPT Pro 账户；否则回合很可能失败，较大的限制也可能不适用于所有 effort。Zero Risk 无法验证你的订阅或选择。",
+  zeroRiskProProfileInfo:
+    "压缩前可使用约 250,000 个 token。每个回合都必须手动选择 ChatGPT Pro，并且需要 ChatGPT Pro 账户；否则回合很可能失败，较大的限制也可能不适用于所有 effort。Zero Risk 无法验证你的订阅或选择。",
   install: "安装模型",
   reinstall: "重新安装",
   awaitingCodex: "重启 Codex",
-  restartCodex: "请彻底退出 Codex（包括后台进程），然后重新打开以刷新模型列表。仅退出并重新登录账号或只关闭窗口不算重启。请保持此启动器开启。",
+  restartCodex:
+    "请彻底退出 Codex（包括后台进程），然后重新打开以刷新模型列表。仅退出并重新登录账号或只关闭窗口不算重启。请保持此启动器开启。",
   mcpTitle: "通过 MCP 使用原生 Codex 工具",
   mcpSubtitle: "通过 OpenAI Tunnel 将 ChatGPT 连接到当前 Codex Harness。",
   mcpBody: "让每一个可用的 ChatGPT Web effort（包括 Pro）访问当前 Codex Harness。",
@@ -330,13 +371,16 @@ const zh: Record<keyof typeof en, string> = {
   pauseGuideVideo: "暂停视频",
   closeGuideVideo: "关闭展开的指导视频",
   mcpStepOne: "创建 Tunnel 和 API key",
-  mcpStepOneBody: "创建 OpenAI Tunnel，复制 Tunnel ID，然后创建一个拥有 Tunnels Read + Use 权限的普通 API key（免费；此密钥仅用于运行 Tunnel）。（别忘了创建 ChatGPT 工作区。）",
+  mcpStepOneBody:
+    "创建 OpenAI Tunnel，复制 Tunnel ID，然后创建一个拥有 Tunnels Read + Use 权限的普通 API key（免费；此密钥仅用于运行 Tunnel）。（别忘了创建 ChatGPT 工作区。）",
   openTunnels: "打开 Tunnels",
   openKeys: "创建 API key",
   mcpStepTwo: "连接本地 Harness",
-  mcpStepTwoBody: "粘贴 Tunnel ID 和 API key。Tunnel 必须属于将使用该 ChatGPT 插件的同一 OpenAI 账户。密钥只保存在本机私有存储中，绝不会写入启动器日志。",
+  mcpStepTwoBody:
+    "粘贴 Tunnel ID 和 API key。Tunnel 必须属于将使用该 ChatGPT 插件的同一 OpenAI 账户。密钥只保存在本机私有存储中，绝不会写入启动器日志。",
   mcpStepTwoHint: "只有此步骤成功且 Tunnel 正在运行后，才能在 ChatGPT 中添加 MCP 连接器。",
-  mcpCatalogRequired: "在 Codex 模型安装并验证完成前，无法连接 Harness。请返回“设置”，点击“安装模型”，重启一次 Codex，并等待模型列表验证完成。",
+  mcpCatalogRequired:
+    "在 Codex 模型安装并验证完成前，无法连接 Harness。请返回“设置”，点击“安装模型”，重启一次 Codex，并等待模型列表验证完成。",
   tunnelId: "Tunnel ID",
   runtimeKey: "API key（不是 Admin key）",
   connect: "连接 Harness",
@@ -346,10 +390,14 @@ const zh: Record<keyof typeof en, string> = {
   replaceCredentials: "替换凭据",
   keepCredentials: "保留已保存的凭据",
   mcpStepThree: "连接 ChatGPT 插件",
-  mcpStepThreeBody: "创建连接器前，先在 ChatGPT 设置中启用开发者模式。然后在 ChatGPT Plugins 中新建连接器，选择 Tunnel，选中刚创建的 Tunnel，将身份验证设为无，并使用下方显示的准确连接器名称。打开权限并选择“允许所有操作”；“允许低风险操作”会在命令和补丁调用到达本地运行时之前将其拦截。外层 Codex harness 仍会执行沙箱与审批规则。最后验证运行时。",
-  manualMcpStepThreeBody: "请使用下方显示的准确名称 Codex Zero Risk 创建独立连接器，并在每次引导式手动回合中自行选择它。Zero Risk 必须使用与自动模式分开的 Tunnel 和凭据。此模式不会执行 DOM 检查。",
-  connectorMigrationNotice: "从 Codex Native 升级？请保留旧连接器不变，并新建名为 Codex Native2 的连接器。不要重命名或刷新 Codex Native。仅有旧连接器时，运行时验证会明确失败。",
-  manualConnectorNotice: "Codex Zero Risk 是独立连接器。每次发送引导式提示前都需要自行选择它；启动器有意不检查 ChatGPT DOM 来验证该选择。",
+  mcpStepThreeBody:
+    "创建连接器前，先在 ChatGPT 设置中启用开发者模式。然后在 ChatGPT Plugins 中新建连接器，选择 Tunnel，选中刚创建的 Tunnel，将身份验证设为无，并使用下方显示的准确连接器名称。打开权限并选择“允许所有操作”；“允许低风险操作”会在命令和补丁调用到达本地运行时之前将其拦截。外层 Codex harness 仍会执行沙箱与审批规则。最后验证运行时。",
+  manualMcpStepThreeBody:
+    "请使用下方显示的准确名称 Codex Zero Risk 创建独立连接器，并在每次引导式手动回合中自行选择它。Zero Risk 必须使用与自动模式分开的 Tunnel 和凭据。此模式不会执行 DOM 检查。",
+  connectorMigrationNotice:
+    "从 Codex Native 升级？请保留旧连接器不变，并新建名为 Codex Native2 的连接器。不要重命名或刷新 Codex Native。仅有旧连接器时，运行时验证会明确失败。",
+  manualConnectorNotice:
+    "Codex Zero Risk 是独立连接器。每次发送引导式提示前都需要自行选择它；启动器有意不检查 ChatGPT DOM 来验证该选择。",
   openConnectors: "打开 ChatGPT Plugins",
   connectorName: "连接器名称",
   verifyRuntime: "验证运行时",
@@ -375,7 +423,8 @@ const zh: Record<keyof typeof en, string> = {
   showDuringTurnsBody: "浏览器任务活动时显示内置 ChatGPT 页面。",
   manualBiggerContextUnavailable: "零风险模式已固定使用 3 倍压缩间隔，提示仍保持单段并由用户手动发送。",
   manualPromptTitle: "在 ChatGPT 中发送此回合",
-  manualPromptInstruction: "提示已复制到剪贴板。请将其粘贴到打开的 ChatGPT 标签页，选择所需模型和 effort，再选择 Codex Zero Risk 连接器，发送后在下方确认。",
+  manualPromptInstruction:
+    "提示已复制到剪贴板。请将其粘贴到打开的 ChatGPT 标签页，选择所需模型和 effort，再选择 Codex Zero Risk 连接器，发送后在下方确认。",
   manualPromptCopy: "复制提示",
   manualPromptCancel: "取消任务",
   manualPromptSent: "已发送",
@@ -422,37 +471,49 @@ const ja: Record<keyof typeof en, string> = {
   product: "Codex Web GPT",
   devBadge: "DEV",
   devSetupTitle: "隔離された DEV プロファイルをセットアップ",
-  devSetupSubtitle: "このブラウザー、アカウント、設定、ランタイムデータは、通常のランチャーおよび Codex から完全に分離されます。",
+  devSetupSubtitle:
+    "このブラウザー、アカウント、設定、ランタイムデータは、通常のランチャーおよび Codex から完全に分離されます。",
   devCoreSetup: "DEV プロファイル",
   devStepInstall: "DEV ハーネスを初期化",
-  devStepInstallBody: "アカウント機能を隔離された DEV ホームに保存します。Codex ルート、Responses リスナー、システムサービスはインストールされず、Full モードは隔離された MCP トンネルのみを監視します。",
+  devStepInstallBody:
+    "アカウント機能を隔離された DEV ホームに保存します。Codex ルート、Responses リスナー、システムサービスはインストールされず、Full モードは隔離された MCP トンネルのみを監視します。",
   devInstall: "プロファイルを初期化",
   devReinstall: "プロファイルを更新",
   devMcpTitle: "MCP 経由のシミュレーションツール",
   devMcpSubtitle: "この個別の ChatGPT アカウントを隔離されたリポジトリハーネスに接続します。",
-  devMcpBody: "DEV ランチャーは隔離された MCP トンネルを使用可能な状態に保ちます。名前付きリポジトリチャットはこのトンネルに接続し、ツール操作ごとに明示的なシミュレーション結果を返します。",
-  devConnectorIsolationNotice: "下記の正確な DEV 名で個別のコネクタを作成してください。Codex Native2 は変更せず、本番利用とリポジトリ開発を並行して実行できる状態を保ちます。",
+  devMcpBody:
+    "DEV ランチャーは隔離された MCP トンネルを使用可能な状態に保ちます。名前付きリポジトリチャットはこのトンネルに接続し、ツール操作ごとに明示的なシミュレーション結果を返します。",
+  devConnectorIsolationNotice:
+    "下記の正確な DEV 名で個別のコネクタを作成してください。Codex Native2 は変更せず、本番利用とリポジトリ開発を並行して実行できる状態を保ちます。",
   devSettingsTitle: "DEV プロファイル設定",
-  devKeepRunningBody: "ウィンドウを閉じても、隔離されたブラウザーセッションと DEV MCP トンネルを使用可能な状態に保ちます。",
+  devKeepRunningBody:
+    "ウィンドウを閉じても、隔離されたブラウザーセッションと DEV MCP トンネルを使用可能な状態に保ちます。",
   biggerContext: "Bigger Context（試験的）",
-  biggerContextBody: "警告：小さなターンは 1 件のメッセージとして維持し、大きなコンテキストは 2 件または 6 件のメッセージに分割します。最後の部分から追加リクエストなしでタスクを開始します。モデルのコンテキスト上限とコンパクションしきい値が 3 倍になります。変更後は Codex を再起動してください。追加リクエストにより、レート制限や一時的なクールダウンが発生しやすくなる場合があります。初期設定では無効です。",
+  biggerContextBody:
+    "警告：小さなターンは 1 件のメッセージとして維持し、大きなコンテキストは 2 件または 6 件のメッセージに分割します。最後の部分から追加リクエストなしでタスクを開始します。モデルのコンテキスト上限とコンパクションしきい値が 3 倍になります。変更後は Codex を再起動してください。追加リクエストにより、レート制限や一時的なクールダウンが発生しやすくなる場合があります。初期設定では無効です。",
   skillAttachments: "スキルをファイルで送信（試験的）",
-  skillAttachmentsBody: "明示的に選択した Codex スキルを、インラインの指示ではなく名前付きテキストファイルとしてアップロードします。他のスキルは引き続きツールで読み込みます。初期設定はオフ。画像と添付数の上限を共有します。",
+  skillAttachmentsBody:
+    "明示的に選択した Codex スキルを、インラインの指示ではなく名前付きテキストファイルとしてアップロードします。他のスキルは引き続きツールで読み込みます。初期設定はオフ。画像と添付数の上限を共有します。",
   manualSkillAttachmentsUnavailable: "スキルのアップロードには自動ブラウザ操作が必要です。",
   savedChats: "ChatGPT にチャットを保存",
-  savedChatsBody: "タスクの会話を ChatGPT の履歴に残します。ChatGPT のメモリとカスタム指示が適用される場合があります。初期設定はオフです。",
+  savedChatsBody:
+    "タスクの会話を ChatGPT の履歴に残します。ChatGPT のメモリとカスタム指示が適用される場合があります。初期設定はオフです。",
   freshConversation: "ターンごとに新しいブラウザチャットを使用",
-  freshConversationBody: "ターンごとに新しいブラウザチャットで、同じ Codex タスクのコンテキストを再構築します。ChatGPT がツールにアクセスできなくなった場合に役立つことがありますが、送信するコンテキストが増え、遅くなる可能性があります。初期設定はオフです。",
+  freshConversationBody:
+    "ターンごとに新しいブラウザチャットで、同じ Codex タスクのコンテキストを再構築します。ChatGPT がツールにアクセスできなくなった場合に役立つことがありますが、送信するコンテキストが増え、遅くなる可能性があります。初期設定はオフです。",
   manualFreshConversationUnavailable: "自動操作モードでのみ利用できます。ゼロリスクモード中も設定は保存されます。",
   biggerContextRecommendationTitle: "最大 3 倍のコンテキストを使用",
-  biggerContextRecommendationBody: "Bigger Context は大きなタスクを複数のメッセージで送信し、ChatGPT Web で最大 3 倍のコンテキストを使用できるようにします。試験的な機能であり、レート制限や一時的なクールダウンが発生しやすくなる場合があります。",
-  biggerContextRecommendationToggleBody: "大きなタスクを複数のメッセージに分割し、モデルのコンテキスト上限とコンパクション上限を引き上げます。",
+  biggerContextRecommendationBody:
+    "Bigger Context は大きなタスクを複数のメッセージで送信し、ChatGPT Web で最大 3 倍のコンテキストを使用できるようにします。試験的な機能であり、レート制限や一時的なクールダウンが発生しやすくなる場合があります。",
+  biggerContextRecommendationToggleBody:
+    "大きなタスクを複数のメッセージに分割し、モデルのコンテキスト上限とコンパクション上限を引き上げます。",
   tagline: "ネイティブ Codex ハーネス内で動作する ChatGPT Web",
   chooseLanguage: "言語を選択",
   chooseLanguageHint: "後から設定で変更できます。",
   continue: "続ける",
   supportTitle: "開始する前に",
-  supportBody: "より多くの開発者に Codex Web GPT を知ってもらうため、リポジトリに Star を付け、私の X プロフィールを開いてください。X では製品のアップデートや便利な Codex の使い方を紹介しています。",
+  supportBody:
+    "より多くの開発者に Codex Web GPT を知ってもらうため、リポジトリに Star を付け、私の X プロフィールを開いてください。X では製品のアップデートや便利な Codex の使い方を紹介しています。",
   star: "GitHub で Star",
   starred: "GitHub を開きました",
   follow: "X を開く",
@@ -479,7 +540,8 @@ const ja: Record<keyof typeof en, string> = {
   showSidebar: "サイドバーを表示",
   resizeSidebar: "サイドバーの幅を変更",
   hideTab: "タブを閉じる",
-  browserTabLimit: "ChatGPT Web のタブは同時に 5 件まで使用できます。ChatGPT アカウントへの過剰な並列トラフィックを防ぐための上限です。",
+  browserTabLimit:
+    "ChatGPT Web のタブは同時に 5 件まで使用できます。ChatGPT アカウントへの過剰な並列トラフィックを防ぐための上限です。",
   browserAddress: "ChatGPT ブラウザー",
   noActiveTask: "実行中のタスクはありません",
   noActiveTaskBody: "Codex が Web モデルのターンを開始すると、ここに ChatGPT が表示されます。",
@@ -490,20 +552,25 @@ const ja: Record<keyof typeof en, string> = {
   setupSubtitle: "3 つの確認を完了すると、ネイティブ Codex のモデル選択画面で ChatGPT Web を使用できます。",
   coreSetup: "基本セットアップ",
   interactionMode: "ChatGPT の操作方法",
-  interactionModeOnboardingBody: "ランチャーが ChatGPT を操作する方法を選びます。初期設定では自動操作ありが選択され、後から設定で変更できます。",
+  interactionModeOnboardingBody:
+    "ランチャーが ChatGPT を操作する方法を選びます。初期設定では自動操作ありが選択され、後から設定で変更できます。",
   automaticInteraction: "自動操作あり",
-  automaticInteractionBody: "プロンプトを自動送信し、ChatGPT のページ状態を読み取ります。制御された再試行で重複送信を防ぎますが、ブラウザー自動化は OpenAI の利用規約やアカウントポリシーに抵触する可能性があります。",
+  automaticInteractionBody:
+    "プロンプトを自動送信し、ChatGPT のページ状態を読み取ります。制御された再試行で重複送信を防ぎますが、ブラウザー自動化は OpenAI の利用規約やアカウントポリシーに抵触する可能性があります。",
   manualInteraction: "ゼロリスク",
-  manualInteractionBody: "ChatGPT の読み取りや変更は一切行いません。ランチャーがプロンプトを準備し、貼り付けと送信、コネクタ、モデル、effort の選択は手動で行います。",
+  manualInteractionBody:
+    "ChatGPT の読み取りや変更は一切行いません。ランチャーがプロンプトを準備し、貼り付けと送信、コネクタ、モデル、effort の選択は手動で行います。",
   optional: "任意",
   required: "必須",
   stepAccount: "ChatGPT にサインイン",
-  stepAccountBody: "内蔵 ChatGPT ブラウザーで直接サインインします。ログイン情報はこのランチャー専用の非公開プロファイルに保存されます。",
+  stepAccountBody:
+    "内蔵 ChatGPT ブラウザーで直接サインインします。ログイン情報はこのランチャー専用の非公開プロファイルに保存されます。",
   signIn: "サインインを開く",
   passkeySignIn: "パスキーを使用",
   passkeyContinue: "続行",
   passkeyImporting: "インポート中…",
-  passkeyContinueBody: "専用の Chrome ウィンドウでパスキーによるサインインを完了し、ここに戻って「続行」を選択してください。",
+  passkeyContinueBody:
+    "専用の Chrome ウィンドウでパスキーによるサインインを完了し、ここに戻って「続行」を選択してください。",
   checkingSignIn: "保存済みセッションを確認中",
   verifySignIn: "サインインを確認",
   signedIn: "サインイン済み",
@@ -512,18 +579,21 @@ const ja: Record<keyof typeof en, string> = {
   runSmoke: "スモークテストを実行",
   smokePassed: "スモークテスト成功",
   stepInstall: "Codex にインストール",
-  stepInstallBody: "Codex のネイティブモデルカタログを置き換えずに ChatGPT Web モデルを追加します。現在のカスタムルートは保存され、ブリッジを無効にすると復元されます。",
+  stepInstallBody:
+    "Codex のネイティブモデルカタログを置き換えずに ChatGPT Web モデルを追加します。現在のカスタムルートは保存され、ブリッジを無効にすると復元されます。",
   zeroRiskModelSettings: "Zero Risk モデルプロファイル",
   zeroRiskModelSettingsBody: "Codex にインストールするモデル行を選択します。",
   zeroRiskDefaultProfile: "デフォルト",
   zeroRiskDefaultProfileBody: "ChatGPT Web — Zero Risk のみをインストールします。",
   zeroRiskProProfile: "Pro",
   zeroRiskProProfileBody: "ChatGPT Web — Zero Risk Pro もインストールします。",
-  zeroRiskProProfileInfo: "コンパクション前に約 250,000 token を使用できます。毎回 ChatGPT Pro を手動で選択してください。ChatGPT Pro アカウントが必要です。アカウントがない場合はターンが失敗する可能性が高く、拡張された上限はすべての effort で動作するとは限りません。Zero Risk は契約状況や選択内容を確認できません。",
+  zeroRiskProProfileInfo:
+    "コンパクション前に約 250,000 token を使用できます。毎回 ChatGPT Pro を手動で選択してください。ChatGPT Pro アカウントが必要です。アカウントがない場合はターンが失敗する可能性が高く、拡張された上限はすべての effort で動作するとは限りません。Zero Risk は契約状況や選択内容を確認できません。",
   install: "モデルをインストール",
   reinstall: "再インストール",
   awaitingCodex: "Codex を再起動",
-  restartCodex: "Codex をバックグラウンドプロセスも含めて完全に終了し、もう一度開いてモデル選択画面を更新してください。サインアウト後の再ログインやウィンドウを閉じるだけでは再起動になりません。このランチャーは開いたままにしてください。",
+  restartCodex:
+    "Codex をバックグラウンドプロセスも含めて完全に終了し、もう一度開いてモデル選択画面を更新してください。サインアウト後の再ログインやウィンドウを閉じるだけでは再起動になりません。このランチャーは開いたままにしてください。",
   mcpTitle: "MCP 経由のネイティブ Codex ツール",
   mcpSubtitle: "OpenAI トンネルを通じて ChatGPT を実行中の Codex ハーネスに接続します。",
   mcpBody: "Pro を含む利用可能なすべての ChatGPT Web effort で、実行中の Codex ハーネスを使用できるようにします。",
@@ -539,13 +609,16 @@ const ja: Record<keyof typeof en, string> = {
   pauseGuideVideo: "動画を一時停止",
   closeGuideVideo: "拡大したガイド動画を閉じる",
   mcpStepOne: "トンネルと API キーを作成",
-  mcpStepOneBody: "OpenAI トンネルを作成して Tunnel ID をコピーし、Tunnels Read + Use 権限を持つ通常の API キーを作成します（無料。キーはトンネルの実行にのみ必要です）。（ChatGPT ワークスペースの作成も忘れないでください。）",
+  mcpStepOneBody:
+    "OpenAI トンネルを作成して Tunnel ID をコピーし、Tunnels Read + Use 権限を持つ通常の API キーを作成します（無料。キーはトンネルの実行にのみ必要です）。（ChatGPT ワークスペースの作成も忘れないでください。）",
   openTunnels: "Tunnels を開く",
   openKeys: "API キーを作成",
   mcpStepTwo: "ローカルハーネスを接続",
-  mcpStepTwoBody: "Tunnel ID と API キーを貼り付けます。トンネルは、ChatGPT プラグインを使用する OpenAI アカウントと同じアカウントに属している必要があります。キーは非公開のローカルストレージに保存され、ランチャーログには記録されません。",
+  mcpStepTwoBody:
+    "Tunnel ID と API キーを貼り付けます。トンネルは、ChatGPT プラグインを使用する OpenAI アカウントと同じアカウントに属している必要があります。キーは非公開のローカルストレージに保存され、ランチャーログには記録されません。",
   mcpStepTwoHint: "この手順が成功し、トンネルが実行中になってから ChatGPT に MCP コネクタを追加できます。",
-  mcpCatalogRequired: "Codex モデルのインストールと検証が完了するまでハーネスを接続できません。セットアップに戻り、［モデルをインストール］を押して Codex を一度再起動し、モデルカタログの確認が完了するまで待ってください。",
+  mcpCatalogRequired:
+    "Codex モデルのインストールと検証が完了するまでハーネスを接続できません。セットアップに戻り、［モデルをインストール］を押して Codex を一度再起動し、モデルカタログの確認が完了するまで待ってください。",
   tunnelId: "Tunnel ID",
   runtimeKey: "API キー（Admin キーではありません）",
   connect: "ハーネスを接続",
@@ -555,10 +628,14 @@ const ja: Record<keyof typeof en, string> = {
   replaceCredentials: "認証情報を置き換える",
   keepCredentials: "保存済み認証情報を使用",
   mcpStepThree: "ChatGPT コネクタを接続",
-  mcpStepThreeBody: "コネクタを作成する前に、ChatGPT の設定で Developer Mode を有効にしてください。ChatGPT Plugins で新しいコネクタを作成し、Tunnel を選択して、作成したトンネルを指定します。Authentication は None に設定し、下記のコネクタ名を正確に使用してください。Permissions を開き、Allow all actions を選択します。Allow low-risk actions では、コマンドやパッチ呼び出しがこのランタイムに到達する前にブロックされます。外側の Codex ハーネスでは引き続きサンドボックスと承認が適用されます。最後にランタイムを検証します。",
-  manualMcpStepThreeBody: "下に表示される正確な名前 Codex Zero Risk で専用コネクタを作成し、ガイド付き手動ターンごとに自分で選択してください。Zero Risk では、自動モードとは別の Tunnel と認証情報が必要です。このモードでは DOM 検査を行いません。",
-  connectorMigrationNotice: "Codex Native からアップグレードする場合は、古いコネクタを変更せず、新しい Codex Native2 コネクタを作成してください。Codex Native の名前変更や更新は行わないでください。古いコネクタしかない場合、ランタイム検証は明示的に失敗します。",
-  manualConnectorNotice: "Codex Zero Risk は専用コネクタです。ガイド付きプロンプトを送信する前に毎回自分で選択してください。ランチャーはその選択を確認するための ChatGPT DOM 検査を意図的に行いません。",
+  mcpStepThreeBody:
+    "コネクタを作成する前に、ChatGPT の設定で Developer Mode を有効にしてください。ChatGPT Plugins で新しいコネクタを作成し、Tunnel を選択して、作成したトンネルを指定します。Authentication は None に設定し、下記のコネクタ名を正確に使用してください。Permissions を開き、Allow all actions を選択します。Allow low-risk actions では、コマンドやパッチ呼び出しがこのランタイムに到達する前にブロックされます。外側の Codex ハーネスでは引き続きサンドボックスと承認が適用されます。最後にランタイムを検証します。",
+  manualMcpStepThreeBody:
+    "下に表示される正確な名前 Codex Zero Risk で専用コネクタを作成し、ガイド付き手動ターンごとに自分で選択してください。Zero Risk では、自動モードとは別の Tunnel と認証情報が必要です。このモードでは DOM 検査を行いません。",
+  connectorMigrationNotice:
+    "Codex Native からアップグレードする場合は、古いコネクタを変更せず、新しい Codex Native2 コネクタを作成してください。Codex Native の名前変更や更新は行わないでください。古いコネクタしかない場合、ランタイム検証は明示的に失敗します。",
+  manualConnectorNotice:
+    "Codex Zero Risk は専用コネクタです。ガイド付きプロンプトを送信する前に毎回自分で選択してください。ランチャーはその選択を確認するための ChatGPT DOM 検査を意図的に行いません。",
   openConnectors: "ChatGPT Plugins を開く",
   connectorName: "コネクタ名",
   verifyRuntime: "ランタイムを検証",
@@ -570,7 +647,8 @@ const ja: Record<keyof typeof en, string> = {
   doctorTunnelRuntimeReady: "トンネルランタイムは正常で、使用可能です",
   doctorConnectorAvailable: "ChatGPT コネクタ「{name}」を利用できます",
   activityTitle: "ランタイムアクティビティ",
-  activitySubtitle: "ローカル診断です。共有する前にプライバシー保護済みのコピーをエクスポートしてください。生のログはこのデバイスにのみ保存されます。",
+  activitySubtitle:
+    "ローカル診断です。共有する前にプライバシー保護済みのコピーをエクスポートしてください。生のログはこのデバイスにのみ保存されます。",
   recentActivity: "最近のイベント",
   noLogs: "ランタイムイベントはまだありません。",
   exportSafeLog: "安全なログをエクスポート",
@@ -579,12 +657,15 @@ const ja: Record<keyof typeof en, string> = {
   launchAtLogin: "ログイン時に起動",
   launchAtLoginBody: "Codex を開く前からローカル Responses ルートを利用できるようにします。",
   keepRunningOnClose: "ウィンドウを閉じてもサーバーを実行",
-  keepRunningOnCloseBody: "ランチャーをシステムトレイに隠し、ネイティブモデルと ChatGPT Web モデルを利用可能な状態に保ちます。",
+  keepRunningOnCloseBody:
+    "ランチャーをシステムトレイに隠し、ネイティブモデルと ChatGPT Web モデルを利用可能な状態に保ちます。",
   showDuringTurns: "ターン中にブラウザーを表示",
   showDuringTurnsBody: "ブラウザーターンが実行中のとき、内蔵 ChatGPT 画面を表示します。",
-  manualBiggerContextUnavailable: "ゼロリスクでは固定の 3 倍コンパクション間隔を使用します。プロンプトは 1 パートのまま手動で送信します。",
+  manualBiggerContextUnavailable:
+    "ゼロリスクでは固定の 3 倍コンパクション間隔を使用します。プロンプトは 1 パートのまま手動で送信します。",
   manualPromptTitle: "このターンを ChatGPT で送信",
-  manualPromptInstruction: "プロンプトはクリップボードにコピー済みです。開いている ChatGPT タブに貼り付け、モデルと effort、Codex Zero Risk コネクタを選んで送信し、下で確認してください。",
+  manualPromptInstruction:
+    "プロンプトはクリップボードにコピー済みです。開いている ChatGPT タブに貼り付け、モデルと effort、Codex Zero Risk コネクタを選んで送信し、下で確認してください。",
   manualPromptCopy: "プロンプトをコピー",
   manualPromptCancel: "ターンをキャンセル",
   manualPromptSent: "送信済み",
@@ -613,7 +694,8 @@ const ja: Record<keyof typeof en, string> = {
   error: "問題が発生しました",
   dismiss: "閉じる",
   sessionReminderTitle: "ChatGPT セッションを更新してください",
-  sessionReminderBody: "2 日ごとの再サインインを推奨します。古い ChatGPT セッションは、Web モデルのターンや MCP ツールを中断する場合があります。",
+  sessionReminderBody:
+    "2 日ごとの再サインインを推奨します。古い ChatGPT セッションは、Web モデルのターンや MCP ツールを中断する場合があります。",
   logOut: "ログアウト",
   checkingLocalRuntime: "ローカルランタイムを確認中",
   doctorConfigValid: "設定は有効です（{path}）",
@@ -634,34 +716,44 @@ const ko: Record<keyof typeof en, string> = {
   devSetupSubtitle: "이 브라우저, 계정, 구성 및 런타임 데이터는 일반 런처와 Codex로부터 완전히 분리됩니다.",
   devCoreSetup: "DEV 프로필",
   devStepInstall: "DEV 하네스 초기화",
-  devStepInstallBody: "계정 기능을 격리된 DEV 홈에 저장합니다. Codex 경로, Responses 리스너 또는 시스템 서비스는 설치하지 않으며, Full 모드에서는 격리된 MCP 터널만 관리합니다.",
+  devStepInstallBody:
+    "계정 기능을 격리된 DEV 홈에 저장합니다. Codex 경로, Responses 리스너 또는 시스템 서비스는 설치하지 않으며, Full 모드에서는 격리된 MCP 터널만 관리합니다.",
   devInstall: "프로필 초기화",
   devReinstall: "프로필 새로고침",
   devMcpTitle: "MCP를 통한 시뮬레이션 도구",
   devMcpSubtitle: "이 별도의 ChatGPT 계정을 격리된 저장소 하네스에 연결합니다.",
-  devMcpBody: "DEV 런처는 격리된 MCP 터널을 사용 가능한 상태로 유지합니다. 이름이 지정된 저장소 채팅은 이 터널에 연결되며 도구 작업에 대한 명시적인 시뮬레이션 결과를 반환합니다.",
-  devConnectorIsolationNotice: "아래의 정확한 DEV 이름으로 별도의 커넥터를 만드세요. Codex Native2는 변경하지 않아 프로덕션 환경과 저장소 개발 환경을 동시에 사용할 수 있도록 유지하세요.",
+  devMcpBody:
+    "DEV 런처는 격리된 MCP 터널을 사용 가능한 상태로 유지합니다. 이름이 지정된 저장소 채팅은 이 터널에 연결되며 도구 작업에 대한 명시적인 시뮬레이션 결과를 반환합니다.",
+  devConnectorIsolationNotice:
+    "아래의 정확한 DEV 이름으로 별도의 커넥터를 만드세요. Codex Native2는 변경하지 않아 프로덕션 환경과 저장소 개발 환경을 동시에 사용할 수 있도록 유지하세요.",
   devSettingsTitle: "DEV 프로필 설정",
   devKeepRunningBody: "창을 닫아도 격리된 브라우저 세션과 DEV MCP 터널을 계속 사용할 수 있도록 유지합니다.",
   biggerContext: "Bigger Context (실험적)",
-  biggerContextBody: "경고: 작은 턴은 하나의 메시지로 유지하고, 큰 컨텍스트는 두 개 또는 여섯 개의 메시지로 나눕니다. 마지막 부분에서 별도의 추가 요청 없이 작업을 시작합니다. 모델 컨텍스트와 컴팩션 임계값이 3배로 증가합니다. 변경 후 Codex를 다시 시작하세요. 추가 요청으로 인해 사용량 제한이나 일시적인 쿨다운이 더 자주 발생할 수 있습니다. 기본적으로 비활성화되어 있습니다.",
+  biggerContextBody:
+    "경고: 작은 턴은 하나의 메시지로 유지하고, 큰 컨텍스트는 두 개 또는 여섯 개의 메시지로 나눕니다. 마지막 부분에서 별도의 추가 요청 없이 작업을 시작합니다. 모델 컨텍스트와 컴팩션 임계값이 3배로 증가합니다. 변경 후 Codex를 다시 시작하세요. 추가 요청으로 인해 사용량 제한이나 일시적인 쿨다운이 더 자주 발생할 수 있습니다. 기본적으로 비활성화되어 있습니다.",
   skillAttachments: "스킬을 파일로 전송 (실험적)",
-  skillAttachmentsBody: "명시적으로 선택한 Codex 스킬을 인라인 지침 대신 이름이 있는 텍스트 파일로 업로드합니다. 다른 스킬은 도구로 읽습니다. 기본값은 꺼짐이며 이미지와 첨부 파일 수 제한을 공유합니다.",
+  skillAttachmentsBody:
+    "명시적으로 선택한 Codex 스킬을 인라인 지침 대신 이름이 있는 텍스트 파일로 업로드합니다. 다른 스킬은 도구로 읽습니다. 기본값은 꺼짐이며 이미지와 첨부 파일 수 제한을 공유합니다.",
   manualSkillAttachmentsUnavailable: "스킬 업로드에는 자동 브라우저 조작이 필요합니다.",
   savedChats: "ChatGPT에 채팅 저장",
-  savedChatsBody: "작업 대화를 ChatGPT 기록에 보관합니다. ChatGPT 메모리와 맞춤 지침이 적용될 수 있습니다. 기본값은 꺼짐입니다.",
+  savedChatsBody:
+    "작업 대화를 ChatGPT 기록에 보관합니다. ChatGPT 메모리와 맞춤 지침이 적용될 수 있습니다. 기본값은 꺼짐입니다.",
   freshConversation: "매 턴 새 브라우저 채팅 사용",
-  freshConversationBody: "매 턴 새 브라우저 채팅에서 동일한 Codex 작업의 컨텍스트를 다시 구성합니다. ChatGPT가 도구에 접근하지 못할 때 도움이 될 수 있지만, 더 많은 컨텍스트를 전송하고 속도가 느려질 수 있습니다. 기본값은 꺼짐입니다.",
-  manualFreshConversationUnavailable: "자동화 모드에서만 사용할 수 있습니다. 제로 리스크 모드에서도 이 설정은 저장됩니다.",
+  freshConversationBody:
+    "매 턴 새 브라우저 채팅에서 동일한 Codex 작업의 컨텍스트를 다시 구성합니다. ChatGPT가 도구에 접근하지 못할 때 도움이 될 수 있지만, 더 많은 컨텍스트를 전송하고 속도가 느려질 수 있습니다. 기본값은 꺼짐입니다.",
+  manualFreshConversationUnavailable:
+    "자동화 모드에서만 사용할 수 있습니다. 제로 리스크 모드에서도 이 설정은 저장됩니다.",
   biggerContextRecommendationTitle: "최대 3배 더 많은 컨텍스트 사용",
-  biggerContextRecommendationBody: "Bigger Context는 큰 작업을 여러 메시지로 나누어 ChatGPT Web에서 최대 3배 더 많은 컨텍스트를 사용할 수 있게 합니다. 아직 실험적인 기능이며 사용량 제한이나 일시적인 쿨다운이 더 자주 발생할 수 있습니다.",
+  biggerContextRecommendationBody:
+    "Bigger Context는 큰 작업을 여러 메시지로 나누어 ChatGPT Web에서 최대 3배 더 많은 컨텍스트를 사용할 수 있게 합니다. 아직 실험적인 기능이며 사용량 제한이나 일시적인 쿨다운이 더 자주 발생할 수 있습니다.",
   biggerContextRecommendationToggleBody: "큰 작업을 여러 메시지에 걸쳐 나누고 모델 컨텍스트 및 컴팩션 한도를 늘립니다.",
   tagline: "네이티브 Codex 하네스에서 사용하는 ChatGPT Web",
   chooseLanguage: "언어를 선택하세요",
   chooseLanguageHint: "나중에 설정에서 변경할 수 있습니다.",
   continue: "계속",
   supportTitle: "시작하기 전에",
-  supportBody: "더 많은 개발자가 Codex Web GPT를 찾을 수 있도록 저장소에 Star를 누르고 제 X 프로필을 열어주세요. X에서 제품 업데이트와 유용한 Codex 활용 팁을 공유합니다.",
+  supportBody:
+    "더 많은 개발자가 Codex Web GPT를 찾을 수 있도록 저장소에 Star를 누르고 제 X 프로필을 열어주세요. X에서 제품 업데이트와 유용한 Codex 활용 팁을 공유합니다.",
   star: "GitHub에서 Star",
   starred: "GitHub 열림",
   follow: "X 열기",
@@ -688,7 +780,8 @@ const ko: Record<keyof typeof en, string> = {
   showSidebar: "사이드바 표시",
   resizeSidebar: "사이드바 크기 조절",
   hideTab: "탭 닫기",
-  browserTabLimit: "ChatGPT Web 탭은 동시에 최대 5개까지 사용할 수 있습니다. 이 제한은 ChatGPT 계정에 과도한 병렬 트래픽이 발생하는 것을 방지합니다.",
+  browserTabLimit:
+    "ChatGPT Web 탭은 동시에 최대 5개까지 사용할 수 있습니다. 이 제한은 ChatGPT 계정에 과도한 병렬 트래픽이 발생하는 것을 방지합니다.",
   browserAddress: "ChatGPT 브라우저",
   noActiveTask: "활성 작업 없음",
   noActiveTaskBody: "Codex가 Web 모델 턴을 시작하면 여기에 ChatGPT가 표시됩니다.",
@@ -699,11 +792,14 @@ const ko: Record<keyof typeof en, string> = {
   setupSubtitle: "세 가지 확인을 완료하면 네이티브 Codex 모델 선택기에서 ChatGPT Web을 사용할 수 있습니다.",
   coreSetup: "기본 설정",
   interactionMode: "ChatGPT 상호작용",
-  interactionModeOnboardingBody: "런처가 ChatGPT와 상호작용하는 방식을 선택하세요. 기본적으로 자동화 사용이 선택됩니다. 나중에 설정에서 변경할 수 있습니다.",
+  interactionModeOnboardingBody:
+    "런처가 ChatGPT와 상호작용하는 방식을 선택하세요. 기본적으로 자동화 사용이 선택됩니다. 나중에 설정에서 변경할 수 있습니다.",
   automaticInteraction: "자동화 사용",
-  automaticInteractionBody: "프롬프트를 자동으로 전송하고 ChatGPT 페이지 상태를 읽습니다. 제어된 재시도로 중복 전송을 방지하지만, 브라우저 자동화가 OpenAI 이용 약관 또는 계정 정책과 충돌할 수 있습니다.",
+  automaticInteractionBody:
+    "프롬프트를 자동으로 전송하고 ChatGPT 페이지 상태를 읽습니다. 제어된 재시도로 중복 전송을 방지하지만, 브라우저 자동화가 OpenAI 이용 약관 또는 계정 정책과 충돌할 수 있습니다.",
   manualInteraction: "Zero Risk",
-  manualInteractionBody: "ChatGPT를 읽거나 변경하지 않습니다. 런처가 프롬프트를 준비하면 직접 붙여넣고 커넥터, 모델 및 effort를 선택한 후 전송합니다.",
+  manualInteractionBody:
+    "ChatGPT를 읽거나 변경하지 않습니다. 런처가 프롬프트를 준비하면 직접 붙여넣고 커넥터, 모델 및 effort를 선택한 후 전송합니다.",
   optional: "선택 사항",
   required: "필수",
   stepAccount: "ChatGPT에 로그인",
@@ -717,22 +813,26 @@ const ko: Record<keyof typeof en, string> = {
   verifySignIn: "로그인 확인",
   signedIn: "로그인됨",
   stepSmoke: "브라우저 스모크 테스트 실행",
-  stepSmokeBody: "High를 선택하고 짧은 임시 메시지를 전송한 다음 전체 스트리밍 응답이 정상적으로 완료되는지 확인합니다.",
+  stepSmokeBody:
+    "High를 선택하고 짧은 임시 메시지를 전송한 다음 전체 스트리밍 응답이 정상적으로 완료되는지 확인합니다.",
   runSmoke: "스모크 테스트 실행",
   smokePassed: "스모크 테스트 통과",
   stepInstall: "Codex에 설치",
-  stepInstallBody: "Codex의 네이티브 모델 카탈로그를 교체하지 않고 ChatGPT Web 모델을 추가합니다. 현재 사용자 지정 경로가 있다면 저장되며 브리지가 꺼질 때 복원됩니다.",
+  stepInstallBody:
+    "Codex의 네이티브 모델 카탈로그를 교체하지 않고 ChatGPT Web 모델을 추가합니다. 현재 사용자 지정 경로가 있다면 저장되며 브리지가 꺼질 때 복원됩니다.",
   zeroRiskModelSettings: "Zero Risk 모델 프로필",
   zeroRiskModelSettingsBody: "Codex에 설치할 모델 항목을 선택하세요.",
   zeroRiskDefaultProfile: "기본",
   zeroRiskDefaultProfileBody: "ChatGPT Web — Zero Risk만 설치합니다.",
   zeroRiskProProfile: "Pro",
   zeroRiskProProfileBody: "ChatGPT Web — Zero Risk Pro도 함께 설치합니다.",
-  zeroRiskProProfileInfo: "컴팩션 전에 약 250,000개의 사용 가능한 토큰을 제공합니다. 매 턴마다 ChatGPT Pro를 직접 선택해야 합니다. ChatGPT Pro 계정이 필요하며, 계정이 없으면 턴이 실패할 가능성이 높습니다. 또한 늘어난 한도가 모든 effort에서 동작하지 않을 수도 있습니다. Zero Risk는 구독 상태나 선택한 모델을 확인할 수 없습니다.",
+  zeroRiskProProfileInfo:
+    "컴팩션 전에 약 250,000개의 사용 가능한 토큰을 제공합니다. 매 턴마다 ChatGPT Pro를 직접 선택해야 합니다. ChatGPT Pro 계정이 필요하며, 계정이 없으면 턴이 실패할 가능성이 높습니다. 또한 늘어난 한도가 모든 effort에서 동작하지 않을 수도 있습니다. Zero Risk는 구독 상태나 선택한 모델을 확인할 수 없습니다.",
   install: "모델 설치",
   reinstall: "다시 설치",
   awaitingCodex: "Codex 다시 시작",
-  restartCodex: "백그라운드 프로세스를 포함하여 Codex를 완전히 종료한 다음 다시 열어 모델 선택기를 새로고침하세요. 로그아웃했다가 다시 로그인하거나 창만 닫는 것은 재시작이 아닙니다. 이 런처는 계속 열어두세요.",
+  restartCodex:
+    "백그라운드 프로세스를 포함하여 Codex를 완전히 종료한 다음 다시 열어 모델 선택기를 새로고침하세요. 로그아웃했다가 다시 로그인하거나 창만 닫는 것은 재시작이 아닙니다. 이 런처는 계속 열어두세요.",
   mcpTitle: "MCP를 통한 네이티브 Codex 도구",
   mcpSubtitle: "OpenAI 터널을 통해 ChatGPT를 활성 Codex 하네스에 연결합니다.",
   mcpBody: "Pro를 포함하여 사용 가능한 모든 ChatGPT Web effort에서 활성 Codex 하네스를 사용할 수 있도록 합니다.",
@@ -748,13 +848,16 @@ const ko: Record<keyof typeof en, string> = {
   pauseGuideVideo: "영상 일시 정지",
   closeGuideVideo: "확대된 가이드 영상 닫기",
   mcpStepOne: "터널 및 API 키 생성",
-  mcpStepOneBody: "OpenAI 터널을 만들고 Tunnel ID를 복사한 다음 Tunnels Read + Use 권한이 있는 일반 API 키를 생성하세요. 무료이며, 이 키는 터널 실행에만 필요합니다. (ChatGPT 작업 공간을 만드는 것도 잊지 마세요.)",
+  mcpStepOneBody:
+    "OpenAI 터널을 만들고 Tunnel ID를 복사한 다음 Tunnels Read + Use 권한이 있는 일반 API 키를 생성하세요. 무료이며, 이 키는 터널 실행에만 필요합니다. (ChatGPT 작업 공간을 만드는 것도 잊지 마세요.)",
   openTunnels: "Tunnels 열기",
   openKeys: "API 키 생성",
   mcpStepTwo: "로컬 하네스 연결",
-  mcpStepTwoBody: "Tunnel ID와 API 키를 붙여넣으세요. 터널은 ChatGPT 플러그인을 사용할 OpenAI 계정과 동일한 계정에 속해야 합니다. 키는 비공개 로컬 저장소에만 저장되며 런처 로그에는 기록되지 않습니다.",
+  mcpStepTwoBody:
+    "Tunnel ID와 API 키를 붙여넣으세요. 터널은 ChatGPT 플러그인을 사용할 OpenAI 계정과 동일한 계정에 속해야 합니다. 키는 비공개 로컬 저장소에만 저장되며 런처 로그에는 기록되지 않습니다.",
   mcpStepTwoHint: "이 단계가 성공하고 터널이 실행 중이어야 ChatGPT에 MCP 커넥터를 추가할 수 있습니다.",
-  mcpCatalogRequired: "Codex 모델의 설치 및 검증이 완료될 때까지 하네스를 연결할 수 없습니다. 설정으로 돌아가 모델 설치를 클릭하고 Codex를 한 번 다시 시작한 다음 모델 카탈로그 확인이 완료될 때까지 기다리세요.",
+  mcpCatalogRequired:
+    "Codex 모델의 설치 및 검증이 완료될 때까지 하네스를 연결할 수 없습니다. 설정으로 돌아가 모델 설치를 클릭하고 Codex를 한 번 다시 시작한 다음 모델 카탈로그 확인이 완료될 때까지 기다리세요.",
   tunnelId: "Tunnel ID",
   runtimeKey: "API 키 (Admin 키 아님)",
   connect: "하네스 연결",
@@ -764,10 +867,14 @@ const ko: Record<keyof typeof en, string> = {
   replaceCredentials: "인증 정보 교체",
   keepCredentials: "저장된 인증 정보 유지",
   mcpStepThree: "ChatGPT 커넥터 연결",
-  mcpStepThreeBody: "커넥터를 만들기 전에 ChatGPT 설정에서 Developer Mode를 활성화하세요. ChatGPT Plugins에서 새 커넥터를 만들고 Tunnel을 선택한 다음 생성한 터널을 선택하세요. Authentication을 None으로 설정하고 아래에 표시된 커넥터 이름을 정확히 사용하세요. Permissions를 열고 Allow all actions를 선택하세요. Allow low-risk actions를 선택하면 명령 및 패치 호출이 이 런타임에 도달하기 전에 차단됩니다. 외부 Codex 하네스에서는 계속해서 샌드박스와 승인이 적용됩니다. 마지막으로 런타임을 검증하세요.",
-  manualMcpStepThreeBody: "아래에 표시된 정확한 이름인 Codex Zero Risk로 별도의 커넥터를 만들고, 모든 Zero Risk 턴에서 직접 선택하세요. Zero Risk는 자동 모드와 별도의 터널 및 인증 정보가 필요합니다. 이 모드에서는 런처가 ChatGPT DOM을 검사하지 않습니다.",
-  connectorMigrationNotice: "Codex Native에서 업그레이드하는 경우 기존 커넥터는 그대로 두고 Codex Native2라는 새 커넥터를 만드세요. Codex Native의 이름을 변경하거나 새로고침하지 마세요. 기존 커넥터만 있는 구성은 런타임 검증에서 거부됩니다.",
-  manualConnectorNotice: "Codex Zero Risk는 별도의 커넥터입니다. 각 Zero Risk 프롬프트를 보내기 전에 직접 선택하세요. 런처는 해당 선택을 확인하기 위해 ChatGPT DOM을 의도적으로 검사하지 않습니다.",
+  mcpStepThreeBody:
+    "커넥터를 만들기 전에 ChatGPT 설정에서 Developer Mode를 활성화하세요. ChatGPT Plugins에서 새 커넥터를 만들고 Tunnel을 선택한 다음 생성한 터널을 선택하세요. Authentication을 None으로 설정하고 아래에 표시된 커넥터 이름을 정확히 사용하세요. Permissions를 열고 Allow all actions를 선택하세요. Allow low-risk actions를 선택하면 명령 및 패치 호출이 이 런타임에 도달하기 전에 차단됩니다. 외부 Codex 하네스에서는 계속해서 샌드박스와 승인이 적용됩니다. 마지막으로 런타임을 검증하세요.",
+  manualMcpStepThreeBody:
+    "아래에 표시된 정확한 이름인 Codex Zero Risk로 별도의 커넥터를 만들고, 모든 Zero Risk 턴에서 직접 선택하세요. Zero Risk는 자동 모드와 별도의 터널 및 인증 정보가 필요합니다. 이 모드에서는 런처가 ChatGPT DOM을 검사하지 않습니다.",
+  connectorMigrationNotice:
+    "Codex Native에서 업그레이드하는 경우 기존 커넥터는 그대로 두고 Codex Native2라는 새 커넥터를 만드세요. Codex Native의 이름을 변경하거나 새로고침하지 마세요. 기존 커넥터만 있는 구성은 런타임 검증에서 거부됩니다.",
+  manualConnectorNotice:
+    "Codex Zero Risk는 별도의 커넥터입니다. 각 Zero Risk 프롬프트를 보내기 전에 직접 선택하세요. 런처는 해당 선택을 확인하기 위해 ChatGPT DOM을 의도적으로 검사하지 않습니다.",
   openConnectors: "ChatGPT Plugins 열기",
   connectorName: "커넥터 이름",
   verifyRuntime: "런타임 검증",
@@ -777,9 +884,10 @@ const ko: Record<keyof typeof en, string> = {
   doctorTunnelKeyStored: "터널 런타임 키가 비공개로 저장되어 있습니다",
   doctorTunnelRuntimeOwned: "런처가 터널 런타임을 관리하고 있습니다",
   doctorTunnelRuntimeReady: "터널 런타임이 정상이며 사용할 준비가 되었습니다",
-  doctorConnectorAvailable: "ChatGPT 커넥터 \"{name}\" 사용이 가능합니다",
+  doctorConnectorAvailable: 'ChatGPT 커넥터 "{name}" 사용이 가능합니다',
   activityTitle: "런타임 활동",
-  activitySubtitle: "로컬 진단 정보입니다. 공유하기 전에 개인정보 보호 처리된 사본을 내보내세요. 원본 로그는 이 기기에만 저장됩니다.",
+  activitySubtitle:
+    "로컬 진단 정보입니다. 공유하기 전에 개인정보 보호 처리된 사본을 내보내세요. 원본 로그는 이 기기에만 저장됩니다.",
   recentActivity: "최근 이벤트",
   noLogs: "아직 런타임 이벤트가 없습니다.",
   exportSafeLog: "안전한 로그 내보내기",
@@ -788,12 +896,15 @@ const ko: Record<keyof typeof en, string> = {
   launchAtLogin: "로그인 시 실행",
   launchAtLoginBody: "Codex가 열리기 전에도 로컬 Responses 경로를 사용할 수 있도록 유지합니다.",
   keepRunningOnClose: "창을 닫아도 서버 계속 실행",
-  keepRunningOnCloseBody: "런처를 시스템 트레이에 숨겨 네이티브 모델과 ChatGPT Web 모델을 계속 사용할 수 있도록 합니다.",
+  keepRunningOnCloseBody:
+    "런처를 시스템 트레이에 숨겨 네이티브 모델과 ChatGPT Web 모델을 계속 사용할 수 있도록 합니다.",
   showDuringTurns: "턴 실행 중 브라우저 표시",
   showDuringTurnsBody: "브라우저 턴이 활성화되어 있을 때 내장 ChatGPT 화면을 표시합니다.",
-  manualBiggerContextUnavailable: "Zero Risk는 이미 고정된 3배 컴팩션 간격을 사용합니다. 프롬프트는 하나의 메시지로 유지되며 직접 전송합니다.",
+  manualBiggerContextUnavailable:
+    "Zero Risk는 이미 고정된 3배 컴팩션 간격을 사용합니다. 프롬프트는 하나의 메시지로 유지되며 직접 전송합니다.",
   manualPromptTitle: "이 턴을 ChatGPT에서 전송",
-  manualPromptInstruction: "프롬프트가 이미 클립보드에 복사되어 있습니다. 열려 있는 ChatGPT 탭에 붙여넣고 원하는 모델과 effort를 선택한 다음 Codex Zero Risk 커넥터를 선택하여 전송하고 아래에서 확인하세요.",
+  manualPromptInstruction:
+    "프롬프트가 이미 클립보드에 복사되어 있습니다. 열려 있는 ChatGPT 탭에 붙여넣고 원하는 모델과 effort를 선택한 다음 Codex Zero Risk 커넥터를 선택하여 전송하고 아래에서 확인하세요.",
   manualPromptCopy: "프롬프트 복사",
   manualPromptCancel: "턴 취소",
   manualPromptSent: "전송됨",
@@ -822,7 +933,8 @@ const ko: Record<keyof typeof en, string> = {
   error: "문제가 발생했습니다",
   dismiss: "닫기",
   sessionReminderTitle: "ChatGPT 세션 새로고침",
-  sessionReminderBody: "이틀마다 다시 로그인하는 것을 권장합니다. 오래된 ChatGPT 세션은 Web 모델 턴과 MCP 도구의 동작을 중단시킬 수 있습니다.",
+  sessionReminderBody:
+    "이틀마다 다시 로그인하는 것을 권장합니다. 오래된 ChatGPT 세션은 Web 모델 턴과 MCP 도구의 동작을 중단시킬 수 있습니다.",
   logOut: "로그아웃",
   checkingLocalRuntime: "로컬 런타임 확인 중",
   doctorConfigValid: "구성이 유효합니다 ({path})",
@@ -843,34 +955,41 @@ const zhTW: Record<keyof typeof en, string> = {
   devSetupSubtitle: "此瀏覽器、帳戶、設定與執行階段資料，會與一般啟動器及 Codex 完全分離。",
   devCoreSetup: "DEV 設定檔",
   devStepInstall: "初始化 DEV Harness",
-  devStepInstallBody: "只在隔離的 DEV home 中儲存帳戶能力，不安裝 Codex 路由、Responses 監聽器或系統服務；Full 模式只監管其隔離的 MCP Tunnel。",
+  devStepInstallBody:
+    "只在隔離的 DEV home 中儲存帳戶能力，不安裝 Codex 路由、Responses 監聽器或系統服務；Full 模式只監管其隔離的 MCP Tunnel。",
   devInstall: "初始化設定檔",
   devReinstall: "重新整理設定檔",
   devMcpTitle: "透過 MCP 使用模擬工具",
   devMcpSubtitle: "將這個獨立 ChatGPT 帳戶連線到隔離的儲存庫 Harness。",
   devMcpBody: "DEV 啟動器會保持隔離的 MCP Tunnel 就緒。具名儲存庫聊天會連上該 Tunnel，並為工具動作回傳明確的模擬回條。",
-  devConnectorIsolationNotice: "請使用下方正確的 DEV 名稱新增獨立連接器。保留 Codex Native2 不變，讓正式環境與儲存庫開發可以同時執行。",
+  devConnectorIsolationNotice:
+    "請使用下方正確的 DEV 名稱新增獨立連接器。保留 Codex Native2 不變，讓正式環境與儲存庫開發可以同時執行。",
   devSettingsTitle: "DEV 設定檔設定",
   devKeepRunningBody: "視窗關閉後仍保持隔離的瀏覽器工作階段與 DEV MCP Tunnel 可用。",
   biggerContext: "更大上下文（實驗性）",
-  biggerContextBody: "警告：小型回合仍以一則訊息傳送；大型上下文會拆成兩則或六則訊息。最後一部分會直接開始任務，不會額外傳送請求。模型上下文與壓縮門檻會提高至三倍；變更後請重新啟動 Codex。額外請求可能更容易觸發速率限制或暫時冷卻。預設關閉。",
+  biggerContextBody:
+    "警告：小型回合仍以一則訊息傳送；大型上下文會拆成兩則或六則訊息。最後一部分會直接開始任務，不會額外傳送請求。模型上下文與壓縮門檻會提高至三倍；變更後請重新啟動 Codex。額外請求可能更容易觸發速率限制或暫時冷卻。預設關閉。",
   skillAttachments: "技能作為檔案（實驗性）",
-  skillAttachmentsBody: "將明確選取的 Codex 技能作為具名文字檔上傳，而不是內嵌指令。其他技能仍透過工具讀取。預設關閉；與圖片共用附件數量限制。",
+  skillAttachmentsBody:
+    "將明確選取的 Codex 技能作為具名文字檔上傳，而不是內嵌指令。其他技能仍透過工具讀取。預設關閉；與圖片共用附件數量限制。",
   manualSkillAttachmentsUnavailable: "上傳技能需要自動瀏覽器互動模式。",
   savedChats: "在 ChatGPT 中儲存聊天",
   savedChatsBody: "將任務對話保留在 ChatGPT 歷史記錄中。可能套用 ChatGPT 記憶和自訂指令。預設關閉。",
   freshConversation: "每輪使用新的瀏覽器聊天",
-  freshConversationBody: "每輪在新的瀏覽器聊天中重建同一個 Codex 任務的上下文。這可能有助於解決 ChatGPT 失去工具存取權的問題，但可能傳送更多上下文，速度也可能更慢。預設關閉。",
+  freshConversationBody:
+    "每輪在新的瀏覽器聊天中重建同一個 Codex 任務的上下文。這可能有助於解決 ChatGPT 失去工具存取權的問題，但可能傳送更多上下文，速度也可能更慢。預設關閉。",
   manualFreshConversationUnavailable: "僅在自動化模式下可用。啟用零風險模式時會保留此偏好設定。",
   biggerContextRecommendationTitle: "使用最多 3 倍上下文",
-  biggerContextRecommendationBody: "Bigger Context 會透過多則訊息傳送大型任務，讓 ChatGPT Web 使用最多三倍上下文。此功能仍屬實驗性，可能更容易觸發速率限制或暫時冷卻。",
+  biggerContextRecommendationBody:
+    "Bigger Context 會透過多則訊息傳送大型任務，讓 ChatGPT Web 使用最多三倍上下文。此功能仍屬實驗性，可能更容易觸發速率限制或暫時冷卻。",
   biggerContextRecommendationToggleBody: "將大型任務分段傳送，並提高模型上下文與壓縮限制。",
   tagline: "在原生 Codex Harness 中執行 ChatGPT Web",
   chooseLanguage: "選擇語言",
   chooseLanguageHint: "稍後可以在設定中變更。",
   continue: "繼續",
   supportTitle: "開始之前",
-  supportBody: "請為儲存庫按 Star，並開啟我的 X 主頁，幫助更多開發者發現 Codex Web GPT。我會在 X 分享產品更新和實用的 Codex 技巧。",
+  supportBody:
+    "請為儲存庫按 Star，並開啟我的 X 主頁，幫助更多開發者發現 Codex Web GPT。我會在 X 分享產品更新和實用的 Codex 技巧。",
   star: "在 GitHub 上按 Star",
   starred: "已開啟 GitHub",
   follow: "開啟我的 X",
@@ -910,9 +1029,11 @@ const zhTW: Record<keyof typeof en, string> = {
   interactionMode: "ChatGPT 互動方式",
   interactionModeOnboardingBody: "選擇啟動器與 ChatGPT 的互動方式。預設選擇自動化模式，稍後可以在設定中變更。",
   automaticInteraction: "自動化模式",
-  automaticInteractionBody: "自動傳送提示並讀取 ChatGPT 頁面狀態。受控重試可避免重複傳送，但瀏覽器自動化可能與 OpenAI 條款或帳戶政策衝突。",
+  automaticInteractionBody:
+    "自動傳送提示並讀取 ChatGPT 頁面狀態。受控重試可避免重複傳送，但瀏覽器自動化可能與 OpenAI 條款或帳戶政策衝突。",
   manualInteraction: "Zero Risk",
-  manualInteractionBody: "絕不讀取或變更 ChatGPT。啟動器會準備提示；你需要自行貼上並傳送，並手動選擇連接器、模型與 effort。",
+  manualInteractionBody:
+    "絕不讀取或變更 ChatGPT。啟動器會準備提示；你需要自行貼上並傳送，並手動選擇連接器、模型與 effort。",
   optional: "選用",
   required: "必要",
   stepAccount: "登入 ChatGPT",
@@ -930,18 +1051,21 @@ const zhTW: Record<keyof typeof en, string> = {
   runSmoke: "執行冒煙測試",
   smokePassed: "冒煙測試通過",
   stepInstall: "安裝到 Codex",
-  stepInstallBody: "將 ChatGPT Web 模型加入 Codex，且不取代原生模型目錄。目前的自訂路由會被儲存，並在關閉 Bridge 時還原。",
+  stepInstallBody:
+    "將 ChatGPT Web 模型加入 Codex，且不取代原生模型目錄。目前的自訂路由會被儲存，並在關閉 Bridge 時還原。",
   zeroRiskModelSettings: "Zero Risk 模型設定",
   zeroRiskModelSettingsBody: "選擇要安裝到 Codex 的模型項目。",
   zeroRiskDefaultProfile: "預設",
   zeroRiskDefaultProfileBody: "只安裝 ChatGPT Web — Zero Risk。",
   zeroRiskProProfile: "Pro",
   zeroRiskProProfileBody: "同時安裝 ChatGPT Web — Zero Risk Pro。",
-  zeroRiskProProfileInfo: "壓縮前可使用約 250,000 個 token。每個回合都必須手動選擇 ChatGPT Pro，並且需要 ChatGPT Pro 帳戶；否則回合很可能失敗，較大的限制也可能不適用於所有 effort。Zero Risk 無法驗證你的訂閱或選擇。",
+  zeroRiskProProfileInfo:
+    "壓縮前可使用約 250,000 個 token。每個回合都必須手動選擇 ChatGPT Pro，並且需要 ChatGPT Pro 帳戶；否則回合很可能失敗，較大的限制也可能不適用於所有 effort。Zero Risk 無法驗證你的訂閱或選擇。",
   install: "安裝模型",
   reinstall: "重新安裝",
   awaitingCodex: "重新啟動 Codex",
-  restartCodex: "請徹底結束 Codex（包括背景行程），然後重新開啟以重新整理模型清單。只登出再登入或只關閉視窗不算重新啟動。請保持此啟動器開啟。",
+  restartCodex:
+    "請徹底結束 Codex（包括背景行程），然後重新開啟以重新整理模型清單。只登出再登入或只關閉視窗不算重新啟動。請保持此啟動器開啟。",
   mcpTitle: "透過 MCP 使用原生 Codex 工具",
   mcpSubtitle: "透過 OpenAI Tunnel 將 ChatGPT 連線到目前的 Codex Harness。",
   mcpBody: "讓每一個可用的 ChatGPT Web effort（包括 Pro）存取目前的 Codex Harness。",
@@ -957,13 +1081,16 @@ const zhTW: Record<keyof typeof en, string> = {
   pauseGuideVideo: "暫停影片",
   closeGuideVideo: "關閉展開的導覽影片",
   mcpStepOne: "建立 Tunnel 與 API key",
-  mcpStepOneBody: "建立 OpenAI Tunnel，複製 Tunnel ID，然後建立一個擁有 Tunnels Read + Use 權限的一般 API key（免費；此金鑰僅用於執行 Tunnel）。（別忘了建立 ChatGPT 工作區。）",
+  mcpStepOneBody:
+    "建立 OpenAI Tunnel，複製 Tunnel ID，然後建立一個擁有 Tunnels Read + Use 權限的一般 API key（免費；此金鑰僅用於執行 Tunnel）。（別忘了建立 ChatGPT 工作區。）",
   openTunnels: "開啟 Tunnels",
   openKeys: "建立 API key",
   mcpStepTwo: "連線本機 Harness",
-  mcpStepTwoBody: "貼上 Tunnel ID 與 API key。Tunnel 必須屬於將使用該 ChatGPT 外掛的同一個 OpenAI 帳戶。金鑰只保存在本機私人儲存中，絕不會寫入啟動器日誌。",
+  mcpStepTwoBody:
+    "貼上 Tunnel ID 與 API key。Tunnel 必須屬於將使用該 ChatGPT 外掛的同一個 OpenAI 帳戶。金鑰只保存在本機私人儲存中，絕不會寫入啟動器日誌。",
   mcpStepTwoHint: "只有此步驟成功且 Tunnel 正在執行後，才能在 ChatGPT 中新增 MCP 連接器。",
-  mcpCatalogRequired: "在 Codex 模型安裝並驗證完成前，無法連線 Harness。請返回「設定」，點選「安裝模型」，重新啟動一次 Codex，並等待模型清單驗證完成。",
+  mcpCatalogRequired:
+    "在 Codex 模型安裝並驗證完成前，無法連線 Harness。請返回「設定」，點選「安裝模型」，重新啟動一次 Codex，並等待模型清單驗證完成。",
   tunnelId: "Tunnel ID",
   runtimeKey: "API key（不是 Admin key）",
   connect: "連線 Harness",
@@ -973,10 +1100,14 @@ const zhTW: Record<keyof typeof en, string> = {
   replaceCredentials: "取代憑證",
   keepCredentials: "保留已儲存的憑證",
   mcpStepThree: "連線 ChatGPT 外掛",
-  mcpStepThreeBody: "建立連接器前，先在 ChatGPT 設定中啟用開發人員模式。然後在 ChatGPT Plugins 中新增連接器，選擇 Tunnel，選取剛建立的 Tunnel，將驗證設為無，並使用下方顯示的正確連接器名稱。開啟權限並選擇「允許所有動作」；「允許低風險動作」會在命令與修補呼叫到達本機執行階段之前將其攔截。外層 Codex harness 仍會執行沙箱與核准規則。最後驗證執行階段。",
-  manualMcpStepThreeBody: "請使用下方顯示的正確名稱 Codex Zero Risk 建立獨立連接器，並在每次引導式手動回合中自行選擇它。Zero Risk 必須使用與自動模式分開的 Tunnel 與憑證。此模式不會執行 DOM 檢查。",
-  connectorMigrationNotice: "從 Codex Native 升級？請保留舊連接器不變，並新增名為 Codex Native2 的連接器。不要重新命名或重新整理 Codex Native。僅有舊連接器時，執行階段驗證會明確失敗。",
-  manualConnectorNotice: "Codex Zero Risk 是獨立連接器。每次傳送引導式提示前都需要自行選擇它；啟動器有意不檢查 ChatGPT DOM 來驗證該選擇。",
+  mcpStepThreeBody:
+    "建立連接器前，先在 ChatGPT 設定中啟用開發人員模式。然後在 ChatGPT Plugins 中新增連接器，選擇 Tunnel，選取剛建立的 Tunnel，將驗證設為無，並使用下方顯示的正確連接器名稱。開啟權限並選擇「允許所有動作」；「允許低風險動作」會在命令與修補呼叫到達本機執行階段之前將其攔截。外層 Codex harness 仍會執行沙箱與核准規則。最後驗證執行階段。",
+  manualMcpStepThreeBody:
+    "請使用下方顯示的正確名稱 Codex Zero Risk 建立獨立連接器，並在每次引導式手動回合中自行選擇它。Zero Risk 必須使用與自動模式分開的 Tunnel 與憑證。此模式不會執行 DOM 檢查。",
+  connectorMigrationNotice:
+    "從 Codex Native 升級？請保留舊連接器不變，並新增名為 Codex Native2 的連接器。不要重新命名或重新整理 Codex Native。僅有舊連接器時，執行階段驗證會明確失敗。",
+  manualConnectorNotice:
+    "Codex Zero Risk 是獨立連接器。每次傳送引導式提示前都需要自行選擇它；啟動器有意不檢查 ChatGPT DOM 來驗證該選擇。",
   openConnectors: "開啟 ChatGPT Plugins",
   connectorName: "連接器名稱",
   verifyRuntime: "驗證執行階段",
@@ -1002,7 +1133,8 @@ const zhTW: Record<keyof typeof en, string> = {
   showDuringTurnsBody: "瀏覽器任務活動時顯示內建 ChatGPT 頁面。",
   manualBiggerContextUnavailable: "零風險模式已固定使用 3 倍壓縮間隔，提示仍保持單段並由使用者手動傳送。",
   manualPromptTitle: "在 ChatGPT 中傳送此回合",
-  manualPromptInstruction: "提示已複製到剪貼簿。請將其貼到開啟的 ChatGPT 分頁，選擇所需模型與 effort，再選擇 Codex Zero Risk 連接器，傳送後在下方確認。",
+  manualPromptInstruction:
+    "提示已複製到剪貼簿。請將其貼到開啟的 ChatGPT 分頁，選擇所需模型與 effort，再選擇 Codex Zero Risk 連接器，傳送後在下方確認。",
   manualPromptCopy: "複製提示",
   manualPromptCancel: "取消任務",
   manualPromptSent: "已傳送",
@@ -1069,9 +1201,15 @@ export function localizeRuntimeMessage(
     if (match) return copy.doctorConfigValid.replace("{path}", () => match[1]);
   }
   if (checkId === "browser-host") {
-    const match = /^Embedded launcher browser is (authenticated and reachable|reachable for Zero Risk) \(pid (\d+)\)$/.exec(message);
-    if (match) return (match[1] === "reachable for Zero Risk" ? copy.doctorManualBrowserReady : copy.doctorBrowserReady)
-      .replace("{pid}", () => match[2]);
+    const match =
+      /^Embedded launcher browser is (authenticated and reachable|reachable for Zero Risk) \(pid (\d+)\)$/.exec(
+        message,
+      );
+    if (match)
+      return (match[1] === "reachable for Zero Risk" ? copy.doctorManualBrowserReady : copy.doctorBrowserReady).replace(
+        "{pid}",
+        () => match[2],
+      );
   }
   if (checkId === "codex" && message === "Codex native model route is installed") return copy.doctorCodexInstalled;
   if (checkId === "service" && message === "Launcher owns the background runtime") return copy.doctorRuntimeOwned;
@@ -1080,8 +1218,10 @@ export function localizeRuntimeMessage(
     const match = /^Chrome executable found: (.+)$/s.exec(message);
     if (match) return copy.doctorChromeFound.replace("{path}", () => match[1]);
   }
-  if (checkId === "login" && message === "ChatGPT login state has authenticated browser evidence") return copy.doctorLoginVerified;
-  if (checkId === "tunnel-service" && message === "macOS tunnel service is installed, loaded, and running") return copy.doctorMacTunnelRunning;
+  if (checkId === "login" && message === "ChatGPT login state has authenticated browser evidence")
+    return copy.doctorLoginVerified;
+  if (checkId === "tunnel-service" && message === "macOS tunnel service is installed, loaded, and running")
+    return copy.doctorMacTunnelRunning;
 
   if (checkId === "proxy") {
     const match = /^Responses proxy is healthy on (127\.0\.0\.1:\d+)$/.exec(message);

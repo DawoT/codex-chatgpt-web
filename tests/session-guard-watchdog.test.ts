@@ -71,14 +71,10 @@ describe("Sprint T: Autonomous Health Watchdog & Background Cookie Refresher", (
     guard.recordProbe(true, Math.floor(Date.now() / 1000) + 50); // near expiry
 
     let refreshAttempts = 0;
-    guard.startWatchdog(
-      20,
-      undefined,
-      async () => {
-        refreshAttempts += 1;
-        return false; // failure
-      },
-    );
+    guard.startWatchdog(20, undefined, async () => {
+      refreshAttempts += 1;
+      return false; // failure
+    });
 
     await Bun.sleep(60);
     guard.stopWatchdog();

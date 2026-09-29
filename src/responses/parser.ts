@@ -12,10 +12,10 @@ import type {
   CodexToolCall,
 } from "../types";
 import { namespacedToolName } from "../types";
-import { responsesRequestSchema } from "./schema";
 import { compactionItemToText, isNativeTextCompaction } from "./compaction";
-import { previousResponseReplayPrefixLength } from "./state";
 import { decodeReasoningEnvelope } from "./reasoning-envelope";
+import { responsesRequestSchema } from "./schema";
+import { previousResponseReplayPrefixLength } from "./state";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -40,12 +40,17 @@ function inputContentParts(blocks: unknown[] | string | undefined): string | Cod
       if (b.image_url) {
         // Preserve the image as a structured part — adapters send it as a native image block.
         // NEVER inline the (often base64 data-URL) image_url as text: that explodes the token count.
-        parts.push({ type: "image", imageUrl: b.image_url, ...(b.detail ? { detail: normalizeImageDetail(b.detail) } : {}) });
+        parts.push({
+          type: "image",
+          imageUrl: b.image_url,
+          ...(b.detail ? { detail: normalizeImageDetail(b.detail) } : {}),
+        });
       } else {
         parts.push({ type: "text", text: `[image: ${b.file_id ?? "?"}]` }); // file_id ref → no inline data
       }
     } else if (block.type === "input_file") {
-      const ref = (block as { file_id?: string; filename?: string }).file_id ?? (block as { filename?: string }).filename ?? "?";
+      const ref =
+        (block as { file_id?: string; filename?: string }).file_id ?? (block as { filename?: string }).filename ?? "?";
       parts.push({ type: "text", text: `[file: ${ref}]` });
     }
   }
@@ -56,13 +61,19 @@ function inputContentParts(blocks: unknown[] | string | undefined): string | Cod
 
 function containsOpaqueEncryptedContent(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
-  return value.some(block => isObj(block)
-    && block.type === "encrypted_content"
-    && typeof block.encrypted_content === "string"
-    && block.encrypted_content.length > 0);
+  return value.some(
+    (block) =>
+      isObj(block) &&
+      block.type === "encrypted_content" &&
+      typeof block.encrypted_content === "string" &&
+      block.encrypted_content.length > 0,
+  );
 }
 
-type OutputBlock = { type: "output_text"; text: string } | { type: "text"; text: string } | { type: "refusal"; refusal: string };
+type OutputBlock =
+  | { type: "output_text"; text: string }
+  | { type: "text"; text: string }
+  | { type: "refusal"; refusal: string };
 
 function outputTextOf(blocks: unknown[] | string | undefined): CodexTextContent[] {
   if (typeof blocks === "string") return blocks.length > 0 ? [{ type: "text", text: blocks }] : [];
@@ -85,9 +96,7 @@ function mapToolChoice(value: unknown): CodexRequestOptions["toolChoice"] {
       return { name: (value as { name: string }).name };
     }
     if (t === "allowed_tools" && Array.isArray(value.tools)) {
-      const names = value.tools
-        .map(allowedToolName)
-        .filter((name): name is string => Boolean(name));
+      const names = value.tools.map(allowedToolName).filter((name): name is string => Boolean(name));
       return names.length > 0
         ? { allowedTools: [...new Set(names)], mode: value.mode === "required" ? "required" : "auto" }
         : "none";
@@ -113,11 +122,11 @@ function parseTextControls(value: unknown): Pick<CodexRequestOptions, "verbosity
   }
   const format = value.format;
   if (
-    isObj(format)
-    && format.type === "json_schema"
-    && typeof format.name === "string"
-    && format.name.length > 0
-    && format.schema !== undefined
+    isObj(format) &&
+    format.type === "json_schema" &&
+    typeof format.name === "string" &&
+    format.name.length > 0 &&
+    format.schema !== undefined
   ) {
     out.outputFormat = {
       type: "json_schema",
@@ -132,9 +141,7 @@ function parseTextControls(value: unknown): Pick<CodexRequestOptions, "verbosity
 const DEFAULT_FUNCTION_NAMESPACE = "functions";
 
 function normalizedToolNamespace(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 && value !== DEFAULT_FUNCTION_NAMESPACE
-    ? value
-    : undefined;
+  return typeof value === "string" && value.length > 0 && value !== DEFAULT_FUNCTION_NAMESPACE ? value : undefined;
 }
 
 function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
@@ -188,31 +195,30 @@ function buildTools(tools: unknown[] | undefined): CodexTool[] | undefined {
         if (inner.type === "function") pushFn(inner, ns);
         else if (t.name === DEFAULT_FUNCTION_NAMESPACE && inner.type === "custom") pushFreeform(inner);
       }
-    }
-    else if (t.type === "custom" && typeof t.name === "string") {
+    } else if (t.type === "custom" && typeof t.name === "string") {
       // Freeform custom tool (e.g. apply_patch). Chat models can't emit a lark grammar, so expose a
       // function with a single string `input` carrying the raw tool body; the bridge relays the model's
       // call back as a custom_tool_call (Codex's freeform handler rejects a function_call → fatal abort).
       pushFreeform(t);
-    }
-    else if (t.type === "tool_search") {
+    } else if (t.type === "tool_search") {
       // Client-executed tool discovery — the gateway to deferred tools (subagents, extra MCP tools).
       // Expose as a function so chat models can call it; the bridge relays it as a tool_search_call.
       out.push({
         name: "tool_search",
         description: (t.description as string) ?? "Search for additional tools to load for the next turn.",
-        parameters: (isObj(t.parameters) ? t.parameters : {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query for tools to load." },
-            limit: { type: "number", description: "Maximum number of tools to return." },
-          },
-          required: ["query"],
-        }) as Record<string, unknown>,
+        parameters: (isObj(t.parameters)
+          ? t.parameters
+          : {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "Search query for tools to load." },
+                limit: { type: "number", description: "Maximum number of tools to return." },
+              },
+              required: ["query"],
+            }) as Record<string, unknown>,
         toolSearch: true,
       });
-    }
-    else if (typeof t.name === "string" && t.type !== "web_search" && t.type !== "image_generation") {
+    } else if (typeof t.name === "string" && t.type !== "web_search" && t.type !== "image_generation") {
       // Any other named tool (for example a native computer-use tool type this parser does not
       // model) is client-executed. Pass it through as a function so the routed model can call it
       // naturally and the bridge can relay it as a function_call.
@@ -249,14 +255,18 @@ function outputToToolResultContent(output: string | unknown[] | undefined): stri
     } else if (raw.type === "refusal" && typeof raw.refusal === "string") {
       parts.push({ type: "text", text: `[refusal: ${raw.refusal}]` });
     } else if (raw.type === "input_image" && typeof raw.image_url === "string") {
-      parts.push({ type: "image", imageUrl: raw.image_url, ...(typeof raw.detail === "string" ? { detail: normalizeImageDetail(raw.detail) } : {}) });
+      parts.push({
+        type: "image",
+        imageUrl: raw.image_url,
+        ...(typeof raw.detail === "string" ? { detail: normalizeImageDetail(raw.detail) } : {}),
+      });
       hasImage = true;
     } else if (raw.type === "encrypted_content") {
       // codex-rs FunctionCallOutputContentItem::EncryptedContent — opaque to routed models.
       parts.push({ type: "text", text: "[encrypted content omitted]" });
     }
   }
-  if (!hasImage) return parts.map(p => (p.type === "text" ? p.text : "")).join("");
+  if (!hasImage) return parts.map((p) => (p.type === "text" ? p.text : "")).join("");
   return parts;
 }
 
@@ -298,7 +308,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
   const assistantHolderWithReasoning = (): CodexAssistantMessage => {
     const holder = ensureAssistantPlaceholder(messages, data.model, now);
     if (pendingReasoning.length > 0) {
-      holder.content.push(...pendingReasoning.map(entry => entry.part));
+      holder.content.push(...pendingReasoning.map((entry) => entry.part));
       pendingReasoning.length = 0;
     }
     return holder;
@@ -338,7 +348,11 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         continue;
       }
 
-      if (effectiveType === "compaction" || effectiveType === "compaction_summary" || effectiveType === "context_compaction") {
+      if (
+        effectiveType === "compaction" ||
+        effectiveType === "compaction_summary" ||
+        effectiveType === "context_compaction"
+      ) {
         // A stored summary from a previous compaction. Decode our ocx1 envelope into plain text so
         // the routed model keeps the compacted context; real OpenAI-encrypted blobs degrade to a note.
         // `context_compaction` (encrypted_content optional) is codex-rs's local-compaction marker;
@@ -367,9 +381,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
           opaqueMultiAgentV2Payload = true;
         }
 
-        const content = inputContentParts(
-          agentMessage.content as unknown[] | string | undefined,
-        );
+        const content = inputContentParts(agentMessage.content as unknown[] | string | undefined);
 
         // An agent_message is external input delivered to the parent agent. Keep its distinct
         // role and routing metadata so Web history remains semantically equivalent to Responses.
@@ -397,7 +409,7 @@ export function parseRequest(body: unknown): CodexParsedRequest {
           case "system": {
             pendingReasoning.length = 0;
             const text = inputContentParts(msg.content as unknown[] | string | undefined);
-            const flat = typeof text === "string" ? text : text.map(p => (p.type === "text" ? p.text : "")).join("");
+            const flat = typeof text === "string" ? text : text.map((p) => (p.type === "text" ? p.text : "")).join("");
             if (flat.length > 0) systemPrompt.push(flat);
             break;
           }
@@ -406,18 +418,21 @@ export function parseRequest(body: unknown): CodexParsedRequest {
             pendingReasoning.length = 0;
             const content = inputContentParts(msg.content as unknown[] | string | undefined);
             const kinds = msg.internal_chat_message_metadata_passthrough?.content_item_kinds;
-            const selectedSkill = msg.role === "user" && kinds?.length === 1
-              && kinds[0] === "skills.selected_skill_instructions";
-            messages.push({ role: msg.role, content, timestamp: now, ...(selectedSkill ? { origin: "codex_skill" as const } : {}) });
+            const selectedSkill =
+              msg.role === "user" && kinds?.length === 1 && kinds[0] === "skills.selected_skill_instructions";
+            messages.push({
+              role: msg.role,
+              content,
+              timestamp: now,
+              ...(selectedSkill ? { origin: "codex_skill" as const } : {}),
+            });
             break;
           }
           case "assistant": {
             const parts = outputTextOf(msg.content as unknown[] | string | undefined);
             messages.push({
               role: "assistant",
-              content: pendingReasoning.length > 0
-                ? [...pendingReasoning.map(entry => entry.part), ...parts]
-                : parts,
+              content: pendingReasoning.length > 0 ? [...pendingReasoning.map((entry) => entry.part), ...parts] : parts,
               ...(msg.phase ? { phase: msg.phase } : {}),
               model: data.model,
               timestamp: now,
@@ -430,12 +445,16 @@ export function parseRequest(body: unknown): CodexParsedRequest {
       }
 
       if (effectiveType === "reasoning") {
-        const reasoning = item as { id?: string; summary?: { text: string }[]; content?: { text: string }[]; encrypted_content?: string };
-        const fromSummary = (reasoning.summary ?? []).map(c => c.text).join("");
-        const text = fromSummary || (reasoning.content ?? []).map(c => c.text).join("");
-        const envelope = typeof reasoning.encrypted_content === "string"
-          ? decodeReasoningEnvelope(reasoning.encrypted_content)
-          : null;
+        const reasoning = item as {
+          id?: string;
+          summary?: { text: string }[];
+          content?: { text: string }[];
+          encrypted_content?: string;
+        };
+        const fromSummary = (reasoning.summary ?? []).map((c) => c.text).join("");
+        const text = fromSummary || (reasoning.content ?? []).map((c) => c.text).join("");
+        const envelope =
+          typeof reasoning.encrypted_content === "string" ? decodeReasoningEnvelope(reasoning.encrypted_content) : null;
         const thinkingText = envelope?.txt || text;
 
         // Native/non-ocxr1 encrypted-only reasoning is opaque here. Do not create a detached
@@ -481,7 +500,10 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         // reserved for genuine opaque thought tokens. A Responses item id is not such a token;
         // continuity comes from the in-process replay cache and any real stored signature.
         const toolCall: CodexToolCall = {
-          type: "toolCall", id: call.call_id, name: call.name, arguments: args,
+          type: "toolCall",
+          id: call.call_id,
+          name: call.name,
+          arguments: args,
           ...(call.namespace ? { namespace: call.namespace } : {}),
         };
         assistantHolderWithReasoning().content.push(toolCall);
@@ -491,7 +513,9 @@ export function parseRequest(body: unknown): CodexParsedRequest {
       if (effectiveType === "custom_tool_call") {
         const call = item as { id?: string; call_id: string; name: string; input: string };
         const toolCall: CodexToolCall = {
-          type: "toolCall", id: call.call_id, name: call.name,
+          type: "toolCall",
+          id: call.call_id,
+          name: call.name,
           arguments: { input: call.input ?? "" },
         };
         assistantHolderWithReasoning().content.push(toolCall);
@@ -506,7 +530,9 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         if (callId) {
           const command = Array.isArray(call.action?.command) ? call.action.command : [];
           assistantHolderWithReasoning().content.push({
-            type: "toolCall", id: callId, name: "shell",
+            type: "toolCall",
+            id: callId,
+            name: "shell",
             arguments: command.length > 0 ? { command } : {},
           });
         }
@@ -526,7 +552,9 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         const call = item as { id?: string; call_id?: string; arguments?: unknown };
         const callId = call.call_id ?? call.id ?? "";
         assistantHolderWithReasoning().content.push({
-          type: "toolCall", id: callId, name: "tool_search",
+          type: "toolCall",
+          id: callId,
+          name: "tool_search",
           arguments: isObj(call.arguments) ? call.arguments : {},
         });
         continue;
@@ -553,13 +581,17 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         }
         const failed = typeof out.status === "string" && out.status !== "completed" && out.status !== "success";
         messages.push({
-          role: "toolResult", toolCallId: out.call_id ?? "", toolName: "tool_search",
-          content: failed && wireNames.length === 0
-            ? `Tool search failed (status: ${out.status}).`
-            : wireNames.length
-              ? `Tool search loaded these tools — they are now in your available tools. Call one by its EXACT name: ${wireNames.join(", ")}.`
-              : "Tool search returned no tools.",
-          isError: failed && wireNames.length === 0, timestamp: now,
+          role: "toolResult",
+          toolCallId: out.call_id ?? "",
+          toolName: "tool_search",
+          content:
+            failed && wireNames.length === 0
+              ? `Tool search failed (status: ${out.status}).`
+              : wireNames.length
+                ? `Tool search loaded these tools — they are now in your available tools. Call one by its EXACT name: ${wireNames.join(", ")}.`
+                : "Tool search returned no tools.",
+          isError: failed && wireNames.length === 0,
+          timestamp: now,
         });
         continue;
       }
@@ -569,9 +601,13 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         const output = item as { call_id: string; output?: string | unknown[] };
         const toolInfo = findToolById(messages, output.call_id);
         messages.push({
-          role: "toolResult", toolCallId: output.call_id,
-          toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
-          content: outputToToolResultContent(output.output), isError: false, timestamp: now,
+          role: "toolResult",
+          toolCallId: output.call_id,
+          toolName: toolInfo.name,
+          toolNamespace: toolInfo.namespace,
+          content: outputToToolResultContent(output.output),
+          isError: false,
+          timestamp: now,
         });
         continue;
       }
@@ -581,11 +617,15 @@ export function parseRequest(body: unknown): CodexParsedRequest {
         const output = item as { call_id: string; output: string | unknown[] };
         const toolInfo = findToolById(messages, output.call_id);
         messages.push({
-          role: "toolResult", toolCallId: output.call_id,
-          toolName: toolInfo.name, toolNamespace: toolInfo.namespace,
+          role: "toolResult",
+          toolCallId: output.call_id,
+          toolName: toolInfo.name,
+          toolNamespace: toolInfo.namespace,
           // Same payload shape as function_call_output (codex-rs FunctionCallOutputPayload):
           // string or content items — normalize arrays instead of leaking raw wire blocks.
-          content: outputToToolResultContent(output.output), isError: false, timestamp: now,
+          content: outputToToolResultContent(output.output),
+          isError: false,
+          timestamp: now,
         });
       }
     }
@@ -594,13 +634,12 @@ export function parseRequest(body: unknown): CodexParsedRequest {
   const declaredTools = buildTools(data.tools as unknown[] | undefined) ?? [];
   const loadedTools = buildTools(loadedToolSpecs) ?? [];
   const seenTools = new Set<string>();
-  const mergedTools = [...declaredTools, ...loadedTools]
-    .filter(t => {
-      const k = namespacedToolName(t.namespace, t.name);
-      if (seenTools.has(k)) return false;
-      seenTools.add(k);
-      return true;
-    });
+  const mergedTools = [...declaredTools, ...loadedTools].filter((t) => {
+    const k = namespacedToolName(t.namespace, t.name);
+    if (seenTools.has(k)) return false;
+    seenTools.add(k);
+    return true;
+  });
   const context: CodexContext = {
     ...(systemPrompt.length > 0 ? { systemPrompt } : {}),
     messages,

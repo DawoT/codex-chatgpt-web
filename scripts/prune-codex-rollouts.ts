@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { pruneCodexSessions, defaultCodexSessionsDir } from "../src/adapters/chatgpt-web/session-store-pruner";
+import { defaultCodexSessionsDir, pruneCodexSessions } from "../src/adapters/chatgpt-web/session-store-pruner";
 
 function parseArgs(args: string[]) {
   let dryRun = false;
@@ -56,10 +56,10 @@ function parseArgs(args: string[]) {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + " MB";
-  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return bytes + " B";
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
 }
 
 async function main() {
@@ -99,7 +99,7 @@ async function main() {
   console.log("=================================================");
 }
 
-void main().catch(err => {
+void main().catch((err) => {
   console.error("Pruner failed:", err);
   process.exit(1);
 });

@@ -2,10 +2,16 @@ const { LimitsStore } = require("./limits-store.cjs");
 
 const HISTORY_WARNING = "Local history may be incomplete. Check your plan again.";
 const emptySnapshot = () => ({
-  enabled: false, plan: null, trackingSince: null, checkedAt: null,
-  totalMessages: 0, unknownProMessages: 0, incomplete: false, windows: [],
+  enabled: false,
+  plan: null,
+  trackingSince: null,
+  checkedAt: null,
+  totalMessages: 0,
+  unknownProMessages: 0,
+  incomplete: false,
+  windows: [],
 });
-const describe = cause => cause instanceof Error ? cause.message : "Unknown Limits error.";
+const describe = (cause) => (cause instanceof Error ? cause.message : "Unknown Limits error.");
 
 class LimitsController {
   #filePath;
@@ -51,7 +57,8 @@ class LimitsController {
   }
 
   #requireAutomatic() {
-    if (this.#mode() !== "automatic") throw new Error("Limits is unavailable in Zero Risk mode. Switch to Automatic to check your plan.");
+    if (this.#mode() !== "automatic")
+      throw new Error("Limits is unavailable in Zero Risk mode. Switch to Automatic to check your plan.");
   }
 
   async setup(detectPlan) {
@@ -89,7 +96,8 @@ class LimitsController {
         return false;
       }
       if (trackingError !== undefined) throw new Error("Unrecognized Limits tracking error.");
-      if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) throw new Error("Invalid Limits submission receipt.");
+      if (!receipt || typeof receipt !== "object" || Array.isArray(receipt))
+        throw new Error("Invalid Limits submission receipt.");
       if (!store.matchesAccount(receipt.accountKey)) {
         this.#error = `The ChatGPT account does not match the checked account. This message was not counted. ${HISTORY_WARNING}`;
         return false;

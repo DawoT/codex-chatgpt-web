@@ -25,7 +25,7 @@ export function truncateToolOutputText(
   } else {
     const effectiveBudget = Math.max(100, maxChars - 200);
     headLimit = Math.floor(effectiveBudget * (options?.headRatio ?? 0.35));
-    tailLimit = Math.floor(effectiveBudget * (options?.tailRatio ?? 0.60));
+    tailLimit = Math.floor(effectiveBudget * (options?.tailRatio ?? 0.6));
   }
 
   const omitted = Math.max(0, text.length - headLimit - tailLimit);

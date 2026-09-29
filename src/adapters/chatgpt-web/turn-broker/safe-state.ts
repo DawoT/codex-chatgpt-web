@@ -1,8 +1,9 @@
-import type { SafeTurnControl, SafeWaiter, TurnChannel } from "./types";
 import { TurnBrokerRequestError, TurnBrokerStateError } from "./errors";
+import type { SafeTurnControl, SafeWaiter, TurnChannel } from "./types";
 
 export function assertSafeNonce(safe: SafeTurnControl, surfaceNonce: string): void {
-  if (safe.surfaceNonce !== surfaceNonce) throw new TurnBrokerRequestError("Zero Risk local browser binding does not match this turn");
+  if (safe.surfaceNonce !== surfaceNonce)
+    throw new TurnBrokerRequestError("Zero Risk local browser binding does not match this turn");
 }
 
 export function activateSafeTurn(channel: TurnChannel, safe: SafeTurnControl): void {
@@ -18,8 +19,11 @@ export function assertSafeHarnessRunning(channel: TurnChannel, allowCompaction =
   const safe = channel.safe;
   if (!safe) return;
   if (safe.state === "awaiting_start") {
-    if (!safe.launcherSent) throw new TurnBrokerStateError("Zero Risk turn is waiting for the user's Sent confirmation");
-    throw new TurnBrokerRequestError("Zero Risk request is not connected yet. Call codex_turn_start with its request_id first");
+    if (!safe.launcherSent)
+      throw new TurnBrokerStateError("Zero Risk turn is waiting for the user's Sent confirmation");
+    throw new TurnBrokerRequestError(
+      "Zero Risk request is not connected yet. Call codex_turn_start with its request_id first",
+    );
   }
   if (safe.state !== "running") throw new TurnBrokerStateError("Zero Risk turn is already terminal");
   if (channel.compactionRequested && !allowCompaction) {

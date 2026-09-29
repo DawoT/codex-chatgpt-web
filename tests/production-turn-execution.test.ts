@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   compileChatGptWebPrompt,
-  withAdaptiveHistoryPruning,
   DEFAULT_ROOT_PRUNING_TOKEN_CEILING,
+  withAdaptiveHistoryPruning,
 } from "../src/adapters/chatgpt-web/prompt";
+import { listSubagentWorkspaces, resolveSubagentWorkspace } from "../src/adapters/chatgpt-web/subagent-workspace";
 import { ensureWorkspaceState, readWorkspaceState } from "../src/adapters/chatgpt-web/workspace-state";
-import { resolveSubagentWorkspace, listSubagentWorkspaces } from "../src/adapters/chatgpt-web/subagent-workspace";
-import type { CodexParsedRequest, CodexMessage } from "../src/types";
+import type { CodexMessage, CodexParsedRequest } from "../src/types";
 
 /**
  * Sprint AI: Production Turn Execution & Workspace Auto-Init
@@ -24,7 +24,7 @@ import type { CodexParsedRequest, CodexMessage } from "../src/types";
  */
 
 describe("Sprint AI: Production Turn Execution & Workspace Auto-Init", () => {
-  const testDir = join(process.cwd(), ".agents", "scratch", "test-ai-" + Date.now());
+  const testDir = join(process.cwd(), ".agents", "scratch", `test-ai-${Date.now()}`);
 
   beforeEach(() => {
     mkdirSync(testDir, { recursive: true });
@@ -131,7 +131,7 @@ describe("Sprint AI: Production Turn Execution & Workspace Auto-Init", () => {
       });
 
       // Older tool results should be replaced with tombstones
-      const toolResults = pruned.filter(m => m.role === "toolResult");
+      const toolResults = pruned.filter((m) => m.role === "toolResult");
       expect(toolResults.length).toBe(4);
 
       // Tool result 1 and 2 should be tombstones

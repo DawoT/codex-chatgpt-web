@@ -67,7 +67,10 @@ test("launcher state persists onboarding, language, and autostart atomically", (
       sessionRefreshReminderAt: null,
     });
     if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o077, 0);
-    assert.equal(fs.readdirSync(root).some(name => name.includes(".tmp-")), false);
+    assert.equal(
+      fs.readdirSync(root).some((name) => name.includes(".tmp-")),
+      false,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -109,21 +112,24 @@ test("persisted sidebar corruption is repaired without changing the rest of laun
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-sidebar-state-"));
   const file = path.join(root, "state.json");
   try {
-    fs.writeFileSync(file, JSON.stringify({
-      version: 1,
-      language: "zh-CN",
-      onboardingComplete: "yes",
-      autoStart: "yes",
-      experimentalFreshConversationPerTurn: "true",
-      bridgeEnabled: false,
-      browserSmokePassed: "yes",
-      browserSmokeVersion: { invalid: true },
-      sidebarOpen: "yes",
-      sidebarWidth: 900,
-      mcpGuideStep: 99,
-      sessionRefreshReminderAt: "not-a-date",
-      coreSetupComplete: "yes",
-    }));
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        language: "zh-CN",
+        onboardingComplete: "yes",
+        autoStart: "yes",
+        experimentalFreshConversationPerTurn: "true",
+        bridgeEnabled: false,
+        browserSmokePassed: "yes",
+        browserSmokeVersion: { invalid: true },
+        sidebarOpen: "yes",
+        sidebarWidth: 900,
+        mcpGuideStep: 99,
+        sessionRefreshReminderAt: "not-a-date",
+        coreSetupComplete: "yes",
+      }),
+    );
     assert.deepEqual(createStateStore(file).read(), {
       version: 1,
       language: "zh-CN",
@@ -165,18 +171,24 @@ test("browser interaction defaults to Automatic and preserves a completed onboar
     assert.equal(createStateStore(file).read().experimentalFreshConversationPerTurn, true);
     store.update({ browserInteractionMode: "automatic" });
     assert.equal(createStateStore(file).read().experimentalFreshConversationPerTurn, true);
-    fs.writeFileSync(file, JSON.stringify({
-      version: 1,
-      browserInteractionMode: "manual",
-      zeroRiskProEnabled: true,
-    }));
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        browserInteractionMode: "manual",
+        zeroRiskProEnabled: true,
+      }),
+    );
     assert.equal(createStateStore(file).read().browserInteractionMode, "automatic");
     assert.equal(createStateStore(file).read().zeroRiskProEnabled, false);
-    fs.writeFileSync(file, JSON.stringify({
-      version: 1,
-      onboardingComplete: true,
-      browserInteractionMode: "manual",
-    }));
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        onboardingComplete: true,
+        browserInteractionMode: "manual",
+      }),
+    );
     assert.equal(createStateStore(file).read().browserInteractionMode, "manual");
     fs.writeFileSync(file, JSON.stringify({ version: 1, browserInteractionMode: "unsafe" }));
     assert.equal(createStateStore(file).read().browserInteractionMode, "automatic");

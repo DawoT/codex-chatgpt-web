@@ -54,8 +54,12 @@ export class CompactionCanaryAccumulator {
       this.malformedEvents += 1;
       return;
     }
-    if (event.schemaVersion !== 1 || typeof event.traceId !== "string"
-      || typeof event.phase !== "string" || !event.runtime?.generation) {
+    if (
+      event.schemaVersion !== 1 ||
+      typeof event.traceId !== "string" ||
+      typeof event.phase !== "string" ||
+      !event.runtime?.generation
+    ) {
       this.malformedEvents += 1;
       return;
     }
@@ -69,11 +73,9 @@ export class CompactionCanaryAccumulator {
       rejected: false,
     };
     trace.phases.add(event.phase);
-    trace.builds.add(JSON.stringify([
-      event.runtime.protocolVersion,
-      event.runtime.artifactSha256,
-      event.runtime.generation,
-    ]));
+    trace.builds.add(
+      JSON.stringify([event.runtime.protocolVersion, event.runtime.artifactSha256, event.runtime.generation]),
+    );
     if (event.route && event.route !== "unknown") trace.route = event.route;
     if (event.phase === "persisted") {
       trace.persisted ||= event.outcome === "succeeded" && event.localPersisted === true;

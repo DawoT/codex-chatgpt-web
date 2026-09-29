@@ -1,26 +1,16 @@
 import { createHash } from "node:crypto";
-import type { AdapterEvent, CodexParsedRequest } from "../../../types";
-import {
-  COMPACT_PROMPT,
-  compactionDraftText,
-  extractStructuredCompactionHandoff,
-} from "../../../responses/compaction";
 import { CHATGPT_WEB_INSTANT_COMPOSER_CHAR_LIMIT, type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
-import { acceptedCompactionEpoch } from "../compaction-continuation";
-import { checkpointIssueCodes, checkpointStructuralDiagnostic, logCompactionEvent, type CompactionRoute } from "../compaction-observability";
-import { boundedCompactionRepairObservations, buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "../compaction-evidence";
-import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
-import {
-  buildCompactionFallbackRepairPrompt,
-  checkpointCompiledRepairFits,
-  checkpointRepairPromptFits,
-  recordRepairDuration,
-  shouldRepairCheckpoint,
-} from "../compaction-repair";
+import { COMPACT_PROMPT, compactionDraftText, extractStructuredCompactionHandoff } from "../../../responses/compaction";
+import type { AdapterEvent, CodexParsedRequest } from "../../../types";
+import { ChatGptWebAdapterError } from "../adapter-error";
+import { validateCompactionQuality } from "../autonomous-compaction";
 import type { ChatGptBrowserWorker } from "../browser-worker";
+import { acceptedCompactionEpoch } from "../compaction-continuation";
 import {
-  validateCompactionQuality,
-} from "../autonomous-compaction";
+  boundedCompactionRepairObservations,
+  buildCompactionEvidenceIndex,
+  selectCompactionRepairEvidence,
+} from "../compaction-evidence";
 import {
   canonicalizeCompactionHandoff,
   existingStructuredCompactionRun,
@@ -31,23 +21,40 @@ import {
   settleActiveCompactionSource,
   settleActiveZeroRiskCompactionSource,
 } from "../compaction-handoff";
+import {
+  type CompactionRoute,
+  checkpointIssueCodes,
+  checkpointStructuralDiagnostic,
+  logCompactionEvent,
+} from "../compaction-observability";
+import {
+  buildCompactionFallbackRepairPrompt,
+  checkpointCompiledRepairFits,
+  checkpointRepairPromptFits,
+  recordRepairDuration,
+  shouldRepairCheckpoint,
+} from "../compaction-repair";
 import { chatGptConversationKey } from "../conversation-key";
-import { extractChatGptCompactionSourceRevision, extractChatGptTurnEnvironment, extractChatGptTurnIdentity } from "../environment";
-import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "../model";
+import {
+  extractChatGptCompactionSourceRevision,
+  type extractChatGptTurnEnvironment,
+  extractChatGptTurnIdentity,
+} from "../environment";
+import { CHATGPT_WEB_LUNA_MODEL_ID, type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "../model";
 import { structuredCompactionRepairInstruction } from "../native-compaction-control";
 import { chatGptWebTurnRetryPolicy } from "../retry-policy";
-import { TurnBroker, type TurnBrokerOwner } from "../turn-broker";
+import type { SessionActorManager } from "../session-actor";
+import type { TurnBroker, TurnBrokerOwner } from "../turn-broker";
 import {
+  type ChatGptTurnRuntime,
+  type ChatGptTurnSession,
   chatGptCompactionSourceExecutionKey,
   chatGptThreadOwnershipKey,
   chatGptTurnExecutionKey,
   chatGptTurnSessions,
-  type ChatGptTurnRuntime,
-  type ChatGptTurnSession,
 } from "../turn-execution";
 import { estimateChatGptWebUsage } from "../usage";
 import { persistTurnCompaction } from "../workspace-persistence";
-import type { SessionActorManager } from "../session-actor";
 import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
 
@@ -62,24 +69,33 @@ function logCheckpointValidation(
 ): void {
   const format = checkpointStructuralDiagnostic(compactionDraftText(summary));
   const missingState = !format.usableUnfencedBlock;
-  console.info(`[chatgpt-web] checkpoint_validation ${JSON.stringify({
-    valid: quality.valid,
-    missingCount: quality.missingInvariants.length,
-    missingState,
-    repaired,
-    traceId,
-    issueCodes: checkpointIssueCodes(quality.missingInvariants),
-    ...format,
-  })}`);
+  console.info(
+    `[chatgpt-web] checkpoint_validation ${JSON.stringify({
+      valid: quality.valid,
+      missingCount: quality.missingInvariants.length,
+      missingState,
+      repaired,
+      traceId,
+      issueCodes: checkpointIssueCodes(quality.missingInvariants),
+      ...format,
+    })}`,
+  );
 }
 
 function checkpointText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content.flatMap(part => part && typeof part === "object" && !Array.isArray(part)
-    && (part.type === "text" || part.type === "input_text") && typeof part.text === "string"
-    ? [part.text]
-    : []).join("\n");
+  return content
+    .flatMap((part) =>
+      part &&
+      typeof part === "object" &&
+      !Array.isArray(part) &&
+      (part.type === "text" || part.type === "input_text") &&
+      typeof part.text === "string"
+        ? [part.text]
+        : [],
+    )
+    .join("\n");
 }
 
 function compactionSessionId(parsed: CodexParsedRequest): string {
@@ -151,7 +167,7 @@ export function truncateOversizedMessagesForFallbackCompaction(
     return result;
   };
 
-  return messages.map(message => {
+  return messages.map((message) => {
     if (typeof message.content === "string") {
       if (message.content.length <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return message;
       // Use unknown cast to bypass discriminated-union content type narrowing.
@@ -166,11 +182,9 @@ export function truncateOversizedMessagesForFallbackCompaction(
   });
 }
 
-export function truncateOversizedContextForFallbackCompaction(
-  parsed: CodexParsedRequest,
-): CodexParsedRequest {
+export function truncateOversizedContextForFallbackCompaction(parsed: CodexParsedRequest): CodexParsedRequest {
   const truncatedMessages = truncateOversizedMessagesForFallbackCompaction(parsed.context.messages);
-  const truncatedSystemPrompt = parsed.context.systemPrompt?.map(sys => truncateString(sys));
+  const truncatedSystemPrompt = parsed.context.systemPrompt?.map((sys) => truncateString(sys));
   return {
     ...parsed,
     context: {
@@ -247,11 +261,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     sessionActorManager,
   } = ctx;
 
-  const structuredCompactionRequired = parsed.modelId !== CHATGPT_WEB_LUNA_MODEL_ID
-    && configuredCapabilities.localToolsEnabled;
+  const structuredCompactionRequired =
+    parsed.modelId !== CHATGPT_WEB_LUNA_MODEL_ID && configuredCapabilities.localToolsEnabled;
 
-  if (structuredCompactionRequired
-    && (!retainedLauncherDescriptor || (!manualRequest && !structuredBroker))) {
+  if (structuredCompactionRequired && (!retainedLauncherDescriptor || (!manualRequest && !structuredBroker))) {
     emit({
       type: "error",
       message: manualRequest
@@ -269,14 +282,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     const compactionNativeIdentity = extractChatGptTurnIdentity(parsed);
     const compactionExecutionKey = `${executionNamespace}:${chatGptTurnExecutionKey(parsed)}`;
     const compactedSourceExecutionKey = `${executionNamespace}:${chatGptCompactionSourceExecutionKey(parsed)}`;
-    const handoffTraceId = createHash("sha256")
-      .update(`${compactionExecutionKey}:handoff`)
-      .digest("hex")
-      .slice(0, 12);
-    const compactionTraceId = createHash("sha256")
-      .update(compactionExecutionKey)
-      .digest("hex")
-      .slice(0, 12);
+    const handoffTraceId = createHash("sha256").update(`${compactionExecutionKey}:handoff`).digest("hex").slice(0, 12);
+    const compactionTraceId = createHash("sha256").update(compactionExecutionKey).digest("hex").slice(0, 12);
     const actorSessionId = `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`;
     const actorTurnId = compactionNativeIdentity.turnId;
     const checkpointOperationId = `checkpoint:${compactionTraceId}`;
@@ -298,9 +305,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       }
     };
     const rejectCheckpointIfOpen = async (): Promise<void> => {
-      const current = sessionActorManager && actorTurnId
-        ? sessionActorManager.checkpointRecovery(actorSessionId, actorTurnId, checkpointOperationId)
-        : null;
+      const current =
+        sessionActorManager && actorTurnId
+          ? sessionActorManager.checkpointRecovery(actorSessionId, actorTurnId, checkpointOperationId)
+          : null;
       if (current?.state === "persisted" || current?.state === "accepted") return;
       await checkpointTransition("compaction_rejected");
     };
@@ -310,15 +318,16 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       phase: Parameters<typeof logCompactionEvent>[0]["phase"],
       outcome: Parameters<typeof logCompactionEvent>[0]["outcome"],
       details: Partial<Omit<Parameters<typeof logCompactionEvent>[0], "traceId" | "phase" | "outcome" | "route">> = {},
-    ): void => logCompactionEvent({
-      traceId: compactionTraceId,
-      handoffTraceId,
-      phase,
-      outcome,
-      route,
-      elapsedMs: Date.now() - startedAt,
-      ...details,
-    });
+    ): void =>
+      logCompactionEvent({
+        traceId: compactionTraceId,
+        handoffTraceId,
+        phase,
+        outcome,
+        route,
+        elapsedMs: Date.now() - startedAt,
+        ...details,
+      });
     const recordValidation = (
       summary: string,
       quality: ReturnType<typeof validateCompactionQuality>,
@@ -340,28 +349,31 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       acceptedCompactionEpoch(parsed, compactionNativeIdentity) ?? "initial",
     ]);
     const runningSummary = existingStructuredCompactionRun(compactionExecutionKey);
-    const recoveredCheckpoint = sessionActorManager && actorTurnId
-      ? sessionActorManager.checkpointRecovery(actorSessionId, actorTurnId, checkpointOperationId)
-      : null;
+    const recoveredCheckpoint =
+      sessionActorManager && actorTurnId
+        ? sessionActorManager.checkpointRecovery(actorSessionId, actorTurnId, checkpointOperationId)
+        : null;
     if (!runningSummary && recoveredCheckpoint && recoveredCheckpoint.state !== "accepted") {
       emit({
         type: "error",
-        message: recoveredCheckpoint.state === "rejected"
-          ? "Context checkpoint was rejected; retry compaction with a new native turn"
-          : "Context checkpoint needs reconciliation before another browser submission",
+        message:
+          recoveredCheckpoint.state === "rejected"
+            ? "Context checkpoint was rejected; retry compaction with a new native turn"
+            : "Context checkpoint needs reconciliation before another browser submission",
         status: 409,
         errorType: "invalid_request_error",
-        code: recoveredCheckpoint.state === "rejected"
-          ? "context_checkpoint_validation_failed"
-          : "compaction_reconciliation_required",
+        code:
+          recoveredCheckpoint.state === "rejected"
+            ? "context_checkpoint_validation_failed"
+            : "compaction_reconciliation_required",
         retryable: false,
       });
       return true;
     }
     await checkpointTransition("compaction_prepared");
-    let sharedSummary = runningSummary ?? (recoveredCheckpoint?.state === "accepted"
-      ? Promise.resolve(recoveredCheckpoint.summary)
-      : undefined);
+    let sharedSummary =
+      runningSummary ??
+      (recoveredCheckpoint?.state === "accepted" ? Promise.resolve(recoveredCheckpoint.summary) : undefined);
     if (!sharedSummary) {
       record("prepared", "pending");
       sharedSummary = runStructuredCompactionOnce(
@@ -369,18 +381,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         {
           ownerKey: `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`,
           revisionScopeKey,
-          traceIds: [
-            compactionTraceId,
-            handoffTraceId,
-            freshCompactionTraceId,
-            `${freshCompactionTraceId}_repair`,
-          ],
-          ...(compactionNativeIdentity.threadId
-            ? { nativeThreadId: compactionNativeIdentity.threadId }
-            : {}),
-          ...(compactionNativeIdentity.turnId
-            ? { nativeTurnId: compactionNativeIdentity.turnId }
-            : {}),
+          traceIds: [compactionTraceId, handoffTraceId, freshCompactionTraceId, `${freshCompactionTraceId}_repair`],
+          ...(compactionNativeIdentity.threadId ? { nativeThreadId: compactionNativeIdentity.threadId } : {}),
+          ...(compactionNativeIdentity.turnId ? { nativeTurnId: compactionNativeIdentity.turnId } : {}),
         },
         async (operatorSignal, retainOwnershipUntil) => {
           const handoffTimeoutMs = Math.min(
@@ -403,10 +406,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             if (handoffDeadline.signal.aborted) return;
             if (handoffTimer) clearTimeout(handoffTimer);
             handoffDeadlineAt = Date.now() + handoffTimeoutMs;
-            handoffTimer = setTimeout(
-              () => handoffDeadline.abort(handoffTimeoutError),
-              handoffTimeoutMs,
-            );
+            handoffTimer = setTimeout(() => handoffDeadline.abort(handoffTimeoutError), handoffTimeoutMs);
             handoffTimer.unref?.();
           };
           armHandoffDeadline();
@@ -448,8 +448,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               });
               recordValidation(summary, quality, false);
               if (!quality.valid && !manualRequest) {
-                const previousCheckpoint = parsed.context.messages.findLast(message => message.role === "user"
-                  && message.origin === "compaction_summary");
+                const previousCheckpoint = parsed.context.messages.findLast(
+                  (message) => message.role === "user" && message.origin === "compaction_summary",
+                );
                 const priorState = previousCheckpoint
                   ? extractStructuredCompactionHandoff(checkpointText(previousCheckpoint.content)).state
                   : null;
@@ -458,36 +459,48 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 const checkpointIndex = previousCheckpoint
                   ? parsed.context.messages.lastIndexOf(previousCheckpoint)
                   : -1;
-                const otherUserRequests = [...new Set(parsed.context.messages.slice(checkpointIndex + 1)
-                  .filter(message => message.role === "user" && message.origin !== "codex_skill")
-                  .map(message => checkpointText(message.content))
-                  .filter(value => value && value !== COMPACT_PROMPT
-                    && value !== originalRequest && value !== latestRequest))];
+                const otherUserRequests = [
+                  ...new Set(
+                    parsed.context.messages
+                      .slice(checkpointIndex + 1)
+                      .filter((message) => message.role === "user" && message.origin !== "codex_skill")
+                      .map((message) => checkpointText(message.content))
+                      .filter(
+                        (value) =>
+                          value && value !== COMPACT_PROMPT && value !== originalRequest && value !== latestRequest,
+                      ),
+                  ),
+                ];
                 const repairPrompt = buildCompactionFallbackRepairPrompt({
                   issues: quality.missingInvariants,
                   originalRequest,
                   latestRequest,
                   otherUserRequests,
                   priorState,
-                  observations: repairObservations(parsed, `${quality.missingInvariants.join(" ")} ${rawSummary.slice(0, 15_000)}`),
+                  observations: repairObservations(
+                    parsed,
+                    `${quality.missingInvariants.join(" ")} ${rawSummary.slice(0, 15_000)}`,
+                  ),
                   rejectedDraft: rawSummary,
                 });
                 const repairParsed: CodexParsedRequest = {
                   ...parsed,
                   context: {
-                    messages: [
-                      { role: "user", content: repairPrompt ?? "", timestamp: Date.now() },
-                    ],
+                    messages: [{ role: "user", content: repairPrompt ?? "", timestamp: Date.now() }],
                   },
                 };
-                if (shouldRepairCheckpoint({
-                  remainingMs: handoffDeadlineAt - Date.now(),
-                  transportFits: repairPrompt !== undefined && checkpointCompiledRepairFits(repairParsed, turnCapabilities, {
-                    experimentalBiggerContext,
-                    experimentalSkillAttachments,
-                  }),
-                  observedDurationsMs: observedRepairDurationsMs,
-                })) {
+                if (
+                  shouldRepairCheckpoint({
+                    remainingMs: handoffDeadlineAt - Date.now(),
+                    transportFits:
+                      repairPrompt !== undefined &&
+                      checkpointCompiledRepairFits(repairParsed, turnCapabilities, {
+                        experimentalBiggerContext,
+                        experimentalSkillAttachments,
+                      }),
+                    observedDurationsMs: observedRepairDurationsMs,
+                  })
+                ) {
                   record("repair_started", "pending", { attempt: 2 });
                   const repairStarted = Date.now();
                   const repairRuntime = startRuntime(
@@ -543,9 +556,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               // browser/tool owner before rebuilding it, but keep a committed final
               // replayable if it won the native compaction race.
               const previous = chatGptTurnSessions.find(compactedSourceExecutionKey);
-              const settlement = previous?.settledOutcome()?.type === "final"
-                ? previous.physicalSettlement
-                : chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey).then(() => {});
+              const settlement =
+                previous?.settledOutcome()?.type === "final"
+                  ? previous.physicalSettlement
+                  : chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey).then(() => {});
               retainOwnershipUntil(settlement);
               await withAbort(settlement, operationSignal);
               return await runFreshCompaction("configured_fresh_conversation");
@@ -554,16 +568,12 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             // its browser/helper is still unwinding. Do not inspect that old epoch or
             // decide to open a fresh fallback until physical release has completed.
             if (sourceConversationKey) {
-              await chatGptTurnSessions.waitForConversationRetirement(
-                sourceConversationKey,
-                operationSignal,
-              );
+              await chatGptTurnSessions.waitForConversationRetirement(sourceConversationKey, operationSignal);
             }
             source = sourceConversationKey
               ? chatGptTurnSessions.findConversationHead(sourceConversationKey)
               : undefined;
-            preserveFinalResponse = !source?.isActive()
-              && source?.settledOutcome()?.type === "final";
+            preserveFinalResponse = !source?.isActive() && source?.settledOutcome()?.type === "final";
             const retainedKey = source?.conversationKey();
             if (!source || !retainedKey) {
               return await runFreshCompaction("source_unavailable_before_handoff");
@@ -592,12 +602,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               rawSummary = await runFreshCompaction("zero_risk_source_already_completed");
             } else if (source.isActive() && source.runtime.mode === "tools") {
               route = "retained";
-              const settlement = await settleActiveCompactionSource(
-                parsed,
-                source,
-                structuredBroker!,
-                operationSignal,
-              );
+              const settlement = await settleActiveCompactionSource(parsed, source, structuredBroker!, operationSignal);
               preserveFinalResponse = !settlement.compactionInstructionDelivered;
               rawSummary = await requestRetainedCompactionHandoff(
                 worker,
@@ -644,24 +649,37 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 `${quality.missingInvariants.join(" ")} ${summary}`,
                 6,
               );
-              let probe = structuredCompactionRepairInstruction({
-                token: `control_${"0".repeat(32)}`,
-                handoffId: `handoff_${"0".repeat(32)}`,
-              }, quality.missingInvariants, probeObservations);
-              const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, configuredCapabilities).effort;
+              let probe = structuredCompactionRepairInstruction(
+                {
+                  token: `control_${"0".repeat(32)}`,
+                  handoffId: `handoff_${"0".repeat(32)}`,
+                },
+                quality.missingInvariants,
+                probeObservations,
+              );
+              const effort = resolveChatGptWebModelMode(
+                parsed.modelId,
+                parsed.options.reasoning,
+                configuredCapabilities,
+              ).effort;
               while (
                 !checkpointRepairPromptFits(
                   probe,
                   parsed.modelId as ChatGptWebBackendModel,
                   effort,
                   configuredCapabilities,
-                ) && probeObservations.length > 0
+                ) &&
+                probeObservations.length > 0
               ) {
                 probeObservations.pop();
-                probe = structuredCompactionRepairInstruction({
-                  token: `control_${"0".repeat(32)}`,
-                  handoffId: `handoff_${"0".repeat(32)}`,
-                }, quality.missingInvariants, probeObservations);
+                probe = structuredCompactionRepairInstruction(
+                  {
+                    token: `control_${"0".repeat(32)}`,
+                    handoffId: `handoff_${"0".repeat(32)}`,
+                  },
+                  quality.missingInvariants,
+                  probeObservations,
+                );
               }
               const transportFits = checkpointRepairPromptFits(
                 probe,
@@ -669,11 +687,13 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 effort,
                 configuredCapabilities,
               );
-              if (shouldRepairCheckpoint({
-                remainingMs: handoffDeadlineAt - Date.now(),
-                transportFits,
-                observedDurationsMs: observedRepairDurationsMs,
-              })) {
+              if (
+                shouldRepairCheckpoint({
+                  remainingMs: handoffDeadlineAt - Date.now(),
+                  transportFits,
+                  observedDurationsMs: observedRepairDurationsMs,
+                })
+              ) {
                 repairAttempted = true;
                 record("repair_started", "pending", { attempt: 2 });
                 const repairStarted = Date.now();
@@ -702,10 +722,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     operatorSignal.aborted ? "operator_cancelled" : repairOutcome,
                   );
                 }
-                summary = canonicalizeCompactionHandoff(
-                  parsed,
-                  repaired.trim() ? repaired : "Empty checkpoint draft",
-                );
+                summary = canonicalizeCompactionHandoff(parsed, repaired.trim() ? repaired : "Empty checkpoint draft");
                 quality = validateCompactionQuality(parsed.context.messages, summary, {
                   requireStructured: true,
                   evidenceSessionId: compactionSessionId(parsed),
@@ -714,12 +731,15 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               }
             }
             if (!quality.valid) {
-              throw new ChatGptWebAdapterError("Context checkpoint failed validation; original history remains available", {
-                status: 409,
-                errorType: "invalid_response_error",
-                code: "context_checkpoint_validation_failed",
-                retryable: false,
-              });
+              throw new ChatGptWebAdapterError(
+                "Context checkpoint failed validation; original history remains available",
+                {
+                  status: 409,
+                  errorType: "invalid_response_error",
+                  code: "context_checkpoint_validation_failed",
+                  retryable: false,
+                },
+              );
             }
             if (operationSignal.aborted) throw operationSignal.reason;
             await checkpointTransition("compaction_received", summary);
@@ -732,29 +752,36 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 persistedStructuredRunRoots.set(sharedSummary, environment.cwd);
               }
             } catch {
-              throw new ChatGptWebAdapterError("Context checkpoint could not be persisted; original history remains available", {
-                status: 500,
-                errorType: "server_error",
-                code: "context_checkpoint_persistence_failed",
-                retryable: false,
-              });
+              throw new ChatGptWebAdapterError(
+                "Context checkpoint could not be persisted; original history remains available",
+                {
+                  status: 500,
+                  errorType: "server_error",
+                  code: "context_checkpoint_persistence_failed",
+                  retryable: false,
+                },
+              );
             }
             if (operationSignal.aborted) throw operationSignal.reason;
             await withAbort(
               preserveFinalResponse
                 ? chatGptTurnSessions.retireConversationPreservingFinalResponse(
-                  retainedKey,
-                  source,
-                  compactedSourceExecutionKey,
-                )
+                    retainedKey,
+                    source,
+                    compactedSourceExecutionKey,
+                  )
                 : chatGptTurnSessions.retireConversationAndWait(retainedKey),
               operationSignal,
             );
             return summary;
           } catch (error) {
-            if (repairAttempted || (error instanceof ChatGptWebAdapterError
-              && (error.code === "context_checkpoint_validation_failed"
-                || error.code === "context_checkpoint_persistence_failed"))) throw error;
+            if (
+              repairAttempted ||
+              (error instanceof ChatGptWebAdapterError &&
+                (error.code === "context_checkpoint_validation_failed" ||
+                  error.code === "context_checkpoint_persistence_failed"))
+            )
+              throw error;
             const retainedKey = source?.conversationKey();
             if (!retainedKey) throw error;
             let handoffError = error instanceof Error ? error : new Error(String(error));
@@ -763,10 +790,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               // acknowledge until the retained browser/helper owner has physically retired.
               await (preserveFinalResponse
                 ? chatGptTurnSessions.retireConversationPreservingFinalResponse(
-                  retainedKey,
-                  source!,
-                  compactedSourceExecutionKey,
-                )
+                    retainedKey,
+                    source!,
+                    compactedSourceExecutionKey,
+                  )
                 : chatGptTurnSessions.retireConversationAndWait(retainedKey));
             } catch (retirementError) {
               handoffError = new AggregateError(
@@ -775,14 +802,16 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               );
             }
             if (!operationSignal.aborted && !operatorSignal.aborted) {
-              const code = handoffError instanceof ChatGptWebAdapterError
-                ? handoffError.code
-                : (handoffError instanceof AggregateError && handoffError.errors[0] instanceof ChatGptWebAdapterError)
-                  ? (handoffError.errors[0] as ChatGptWebAdapterError).code
-                  : "retained_handoff_failed";
-              const reason = code === "compaction_source_unavailable"
-                ? "source_disappeared_before_handoff"
-                : `retained_handoff_failed_${code}`;
+              const code =
+                handoffError instanceof ChatGptWebAdapterError
+                  ? handoffError.code
+                  : handoffError instanceof AggregateError && handoffError.errors[0] instanceof ChatGptWebAdapterError
+                    ? (handoffError.errors[0] as ChatGptWebAdapterError).code
+                    : "retained_handoff_failed";
+              const reason =
+                code === "compaction_source_unavailable"
+                  ? "source_disappeared_before_handoff"
+                  : `retained_handoff_failed_${code}`;
               return await runFreshCompaction(reason);
             }
             throw handoffError;
@@ -797,9 +826,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     try {
       summary = await withAbort(sharedSummary, incoming.abortSignal);
     } catch (error) {
-      if (incoming.abortSignal?.aborted
-        && error instanceof DOMException
-        && error.name === "AbortError") {
+      if (incoming.abortSignal?.aborted && error instanceof DOMException && error.name === "AbortError") {
         // The observer detached; the shared exact compaction round continues and remains
         // available to a canonical reconnect without a second browser submission.
         throw error;
@@ -860,10 +887,11 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     await checkpointTransition("compaction_validated");
     let localPersisted: boolean;
     try {
-      localPersisted = persistedStructuredRunRoots.has(sharedSummary)
-        && persistedStructuredRunRoots.get(sharedSummary) === environment?.cwd
-        ? true
-        : persistTurnCompaction(environment, parsed.context.messages, summary);
+      localPersisted =
+        persistedStructuredRunRoots.has(sharedSummary) &&
+        persistedStructuredRunRoots.get(sharedSummary) === environment?.cwd
+          ? true
+          : persistTurnCompaction(environment, parsed.context.messages, summary);
       record("persisted", localPersisted ? "succeeded" : "skipped", { localPersisted });
       await checkpointTransition("compaction_persisted");
     } catch {
@@ -894,7 +922,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       }
       const evidenceMarker = /\bevidence\s*:\s*/i.exec(achievement);
       if (!evidenceMarker) continue;
-      const result = achievement.slice(0, evidenceMarker.index).replace(/[\s—–:-]+$/, "").trim();
+      const result = achievement
+        .slice(0, evidenceMarker.index)
+        .replace(/[\s—–:-]+$/, "")
+        .trim();
       const evidence = achievement.slice(evidenceMarker.index + evidenceMarker[0].length).trim();
       emit({
         type: "milestone",
@@ -914,7 +945,13 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     emit({ type: "text_delta", text: summary, phase: "final_answer" });
     emitBrowserCompletion(
       { type: "final", answer: summary },
-      estimateChatGptWebUsage(parsed, { answer: summary, reasoning: [] }, turnCapabilities, experimentalBiggerContext, experimentalSkillAttachments),
+      estimateChatGptWebUsage(
+        parsed,
+        { answer: summary, reasoning: [] },
+        turnCapabilities,
+        experimentalBiggerContext,
+        experimentalSkillAttachments,
+      ),
       emit,
     );
     record("delivered", "succeeded", { localPersisted });

@@ -1,13 +1,13 @@
-import { boundedSessionArguments } from "./session-yield";
-import { currentMcpTrace } from "../mcp-trace-context";
 import { randomBytes } from "node:crypto";
+import { runtimeIdentity } from "../../../runtime-identity";
 import type { CodexTool } from "../../../types";
 import type { ChatGptTurnEnvironment } from "../environment";
-import { runtimeIdentity } from "../../../runtime-identity";
-import { callTurnBroker, TurnBrokerTimeoutError, type BrokerToolResult } from "../turn-broker";
 import { result } from "../fast-path-handlers";
+import { currentMcpTrace } from "../mcp-trace-context";
+import { type BrokerToolResult, callTurnBroker, TurnBrokerTimeoutError } from "../turn-broker";
 import { execGatewayProgram } from "./gateway-programs";
 import { asMcpResult, chatGptMcpInvocationTimeout } from "./results";
+import { boundedSessionArguments } from "./session-yield";
 import { execGateway, requestScopeSummary, wireName } from "./tool-visibility";
 import type { ChatGptMcpContract, ClaimedTurn, McpRequestExtra } from "./types";
 
@@ -19,26 +19,16 @@ export class TurnCoordinator {
     readonly contract: ChatGptMcpContract,
   ) {}
 
-  async claimTurn(
-    toolName: string,
-    turnToken: string,
-    extra: McpRequestExtra,
-  ): Promise<ClaimedTurn> {
+  async claimTurn(toolName: string, turnToken: string, extra: McpRequestExtra): Promise<ClaimedTurn> {
     console.error(`[chatgpt-web-mcp] ${toolName} scope=${requestScopeSummary(extra)}`);
     const status = await callTurnBroker<{
       protocolVersion?: unknown;
       identity?: { buildCommit?: unknown };
-    }>(
-      this.brokerSocketPath,
-      { method: "owner_status" },
-      5_000,
-      extra.signal,
-    );
+    }>(this.brokerSocketPath, { method: "owner_status" }, 5_000, extra.signal);
     if (status.protocolVersion !== 6) {
       throw new Error(`Unsupported Codex Native broker protocol version: ${String(status.protocolVersion)}`);
     }
-    if (runtimeIdentity.buildCommit !== null
-      && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
+    if (runtimeIdentity.buildCommit !== null && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
       throw new Error(`Broker build does not match MCP build ${runtimeIdentity.buildCommit}`);
     }
     const activityId = `activity_${randomBytes(18).toString("base64url")}`;
@@ -75,20 +65,21 @@ export class TurnCoordinator {
     let firstError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        await callTurnBroker(this.brokerSocketPath, {
-          method: "activity_complete",
-          token: turnToken,
-          activityId,
-        }, 5_000);
+        await callTurnBroker(
+          this.brokerSocketPath,
+          {
+            method: "activity_complete",
+            token: turnToken,
+            activityId,
+          },
+          5_000,
+        );
         return;
       } catch (error) {
         firstError ??= error;
       }
     }
-    throw new AggregateError(
-      [firstError],
-      "Codex Native broker activity cleanup failed after an idempotent retry",
-    );
+    throw new AggregateError([firstError], "Codex Native broker activity cleanup failed after an idempotent retry");
   }
 
   async touchTurnActivity(turnToken: string, activityId: string): Promise<boolean> {
@@ -116,9 +107,14 @@ export class TurnCoordinator {
     }, CHATGPT_MCP_ACTIVITY_KEEP_ALIVE_MS);
     keepAlive.unref?.();
     try {
-      if (claimed.environment.execution === "host-only"
-        && toolName !== "codex_tool_inventory" && toolName !== "codex_tool_call") {
-        throw new Error("This host-only turn requires exact advertised tools through codex_tool_call; local handlers and aliases are unavailable");
+      if (
+        claimed.environment.execution === "host-only" &&
+        toolName !== "codex_tool_inventory" &&
+        toolName !== "codex_tool_call"
+      ) {
+        throw new Error(
+          "This host-only turn requires exact advertised tools through codex_tool_call; local handlers and aliases are unavailable",
+        );
       }
       return await action(claimed);
     } finally {
@@ -154,16 +150,17 @@ export class TurnCoordinator {
     signal?: AbortSignal,
     requestedTimeoutMs?: number,
   ) {
-    const supportsSessionYield = !tool.namespace && tool.freeform !== true
-      && (tool.name === "exec_command" || tool.name === "write_stdin")
-      && (bound.execution !== "host-only"
-        || Object.hasOwn(tool.parameters.properties ?? {}, "yield_time_ms"));
-    const args = tool.freeform ? undefined : supportsSessionYield
-      ? boundedSessionArguments(tool.name, payload.arguments ?? {})
-      : payload.arguments ?? {};
-    const sessionDeadline = supportsSessionYield
-      ? Number(args!.yield_time_ms) + 15_000
-      : undefined;
+    const supportsSessionYield =
+      !tool.namespace &&
+      tool.freeform !== true &&
+      (tool.name === "exec_command" || tool.name === "write_stdin") &&
+      (bound.execution !== "host-only" || Object.hasOwn(tool.parameters.properties ?? {}, "yield_time_ms"));
+    const args = tool.freeform
+      ? undefined
+      : supportsSessionYield
+        ? boundedSessionArguments(tool.name, payload.arguments ?? {})
+        : (payload.arguments ?? {});
+    const sessionDeadline = supportsSessionYield ? Number(args!.yield_time_ms) + 15_000 : undefined;
     const timeoutMs = chatGptMcpInvocationTimeout(
       bound,
       Date.now(),
@@ -172,14 +169,19 @@ export class TurnCoordinator {
         : Math.min(sessionDeadline, requestedTimeoutMs ?? sessionDeadline),
     );
     try {
-      const response = await callTurnBroker<BrokerToolResult>(this.brokerSocketPath, {
-        method: "invoke",
-        observationId: currentMcpTrace(),
-        bindingId,
-        wireName: wireName(tool),
-        freeform: tool.freeform === true,
-        ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: args }),
-      }, timeoutMs, signal);
+      const response = await callTurnBroker<BrokerToolResult>(
+        this.brokerSocketPath,
+        {
+          method: "invoke",
+          observationId: currentMcpTrace(),
+          bindingId,
+          wireName: wireName(tool),
+          freeform: tool.freeform === true,
+          ...(tool.freeform ? { input: payload.input ?? "" } : { arguments: args }),
+        },
+        timeoutMs,
+        signal,
+      );
       return response;
     } catch (error) {
       // A cancelled/timed-out MCP request no longer has a consumer for the native result. Revoke
@@ -198,16 +200,17 @@ export class TurnCoordinator {
       }
       if (error instanceof TurnBrokerTimeoutError) {
         const toolName = wireName(tool);
-        console.error(
-          `[chatgpt-web-mcp] ${toolName} did not complete within ${timeoutMs}ms; retired its turn binding`,
+        console.error(`[chatgpt-web-mcp] ${toolName} did not complete within ${timeoutMs}ms; retired its turn binding`);
+        return result(
+          {
+            code: "codex_tool_timeout",
+            tool: toolName,
+            timeout_ms: timeoutMs,
+            retryable: false,
+            message: `Codex tool ${toolName} did not complete before the MCP transport deadline. The current turn binding was retired; do not retry it in this ChatGPT response.`,
+          },
+          true,
         );
-        return result({
-          code: "codex_tool_timeout",
-          tool: toolName,
-          timeout_ms: timeoutMs,
-          retryable: false,
-          message: `Codex tool ${toolName} did not complete before the MCP transport deadline. The current turn binding was retired; do not retry it in this ChatGPT response.`,
-        }, true);
       }
       throw error;
     }
@@ -226,8 +229,15 @@ export class TurnCoordinator {
     if (!gateway) {
       throw new Error(`This Codex turn did not advertise ${nestedToolName} or the native exec gateway`);
     }
-    return this.invoke(bindingId, bound, gateway, {
-      input: execGatewayProgram(nestedToolName, freeform, payload, bound.tools.map(wireName)),
-    }, signal, requestedTimeoutMs);
+    return this.invoke(
+      bindingId,
+      bound,
+      gateway,
+      {
+        input: execGatewayProgram(nestedToolName, freeform, payload, bound.tools.map(wireName)),
+      },
+      signal,
+      requestedTimeoutMs,
+    );
   }
 }

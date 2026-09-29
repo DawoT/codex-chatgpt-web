@@ -6,11 +6,7 @@ import { normalizePromptForComparison } from "./payloads";
  * to a multi-space run. Single spaces, tabs, newlines, intentional expected NBSP characters,
  * and every other mutation remain exact and fail closed.
  */
-export function promptCodeUnitEquivalent(
-  expected: string,
-  observed: string,
-  index: number,
-): boolean {
+export function promptCodeUnitEquivalent(expected: string, observed: string, index: number): boolean {
   const expectedUnit = expected[index];
   const observedUnit = observed[index];
 
@@ -20,10 +16,7 @@ export function promptCodeUnitEquivalent(
   return expected[index - 1] === " " || expected[index + 1] === " ";
 }
 
-export function promptUnitsEquivalent(
-  expected: string,
-  observed: string,
-): boolean {
+export function promptUnitsEquivalent(expected: string, observed: string): boolean {
   if (expected.length !== observed.length) return false;
 
   for (let index = 0; index < expected.length; index += 1) {
@@ -35,10 +28,7 @@ export function promptUnitsEquivalent(
   return true;
 }
 
-export function promptTextEquivalent(
-  expected: string,
-  observed: string,
-): boolean {
+export function promptTextEquivalent(expected: string, observed: string): boolean {
   if (expected === observed) return true;
   if (promptUnitsEquivalent(expected, observed)) return true;
 
@@ -49,19 +39,13 @@ export function promptTextEquivalent(
   return promptUnitsEquivalent(normExpected, normObserved);
 }
 
-export function promptEquivalentPrefixLength(
-  expected: string,
-  observed: string,
-): number {
+export function promptEquivalentPrefixLength(expected: string, observed: string): number {
   const normExpected = normalizePromptForComparison(expected);
   const normObserved = normalizePromptForComparison(observed);
   const length = Math.min(normExpected.length, normObserved.length);
 
   let index = 0;
-  while (
-    index < length
-    && promptCodeUnitEquivalent(normExpected, normObserved, index)
-  ) {
+  while (index < length && promptCodeUnitEquivalent(normExpected, normObserved, index)) {
     index += 1;
   }
 

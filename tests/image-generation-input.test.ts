@@ -10,10 +10,10 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { generateImage } from "../src/image-generation";
 
 // ---------------------------------------------------------------------------
@@ -88,13 +88,13 @@ describe("generateImage — edit mode (inputImagePath)", () => {
   it("sends POST to /v1/images/edits with multipart/form-data when inputImagePath is provided", async () => {
     const pngPath = tmpPng();
     let capturedRequest: Request | undefined;
-    let capturedBody: FormData | undefined;
+    let _capturedBody: FormData | undefined;
 
     const fakeFetch = (async (input: URL | RequestInfo, _init?: RequestInit) => {
       capturedRequest = input instanceof Request ? input : new Request(input as RequestInfo, _init);
       // FormData body is attached to the request; read it
       try {
-        capturedBody = await (capturedRequest as any).formData?.() as FormData;
+        _capturedBody = (await (capturedRequest as any).formData?.()) as FormData;
       } catch {
         // ignore — some runtimes may not support formData() on stub
       }

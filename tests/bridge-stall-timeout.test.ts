@@ -3,7 +3,7 @@ import { bridgeToResponsesSSE } from "../src/bridge";
 import { DEFAULT_STALL_TIMEOUT_SEC, MAX_STALL_TIMEOUT_SEC, resolveStallTimeoutSec } from "../src/stall-timeout";
 import type { AdapterEvent } from "../src/types";
 
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * The watchdog exists to end a genuinely hung upstream, and it is the only thing standing between a
@@ -16,16 +16,11 @@ function bridged(
   heartbeatMs: number,
   now?: () => number,
 ): ReadableStream<Uint8Array> {
-  return bridgeToResponsesSSE(
-    events,
-    "chatgpt-web/test",
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    heartbeatMs,
-    { streamPlatform: "darwin", stallTimeoutSec, ...(now ? { now } : {}) },
-  );
+  return bridgeToResponsesSSE(events, "chatgpt-web/test", undefined, undefined, undefined, undefined, heartbeatMs, {
+    streamPlatform: "darwin",
+    stallTimeoutSec,
+    ...(now ? { now } : {}),
+  });
 }
 
 test("an adapter that goes silent past the budget is cancelled after coalesced timer ticks", async () => {

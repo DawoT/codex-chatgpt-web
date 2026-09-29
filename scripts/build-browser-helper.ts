@@ -16,6 +16,6 @@ const build = await Bun.build({
   outdir: dirname(output),
   naming: basename(output),
 });
-if (!build.success) throw new Error(`Browser helper build failed: ${build.logs.map(log => log.message).join("; ")}`);
+if (!build.success) throw new Error(`Browser helper build failed: ${build.logs.map((log) => log.message).join("; ")}`);
 if (process.platform !== "win32") chmodSync(output, 0o755);
 process.stdout.write(`${output}\n`);

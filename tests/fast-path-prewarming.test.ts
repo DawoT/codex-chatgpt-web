@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 
 describe("Sprint P: Workspace Pre-Warming & Import Graph Caching", () => {
   test("prewarms local TypeScript / JavaScript imports on file read", () => {

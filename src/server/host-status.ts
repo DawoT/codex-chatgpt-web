@@ -8,10 +8,15 @@ export function inspectHostTurn(session: HostSession, turnId: string) {
   for (const call of session.calls.values()) {
     if (call.turnId === turnId && call.result === undefined) pendingCalls += 1;
   }
-  const state = turn?.cancelled ? "cancelled"
-    : admitting ? "admitting"
-    : turn?.active ? "active"
-    : turn ? "idle" : "unknown";
+  const state = turn?.cancelled
+    ? "cancelled"
+    : admitting
+      ? "admitting"
+      : turn?.active
+        ? "active"
+        : turn
+          ? "idle"
+          : "unknown";
   return {
     session_id: session.id,
     turn_id: turnId,

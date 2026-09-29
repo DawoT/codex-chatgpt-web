@@ -1,16 +1,23 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export class HostProtocolError extends Error {
-  constructor(readonly status: number, message: string, readonly code?: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly code?: string,
+  ) {
     super(message);
   }
 }
 
 export function canonical(value: unknown, depth = 0): string {
   if (depth > 64) throw new HostProtocolError(400, "Host JSON nesting exceeds 64 levels");
-  if (Array.isArray(value)) return `[${value.map(item => canonical(item, depth + 1)).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key], depth + 1)}`).join(",")}}`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key], depth + 1)}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
 }
@@ -71,10 +78,15 @@ export interface HostSession {
 
 export class HostSessionStore {
   readonly sessions = new Map<string, HostSession>();
-  constructor(readonly now = Date.now, readonly ttl = 60 * 60 * 1000, readonly maxSessions = 64) {}
+  constructor(
+    readonly now = Date.now,
+    readonly ttl = 60 * 60 * 1000,
+    readonly maxSessions = 64,
+  ) {}
 
   create(cwd: string, recoveryScope?: string): HostSession {
-    if (this.sessions.size >= this.maxSessions) throw new HostProtocolError(429, "Host session capacity reached; close an existing session");
+    if (this.sessions.size >= this.maxSessions)
+      throw new HostProtocolError(429, "Host session capacity reached; close an existing session");
     const session: HostSession = {
       id: `pi_${randomBytes(24).toString("hex")}`,
       token: randomBytes(32).toString("base64url"),
@@ -101,24 +113,43 @@ export class HostSessionStore {
   }
 
   remember(session: HostSession, turn: HostTurn, input: unknown[], response: Record<string, unknown>): void {
-    if (turn.cancelled || response.status !== "completed" || typeof response.id !== "string" || !Array.isArray(response.output)) return;
+    if (
+      turn.cancelled ||
+      response.status !== "completed" ||
+      typeof response.id !== "string" ||
+      !Array.isArray(response.output)
+    )
+      return;
     const output = response.output as Array<Record<string, unknown>>;
     const items = [...input, ...output];
     const bytes = Buffer.byteLength(JSON.stringify(items));
     if (bytes > 4 * 1024 * 1024) throw new HostProtocolError(413, "Host continuation exceeds session capacity");
-    const newCalls = output.filter(item => item.type === "function_call");
-    if (session.calls.size + newCalls.length > 4096) throw new HostProtocolError(429, "Host tool call capacity reached; start a new session");
+    const newCalls = output.filter((item) => item.type === "function_call");
+    if (session.calls.size + newCalls.length > 4096)
+      throw new HostProtocolError(429, "Host tool call capacity reached; start a new session");
     const callIds = new Set<string>();
     if (session.responses.has(response.id)) throw new HostProtocolError(409, "Repeated host response identity");
     for (const call of newCalls) {
-      if (typeof call.call_id !== "string" || call.call_id.length > 256 || typeof call.name !== "string" || !turn.names.has(call.name) || typeof call.arguments !== "string" || session.calls.has(call.call_id) || callIds.has(call.call_id)) {
+      if (
+        typeof call.call_id !== "string" ||
+        call.call_id.length > 256 ||
+        typeof call.name !== "string" ||
+        !turn.names.has(call.name) ||
+        typeof call.arguments !== "string" ||
+        session.calls.has(call.call_id) ||
+        callIds.has(call.call_id)
+      ) {
         throw new HostProtocolError(409, "Invalid or repeated emitted host tool call");
       }
       toolArgumentsDigest(call.arguments);
       callIds.add(call.call_id);
     }
     for (const call of newCalls) {
-      session.calls.set(call.call_id as string, { turnId: turn.id, name: call.name as string, arguments: toolArgumentsDigest(call.arguments as string) });
+      session.calls.set(call.call_id as string, {
+        turnId: turn.id,
+        name: call.name as string,
+        arguments: toolArgumentsDigest(call.arguments as string),
+      });
     }
     while (session.responses.size >= 16 || session.bytes + bytes > 4 * 1024 * 1024) {
       const key = session.responses.keys().next().value;

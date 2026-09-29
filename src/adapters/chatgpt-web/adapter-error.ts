@@ -24,9 +24,9 @@ export class ChatGptWebAdapterError extends Error {
 
 export function chatGptContextCompactionRequiredError(reason?: string): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
-    "Native context compaction is required before browser delivery. "
-      + `${reason ? `${reason} ` : ""}`
-      + "Compact the Codex context and retry this turn; the oversized prompt was not sent to ChatGPT.",
+    "Native context compaction is required before browser delivery. " +
+      `${reason ? `${reason} ` : ""}` +
+      "Compact the Codex context and retry this turn; the oversized prompt was not sent to ChatGPT.",
     {
       status: 413,
       errorType: "invalid_request_error",
@@ -45,22 +45,21 @@ export class ChatGptCompactionHandoffAccepted extends DOMException {
 }
 
 export function chatGptBrowserTabClosedError(): ChatGptWebAdapterError {
-  return new ChatGptWebAdapterError(
-    "The ChatGPT browser tab was closed, so the Codex turn was cancelled.",
-    {
-      status: 499,
-      errorType: "client_closed_request",
-      code: "client_cancelled",
-      retryable: false,
-    },
-  );
+  return new ChatGptWebAdapterError("The ChatGPT browser tab was closed, so the Codex turn was cancelled.", {
+    status: 499,
+    errorType: "client_closed_request",
+    code: "client_cancelled",
+    retryable: false,
+  });
 }
 
 export function chatGptTurnSupersededError(): ChatGptWebAdapterError {
-  return new ChatGptWebAdapterError(
-    "A newer Codex instruction superseded this ChatGPT response.",
-    { status: 499, errorType: "client_closed_request", code: "client_cancelled", retryable: false },
-  );
+  return new ChatGptWebAdapterError("A newer Codex instruction superseded this ChatGPT response.", {
+    status: 499,
+    errorType: "client_closed_request",
+    code: "client_cancelled",
+    retryable: false,
+  });
 }
 
 export function codexTurnBindingRetiredError(): ChatGptWebAdapterError {
@@ -90,8 +89,8 @@ export function codexTurnBindingObservationFailedError(cause: unknown): ChatGptW
 
 export function chatGptStoppedThinkingError(): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
-    "ChatGPT displayed 'Stopped thinking' and could not continue this response. "
-    + "A ChatGPT Web usage limit may have been reached. Check the ChatGPT tab for the exact reason before retrying.",
+    "ChatGPT displayed 'Stopped thinking' and could not continue this response. " +
+      "A ChatGPT Web usage limit may have been reached. Check the ChatGPT tab for the exact reason before retrying.",
     {
       status: 502,
       errorType: "server_error",
@@ -102,13 +101,10 @@ export function chatGptStoppedThinkingError(): ChatGptWebAdapterError {
 }
 
 export function chatGptRetainedConversationUnavailableError(): ChatGptWebAdapterError {
-  return new ChatGptWebAdapterError(
-    "The retained ChatGPT conversation is no longer available.",
-    {
-      status: 409,
-      errorType: "invalid_request_error",
-      code: "compaction_source_unavailable",
-      retryable: false,
-    },
-  );
+  return new ChatGptWebAdapterError("The retained ChatGPT conversation is no longer available.", {
+    status: 409,
+    errorType: "invalid_request_error",
+    code: "compaction_source_unavailable",
+    retryable: false,
+  });
 }

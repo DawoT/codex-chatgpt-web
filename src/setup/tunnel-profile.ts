@@ -1,10 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import type { AppConfig, TunnelConfig } from "../config";
-import { tunnelConfigForInteractionMode } from "../config";
-import {
-  DEV_CONFIG_PURPOSE,
-  DEV_TUNNEL_BASE_NAME,
-} from "../dev-chat/constants";
+import { DEV_CONFIG_PURPOSE, DEV_TUNNEL_BASE_NAME } from "../dev-chat/constants";
 import { runCommand } from "../process";
 import {
   chatFirstMcpCommand,
@@ -22,7 +18,11 @@ import {
 } from "../tunnel";
 import type { SetupOptions } from "./types";
 
-export async function configureTunnel(config: AppConfig, existing: AppConfig | undefined, options: SetupOptions): Promise<void> {
+export async function configureTunnel(
+  config: AppConfig,
+  existing: AppConfig | undefined,
+  options: SetupOptions,
+): Promise<void> {
   if (config.mode === "browser-only") {
     delete config.tunnel;
     delete config.automaticTunnel;
@@ -30,13 +30,9 @@ export async function configureTunnel(config: AppConfig, existing: AppConfig | u
     return;
   }
   const interactionMode = config.browserInteractionMode;
-  const legacyTunnel = existing?.mode === "full"
-    && !existing.automaticTunnel
-    && !existing.manualTunnel
-    ? existing.tunnel
-    : undefined;
-  let automaticTunnel = existing?.automaticTunnel
-    ?? legacyTunnel;
+  const legacyTunnel =
+    existing?.mode === "full" && !existing.automaticTunnel && !existing.manualTunnel ? existing.tunnel : undefined;
+  let automaticTunnel = existing?.automaticTunnel ?? legacyTunnel;
   let manualTunnel = existing?.manualTunnel;
   const existingTunnel = interactionMode === "manual" ? manualTunnel : automaticTunnel;
   const tunnelId = options.tunnelId ?? existingTunnel?.tunnelId;
@@ -57,12 +53,13 @@ export async function configureTunnel(config: AppConfig, existing: AppConfig | u
     throw new Error(`${interactionMode === "manual" ? "Zero Risk" : "Automatic"} mode requires its own runtime key`);
   }
   const installedBinary = await installTunnelClient();
-  const productionProfileName = interactionMode === "manual"
-    ? "codex-chatgpt-web-zero-risk"
-    : "codex-chatgpt-web";
-  const profileName = config.purpose === DEV_CONFIG_PURPOSE
-    ? interactionMode === "manual" ? `${DEV_TUNNEL_BASE_NAME}-zero-risk` : DEV_TUNNEL_BASE_NAME
-    : productionProfileName;
+  const productionProfileName = interactionMode === "manual" ? "codex-chatgpt-web-zero-risk" : "codex-chatgpt-web";
+  const profileName =
+    config.purpose === DEV_CONFIG_PURPOSE
+      ? interactionMode === "manual"
+        ? `${DEV_TUNNEL_BASE_NAME}-zero-risk`
+        : DEV_TUNNEL_BASE_NAME
+      : productionProfileName;
   const configuredTunnel = createTunnelConfig({
     binaryPath: installedBinary,
     tunnelId,
@@ -136,25 +133,36 @@ export async function setupChatFirstTunnelProfile(config: AppConfig): Promise<bo
   };
   try {
     mkdirSync(settings.profileDir, { recursive: true, mode: 0o700 });
-    const result = runCommand(settings.binaryPath, [
-      "runtimes", "connect",
-      "--alias", settings.alias,
-      "--profile", settings.profileName,
-      "--profile-dir", settings.profileDir,
-      "--tunnel-client-bin", settings.binaryPath,
-      "--tunnel-id", settings.tunnelId,
-      "--runtime-api-key", `file:${settings.runtimeKeyFile}`,
-      "--mcp-command", chatFirstMcpCommand(config),
-      "--json",
-    ], { timeout: TUNNEL_READY_TIMEOUT_MS });
+    const result = runCommand(
+      settings.binaryPath,
+      [
+        "runtimes",
+        "connect",
+        "--alias",
+        settings.alias,
+        "--profile",
+        settings.profileName,
+        "--profile-dir",
+        settings.profileDir,
+        "--tunnel-client-bin",
+        settings.binaryPath,
+        "--tunnel-id",
+        settings.tunnelId,
+        "--runtime-api-key",
+        `file:${settings.runtimeKeyFile}`,
+        "--mcp-command",
+        chatFirstMcpCommand(config),
+        "--json",
+      ],
+      { timeout: TUNNEL_READY_TIMEOUT_MS },
+    );
     const structuredOutput = result.stdout.trim();
-    const launchError = structuredOutput
-      ? tunnelConnectLaunchError(structuredOutput)
-      : undefined;
+    const launchError = structuredOutput ? tunnelConnectLaunchError(structuredOutput) : undefined;
     if (result.status !== 0) {
-      const detail = launchError && launchError !== "tunnel-client returned non-JSON connect output"
-        ? launchError
-        : chatFirstTunnelDetail(tunnelCommandOutput(result) || `exit ${result.status}`);
+      const detail =
+        launchError && launchError !== "tunnel-client returned non-JSON connect output"
+          ? launchError
+          : chatFirstTunnelDetail(tunnelCommandOutput(result) || `exit ${result.status}`);
       throw new Error(`chat-first tunnel registration failed: ${detail}`);
     }
     if (launchError) throw new Error(`chat-first tunnel runtime exited during launch: ${launchError}`);
@@ -165,8 +173,8 @@ export async function setupChatFirstTunnelProfile(config: AppConfig): Promise<bo
     return true;
   } catch (error) {
     console.error(
-      `[codex-chatgpt-web] chat-first tunnel profile was not registered; continuing without it: `
-        + `${error instanceof Error ? error.message : String(error)}`,
+      `[codex-chatgpt-web] chat-first tunnel profile was not registered; continuing without it: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
     );
     return false;
   }

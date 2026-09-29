@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   CHATGPT_WEB_LUNA_MODEL_ID,
   CHATGPT_WEB_MODEL_ID,
+  type ChatGptWebCapabilities,
   inferAdaptiveReasoningEffort,
   resolveChatGptWebModelMode,
-  type ChatGptWebCapabilities,
 } from "../src/adapters/chatgpt-web/model";
 
 describe("Sprint R: Dynamic Reasoning Effort Adaptation", () => {
@@ -31,7 +31,12 @@ describe("Sprint R: Dynamic Reasoning Effort Adaptation", () => {
         { role: "user", content: "Check the test status." },
         {
           role: "assistant",
-          content: [{ type: "text", text: "Running bun test\nFAIL tests/auth.test.ts > 1 tests failed: TypeError: undefined is not an object\nexit status 1" }],
+          content: [
+            {
+              type: "text",
+              text: "Running bun test\nFAIL tests/auth.test.ts > 1 tests failed: TypeError: undefined is not an object\nexit status 1",
+            },
+          ],
         },
         { role: "user", content: "Fix the failure." },
       ],
@@ -47,9 +52,7 @@ describe("Sprint R: Dynamic Reasoning Effort Adaptation", () => {
 
   test("adapts to high reasoning effort on deep refactoring or concurrency tasks", () => {
     const refactorContext = {
-      messages: [
-        { role: "user", content: "Refactor the concurrency queue to prevent race conditions and deadlocks." },
-      ],
+      messages: [{ role: "user", content: "Refactor the concurrency queue to prevent race conditions and deadlocks." }],
     };
 
     const inferred = inferAdaptiveReasoningEffort(refactorContext);
@@ -61,9 +64,7 @@ describe("Sprint R: Dynamic Reasoning Effort Adaptation", () => {
 
   test("adapts to low reasoning effort for simple directory discovery or status checks", () => {
     const discoveryContext = {
-      messages: [
-        { role: "user", content: "list files in src" },
-      ],
+      messages: [{ role: "user", content: "list files in src" }],
     };
 
     const inferred = inferAdaptiveReasoningEffort(discoveryContext);
@@ -97,12 +98,22 @@ describe("Sprint R: Dynamic Reasoning Effort Adaptation", () => {
     };
 
     const discoveryContext = { messages: [{ role: "user", content: "list files" }] };
-    const lunaDiscovery = resolveChatGptWebModelMode(CHATGPT_WEB_LUNA_MODEL_ID, undefined, lunaCapabilities, discoveryContext);
+    const lunaDiscovery = resolveChatGptWebModelMode(
+      CHATGPT_WEB_LUNA_MODEL_ID,
+      undefined,
+      lunaCapabilities,
+      discoveryContext,
+    );
     expect(lunaDiscovery.effort).toBe("low");
     expect(lunaDiscovery.thinkEnabled).toBe(false);
 
     const complexContext = { messages: [{ role: "user", content: "FAIL in tests! Fix error: TypeError" }] };
-    const lunaComplex = resolveChatGptWebModelMode(CHATGPT_WEB_LUNA_MODEL_ID, undefined, lunaCapabilities, complexContext);
+    const lunaComplex = resolveChatGptWebModelMode(
+      CHATGPT_WEB_LUNA_MODEL_ID,
+      undefined,
+      lunaCapabilities,
+      complexContext,
+    );
     expect(lunaComplex.effort).toBe("medium");
     expect(lunaComplex.thinkEnabled).toBe(true);
     expect(lunaComplex.displayLabel).toBe("Think");

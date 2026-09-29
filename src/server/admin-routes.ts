@@ -1,29 +1,29 @@
 import { timingSafeEqual } from "node:crypto";
-import { VERSION } from "../version";
-import { getObservedHelperDiagnostics, runtimeIdentity } from "../runtime-identity";
-import { runtimeMetrics } from "../adapters/chatgpt-web/runtime-metrics";
+import { ChatGptWebAdapterError, chatGptBrowserTabClosedError } from "../adapters/chatgpt-web/adapter-error";
 import { dispatchAlertWebhook, getDefaultAlertWebhookUrl } from "../adapters/chatgpt-web/alert-webhook";
-import { workspaceFileCache } from "../adapters/chatgpt-web/fast-path-cache";
-import { sessionHealthGuard } from "../adapters/chatgpt-web/session-guard";
-import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
-import { defaultSubagentGovernor } from "../adapters/chatgpt-web/concurrency";
 import {
   beginCancelStructuredCompactionTrace,
   cancelAllStructuredCompactions,
   cancelStructuredCompactionNativeTurn,
 } from "../adapters/chatgpt-web/compaction-handoff";
-import { ChatGptWebAdapterError, chatGptBrowserTabClosedError } from "../adapters/chatgpt-web/adapter-error";
+import { defaultSubagentGovernor } from "../adapters/chatgpt-web/concurrency";
+import { workspaceFileCache } from "../adapters/chatgpt-web/fast-path-cache";
+import { runtimeMetrics } from "../adapters/chatgpt-web/runtime-metrics";
+import type { SessionActorManager } from "../adapters/chatgpt-web/session-actor";
+import { sessionHealthGuard } from "../adapters/chatgpt-web/session-guard";
+import type { SessionStoreJanitor } from "../adapters/chatgpt-web/session-store-pruner";
 import {
   parseTaskCompletionPayload,
   type TaskResumeOrchestrator,
 } from "../adapters/chatgpt-web/task-resume-orchestrator";
-import { readJsonRequestBody } from "../http-body";
+import type { TurnBroker } from "../adapters/chatgpt-web/turn-broker";
+import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import { formatErrorResponse } from "../bridge";
 import type { AppConfig } from "../config";
+import { readJsonRequestBody } from "../http-body";
+import { getObservedHelperDiagnostics, runtimeIdentity } from "../runtime-identity";
 import type { TunnelSupervisor } from "../tunnel-supervisor";
-import type { SessionStoreJanitor } from "../adapters/chatgpt-web/session-store-pruner";
-import type { TurnBroker } from "../adapters/chatgpt-web/turn-broker";
-import type { SessionActorManager } from "../adapters/chatgpt-web/session-actor";
+import { VERSION } from "../version";
 import type { HttpTurnCounter } from "./http-turn-counter";
 import type { NativeCodexTurnIdentity } from "./types";
 
@@ -56,12 +56,22 @@ export function controlAuthorized(req: Request, controlToken: string): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-export async function handleAdminRoute(
-  req: Request,
-  url: URL,
-  ctx: AdminRouteContext,
-): Promise<Response | undefined> {
-  const { config, startedAt, isDraining, setDraining, activity, modelCatalogStats, tunnelSupervisor, sessionJanitor, taskResumeOrchestrator, turnBroker, sessionActorManager, httpTurns, shutdown } = ctx;
+export async function handleAdminRoute(req: Request, url: URL, ctx: AdminRouteContext): Promise<Response | undefined> {
+  const {
+    config,
+    startedAt,
+    isDraining,
+    setDraining,
+    activity,
+    modelCatalogStats,
+    tunnelSupervisor,
+    sessionJanitor,
+    taskResumeOrchestrator,
+    turnBroker,
+    sessionActorManager,
+    httpTurns,
+    shutdown,
+  } = ctx;
   const isAuthorized = () => controlAuthorized(req, config.controlToken);
 
   if (req.method === "GET" && url.pathname === "/healthz") {
@@ -108,7 +118,9 @@ export async function handleAdminRoute(
       void dispatchAlertWebhook(alertWebhookUrl, healthzAlerts, {
         daemonPid: process.pid,
         version: VERSION,
-      }).catch(() => { /* silently swallow */ });
+      }).catch(() => {
+        /* silently swallow */
+      });
     }
     return Response.json(healthzPayload);
   }
@@ -126,7 +138,7 @@ export async function handleAdminRoute(
     let traceId: string;
     let leaseFailure: "browser_surface_bootstrap_timeout" | "helper_heartbeat_expired" | undefined;
     try {
-      const body = await readJsonRequestBody(req) as { traceId?: unknown; reason?: unknown };
+      const body = (await readJsonRequestBody(req)) as { traceId?: unknown; reason?: unknown };
       traceId = typeof body?.traceId === "string" ? body.traceId : "";
       if (!/^[A-Za-z0-9_-]{6,128}$/.test(traceId)) throw new Error("traceId is invalid");
       if (body.reason !== undefined) {
@@ -143,11 +155,11 @@ export async function handleAdminRoute(
     }
     const reason = leaseFailure
       ? new ChatGptWebAdapterError(
-        leaseFailure === "browser_surface_bootstrap_timeout"
-          ? "The ChatGPT browser turn did not finish browser setup before its lease expired. The turn was stopped."
-          : "The ChatGPT browser helper stopped reporting progress and its lease expired. The turn was stopped.",
-        { status: 504, errorType: "server_error", code: leaseFailure, retryable: false },
-      )
+          leaseFailure === "browser_surface_bootstrap_timeout"
+            ? "The ChatGPT browser turn did not finish browser setup before its lease expired. The turn was stopped."
+            : "The ChatGPT browser helper stopped reporting progress and its lease expired. The turn was stopped.",
+          { status: 504, errorType: "server_error", code: leaseFailure, retryable: false },
+        )
       : chatGptBrowserTabClosedError();
     const actorRevoked = await sessionActorManager?.revokeBrowserTrace(traceId);
     if (sessionActorManager && !actorRevoked) {
@@ -166,7 +178,12 @@ export async function handleAdminRoute(
     // for that document's helper first can deadlock the UI behind a stalled browser operation.
     // Lease cleanup still requires physical settlement before declaring the runtime idle.
     if (leaseFailure) await settlement;
-    else void settlement.catch(error => console.error(`[chatgpt-web] cancelled turn cleanup failed: ${error instanceof Error ? error.message : String(error)}`));
+    else
+      void settlement.catch((error) =>
+        console.error(
+          `[chatgpt-web] cancelled turn cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
     return Response.json({
       status: "ok",
       trace_id: traceId,
@@ -181,7 +198,7 @@ export async function handleAdminRoute(
     if (!isAuthorized()) return new Response("Unauthorized", { status: 401 });
     let identity: NativeCodexTurnIdentity;
     try {
-      const body = await readJsonRequestBody(req) as { threadId?: unknown; turnId?: unknown };
+      const body = (await readJsonRequestBody(req)) as { threadId?: unknown; turnId?: unknown };
       const threadId = typeof body?.threadId === "string" ? body.threadId.trim() : "";
       const turnId = typeof body?.turnId === "string" ? body.turnId.trim() : "";
       if (!/^[A-Za-z0-9_-]{6,128}$/.test(threadId) || !/^[A-Za-z0-9_-]{6,128}$/.test(turnId)) {
@@ -196,23 +213,15 @@ export async function handleAdminRoute(
     }
     const reason = new DOMException("Codex turn interrupted", "AbortError");
     await sessionActorManager?.revokeNativeTurn(identity.threadId, identity.turnId);
-    const browserCancellation = chatGptTurnSessions.cancelNativeTurn(
-      identity.threadId,
-      identity.turnId,
-      reason,
-    );
-    const compactionCancellation = cancelStructuredCompactionNativeTurn(
-      identity.threadId,
-      identity.turnId,
-      reason,
-    );
+    const browserCancellation = chatGptTurnSessions.cancelNativeTurn(identity.threadId, identity.turnId, reason);
+    const compactionCancellation = cancelStructuredCompactionNativeTurn(identity.threadId, identity.turnId, reason);
     const httpCancellation = httpTurns.beginCancelTurn(identity, reason);
     const settlement = Promise.allSettled([
       browserCancellation.settlement,
       compactionCancellation.settlement,
       httpCancellation.settlement,
     ]);
-    void settlement.then(results => {
+    void settlement.then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {
           console.error(
@@ -268,7 +277,7 @@ export async function handleAdminRoute(
 
   if (req.method === "POST" && url.pathname === "/admin/tunnel/restart") {
     if (!isAuthorized()) return new Response("Unauthorized", { status: 401 });
-    if (!tunnelSupervisor || !tunnelSupervisor.getStats().enabled) {
+    if (!tunnelSupervisor?.getStats().enabled) {
       return Response.json(
         { status: "disabled", error: "Tunnel supervisor is not enabled on this server" },
         { status: 400 },

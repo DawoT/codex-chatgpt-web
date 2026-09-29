@@ -1,17 +1,17 @@
-import { validateSkillFiles } from "./skill-attachments";
-import { runtimeIdentity } from "../../runtime-identity";
-import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
-import { stdin, stderr, stdout } from "node:process";
+import { stderr, stdin, stdout } from "node:process";
+import { createInterface } from "node:readline";
+import { runtimeIdentity } from "../../runtime-identity";
 import type { CodexProviderConfig } from "../../types";
-import { ChatGptBrowserWorker, closeChatGptBrowserWorkers, type BrowserTurn } from "./browser-worker";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
+import { createBrowserHelperPromptSelection } from "./browser-helper-prompt-selection";
+import { type BrowserTurn, ChatGptBrowserWorker, closeChatGptBrowserWorkers } from "./browser-worker";
 import type { ChatGptWebCapabilities } from "./model";
 import { createProcessLineWriter } from "./process-line-writer";
-import { createBrowserHelperPromptSelection } from "./browser-helper-prompt-selection";
-import { isChatGptWebMultipartPartCount, type CompiledChatGptWebPrompt } from "./prompt";
-import { ChatGptMirroredTurnProgress } from "./turn-progress";
+import { type CompiledChatGptWebPrompt, isChatGptWebMultipartPartCount } from "./prompt";
+import { validateSkillFiles } from "./skill-attachments";
 import type { ChatGptExternalTurnProgressSnapshot } from "./turn-progress";
+import { ChatGptMirroredTurnProgress } from "./turn-progress";
 
 interface RunMessage {
   type: "run";
@@ -73,7 +73,8 @@ interface LimitsMessage {
 }
 
 type MaintenanceMessage = VerifyMessage | InspectMessage | SmokeMessage | LimitsMessage;
-type InputMessage = RunMessage
+type InputMessage =
+  | RunMessage
   | MaintenanceMessage
   | { type: "prepared_selected_ack"; id: string; prepared: CompiledChatGptWebPrompt }
   | { type: "send_activation_ack"; id: string }
@@ -99,7 +100,7 @@ const diagnosticOutput = createProcessLineWriter(stderr, handleOutputFailure);
 const writeProtocol = (message: unknown): boolean => protocolOutput.write(JSON.stringify(message));
 
 const diagnostic = (...values: unknown[]): void => {
-  diagnosticOutput.write(values.map(value => typeof value === "string" ? value : JSON.stringify(value)).join(" "));
+  diagnosticOutput.write(values.map((value) => (typeof value === "string" ? value : JSON.stringify(value))).join(" "));
 };
 console.info = diagnostic;
 console.warn = diagnostic;
@@ -108,39 +109,57 @@ console.error = diagnostic;
 const abortControllers = new Map<string, AbortController>();
 const turnProgress = new Map<string, ChatGptMirroredTurnProgress>();
 const preparedSelections = new Map<string, ReturnType<typeof createBrowserHelperPromptSelection>>();
-const sendActivationWaiters = new Map<string, {
-  resolve: () => void;
-  reject: (error: Error) => void;
-}>();
-const surfaceOwnershipWaiters = new Map<string, {
-  phase: "leased" | "released";
-  surfaceId: string;
-  resolve: () => void;
-  reject: (error: Error) => void;
-}>();
-const resultReadyWaiters = new Map<string, {
-  textSha256: string;
-  resolve: () => void;
-  reject: (error: Error) => void;
-}>();
-const toolBoundaryWaiters = new Map<string, {
-  requestId: number;
-  revision: number;
-  promise: Promise<void>;
-  resolve: () => void;
-  reject: (error: Error) => void;
-}>();
+const sendActivationWaiters = new Map<
+  string,
+  {
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }
+>();
+const surfaceOwnershipWaiters = new Map<
+  string,
+  {
+    phase: "leased" | "released";
+    surfaceId: string;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }
+>();
+const resultReadyWaiters = new Map<
+  string,
+  {
+    textSha256: string;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }
+>();
+const toolBoundaryWaiters = new Map<
+  string,
+  {
+    requestId: number;
+    revision: number;
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }
+>();
 let toolBoundaryRequestId = 0;
-const completionFenceBeginWaiters = new Map<string, {
-  requestId: number;
-  resolve: (revision: number | undefined) => void;
-  reject: (error: Error) => void;
-}>();
-const completionFenceCommitWaiters = new Map<string, {
-  requestId: number;
-  resolve: (committed: boolean) => void;
-  reject: (error: Error) => void;
-}>();
+const completionFenceBeginWaiters = new Map<
+  string,
+  {
+    requestId: number;
+    resolve: (revision: number | undefined) => void;
+    reject: (error: Error) => void;
+  }
+>();
+const completionFenceCommitWaiters = new Map<
+  string,
+  {
+    requestId: number;
+    resolve: (committed: boolean) => void;
+    reject: (error: Error) => void;
+  }
+>();
 let completionFenceRequestId = 0;
 let shuttingDown = false;
 let shutdownPromise: Promise<void> | undefined;
@@ -160,11 +179,7 @@ function confirmResultPersistence(id: string, text: string): Promise<void> {
   });
 }
 
-function confirmSurfaceOwnership(
-  id: string,
-  phase: "leased" | "released",
-  surfaceId: string,
-): Promise<void> {
+function confirmSurfaceOwnership(id: string, phase: "leased" | "released", surfaceId: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (surfaceOwnershipWaiters.has(id)) {
       reject(new Error("Browser helper surface ownership confirmation is already pending"));
@@ -181,7 +196,7 @@ function confirmSurfaceOwnership(
 function requestShutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
   let completeShutdown!: () => void;
-  shutdownPromise = new Promise<void>(resolveShutdown => {
+  shutdownPromise = new Promise<void>((resolveShutdown) => {
     completeShutdown = resolveShutdown;
   });
   shuttingDown = true;
@@ -216,7 +231,7 @@ function requestShutdown(): Promise<void> {
       completeShutdown();
       process.exit(0);
     },
-    error => {
+    (error) => {
       diagnostic(`Browser helper shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
       completeShutdown();
       process.exit(1);
@@ -226,8 +241,7 @@ function requestShutdown(): Promise<void> {
 }
 
 async function run(message: RunMessage): Promise<void> {
-  if (!/^[a-f0-9-]{36}$/.test(message.id)
-    || !/^[A-Za-z0-9_-]{6,128}$/.test(message.turn.traceId)) {
+  if (!/^[a-f0-9-]{36}$/.test(message.id) || !/^[A-Za-z0-9_-]{6,128}$/.test(message.turn.traceId)) {
     throw new Error("Browser helper turn identity is invalid");
   }
   if (abortControllers.has(message.id)) throw new Error(`Browser helper turn already exists: ${message.id}`);
@@ -240,8 +254,10 @@ async function run(message: RunMessage): Promise<void> {
   if (message.turn.retainConversation !== undefined && typeof message.turn.retainConversation !== "boolean") {
     throw new Error("Browser helper conversation retention flag is invalid");
   }
-  if (message.turn.requireRetainedConversation !== undefined
-    && typeof message.turn.requireRetainedConversation !== "boolean") {
+  if (
+    message.turn.requireRetainedConversation !== undefined &&
+    typeof message.turn.requireRetainedConversation !== "boolean"
+  ) {
     throw new Error("Browser helper retained-conversation requirement is invalid");
   }
   if (message.turn.conversationKey !== undefined && !/^[a-f0-9]{64}$/.test(message.turn.conversationKey)) {
@@ -250,8 +266,10 @@ async function run(message: RunMessage): Promise<void> {
   if (message.turn.compaction !== undefined && typeof message.turn.compaction !== "boolean") {
     throw new Error("Browser helper compaction flag is invalid");
   }
-  if (message.turn.pendingMissionRequirements !== undefined
-    && typeof message.turn.pendingMissionRequirements !== "boolean") {
+  if (
+    message.turn.pendingMissionRequirements !== undefined &&
+    typeof message.turn.pendingMissionRequirements !== "boolean"
+  ) {
     throw new Error("Browser helper pending mission flag is invalid");
   }
   if (message.turn.captureLunaCheckpoint !== undefined && typeof message.turn.captureLunaCheckpoint !== "boolean") {
@@ -280,34 +298,34 @@ async function run(message: RunMessage): Promise<void> {
   // derived deterministically and can repeat, so each run starts a fresh mirror rather than
   // inheriting revisions recorded for an earlier turn that happened to share the id.
   const progress = message.turn.externalProgress
-    ? new ChatGptMirroredTurnProgress(revision => {
-      const existing = toolBoundaryWaiters.get(message.id);
-      if (existing) {
-        if (existing.revision !== revision) {
-          throw new Error("Browser helper cannot observe another tool batch before its prior confirmation");
+    ? new ChatGptMirroredTurnProgress((revision) => {
+        const existing = toolBoundaryWaiters.get(message.id);
+        if (existing) {
+          if (existing.revision !== revision) {
+            throw new Error("Browser helper cannot observe another tool batch before its prior confirmation");
+          }
+          return existing.promise;
         }
-        return existing.promise;
-      }
-      toolBoundaryRequestId += 1;
-      const requestId = toolBoundaryRequestId;
-      let resolve!: () => void;
-      let reject!: (error: Error) => void;
-      const promise = new Promise<void>((accept, deny) => {
-        resolve = accept;
-        reject = deny;
-      });
-      toolBoundaryWaiters.set(message.id, { requestId, revision, promise, resolve, reject });
-      if (!writeProtocol({ type: "event", id: message.id, event: "tool_batch_observed", requestId, revision })) {
-        toolBoundaryWaiters.delete(message.id);
-        reject(new Error("Browser helper could not request the observed Codex tool boundary"));
-      }
-      return promise;
-    })
+        toolBoundaryRequestId += 1;
+        const requestId = toolBoundaryRequestId;
+        let resolve!: () => void;
+        let reject!: (error: Error) => void;
+        const promise = new Promise<void>((accept, deny) => {
+          resolve = accept;
+          reject = deny;
+        });
+        toolBoundaryWaiters.set(message.id, { requestId, revision, promise, resolve, reject });
+        if (!writeProtocol({ type: "event", id: message.id, event: "tool_batch_observed", requestId, revision })) {
+          toolBoundaryWaiters.delete(message.id);
+          reject(new Error("Browser helper could not request the observed Codex tool boundary"));
+        }
+        return promise;
+      })
     : undefined;
   if (progress) turnProgress.set(message.id, progress);
   const promptSelection = createBrowserHelperPromptSelection();
   preparedSelections.set(message.id, promptSelection);
-  const prepareSelected = async () => ({ ...await promptSelection.wait(), release: () => {} });
+  const prepareSelected = async () => ({ ...(await promptSelection.wait()), release: () => {} });
   const turn: BrowserTurn = {
     traceId: message.turn.traceId,
     modelId: message.turn.modelId,
@@ -323,90 +341,118 @@ async function run(message: RunMessage): Promise<void> {
     abortSignal: abortController.signal,
     ...(message.turn.compaction ? { compaction: true } : {}),
     ...(message.turn.pendingMissionRequirements ? { pendingMissionRequirements: true } : {}),
-    ...(progress ? {
-      externalProgress: progress,
-      completionFence: {
-        begin: () => new Promise<number | undefined>((resolve, reject) => {
-          if (completionFenceBeginWaiters.has(message.id)) {
-            reject(new Error("Browser helper completion fence already awaits a begin result"));
-            return;
-          }
-          completionFenceRequestId += 1;
-          const requestId = completionFenceRequestId;
-          completionFenceBeginWaiters.set(message.id, { requestId, resolve, reject });
-          if (!writeProtocol({ type: "event", id: message.id, event: "completion_fence_begin", requestId })) {
-            completionFenceBeginWaiters.delete(message.id);
-            reject(new Error("Browser helper could not begin the broker completion fence"));
-          }
-        }),
-        commit: revision => new Promise<boolean>((resolve, reject) => {
-          if (completionFenceCommitWaiters.has(message.id)) {
-            reject(new Error("Browser helper completion fence already awaits a commit result"));
-            return;
-          }
-          completionFenceRequestId += 1;
-          const requestId = completionFenceRequestId;
-          completionFenceCommitWaiters.set(message.id, { requestId, resolve, reject });
-          if (!writeProtocol({ type: "event", id: message.id, event: "completion_fence_commit", requestId, revision })) {
-            completionFenceCommitWaiters.delete(message.id);
-            reject(new Error("Browser helper could not commit the broker completion fence"));
-          }
-        }),
-      },
-    } : {}),
+    ...(progress
+      ? {
+          externalProgress: progress,
+          completionFence: {
+            begin: () =>
+              new Promise<number | undefined>((resolve, reject) => {
+                if (completionFenceBeginWaiters.has(message.id)) {
+                  reject(new Error("Browser helper completion fence already awaits a begin result"));
+                  return;
+                }
+                completionFenceRequestId += 1;
+                const requestId = completionFenceRequestId;
+                completionFenceBeginWaiters.set(message.id, { requestId, resolve, reject });
+                if (!writeProtocol({ type: "event", id: message.id, event: "completion_fence_begin", requestId })) {
+                  completionFenceBeginWaiters.delete(message.id);
+                  reject(new Error("Browser helper could not begin the broker completion fence"));
+                }
+              }),
+            commit: (revision) =>
+              new Promise<boolean>((resolve, reject) => {
+                if (completionFenceCommitWaiters.has(message.id)) {
+                  reject(new Error("Browser helper completion fence already awaits a commit result"));
+                  return;
+                }
+                completionFenceRequestId += 1;
+                const requestId = completionFenceRequestId;
+                completionFenceCommitWaiters.set(message.id, { requestId, resolve, reject });
+                if (
+                  !writeProtocol({
+                    type: "event",
+                    id: message.id,
+                    event: "completion_fence_commit",
+                    requestId,
+                    revision,
+                  })
+                ) {
+                  completionFenceCommitWaiters.delete(message.id);
+                  reject(new Error("Browser helper could not commit the broker completion fence"));
+                }
+              }),
+          },
+        }
+      : {}),
     onHeartbeat: () => writeProtocol({ type: "event", id: message.id, event: "heartbeat" }),
-    ...(message.turn.surfaceOwnership ? {
-      onSurfaceLeased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "leased", surfaceId),
-      onSurfaceReleased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "released", surfaceId),
-    } : {}),
-    ...(message.turn.resultPersistence ? {
-      onResultReady: (text: string) => confirmResultPersistence(message.id, text),
-    } : {}),
-    onPreparedSelected: reused => {
+    ...(message.turn.surfaceOwnership
+      ? {
+          onSurfaceLeased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "leased", surfaceId),
+          onSurfaceReleased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "released", surfaceId),
+        }
+      : {}),
+    ...(message.turn.resultPersistence
+      ? {
+          onResultReady: (text: string) => confirmResultPersistence(message.id, text),
+        }
+      : {}),
+    onPreparedSelected: (reused) => {
       if (!writeProtocol({ type: "event", id: message.id, event: "prepared_selected", reused })) {
         throw new Error("Browser helper could not request prompt selection");
       }
       return promptSelection.wait().then(() => undefined);
     },
-    onSendActivated: () => new Promise<void>((resolve, reject) => {
-      if (sendActivationWaiters.has(message.id)) {
-        reject(new Error("Browser helper Send activation already awaits acknowledgement"));
-        return;
-      }
-      sendActivationWaiters.set(message.id, { resolve, reject });
-      if (!writeProtocol({ type: "event", id: message.id, event: "send_activated" })) {
-        sendActivationWaiters.delete(message.id);
-        reject(new Error("Browser helper could not request the Send activation boundary"));
-      }
-    }),
+    onSendActivated: () =>
+      new Promise<void>((resolve, reject) => {
+        if (sendActivationWaiters.has(message.id)) {
+          reject(new Error("Browser helper Send activation already awaits acknowledgement"));
+          return;
+        }
+        sendActivationWaiters.set(message.id, { resolve, reject });
+        if (!writeProtocol({ type: "event", id: message.id, event: "send_activated" })) {
+          sendActivationWaiters.delete(message.id);
+          reject(new Error("Browser helper could not request the Send activation boundary"));
+        }
+      }),
     onSubmitted: () => {
       if (!writeProtocol({ type: "event", id: message.id, event: "submitted" })) {
         throw new Error("Browser helper could not persist ChatGPT submission evidence");
       }
     },
-    onMultipartStageAcknowledged: stageIndex => {
+    onMultipartStageAcknowledged: (stageIndex) => {
       if (!writeProtocol({ type: "event", id: message.id, event: "multipart_stage_acknowledged", stageIndex })) {
         throw new Error("Browser helper could not persist multipart acknowledgement evidence");
       }
     },
-    onReasoningSummary: (text, continuation) => writeProtocol({
-      type: "event",
-      id: message.id,
-      event: "reasoning",
-      text,
-      ...(continuation ? { continuation: true } : {}),
-    }),
-    onCommentary: (text, continuation) => writeProtocol({ type: "event", id: message.id, event: "commentary", text, ...(continuation ? { continuation: true } : {}) }),
-    onTextDelta: text => writeProtocol({ type: "event", id: message.id, event: "text", text }),
-    ...(message.turn.captureLunaCheckpoint ? {
-      captureLunaCheckpoint: true,
-      onLunaCheckpoint: captured => writeProtocol({
+    onReasoningSummary: (text, continuation) =>
+      writeProtocol({
         type: "event",
         id: message.id,
-        event: "luna_checkpoint",
-        ...captured,
+        event: "reasoning",
+        text,
+        ...(continuation ? { continuation: true } : {}),
       }),
-    } : {}),
+    onCommentary: (text, continuation) =>
+      writeProtocol({
+        type: "event",
+        id: message.id,
+        event: "commentary",
+        text,
+        ...(continuation ? { continuation: true } : {}),
+      }),
+    onTextDelta: (text) => writeProtocol({ type: "event", id: message.id, event: "text", text }),
+    ...(message.turn.captureLunaCheckpoint
+      ? {
+          captureLunaCheckpoint: true,
+          onLunaCheckpoint: (captured) =>
+            writeProtocol({
+              type: "event",
+              id: message.id,
+              event: "luna_checkpoint",
+              ...captured,
+            }),
+        }
+      : {}),
   };
   try {
     const text = await ChatGptBrowserWorker.forProvider(provider).run(turn);
@@ -417,12 +463,14 @@ async function run(message: RunMessage): Promise<void> {
       id: message.id,
       name: error instanceof Error ? error.name : "Error",
       message: error instanceof Error ? error.message : String(error),
-      ...(error instanceof ChatGptWebAdapterError ? {
-        status: error.status,
-        errorType: error.errorType,
-        code: error.code,
-        retryable: error.retryable,
-      } : {}),
+      ...(error instanceof ChatGptWebAdapterError
+        ? {
+            status: error.status,
+            errorType: error.errorType,
+            code: error.code,
+            retryable: error.retryable,
+          }
+        : {}),
     });
   } finally {
     preparedSelections.get(message.id)?.cancel();
@@ -444,7 +492,9 @@ async function run(message: RunMessage): Promise<void> {
     commitWaiter?.reject(new DOMException("Browser helper turn ended before completion-fence commit", "AbortError"));
     const toolBoundaryWaiter = toolBoundaryWaiters.get(message.id);
     toolBoundaryWaiters.delete(message.id);
-    toolBoundaryWaiter?.reject(new DOMException("Browser helper turn ended before tool-boundary confirmation", "AbortError"));
+    toolBoundaryWaiter?.reject(
+      new DOMException("Browser helper turn ended before tool-boundary confirmation", "AbortError"),
+    );
     abortControllers.delete(message.id);
     turnProgress.delete(message.id);
   }
@@ -482,15 +532,18 @@ function maintenanceWorker(message: MaintenanceMessage): ChatGptBrowserWorker {
 }
 
 async function maintain(message: InspectMessage | SmokeMessage | LimitsMessage): Promise<void> {
-  if (abortControllers.has(message.id)) throw new Error(`Browser helper maintenance operation already exists: ${message.id}`);
+  if (abortControllers.has(message.id))
+    throw new Error(`Browser helper maintenance operation already exists: ${message.id}`);
   const abortController = new AbortController();
   abortControllers.set(message.id, abortController);
   try {
     const worker = maintenanceWorker(message);
-    const value = message.type === "inspect"
-      ? await worker.inspectSession(message.detectCapabilities)
-      : message.type === "limits" ? await worker.inspectLimitsPlan()
-      : await worker.smokeTest(abortController.signal);
+    const value =
+      message.type === "inspect"
+        ? await worker.inspectSession(message.detectCapabilities)
+        : message.type === "limits"
+          ? await worker.inspectLimitsPlan()
+          : await worker.smokeTest(abortController.signal);
     writeProtocol({ type: "result", id: message.id, value });
   } catch (error) {
     writeProtocol({
@@ -505,11 +558,12 @@ async function maintain(message: InspectMessage | SmokeMessage | LimitsMessage):
 }
 
 const input = createInterface({ input: stdin, crlfDelay: Infinity });
-input.on("line", line => {
+input.on("line", (line) => {
   if (shuttingDown) return;
   let message: InputMessage;
-  try { message = JSON.parse(line) as InputMessage; }
-  catch {
+  try {
+    message = JSON.parse(line) as InputMessage;
+  } catch {
     writeProtocol({ type: "error", id: "protocol", message: "Browser helper received invalid JSON" });
     return;
   }
@@ -520,18 +574,22 @@ input.on("line", line => {
       abortControllers.get(message.id)?.abort();
       return;
     }
-    try { validateSkillFiles(prepared.skillFiles); }
-    catch (error) {
+    try {
+      validateSkillFiles(prepared.skillFiles);
+    } catch (error) {
       writeProtocol({ type: "error", id: message.id, message: error instanceof Error ? error.message : String(error) });
       abortControllers.get(message.id)?.abort();
       return;
     }
     if (prepared.multipart !== undefined) {
       const multipart = prepared.multipart;
-      if (!multipart || !Array.isArray(multipart.parts)
-        || !isChatGptWebMultipartPartCount(multipart.parts.length)
-        || multipart.parts.some(part => typeof part !== "string")
-        || typeof multipart.commit !== "string") {
+      if (
+        !multipart ||
+        !Array.isArray(multipart.parts) ||
+        !isChatGptWebMultipartPartCount(multipart.parts.length) ||
+        multipart.parts.some((part) => typeof part !== "string") ||
+        typeof multipart.commit !== "string"
+      ) {
         writeProtocol({ type: "error", id: message.id, message: "Browser helper multipart prompt is invalid" });
         abortControllers.get(message.id)?.abort();
         return;
@@ -570,8 +628,11 @@ input.on("line", line => {
     if (message.accepted === true) waiter.resolve();
     else waiter.reject(new Error("Daemon rejected the observed Codex tool boundary"));
   } else if (message.type === "completion_fence_begin_ack") {
-    if (!Number.isSafeInteger(message.requestId) || message.requestId <= 0
-      || (message.revision !== null && (!Number.isSafeInteger(message.revision) || message.revision < 0))) {
+    if (
+      !Number.isSafeInteger(message.requestId) ||
+      message.requestId <= 0 ||
+      (message.revision !== null && (!Number.isSafeInteger(message.revision) || message.revision < 0))
+    ) {
       writeProtocol({ type: "error", id: message.id, message: "Browser helper completion fence revision is invalid" });
       abortControllers.get(message.id)?.abort();
       return;
@@ -581,8 +642,7 @@ input.on("line", line => {
     completionFenceBeginWaiters.delete(message.id);
     waiter.resolve(message.revision ?? undefined);
   } else if (message.type === "completion_fence_commit_ack") {
-    if (!Number.isSafeInteger(message.requestId) || message.requestId <= 0
-      || typeof message.committed !== "boolean") {
+    if (!Number.isSafeInteger(message.requestId) || message.requestId <= 0 || typeof message.committed !== "boolean") {
       writeProtocol({ type: "error", id: message.id, message: "Browser helper completion fence result is invalid" });
       abortControllers.get(message.id)?.abort();
       return;
@@ -608,9 +668,9 @@ input.on("line", line => {
       );
     }
   } else if (message.type === "abort") {
-    abortControllers.get(message.id)?.abort(message.reason === "compaction_handoff_accepted"
-      ? new ChatGptCompactionHandoffAccepted()
-      : undefined);
+    abortControllers
+      .get(message.id)
+      ?.abort(message.reason === "compaction_handoff_accepted" ? new ChatGptCompactionHandoffAccepted() : undefined);
     preparedSelections.get(message.id)?.cancel();
     const waiter = sendActivationWaiters.get(message.id);
     sendActivationWaiters.delete(message.id);
@@ -629,35 +689,41 @@ input.on("line", line => {
     commitWaiter?.reject(new DOMException("Browser helper turn aborted before completion-fence commit", "AbortError"));
     const toolBoundaryWaiter = toolBoundaryWaiters.get(message.id);
     toolBoundaryWaiters.delete(message.id);
-    toolBoundaryWaiter?.reject(new DOMException("Browser helper turn aborted before tool-boundary confirmation", "AbortError"));
-  }
-  else if (message.type === "release_context_pressure") {
+    toolBoundaryWaiter?.reject(
+      new DOMException("Browser helper turn aborted before tool-boundary confirmation", "AbortError"),
+    );
+  } else if (message.type === "release_context_pressure") {
     if (!/^[a-f0-9]{64}$/.test(message.conversationKey)) {
       writeProtocol({ type: "error", id: "unknown", message: "Browser helper conversation key is invalid" });
     } else {
       ChatGptBrowserWorker.releaseContextPressureForConversation(message.conversationKey);
     }
-  }
-  else if (message.type === "shutdown") {
+  } else if (message.type === "shutdown") {
     void requestShutdown();
   } else if (message.type === "verify") {
-    void verify(message).catch(error => writeProtocol({
-      type: "error",
-      id: message.id,
-      message: error instanceof Error ? error.message : String(error),
-    }));
+    void verify(message).catch((error) =>
+      writeProtocol({
+        type: "error",
+        id: message.id,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   } else if (message.type === "inspect" || message.type === "smoke" || message.type === "limits") {
-    void maintain(message).catch(error => writeProtocol({
-      type: "error",
-      id: message.id,
-      message: error instanceof Error ? error.message : String(error),
-    }));
+    void maintain(message).catch((error) =>
+      writeProtocol({
+        type: "error",
+        id: message.id,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   } else if (message.type === "run") {
-    void run(message).catch(error => writeProtocol({
-      type: "error",
-      id: message.id,
-      message: error instanceof Error ? error.message : String(error),
-    }));
+    void run(message).catch((error) =>
+      writeProtocol({
+        type: "error",
+        id: message.id,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   } else {
     // Never treat an unrecognised frame as a run; unsupported protocol data fails explicitly.
     writeProtocol({

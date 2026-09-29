@@ -22,11 +22,11 @@ export function withAbort<T>(promise: Promise<T>, signal: AbortSignal | undefine
     const onAbort = () => rejectWait(abortError(signal));
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
-      value => {
+      (value) => {
         signal.removeEventListener("abort", onAbort);
         resolveWait(value);
       },
-      error => {
+      (error) => {
         signal.removeEventListener("abort", onAbort);
         rejectWait(error);
       },
@@ -62,7 +62,10 @@ export function cancellableBrowserTurn(
     browser: Promise.race([run, cancellation]),
     // `browser` is the fast client-facing result. Replacement ownership must wait for the actual
     // worker promise, whose finally block completes the launcher /turn/end handshake.
-    physicalSettlement: run.then(() => undefined, () => undefined),
+    physicalSettlement: run.then(
+      () => undefined,
+      () => undefined,
+    ),
     cancel(reason?: Error) {
       if (!controller.signal.aborted) controller.abort(reason);
       // Explicit targeted cancellation ends the Codex Responses turn immediately. Generic

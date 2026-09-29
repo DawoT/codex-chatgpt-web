@@ -10,10 +10,14 @@ export function brokerSocketPath(provider: CodexProviderConfig): string {
 }
 
 export function chatGptWebExecutionNamespace(provider: CodexProviderConfig): string {
-  return createHash("sha256").update(JSON.stringify({
-    baseUrl: provider.baseUrl,
-    chatgptWeb: provider.chatgptWeb ?? {},
-  })).digest("hex");
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        baseUrl: provider.baseUrl,
+        chatgptWeb: provider.chatgptWeb ?? {},
+      }),
+    )
+    .digest("hex");
 }
 
 export function chatGptWebTraceId(provider: CodexProviderConfig, parsed: CodexParsedRequest): string {

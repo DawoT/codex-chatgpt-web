@@ -1,6 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { atomicWriteFile, stripUtf8Bom } from "./config";
+import { verifyManagedJournalState } from "./codex-integration-route";
+import type {
+  AnyCodexIntegrationJournal,
+  CodexIntegrationJournal,
+  LegacyCodexIntegrationJournal,
+  LegacyCodexIntegrationJournalV3,
+  LegacyCodexIntegrationJournalV4,
+  LegacyCodexIntegrationJournalV5,
+  LegacyCodexIntegrationJournalV6,
+  LegacyCodexIntegrationJournalV7,
+  LegacyCodexIntegrationJournalV8,
+  LegacyCodexIntegrationJournalV9,
+} from "./codex-integration-shared";
 import {
   CODEX_REALTIME_WEBRTC_CALL_BASE_URL,
   getCodexConfigPath,
@@ -9,121 +21,132 @@ import {
   serializeJournal,
   writeFilesWithCompensation,
 } from "./codex-integration-shared";
-import type {
-  AnyCodexIntegrationJournal,
-  CodexIntegrationJournal,
-  LegacyCodexIntegrationJournal,
-  LegacyCodexIntegrationJournalV9,
-  LegacyCodexIntegrationJournalV3,
-  LegacyCodexIntegrationJournalV4,
-  LegacyCodexIntegrationJournalV5,
-  LegacyCodexIntegrationJournalV6,
-  LegacyCodexIntegrationJournalV7,
-  LegacyCodexIntegrationJournalV8,
-} from "./codex-integration-shared";
-import { verifyManagedJournalState } from "./codex-integration-route";
+import { atomicWriteFile, stripUtf8Bom } from "./config";
 
 function isPreviousAssignment(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const assignment = value as Record<string, unknown>;
   if (typeof assignment.present !== "boolean") return false;
-  return !assignment.present
-    || (typeof assignment.rawLine === "string" && typeof assignment.value === "string");
+  return !assignment.present || (typeof assignment.rawLine === "string" && typeof assignment.value === "string");
 }
 
 function isInstalledInterruptHook(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const hook = value as Record<string, unknown>;
-  return typeof hook.command === "string" && hook.command.length > 0
-    && Number.isSafeInteger(hook.groupIndex) && (hook.groupIndex as number) >= 0
-    && typeof hook.stateKey === "string" && hook.stateKey.length > 0
-    && typeof hook.trustedHash === "string" && /^sha256:[a-f0-9]{64}$/.test(hook.trustedHash)
-    && typeof hook.fragment === "string" && hook.fragment.length > 0;
+  return (
+    typeof hook.command === "string" &&
+    hook.command.length > 0 &&
+    Number.isSafeInteger(hook.groupIndex) &&
+    (hook.groupIndex as number) >= 0 &&
+    typeof hook.stateKey === "string" &&
+    hook.stateKey.length > 0 &&
+    typeof hook.trustedHash === "string" &&
+    /^sha256:[a-f0-9]{64}$/.test(hook.trustedHash) &&
+    typeof hook.fragment === "string" &&
+    hook.fragment.length > 0
+  );
 }
 
 function parseJournal(path: string): AnyCodexIntegrationJournal {
   const value = JSON.parse(stripUtf8Bom(readFileSync(path, "utf8"))) as Record<string, unknown>;
   const installed = value.installed as Record<string, unknown> | undefined;
-  if (value.version === 10
-    && typeof value.active === "boolean"
-    && installed
-    && typeof installed.openai_base_url === "string"
-    && installed.experimental_realtime_webrtc_call_base_url === CODEX_REALTIME_WEBRTC_CALL_BASE_URL
-    && (installed.subagent_protocol === "compatibility-v1" || installed.subagent_protocol === "native")
-    && (installed.subagent_protocol !== "compatibility-v1"
-      || (value.previousMultiAgent && value.previousMultiAgentV2
-        && value.previousAgentMaxDepth
-        && typeof installed.agent_max_depth === "number"
-        && Number.isSafeInteger(installed.agent_max_depth)
-        && installed.agent_max_depth >= 2))
-    && value.previous
-    && isPreviousAssignment(value.previousRealtimeWebrtcCallBaseUrl)
-    && isInstalledInterruptHook(value.interruptHook)
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 10 &&
+    typeof value.active === "boolean" &&
+    installed &&
+    typeof installed.openai_base_url === "string" &&
+    installed.experimental_realtime_webrtc_call_base_url === CODEX_REALTIME_WEBRTC_CALL_BASE_URL &&
+    (installed.subagent_protocol === "compatibility-v1" || installed.subagent_protocol === "native") &&
+    (installed.subagent_protocol !== "compatibility-v1" ||
+      (value.previousMultiAgent &&
+        value.previousMultiAgentV2 &&
+        value.previousAgentMaxDepth &&
+        typeof installed.agent_max_depth === "number" &&
+        Number.isSafeInteger(installed.agent_max_depth) &&
+        installed.agent_max_depth >= 2)) &&
+    value.previous &&
+    isPreviousAssignment(value.previousRealtimeWebrtcCallBaseUrl) &&
+    isInstalledInterruptHook(value.interruptHook) &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as CodexIntegrationJournal;
   }
-  if (value.version === 9
-    && typeof value.active === "boolean"
-    && installed
-    && typeof installed.openai_base_url === "string"
-    && installed.experimental_realtime_webrtc_call_base_url === CODEX_REALTIME_WEBRTC_CALL_BASE_URL
-    && (installed.subagent_protocol === "compatibility-v1" || installed.subagent_protocol === "native")
-    && (installed.subagent_protocol !== "compatibility-v1"
-      || (value.previousMultiAgent && value.previousMultiAgentV2
-        && value.previousAgentMaxDepth
-        && typeof installed.agent_max_depth === "number"
-        && Number.isSafeInteger(installed.agent_max_depth)
-        && installed.agent_max_depth >= 2))
-    && value.previous
-    && isPreviousAssignment(value.previousRealtimeWebrtcCallBaseUrl)
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 9 &&
+    typeof value.active === "boolean" &&
+    installed &&
+    typeof installed.openai_base_url === "string" &&
+    installed.experimental_realtime_webrtc_call_base_url === CODEX_REALTIME_WEBRTC_CALL_BASE_URL &&
+    (installed.subagent_protocol === "compatibility-v1" || installed.subagent_protocol === "native") &&
+    (installed.subagent_protocol !== "compatibility-v1" ||
+      (value.previousMultiAgent &&
+        value.previousMultiAgentV2 &&
+        value.previousAgentMaxDepth &&
+        typeof installed.agent_max_depth === "number" &&
+        Number.isSafeInteger(installed.agent_max_depth) &&
+        installed.agent_max_depth >= 2)) &&
+    value.previous &&
+    isPreviousAssignment(value.previousRealtimeWebrtcCallBaseUrl) &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as LegacyCodexIntegrationJournalV9;
   }
-  if (value.version === 8
-    && typeof value.active === "boolean"
-    && installed
-    && (installed.subagent_protocol === "compatibility-v1" || installed.subagent_protocol === "native")
-    && (installed.subagent_protocol !== "compatibility-v1"
-      || (value.previousMultiAgent && value.previousMultiAgentV2
-        && value.previousAgentMaxDepth
-        && typeof installed.agent_max_depth === "number"
-        && Number.isSafeInteger(installed.agent_max_depth)
-        && installed.agent_max_depth >= 2))
-    && value.previous
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 8 &&
+    typeof value.active === "boolean" &&
+    installed &&
+    (installed.subagent_protocol === "compatibility-v1" || installed.subagent_protocol === "native") &&
+    (installed.subagent_protocol !== "compatibility-v1" ||
+      (value.previousMultiAgent &&
+        value.previousMultiAgentV2 &&
+        value.previousAgentMaxDepth &&
+        typeof installed.agent_max_depth === "number" &&
+        Number.isSafeInteger(installed.agent_max_depth) &&
+        installed.agent_max_depth >= 2)) &&
+    value.previous &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as LegacyCodexIntegrationJournalV8;
   }
-  if (value.version === 7
-    && typeof value.active === "boolean"
-    && value.installed
-    && value.previous
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 7 &&
+    typeof value.active === "boolean" &&
+    value.installed &&
+    value.previous &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as LegacyCodexIntegrationJournalV7;
   }
-  if (value.version === 6
-    && typeof value.active === "boolean"
-    && value.installed
-    && value.previous
-    && value.previousRemoteCompactionV2
-    && value.previousMultiAgent
-    && value.previousMultiAgentV2
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 6 &&
+    typeof value.active === "boolean" &&
+    value.installed &&
+    value.previous &&
+    value.previousRemoteCompactionV2 &&
+    value.previousMultiAgent &&
+    value.previousMultiAgentV2 &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as LegacyCodexIntegrationJournalV6;
   }
-  if (value.version === 5
-    && typeof value.active === "boolean"
-    && value.installed
-    && value.previous
-    && value.previousRemoteCompactionV2
-    && value.previousMultiAgent
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 5 &&
+    typeof value.active === "boolean" &&
+    value.installed &&
+    value.previous &&
+    value.previousRemoteCompactionV2 &&
+    value.previousMultiAgent &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as LegacyCodexIntegrationJournalV5;
   }
-  if (value.version === 4
-    && typeof value.active === "boolean"
-    && value.installed
-    && value.previous
-    && typeof value.configPath === "string") {
+  if (
+    value.version === 4 &&
+    typeof value.active === "boolean" &&
+    value.installed &&
+    value.previous &&
+    typeof value.configPath === "string"
+  ) {
     return value as unknown as LegacyCodexIntegrationJournalV4;
   }
   if (value.version === 3 && value.installed && value.previous && typeof value.configPath === "string") {
@@ -155,10 +178,18 @@ export function readJournal(): AnyCodexIntegrationJournal | undefined {
   let primaryError: unknown;
   let recoveryError: unknown;
   if (existsSync(primaryPath)) {
-    try { primary = parseJournal(primaryPath); } catch (error) { primaryError = error; }
+    try {
+      primary = parseJournal(primaryPath);
+    } catch (error) {
+      primaryError = error;
+    }
   }
   if (existsSync(recoveryPath)) {
-    try { recovery = parseJournal(recoveryPath); } catch (error) { recoveryError = error; }
+    try {
+      recovery = parseJournal(recoveryPath);
+    } catch (error) {
+      recoveryError = error;
+    }
   }
   if (!primary && !recovery) {
     if (primaryError) throw primaryError;
@@ -196,17 +227,12 @@ export function readJournal(): AnyCodexIntegrationJournal | undefined {
   return selected;
 }
 
-export function assertJournalTargetsConfig(
-  journal: AnyCodexIntegrationJournal,
-  configPath: string,
-): void {
+export function assertJournalTargetsConfig(journal: AnyCodexIntegrationJournal, configPath: string): void {
   const pathIdentity = (value: string): string => {
     const normalized = resolve(value);
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
   };
   if (pathIdentity(journal.configPath) !== pathIdentity(configPath)) {
-    throw new Error(
-      `Codex integration journal belongs to ${journal.configPath}, not the active config ${configPath}`,
-    );
+    throw new Error(`Codex integration journal belongs to ${journal.configPath}, not the active config ${configPath}`);
   }
 }

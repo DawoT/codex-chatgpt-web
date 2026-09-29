@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   buildTaskResumeNote,
   parseTaskCompletionPayload,
-  TaskResumeOrchestrator,
   type TaskCompletion,
   type TaskCompletionPayload,
   type TaskResumeConversationHead,
+  TaskResumeOrchestrator,
 } from "../src/adapters/chatgpt-web/task-resume-orchestrator";
 
 let taskSeq = 0;
@@ -25,12 +25,9 @@ function makeTask(overrides: Partial<TaskCompletion> = {}): TaskCompletion {
   };
 }
 
-function makePayload(overrides: {
-  task?: Partial<TaskCompletion>;
-  summary?: string;
-  traceId?: string;
-  turnToken?: string;
-} = {}): TaskCompletionPayload {
+function makePayload(
+  overrides: { task?: Partial<TaskCompletion>; summary?: string; traceId?: string; turnToken?: string } = {},
+): TaskCompletionPayload {
   const task = makeTask(overrides.task);
   const payload: TaskCompletionPayload = { source: "chatgpt-web-mcp", task };
   if (overrides.summary !== undefined) payload.summary = overrides.summary;
@@ -150,7 +147,7 @@ describe("Sprint H3: TaskResumeOrchestrator (daemon push + observability)", () =
 
   test("a completion arriving while the conversation is mid-turn joins the pending note (one dispatch after settlement)", async () => {
     let releaseSettlement!: () => void;
-    const settlement = new Promise<void>(resolve => {
+    const settlement = new Promise<void>((resolve) => {
       releaseSettlement = resolve;
     });
     const harness = makeHarness();
@@ -185,7 +182,7 @@ describe("Sprint H3: TaskResumeOrchestrator (daemon push + observability)", () =
     const head = makeHead("ck-5");
     let attempts = 0;
     const orchestrator = new TaskResumeOrchestrator({
-      findConversationHead: traceId => (traceId ? head : undefined),
+      findConversationHead: (traceId) => (traceId ? head : undefined),
       runResumeTurn: async () => {
         attempts += 1;
         throw new Error("browser gone");
@@ -225,23 +222,31 @@ describe("Sprint H3: TaskResumeOrchestrator (daemon push + observability)", () =
     expect(() => harness.orchestrator.recordCompletion("nope")).toThrow();
     expect(() => harness.orchestrator.recordCompletion({ source: "somewhere-else", task: makeTask() })).toThrow();
     expect(() => harness.orchestrator.recordCompletion({ source: "chatgpt-web-mcp" })).toThrow(/task/);
-    expect(() => harness.orchestrator.recordCompletion({
-      source: "chatgpt-web-mcp",
-      task: makeTask({ status: "exploded" as TaskCompletion["status"] }),
-    })).toThrow(/status/);
-    expect(() => harness.orchestrator.recordCompletion({
-      source: "chatgpt-web-mcp",
-      task: makeTask({ exitCode: "0" as unknown as number }),
-    })).toThrow(/exitCode/);
-    expect(() => harness.orchestrator.recordCompletion({
-      source: "chatgpt-web-mcp",
-      task: makeTask({ id: "" }),
-    })).toThrow(/id/);
-    expect(() => parseTaskCompletionPayload({
-      source: "chatgpt-web-mcp",
-      task: makeTask(),
-      traceId: 42,
-    })).toThrow(/traceId/);
+    expect(() =>
+      harness.orchestrator.recordCompletion({
+        source: "chatgpt-web-mcp",
+        task: makeTask({ status: "exploded" as TaskCompletion["status"] }),
+      }),
+    ).toThrow(/status/);
+    expect(() =>
+      harness.orchestrator.recordCompletion({
+        source: "chatgpt-web-mcp",
+        task: makeTask({ exitCode: "0" as unknown as number }),
+      }),
+    ).toThrow(/exitCode/);
+    expect(() =>
+      harness.orchestrator.recordCompletion({
+        source: "chatgpt-web-mcp",
+        task: makeTask({ id: "" }),
+      }),
+    ).toThrow(/id/);
+    expect(() =>
+      parseTaskCompletionPayload({
+        source: "chatgpt-web-mcp",
+        task: makeTask(),
+        traceId: 42,
+      }),
+    ).toThrow(/traceId/);
 
     const valid = makePayload({ traceId: "trace-7", summary: "exit 0 — fine" });
     expect(() => parseTaskCompletionPayload(valid)).not.toThrow();
@@ -250,15 +255,17 @@ describe("Sprint H3: TaskResumeOrchestrator (daemon push + observability)", () =
   });
 
   test("the combined note is bounded (~1200 chars) and keeps task ids, log paths and exit codes", () => {
-    const events = Array.from({ length: 5 }, (_, index) => makePayload({
-      task: {
-        id: `JOB-${index + 1}`,
-        cmd: "bun run build",
-        exitCode: index % 2,
-        logPath: `/tmp/logs/job-${index + 1}.log`,
-      },
-      summary: `exit ${index % 2} — step ${index + 1} finished`,
-    }));
+    const events = Array.from({ length: 5 }, (_, index) =>
+      makePayload({
+        task: {
+          id: `JOB-${index + 1}`,
+          cmd: "bun run build",
+          exitCode: index % 2,
+          logPath: `/tmp/logs/job-${index + 1}.log`,
+        },
+        summary: `exit ${index % 2} — step ${index + 1} finished`,
+      }),
+    );
     const note = buildTaskResumeNote(events);
 
     expect(note.length).toBeLessThanOrEqual(1200);

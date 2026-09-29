@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
-import type { ChatGptTurnEnvironment } from "../environment";
 import { namespacedToolName } from "../../../types";
+import type { ChatGptTurnEnvironment } from "../environment";
 import { TurnBrokerProtocolError, TurnBrokerRequestError } from "./errors";
 
 export const MAX_BROKER_LINE_CHARS = 67_108_864;
@@ -62,23 +62,38 @@ export function environmentIdentity(environment: ChatGptTurnEnvironment): string
 }
 
 export function ownerEnvironment(value: unknown): ChatGptTurnEnvironment {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TurnBrokerProtocolError("turn owner environment is invalid");
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new TurnBrokerProtocolError("turn owner environment is invalid");
   const environment = value as Partial<ChatGptTurnEnvironment>;
-  const paths = (candidate: unknown): candidate is string[] => Array.isArray(candidate)
-    && (candidate.length > 0 || environment.execution === "host-only")
-    && candidate.every(path => typeof path === "string" && isAbsolute(path));
-  if (typeof environment.cwd !== "string" || !isAbsolute(environment.cwd)
-    || (environment.execution !== undefined && environment.execution !== "host-only")
-    || !paths(environment.roots) || !Array.isArray(environment.writableRoots)
-    || environment.writableRoots.some(path => typeof path !== "string" || !isAbsolute(path))
-    || (environment.execution !== "host-only" && !environment.roots.some(root => {
-      const nested = relative(resolve(root), resolve(environment.cwd!));
-      return nested === "" || (!nested.startsWith("..") && !isAbsolute(nested));
-    }))
-    || !environment.sandboxPolicy || !["dangerFullAccess", "workspaceWrite", "readOnly"].includes(environment.sandboxPolicy.type)
-    || !Array.isArray(environment.tools)
-    || environment.tools.some(tool => !tool || typeof tool.name !== "string" || typeof tool.description !== "string"
-      || !tool.parameters || typeof tool.parameters !== "object" || Array.isArray(tool.parameters))) {
+  const paths = (candidate: unknown): candidate is string[] =>
+    Array.isArray(candidate) &&
+    (candidate.length > 0 || environment.execution === "host-only") &&
+    candidate.every((path) => typeof path === "string" && isAbsolute(path));
+  if (
+    typeof environment.cwd !== "string" ||
+    !isAbsolute(environment.cwd) ||
+    (environment.execution !== undefined && environment.execution !== "host-only") ||
+    !paths(environment.roots) ||
+    !Array.isArray(environment.writableRoots) ||
+    environment.writableRoots.some((path) => typeof path !== "string" || !isAbsolute(path)) ||
+    (environment.execution !== "host-only" &&
+      !environment.roots.some((root) => {
+        const nested = relative(resolve(root), resolve(environment.cwd!));
+        return nested === "" || (!nested.startsWith("..") && !isAbsolute(nested));
+      })) ||
+    !environment.sandboxPolicy ||
+    !["dangerFullAccess", "workspaceWrite", "readOnly"].includes(environment.sandboxPolicy.type) ||
+    !Array.isArray(environment.tools) ||
+    environment.tools.some(
+      (tool) =>
+        !tool ||
+        typeof tool.name !== "string" ||
+        typeof tool.description !== "string" ||
+        !tool.parameters ||
+        typeof tool.parameters !== "object" ||
+        Array.isArray(tool.parameters),
+    )
+  ) {
     throw new TurnBrokerProtocolError("turn owner environment is invalid");
   }
   if (environment.execution === "host-only") {

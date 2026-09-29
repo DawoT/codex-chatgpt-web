@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, statSync, realpathSync } from "node:fs";
-import { createTaskLog, readTaskLogTail, removeTaskLog } from "./background-task-log";
+import { closeSync, realpathSync, statSync } from "node:fs";
 import { relative } from "node:path";
-
-import { resolveSafeWorkspacePath, assertWritableRootContainment } from "./fast-path/sandbox";
+import { createTaskLog, readTaskLogTail, removeTaskLog } from "./background-task-log";
+import type { BackgroundTask, TaskRuntimeRecord, TaskWaitOptions } from "./background-task-types";
 import { waitForTaskRecords } from "./background-task-wait";
 import { CGROUP_SHELL_COMMAND, commandCgroupEnv, createCommandCgroup } from "./command-cgroup";
-import type { BackgroundTask, TaskRuntimeRecord, TaskWaitOptions } from "./background-task-types";
+import { assertWritableRootContainment, resolveSafeWorkspacePath } from "./fast-path/sandbox";
+
 export type { BackgroundTask } from "./background-task-types";
 
 export class BackgroundTaskManager {
@@ -46,11 +46,11 @@ export class BackgroundTaskManager {
       this.logRetentionHours = options.logRetentionHours;
     }
     if (this.maxConcurrentLimit !== undefined) {
-      const runningCount = Array.from(this.tasks.values()).filter(r => !r.closed).length;
+      const runningCount = Array.from(this.tasks.values()).filter((r) => !r.closed).length;
       if (runningCount >= this.maxConcurrentLimit) {
         throw new Error(
-          `Background task limit reached: ${runningCount} task(s) running (maxConcurrent=${this.maxConcurrentLimit}). `
-            + "Wait for results with codex_poll_task or stop tasks with codex_kill_task, then start again.",
+          `Background task limit reached: ${runningCount} task(s) running (maxConcurrent=${this.maxConcurrentLimit}). ` +
+            "Wait for results with codex_poll_task or stop tasks with codex_kill_task, then start again.",
         );
       }
     }
@@ -88,9 +88,7 @@ export class BackgroundTaskManager {
     const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
     const cgroup = createCommandCgroup();
     record.cgroup = cgroup;
-    const shellArgs = process.platform === "win32"
-      ? ["/c", cmd]
-      : ["-c", cgroup ? CGROUP_SHELL_COMMAND : cmd];
+    const shellArgs = process.platform === "win32" ? ["/c", cmd] : ["-c", cgroup ? CGROUP_SHELL_COMMAND : cmd];
 
     try {
       const child = spawn(shell, shellArgs, {
@@ -129,14 +127,14 @@ export class BackgroundTaskManager {
 
   listTasks(ownerId?: string): BackgroundTask[] {
     return Array.from(this.tasks.values())
-      .filter(record => record.ownerId === ownerId)
-      .map(r => r.task)
+      .filter((record) => record.ownerId === ownerId)
+      .map((r) => r.task)
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
   killTask(taskId: string, ownerId?: string): boolean {
     const record = this.ownedRecord(taskId, ownerId);
-    if (!record || !record.child || record.task.status !== "running") {
+    if (!record?.child || record.task.status !== "running") {
       return false;
     }
 
@@ -175,12 +173,17 @@ export class BackgroundTaskManager {
 
   async waitForTasks(taskIds: string[], waitMs: number, options: TaskWaitOptions = {}): Promise<void> {
     const records = [...new Set(taskIds)]
-      .map(id => this.ownedRecord(id, options.ownerId))
+      .map((id) => this.ownedRecord(id, options.ownerId))
       .filter((record): record is TaskRuntimeRecord => record !== undefined);
     await waitForTaskRecords(records, waitMs, options.signal);
   }
 
-  async pollTask(taskId: string, waitMs = 0, lines = 100, options: TaskWaitOptions = {}): Promise<{
+  async pollTask(
+    taskId: string,
+    waitMs = 0,
+    lines = 100,
+    options: TaskWaitOptions = {},
+  ): Promise<{
     task: BackgroundTask;
     tail: string;
   } | null> {

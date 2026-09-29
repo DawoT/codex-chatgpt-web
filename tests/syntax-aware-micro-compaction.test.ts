@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { condenseVerboseProseWithSyntaxAwareness } from "../src/adapters/chatgpt-web/syntax-condenser";
 import { applyMicroCompactionBoundary } from "../src/adapters/chatgpt-web/prompt";
+import { condenseVerboseProseWithSyntaxAwareness } from "../src/adapters/chatgpt-web/syntax-condenser";
 import type { CodexMessage } from "../src/types";
 
 describe("Sprint L: Syntax & Diff-Aware Micro-Compaction", () => {
@@ -65,7 +65,7 @@ describe("Sprint L: Syntax & Diff-Aware Micro-Compaction", () => {
       "This patch updates both the route definition and the response message cleanly.",
     ].join("\n");
 
-    const longDiff = verboseDiff + "\n" + "Extra analysis text to ensure we cross the character threshold. ".repeat(6);
+    const longDiff = `${verboseDiff}\n${"Extra analysis text to ensure we cross the character threshold. ".repeat(6)}`;
     expect(longDiff.length).toBeGreaterThan(400);
 
     const condensed = condenseVerboseProseWithSyntaxAwareness(longDiff, 400);
@@ -93,7 +93,7 @@ describe("Sprint L: Syntax & Diff-Aware Micro-Compaction", () => {
     const condensed = condenseVerboseProseWithSyntaxAwareness(verboseJson, 400);
 
     expect(condensed).toContain("```json");
-    expect(condensed).toContain("{\n  \"_context\": \"[... json properties omitted for context budget ...]\"\n}");
+    expect(condensed).toContain('{\n  "_context": "[... json properties omitted for context budget ...]"\n}');
     const fenceMatches = condensed.match(/```/g) || [];
     expect(fenceMatches.length % 2).toBe(0);
   });
@@ -125,7 +125,7 @@ describe("Sprint L: Syntax & Diff-Aware Micro-Compaction", () => {
       "```",
     ].join("\n");
 
-    const verboseAssistant = `Analysis of items:\n${codeSnippet}\n` + "Detailed breakdown of each item calculation. ".repeat(15);
+    const verboseAssistant = `Analysis of items:\n${codeSnippet}\n${"Detailed breakdown of each item calculation. ".repeat(15)}`;
 
     const messages: CodexMessage[] = [
       { role: "user", content: "Initial task instruction", timestamp: 1 },

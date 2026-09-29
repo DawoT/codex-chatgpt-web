@@ -7,20 +7,9 @@ import {
   loginToChatGpt,
   storedBrowserLoginCapabilities,
 } from "../browser-login";
-import {
-  installCodexIntegration,
-  preflightCodexIntegration,
-  readCodexSubagentProtocol,
-} from "../codex-integration";
-import {
-  getConfigPath,
-  saveConfig,
-  tunnelConfigForInteractionMode,
-} from "../config";
-import {
-  DEV_CONFIG_PURPOSE,
-  DEV_LAUNCHER_PROFILE,
-} from "../dev-chat/constants";
+import { installCodexIntegration, preflightCodexIntegration, readCodexSubagentProtocol } from "../codex-integration";
+import { getConfigPath, saveConfig, tunnelConfigForInteractionMode } from "../config";
+import { DEV_CONFIG_PURPOSE, DEV_LAUNCHER_PROFILE } from "../dev-chat/constants";
 import {
   assertServiceIdle,
   getServiceStatus,
@@ -29,11 +18,7 @@ import {
   restartService,
   uninstallService,
 } from "../service";
-import {
-  managedRuntimeKeyPath,
-  stopTunnel,
-  waitForTunnelReady,
-} from "../tunnel";
+import { managedRuntimeKeyPath, stopTunnel, waitForTunnelReady } from "../tunnel";
 import {
   getTunnelServiceStatus,
   installTunnelService,
@@ -42,28 +27,10 @@ import {
   tunnelServiceDefinitionMatches,
   uninstallTunnelService,
 } from "../tunnel-service";
-import {
-  loadExistingConfig,
-  meaningfulRuntimeChange,
-  tunnelWorkerRuntimeChanged,
-} from "./credentials";
-import {
-  assertPortAvailable,
-  baseConfig,
-  inspectLauncherCapabilities,
-  waitForProxy,
-} from "./network";
-import {
-  bootstrapTunnelProfile,
-  configureTunnel,
-  setupChatFirstTunnelProfile,
-} from "./tunnel-profile";
-import type {
-  DevProfileSetupResult,
-  PreparedSetup,
-  SetupOptions,
-  SetupResult,
-} from "./types";
+import { loadExistingConfig, meaningfulRuntimeChange, tunnelWorkerRuntimeChanged } from "./credentials";
+import { assertPortAvailable, baseConfig, inspectLauncherCapabilities, waitForProxy } from "./network";
+import { bootstrapTunnelProfile, configureTunnel, setupChatFirstTunnelProfile } from "./tunnel-profile";
+import type { DevProfileSetupResult, PreparedSetup, SetupOptions, SetupResult } from "./types";
 
 export function prepareSetup(options: SetupOptions): PreparedSetup {
   const existing = loadExistingConfig();
@@ -72,15 +39,15 @@ export function prepareSetup(options: SetupOptions): PreparedSetup {
   }
   const config = baseConfig(existing, {
     ...options,
-    subagentProtocol: options.subagentProtocol
-      ?? readCodexSubagentProtocol(existing?.subagentProtocol ?? "compatibility-v1"),
+    subagentProtocol:
+      options.subagentProtocol ?? readCodexSubagentProtocol(existing?.subagentProtocol ?? "compatibility-v1"),
   });
   delete config.purpose;
   const launcherOwned = config.browserHost === "launcher";
   if (!launcherOwned && process.platform !== "darwin") {
     throw new Error(
-      "Terminal-only managed Chrome setup currently requires macOS. "
-      + "Use the Codex Web GPT launcher on Windows or Linux.",
+      "Terminal-only managed Chrome setup currently requires macOS. " +
+        "Use the Codex Web GPT launcher on Windows or Linux.",
     );
   }
   return { existing, config, launcherOwned };
@@ -89,9 +56,8 @@ export function prepareSetup(options: SetupOptions): PreparedSetup {
 export function preflightSetup(options: SetupOptions): void {
   const { existing, config } = prepareSetup(options);
   if (config.mode === "full") {
-    const saved = existing?.mode === "full"
-      ? tunnelConfigForInteractionMode(existing, config.browserInteractionMode)
-      : undefined;
+    const saved =
+      existing?.mode === "full" ? tunnelConfigForInteractionMode(existing, config.browserInteractionMode) : undefined;
     const tunnelId = options.tunnelId ?? saved?.tunnelId;
     if (!tunnelId) {
       throw new Error(
@@ -101,10 +67,10 @@ export function preflightSetup(options: SetupOptions): void {
     const savedKey = saved?.runtimeKeyFile;
     const managedKey = managedRuntimeKeyPath(config.browserInteractionMode);
     const hasRuntimeKey = Boolean(
-      options.runtimeKeyValue
-      || (options.runtimeKeyFile && existsSync(options.runtimeKeyFile))
-      || (savedKey && existsSync(savedKey))
-      || existsSync(managedKey),
+      options.runtimeKeyValue ||
+        (options.runtimeKeyFile && existsSync(options.runtimeKeyFile)) ||
+        (savedKey && existsSync(savedKey)) ||
+        existsSync(managedKey),
     );
     if (!hasRuntimeKey) {
       throw new Error(
@@ -112,9 +78,7 @@ export function preflightSetup(options: SetupOptions): void {
       );
     }
     const otherMode = config.browserInteractionMode === "manual" ? "automatic" : "manual";
-    const other = existing?.mode === "full"
-      ? tunnelConfigForInteractionMode(existing, otherMode)
-      : undefined;
+    const other = existing?.mode === "full" ? tunnelConfigForInteractionMode(existing, otherMode) : undefined;
     if (other?.tunnelId === tunnelId) {
       throw new Error("Automatic and Zero Risk require different Tunnel IDs and separate ChatGPT connectors");
     }
@@ -134,17 +98,21 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   const beforeService = getServiceStatus();
   if (launcherOwned && (beforeService.installed || beforeService.loaded)) {
     if (!existing) {
-      throw new Error("A legacy background service exists without a verifiable configuration; refusing automatic migration");
+      throw new Error(
+        "A legacy background service exists without a verifiable configuration; refusing automatic migration",
+      );
     }
     if (!options.restartService) {
       throw new Error(
-        "Launcher ownership migration must stop the legacy background service. "
-        + "Retry from the launcher after the active Codex task finishes.",
+        "Launcher ownership migration must stop the legacy background service. " +
+          "Retry from the launcher after the active Codex task finishes.",
       );
     }
   }
   if (beforeService.loaded && !existing) {
-    throw new Error("A codex-chatgpt-web service is loaded but its configuration is missing; refusing to replace an unverifiable process");
+    throw new Error(
+      "A codex-chatgpt-web service is loaded but its configuration is missing; refusing to replace an unverifiable process",
+    );
   }
 
   let loginCreated = false;
@@ -155,7 +123,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     // The generic manual route is independent of account capabilities. The launcher may open the
     // authenticated surface, but setup must not inspect its model selector or infer availability.
   } else if (config.browserHost === "launcher") {
-    if (options.forceLogin) throw new Error("Launcher browser login is owned by the launcher UI; --login cannot replace it");
+    if (options.forceLogin)
+      throw new Error("Launcher browser login is owned by the launcher UI; --login cannot replace it");
     const capabilities = await inspectLauncherCapabilities(
       config,
       existing,
@@ -171,19 +140,21 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     extraHighAvailable = stored.extraHighAvailable;
     proAvailable = stored.proAvailable;
     const loginRequired = options.forceLogin || !browserLoginStateExists(config);
-    const capabilityProbeRequired = !loginRequired
-      && (options.refreshAccountCapabilities === true
-        || existing?.browserInteractionMode === "manual"
-        || solAvailable === undefined
-        || extraHighAvailable === undefined
-        || proAvailable === undefined);
+    const capabilityProbeRequired =
+      !loginRequired &&
+      (options.refreshAccountCapabilities === true ||
+        existing?.browserInteractionMode === "manual" ||
+        solAvailable === undefined ||
+        extraHighAvailable === undefined ||
+        proAvailable === undefined);
     if (beforeService.loaded && (loginRequired || capabilityProbeRequired) && !options.restartService) {
       throw new Error(
-        "Setup must verify the browser account before changing the running daemon. "
-        + "Rerun from a normal terminal with --restart-service after the active task finishes.",
+        "Setup must verify the browser account before changing the running daemon. " +
+          "Rerun from a normal terminal with --restart-service after the active task finishes.",
       );
     }
-    if (beforeService.loaded && (loginRequired || capabilityProbeRequired) && existing) await assertServiceIdle(existing);
+    if (beforeService.loaded && (loginRequired || capabilityProbeRequired) && existing)
+      await assertServiceIdle(existing);
     if (loginRequired) {
       const login = await loginToChatGpt(config);
       solAvailable = login.solAvailable;
@@ -201,11 +172,13 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   config.extraHighAvailable = config.solAvailable && extraHighAvailable === true;
   config.proAvailable = config.solAvailable && proAvailable === true;
   const explicitTunnelChange = Boolean(options.tunnelId || options.runtimeKeyFile || options.runtimeKeyValue);
-  const preliminaryChange = Boolean(existing && (meaningfulRuntimeChange(existing, config) || explicitTunnelChange || options.forceLogin));
+  const preliminaryChange = Boolean(
+    existing && (meaningfulRuntimeChange(existing, config) || explicitTunnelChange || options.forceLogin),
+  );
   if (beforeService.loaded && preliminaryChange && !options.restartService) {
     throw new Error(
-      "The daemon is currently serving a Codex task and setup would change its runtime. "
-      + "Rerun from a normal terminal with --restart-service after the active task finishes.",
+      "The daemon is currently serving a Codex task and setup would change its runtime. " +
+        "Rerun from a normal terminal with --restart-service after the active task finishes.",
     );
   }
   if (beforeService.loaded && preliminaryChange && existing) await assertServiceIdle(existing);
@@ -214,8 +187,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   const changedWhileLoaded = Boolean(existing && beforeService.loaded && meaningfulRuntimeChange(existing, config));
   if (changedWhileLoaded && !options.restartService) {
     throw new Error(
-      "The daemon is currently serving a Codex task and setup would change its runtime. "
-      + "Rerun from a normal terminal with --restart-service after the active task finishes.",
+      "The daemon is currently serving a Codex task and setup would change its runtime. " +
+        "Rerun from a normal terminal with --restart-service after the active task finishes.",
     );
   }
   if (changedWhileLoaded && !preliminaryChange && existing) await assertServiceIdle(existing);
@@ -241,7 +214,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     if (launcherOwned) {
       if (tunnelService.installed || tunnelService.loaded) await uninstallTunnelService();
     } else {
-      const needsOwnershipMigration = !tunnelService.installed || !tunnelService.loaded || !tunnelServiceDefinitionMatches(config);
+      const needsOwnershipMigration =
+        !tunnelService.installed || !tunnelService.loaded || !tunnelServiceDefinitionMatches(config);
       if (needsOwnershipMigration || needsProfile) {
         await assertServiceIdle(config);
         if (tunnelService.loaded) await stopTunnelService();
@@ -261,9 +235,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     await uninstallService(existing!);
   }
   if (launcherOwned) saveConfig(config);
-  const migratingTerminalRuntime = Boolean(
-    launcherOwned && existing && existing.browserHost !== "launcher",
-  );
+  const migratingTerminalRuntime = Boolean(launcherOwned && existing && existing.browserHost !== "launcher");
   if (!migratingTerminalRuntime) removeLegacyRuntimeArtifacts(config);
   installCodexIntegration(config, {
     replaceExistingRoute: options.replaceCodexRoute,

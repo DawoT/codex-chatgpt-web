@@ -95,10 +95,11 @@ class BrowserControlServer {
       writeJson(response, 401, { error: "unauthorized" });
       return;
     }
-    const isTurn = request.url === "/v1/turn/start"
-      || request.url === "/v1/turn/heartbeat"
-      || request.url === "/v1/turn/usage"
-      || request.url === "/v1/turn/end";
+    const isTurn =
+      request.url === "/v1/turn/start" ||
+      request.url === "/v1/turn/heartbeat" ||
+      request.url === "/v1/turn/usage" ||
+      request.url === "/v1/turn/end";
     const isTurnRelease = request.url === "/v1/turn/release";
     const isSessionInspect = request.url === "/v1/session/inspect";
     const isProxyResolution = request.url === "/v1/network/resolve-proxy";
@@ -110,25 +111,32 @@ class BrowserControlServer {
       ["/v1/manual/end", "end"],
       ["/v1/manual/cancel", "cancel"],
     ]).get(request.url);
-    if (request.method !== "POST" || (!isTurn && !isTurnRelease && !isSessionInspect && !isProxyResolution && !manualAction)) {
+    if (
+      request.method !== "POST" ||
+      (!isTurn && !isTurnRelease && !isSessionInspect && !isProxyResolution && !manualAction)
+    ) {
       writeJson(response, 404, { error: "not_found" });
       return;
     }
     try {
-      const body = await readJson(
-        request,
-        manualAction === "start" ? MAX_MANUAL_START_BODY_BYTES : MAX_BODY_BYTES,
-      );
+      const body = await readJson(request, manualAction === "start" ? MAX_MANUAL_START_BODY_BYTES : MAX_BODY_BYTES);
       if (isProxyResolution) {
         const url = new URL(body?.url);
-        if (url.origin !== "https://chatgpt.com" || url.username || url.password
-          || !url.pathname.startsWith("/backend-api/codex/")) {
+        if (
+          url.origin !== "https://chatgpt.com" ||
+          url.username ||
+          url.password ||
+          !url.pathname.startsWith("/backend-api/codex/")
+        ) {
           throw new Error("Proxy resolution is restricted to native Codex requests");
         }
         if (!this.resolveProxy) throw new Error("Native proxy resolver is unavailable");
         let proxy;
-        try { proxy = await this.resolveProxy(url.href); }
-        catch { throw new Error("System proxy resolution failed"); }
+        try {
+          proxy = await this.resolveProxy(url.href);
+        } catch {
+          throw new Error("System proxy resolution failed");
+        }
         writeJson(response, 200, { proxy });
         return;
       }
@@ -137,9 +145,7 @@ class BrowserControlServer {
       if (!host) throw new Error("browser host is not ready");
       if (isSessionInspect) {
         if (host.browserInteractionMode() === "manual") {
-          const error = new Error(
-            "ChatGPT session and capability inspection is disabled in Zero Risk mode",
-          );
+          const error = new Error("ChatGPT session and capability inspection is disabled in Zero Risk mode");
           error.code = "manual_browser_inspection_disabled";
           throw error;
         }
@@ -165,14 +171,15 @@ class BrowserControlServer {
       if (body.conversationKey !== undefined && !/^[a-f0-9]{64}$/.test(body.conversationKey)) {
         throw new Error("conversationKey is invalid");
       }
-      if (body.connectorIdentity !== undefined
-        && (typeof body.connectorIdentity !== "string"
-          || !body.connectorIdentity.trim()
-          || body.connectorIdentity.length > 80)) {
+      if (
+        body.connectorIdentity !== undefined &&
+        (typeof body.connectorIdentity !== "string" ||
+          !body.connectorIdentity.trim() ||
+          body.connectorIdentity.length > 80)
+      ) {
         throw new Error("connectorIdentity is invalid");
       }
-      if (body.requireRetainedConversation !== undefined
-        && typeof body.requireRetainedConversation !== "boolean") {
+      if (body.requireRetainedConversation !== undefined && typeof body.requireRetainedConversation !== "boolean") {
         throw new Error("requireRetainedConversation is invalid");
       }
       if (body.compaction !== undefined && typeof body.compaction !== "boolean") {
@@ -204,8 +211,10 @@ class BrowserControlServer {
           if (typeof body.prompt !== "string" || body.prompt.length < 1) {
             throw new Error("manual prompt is invalid");
           }
-          if (body.resumePrompt !== undefined
-            && (typeof body.resumePrompt !== "string" || body.resumePrompt.length < 1)) {
+          if (
+            body.resumePrompt !== undefined &&
+            (typeof body.resumePrompt !== "string" || body.resumePrompt.length < 1)
+          ) {
             throw new Error("manual resume prompt is invalid");
           }
           if (body.compaction !== undefined && body.compaction !== true) {
@@ -227,17 +236,16 @@ class BrowserControlServer {
           return;
         }
         if (manualAction === "wait-sent") {
-          const observed = await host.waitManualSent(
-            body.traceId,
-            body.helperPid,
-            MANUAL_SENT_OBSERVER_TIMEOUT_MS,
-          );
+          const observed = await host.waitManualSent(body.traceId, body.helperPid, MANUAL_SENT_OBSERVER_TIMEOUT_MS);
           if (observed.status === "pending") {
             writeJson(response, 202, { ok: true, status: "pending" });
             return;
           }
           if (observed.status === "timeout") {
-            writeJson(response, 408, { error: "Manual prompt was not confirmed within its allowed time", code: "manual_turn_timed_out" });
+            writeJson(response, 408, {
+              error: "Manual prompt was not confirmed within its allowed time",
+              code: "manual_turn_timed_out",
+            });
             return;
           }
           if (observed.status === "cancelled") {
@@ -245,18 +253,17 @@ class BrowserControlServer {
             return;
           }
           if (observed.status !== "sent") {
-            writeJson(response, 409, { error: "Zero Risk turn failed before Sent confirmation", code: "manual_turn_failed" });
+            writeJson(response, 409, {
+              error: "Zero Risk turn failed before Sent confirmation",
+              code: "manual_turn_failed",
+            });
             return;
           }
           writeJson(response, 200, { ok: true, status: "sent", sentAt: observed.sentAt });
           return;
         }
         if (manualAction === "wait-terminal") {
-          const observed = await host.waitManualTerminal(
-            body.traceId,
-            body.helperPid,
-            MANUAL_SENT_OBSERVER_TIMEOUT_MS,
-          );
+          const observed = await host.waitManualTerminal(body.traceId, body.helperPid, MANUAL_SENT_OBSERVER_TIMEOUT_MS);
           if (observed.status === "pending") {
             writeJson(response, 202, { ok: true, status: "pending" });
             return;
@@ -268,7 +275,7 @@ class BrowserControlServer {
             });
             return;
           }
-          if (!['cancelled', 'failed'].includes(observed.status)) {
+          if (!["cancelled", "failed"].includes(observed.status)) {
             throw new Error("manual terminal state is invalid");
           }
           writeJson(response, 200, { ok: true, status: observed.status });
@@ -284,20 +291,16 @@ class BrowserControlServer {
           writeJson(response, 200, { ok: true, ...result });
           return;
         }
-        if (!['completed', 'failed', 'aborted'].includes(body.status)) {
+        if (!["completed", "failed", "aborted"].includes(body.status)) {
           throw new Error("manual turn status is invalid");
         }
-        const release = host.endManualTurn(
-          body.traceId,
-          body.helperPid,
-          body.status,
-          body.retain === true,
-        );
+        const release = host.endManualTurn(body.traceId, body.helperPid, body.status, body.retain === true);
         writeJson(response, 200, { ok: true, ...release });
         return;
       }
       if (request.url === "/v1/turn/usage") {
-        if (host.browserInteractionMode() === "manual") throw new Error("Limits tracking is disabled in Zero Risk mode");
+        if (host.browserInteractionMode() === "manual")
+          throw new Error("Limits tracking is disabled in Zero Risk mode");
         // The same owner check as a heartbeat prevents another helper from charging this tab.
         host.heartbeatTurn(body.traceId, body.helperPid);
         if (!this.limits) throw new Error("Limits tracking is unavailable");
@@ -339,7 +342,7 @@ class BrowserControlServer {
         writeJson(response, 200, { ok: true });
         return;
       } else {
-        if (!['completed', 'failed', 'aborted'].includes(body.status)) throw new Error("turn status is invalid");
+        if (!["completed", "failed", "aborted"].includes(body.status)) throw new Error("turn status is invalid");
         if (body.resultPersisted !== undefined && body.resultPersisted !== true) {
           throw new Error("turn result persistence flag is invalid");
         }
@@ -369,14 +372,16 @@ class BrowserControlServer {
         response,
         cancelled || retainedUnavailable || manualInspectionDisabled || manualOwnerLost
           ? 409
-          : manualTimedOut ? 408 : 400,
+          : manualTimedOut
+            ? 408
+            : 400,
         {
-        error: message,
-        ...(cancelled ? { code: "turn_cancelled" } : {}),
-        ...(retainedUnavailable ? { code: "retained_conversation_unavailable" } : {}),
-        ...(manualInspectionDisabled ? { code: "manual_browser_inspection_disabled" } : {}),
-        ...(manualOwnerLost ? { code: "manual_turn_owner_lost" } : {}),
-        ...(manualTimedOut ? { code: "manual_turn_timed_out" } : {}),
+          error: message,
+          ...(cancelled ? { code: "turn_cancelled" } : {}),
+          ...(retainedUnavailable ? { code: "retained_conversation_unavailable" } : {}),
+          ...(manualInspectionDisabled ? { code: "manual_browser_inspection_disabled" } : {}),
+          ...(manualOwnerLost ? { code: "manual_turn_owner_lost" } : {}),
+          ...(manualTimedOut ? { code: "manual_turn_timed_out" } : {}),
         },
       );
     }
@@ -385,7 +390,7 @@ class BrowserControlServer {
   async close() {
     if (!this.server.listening) return;
     await new Promise((resolve, reject) => {
-      this.server.close((error) => error ? reject(error) : resolve());
+      this.server.close((error) => (error ? reject(error) : resolve()));
     });
   }
 }

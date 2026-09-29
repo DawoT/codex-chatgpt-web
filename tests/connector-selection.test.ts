@@ -1,18 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { Locator, Page } from "playwright-core";
 import {
-  CHATGPT_CONNECTOR_NAME,
-  DEV_CHATGPT_CONNECTOR_NAME,
-} from "../src/config";
-import {
-  chatGptSelectedConnectorControl,
-  chatGptConnectorIsSelected,
-  chatGptConnectorMentionRowTitles,
-  chatGptConnectorMentionFailure,
-  chatGptRowIsHighlighted,
   CHATGPT_ATTACHMENT_INPUT_SELECTOR,
   CHATGPT_MENTION_MENU_ROWS_SELECTOR,
+  chatGptConnectorIsSelected,
+  chatGptConnectorMentionFailure,
+  chatGptConnectorMentionRowTitles,
+  chatGptRowIsHighlighted,
+  chatGptSelectedConnectorControl,
 } from "../src/adapters/chatgpt-web/browser/connectors";
+import { CHATGPT_CONNECTOR_NAME, DEV_CHATGPT_CONNECTOR_NAME } from "../src/config";
 
 describe("chatGptSelectedConnectorControl", () => {
   test("constructs locator with exact appName and slugified prompt link label", () => {
@@ -45,8 +42,10 @@ describe("chatGptConnectorIsSelected", () => {
     return {
       locator: () => ({
         filter: () => ({
-          evaluateAll: async (fn: (elements: Array<{ getAttribute: (name: string) => string | null }>) => unknown[]) => {
-            const mockElements = attributesList.map(attrs => ({
+          evaluateAll: async (
+            fn: (elements: Array<{ getAttribute: (name: string) => string | null }>) => unknown[],
+          ) => {
+            const mockElements = attributesList.map((attrs) => ({
               getAttribute: (name: string) => attrs[name] ?? null,
             }));
             return fn(mockElements);
@@ -57,33 +56,25 @@ describe("chatGptConnectorIsSelected", () => {
   }
 
   test("returns true when an element matches via data-keyword", async () => {
-    const composer = createMockComposer([
-      { "data-keyword": "Codex Native2" },
-    ]);
+    const composer = createMockComposer([{ "data-keyword": "Codex Native2" }]);
     const selected = await chatGptConnectorIsSelected(composer, "Codex Native2");
     expect(selected).toBe(true);
   });
 
   test("returns true when an element matches via app-mention-display-name", async () => {
-    const composer = createMockComposer([
-      { "app-mention-display-name": "Codex Native2" },
-    ]);
+    const composer = createMockComposer([{ "app-mention-display-name": "Codex Native2" }]);
     const selected = await chatGptConnectorIsSelected(composer, "Codex Native2");
     expect(selected).toBe(true);
   });
 
   test("returns true when an element matches via data-prompt-link-label slug", async () => {
-    const composer = createMockComposer([
-      { "data-prompt-link-label": "$codex-native2" },
-    ]);
+    const composer = createMockComposer([{ "data-prompt-link-label": "$codex-native2" }]);
     const selected = await chatGptConnectorIsSelected(composer, "Codex Native2");
     expect(selected).toBe(true);
   });
 
   test("returns false when no element matches", async () => {
-    const composer = createMockComposer([
-      { "data-keyword": "Other Tool" },
-    ]);
+    const composer = createMockComposer([{ "data-keyword": "Other Tool" }]);
     const selected = await chatGptConnectorIsSelected(composer, "Codex Native2");
     expect(selected).toBe(false);
   });
@@ -93,20 +84,18 @@ describe("chatGptConnectorIsSelected", () => {
       { "data-keyword": "Codex Native2" },
       { "app-mention-display-name": "Codex Native2" },
     ]);
-    await expect(
-      chatGptConnectorIsSelected(composer, "Codex Native2"),
-    ).rejects.toThrow('ChatGPT composer exposed duplicate "Codex Native2" connector selections');
+    await expect(chatGptConnectorIsSelected(composer, "Codex Native2")).rejects.toThrow(
+      'ChatGPT composer exposed duplicate "Codex Native2" connector selections',
+    );
   });
 
   test("rejects when abortSignal is already aborted", async () => {
-    const composer = createMockComposer([
-      { "data-keyword": "Codex Native2" },
-    ]);
+    const composer = createMockComposer([{ "data-keyword": "Codex Native2" }]);
     const controller = new AbortController();
     controller.abort(new Error("turn aborted"));
-    await expect(
-      chatGptConnectorIsSelected(composer, "Codex Native2", controller.signal),
-    ).rejects.toThrow("turn aborted");
+    await expect(chatGptConnectorIsSelected(composer, "Codex Native2", controller.signal)).rejects.toThrow(
+      "turn aborted",
+    );
   });
 });
 
@@ -153,9 +142,7 @@ describe("chatGptConnectorMentionRowTitles", () => {
       }),
     } as unknown as Locator;
 
-    await expect(
-      chatGptConnectorMentionRowTitles(menuRows, controller.signal),
-    ).rejects.toThrow();
+    await expect(chatGptConnectorMentionRowTitles(menuRows, controller.signal)).rejects.toThrow();
   });
 });
 
@@ -249,13 +236,17 @@ describe("chatGptConnectorMentionFailure", () => {
 describe("CHATGPT_ATTACHMENT_INPUT_SELECTOR", () => {
   test("includes both testid upload input and unaccepted multiple composer file input fallback", () => {
     expect(CHATGPT_ATTACHMENT_INPUT_SELECTOR).toContain('input[data-testid="upload-photos-input"]');
-    expect(CHATGPT_ATTACHMENT_INPUT_SELECTOR).toContain('form[data-chatgpt-composer] input[type="file"][multiple]:not([accept])');
+    expect(CHATGPT_ATTACHMENT_INPUT_SELECTOR).toContain(
+      'form[data-chatgpt-composer] input[type="file"][multiple]:not([accept])',
+    );
   });
 });
 
 describe("CHATGPT_MENTION_MENU_ROWS_SELECTOR", () => {
   test("includes literal scroll-area navigation item selector from upstream", () => {
-    expect(CHATGPT_MENTION_MENU_ROWS_SELECTOR).toContain('[data-mention-list-scroll-area] button[data-list-navigation-item="true"]');
+    expect(CHATGPT_MENTION_MENU_ROWS_SELECTOR).toContain(
+      '[data-mention-list-scroll-area] button[data-list-navigation-item="true"]',
+    );
     expect(CHATGPT_MENTION_MENU_ROWS_SELECTOR).toContain('.__menu-item[tabindex="0"]');
   });
 });
@@ -303,7 +294,9 @@ describe("chatGptRowIsHighlighted", () => {
 
   test("returns false when getAttribute throws a regular error", async () => {
     const row = {
-      getAttribute: async () => { throw new Error("DOM disconnected"); },
+      getAttribute: async () => {
+        throw new Error("DOM disconnected");
+      },
     } as unknown as Locator;
     expect(await chatGptRowIsHighlighted(row)).toBe(false);
   });
@@ -328,7 +321,7 @@ describe("exactSelectedConnectorCount filter logic", () => {
 
   test("matches connector pill with data-keyword", () => {
     const element = {
-      getAttribute: (name: string) => name === "data-keyword" ? "Codex Native2" : null,
+      getAttribute: (name: string) => (name === "data-keyword" ? "Codex Native2" : null),
     };
     expect(matchConnector(element, "Codex Native2")).toBe(true);
     expect(matchConnector(element, "Other")).toBe(false);
@@ -336,7 +329,7 @@ describe("exactSelectedConnectorCount filter logic", () => {
 
   test("matches connector pill with app-mention-display-name fallback", () => {
     const element = {
-      getAttribute: (name: string) => name === "app-mention-display-name" ? "Codex Native2" : null,
+      getAttribute: (name: string) => (name === "app-mention-display-name" ? "Codex Native2" : null),
     };
     expect(matchConnector(element, "Codex Native2")).toBe(true);
     expect(matchConnector(element, "Other")).toBe(false);

@@ -24,14 +24,11 @@ function waitForExit(child, timeoutMs) {
 }
 
 function writeMessage(child, message) {
-  if (child.exitCode !== null
-    || child.signalCode !== null
-    || child.stdin.destroyed
-    || child.stdin.writableEnded) {
+  if (child.exitCode !== null || child.signalCode !== null || child.stdin.destroyed || child.stdin.writableEnded) {
     return Promise.reject(new Error("Browser helper verification input is closed"));
   }
   return new Promise((resolve, reject) => {
-    child.stdin.write(`${JSON.stringify(message)}\n`, (error) => error ? reject(error) : resolve());
+    child.stdin.write(`${JSON.stringify(message)}\n`, (error) => (error ? reject(error) : resolve()));
   });
 }
 
@@ -42,7 +39,7 @@ async function stopChild(child) {
   if (!child.kill("SIGTERM") && child.exitCode === null && child.signalCode === null) {
     throw new Error("Browser helper verification process refused termination");
   }
-  if (!await waitForExit(child, 2_000)) {
+  if (!(await waitForExit(child, 2_000))) {
     throw new Error("Browser helper verification process did not exit after termination");
   }
 }
@@ -85,19 +82,14 @@ async function runBrowserHelperOperation({ helper, descriptorPath, appName, oper
     // A callback on write() does not consume the stream's separate `error` event. On Windows,
     // closing the helper's read side can therefore surface ERROR_BROKEN_PIPE/EOF as an uncaught
     // exception in Electron's main process even when the write promise is already handled.
-    child.stdin.on("error", (error) => finish(
-      error instanceof Error ? error : new Error(String(error)),
-    ));
-    child.stdout.on("error", (error) => finish(
-      error instanceof Error ? error : new Error(String(error)),
-    ));
-    child.stderr.on("error", (error) => finish(
-      error instanceof Error ? error : new Error(String(error)),
-    ));
+    child.stdin.on("error", (error) => finish(error instanceof Error ? error : new Error(String(error))));
+    child.stdout.on("error", (error) => finish(error instanceof Error ? error : new Error(String(error))));
+    child.stderr.on("error", (error) => finish(error instanceof Error ? error : new Error(String(error))));
     output.on("line", (line) => {
       let message;
-      try { message = JSON.parse(line); }
-      catch {
+      try {
+        message = JSON.parse(line);
+      } catch {
         finish(new Error("Browser helper verification emitted invalid JSON"));
         return;
       }
@@ -112,7 +104,7 @@ async function runBrowserHelperOperation({ helper, descriptorPath, appName, oper
           type: operation,
           id,
           config: { appName, browserHostDescriptorPath: descriptorPath },
-        }).catch(error => finish(error instanceof Error ? error : new Error(String(error))));
+        }).catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
         return;
       }
       if (message?.id !== id) {
@@ -134,9 +126,13 @@ async function runBrowserHelperOperation({ helper, descriptorPath, appName, oper
       finish(new Error("Browser helper verification emitted an unexpected message"));
     });
     child.once("error", (error) => finish(error));
-    child.once("exit", (code, signal) => finish(new Error(
-      `Browser helper verification exited ${signal ? `from signal ${signal}` : `with status ${code ?? 1}`}`,
-    )));
+    child.once("exit", (code, signal) =>
+      finish(
+        new Error(
+          `Browser helper verification exited ${signal ? `from signal ${signal}` : `with status ${code ?? 1}`}`,
+        ),
+      ),
+    );
     timer = setTimeout(
       () => finish(new Error(`Browser helper ${operation} timed out`)),
       BROWSER_HELPER_OPERATION_TIMEOUT_MS,

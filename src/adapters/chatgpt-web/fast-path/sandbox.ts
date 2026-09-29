@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve, dirname } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 interface RealpathDeps {
   /** Injectable for tests; production uses node:fs.realpathSync. */
@@ -43,10 +43,10 @@ export function assertSymlinkSafePath(
   const realpath = deps.realpath ?? realpathSync;
   const outsideError = () => new Error(`Resolved symlink targets outside allowed sandbox roots: ${requestedPath}`);
   const run = (): void => {
-    const realRoots = roots.map(root => (existsSync(root) ? realpath(resolve(root)) : resolve(root)));
+    const realRoots = roots.map((root) => (existsSync(root) ? realpath(resolve(root)) : resolve(root)));
     if (existsSync(resolved)) {
       const real = realpath(resolved);
-      if (!realRoots.some(realRoot => isInsideRoot(real, realRoot))) throw outsideError();
+      if (!realRoots.some((realRoot) => isInsideRoot(real, realRoot))) throw outsideError();
       return;
     }
     let danglingLeaf = false;
@@ -59,11 +59,11 @@ export function assertSymlinkSafePath(
     if (danglingLeaf) {
       // Dangling symlink: realpath must fail and trigger the fail-closed branch below.
       const real = realpath(resolved);
-      if (!realRoots.some(realRoot => isInsideRoot(real, realRoot))) throw outsideError();
+      if (!realRoots.some((realRoot) => isInsideRoot(real, realRoot))) throw outsideError();
       return;
     }
     const realAncestor = realpath(deepestExistingAncestor(resolved));
-    if (!realRoots.some(realRoot => isInsideRoot(realAncestor, realRoot))) throw outsideError();
+    if (!realRoots.some((realRoot) => isInsideRoot(realAncestor, realRoot))) throw outsideError();
   };
   try {
     run();
@@ -71,17 +71,25 @@ export function assertSymlinkSafePath(
     if (realErr instanceof Error && realErr.message.includes("Resolved symlink")) throw realErr;
     // Fail closed: an unverifiable path (EACCES, ELOOP, EPERM, ...) must never be accepted as
     // symlink-safe, otherwise a hostile link could escape the sandbox unnoticed.
-    const code = realErr !== null && typeof realErr === "object" && "code" in realErr
-      && typeof (realErr as { code: unknown }).code === "string"
-      ? (realErr as { code: string }).code
-      : "UNKNOWN";
+    const code =
+      realErr !== null &&
+      typeof realErr === "object" &&
+      "code" in realErr &&
+      typeof (realErr as { code: unknown }).code === "string"
+        ? (realErr as { code: string }).code
+        : "UNKNOWN";
     throw new Error(`Cannot verify symlink safety for ${requestedPath}: ${code}`);
   }
 }
 
-export function resolveSafeWorkspacePath(requestedPath: string, cwd: string, roots: string[], deps: RealpathDeps = {}): string {
+export function resolveSafeWorkspacePath(
+  requestedPath: string,
+  cwd: string,
+  roots: string[],
+  deps: RealpathDeps = {},
+): string {
   const resolved = isAbsolute(requestedPath) ? resolve(requestedPath) : resolve(cwd, requestedPath);
-  const isAllowed = roots.some(root => {
+  const isAllowed = roots.some((root) => {
     const rel = relative(resolve(root), resolved);
     return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
   });
@@ -103,7 +111,7 @@ export function assertWritableRootContainment(
   writableRoots: string[],
   deps: RealpathDeps = {},
 ): void {
-  const lexicalAllowed = writableRoots.some(root => isInsideRoot(resolved, resolve(root)));
+  const lexicalAllowed = writableRoots.some((root) => isInsideRoot(resolved, resolve(root)));
   if (!lexicalAllowed) {
     throw new Error(`Path is outside allowed writable roots: ${requestedPath}`);
   }

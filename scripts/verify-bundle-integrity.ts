@@ -15,7 +15,7 @@ export interface VerifyBundleOptions {
 export function verifyBundleIntegrity(options: VerifyBundleOptions = {}): BundleIntegrityCheckResult {
   const root = resolve(import.meta.dir, "..");
   const distDir = options.distDir ?? resolve(root, "dist");
-  const nodeBin = options.nodeBin ?? process.execPath.includes("node") ? process.execPath : "node";
+  const nodeBin = (options.nodeBin ?? process.execPath.includes("node")) ? process.execPath : "node";
   const errors: string[] = [];
 
   // 1. Verify browser-helper.cjs

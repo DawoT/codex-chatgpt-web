@@ -17,18 +17,51 @@ async function fixture(rateLimitRpm?: number) {
       emit({ type: "done" });
     },
   }));
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async req => (await routes.handle(req)) ?? new Response(null, { status: 404 }) });
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: async (req) => (await routes.handle(req)) ?? new Response(null, { status: 404 }),
+  });
   const url = `http://127.0.0.1:${server.port}`;
   const pair = async () => {
-    const response = await fetch(`${url}/host/v1/sessions`, { method: "POST", headers: { authorization: `Bearer ${config.controlToken}`, "content-type": "application/json" }, body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }) });
+    const response = await fetch(`${url}/host/v1/sessions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.controlToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
+    });
     expect(response.status).toBe(200);
-    return await response.json() as any;
+    return (await response.json()) as any;
   };
-  const request = async (session: any, sequence: number, body: any = {}, turn = "turn-one") => fetch(`${url}/host/v1/responses`, {
-    method: "POST", headers: { authorization: `Bearer ${session.token}`, "x-cgw-session-id": session.session_id, "x-cgw-turn-id": turn, "x-cgw-sequence": String(sequence), "content-type": "application/json" },
-    body: JSON.stringify({ model: session.models[0].id, stream: false, input: [{ role: "user", content: "Read a.ts" }], tools: [{ type: "function", name: "read", parameters: { type: "object", properties: { path: { type: "string" } } } }], ...body }),
-  });
-  return { seen, url, pair, request, stop: async () => { await routes.close(); server.stop(true); } };
+  const request = async (session: any, sequence: number, body: any = {}, turn = "turn-one") =>
+    fetch(`${url}/host/v1/responses`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        "x-cgw-session-id": session.session_id,
+        "x-cgw-turn-id": turn,
+        "x-cgw-sequence": String(sequence),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: session.models[0].id,
+        stream: false,
+        input: [{ role: "user", content: "Read a.ts" }],
+        tools: [
+          { type: "function", name: "read", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        ],
+        ...body,
+      }),
+    });
+  return {
+    seen,
+    url,
+    pair,
+    request,
+    stop: async () => {
+      await routes.close();
+      server.stop(true);
+    },
+  };
 }
 
 test("host HTTP binds trusted identity and refuses capability, replay and cross-session continuation", async () => {
@@ -39,7 +72,7 @@ test("host HTTP binds trusted identity and refuses capability, replay and cross-
     expect(a.token).not.toBe(b.token);
     const response = await f.request(a, 1);
     expect(response.status).toBe(200);
-    const output = await response.json() as any;
+    const output = (await response.json()) as any;
     expect(f.seen[0]._hostTurn?.sessionId).toBe(a.session_id);
     expect(f.seen[0]._hostTurn?.environment.execution).toBe("host-only");
     expect((await f.request(a, 1)).status).toBe(409);
@@ -47,17 +80,25 @@ test("host HTTP binds trusted identity and refuses capability, replay and cross-
     expect((await f.request(b, 1, { previous_response_id: output.id })).status).toBe(409);
     expect((await f.request(a, 3, { _hostTurn: { sessionId: b.session_id } })).status).toBe(400);
     expect(f.seen.length).toBe(1);
-  } finally { await f.stop(); }
+  } finally {
+    await f.stop();
+  }
 });
 
 test("host HTTP rejects browser pairing and validates tool results and catalog", async () => {
   const f = await fixture();
   try {
-    const browser = await fetch(`${f.url}/host/v1/sessions`, { method: "POST", headers: { origin: "https://evil.test", authorization: "Bearer test-control-secret" }, body: '{}' });
+    const browser = await fetch(`${f.url}/host/v1/sessions`, {
+      method: "POST",
+      headers: { origin: "https://evil.test", authorization: "Bearer test-control-secret" },
+      body: "{}",
+    });
     expect(browser.status).toBe(403);
     const a = await f.pair();
-    const first = await (await f.request(a, 1)).json() as any;
-    expect((await f.request(a, 2, { input: [{ type: "function_call_output", call_id: "unknown", output: "fake" }] })).status).toBe(409);
+    const first = (await (await f.request(a, 1)).json()) as any;
+    expect(
+      (await f.request(a, 2, { input: [{ type: "function_call_output", call_id: "unknown", output: "fake" }] })).status,
+    ).toBe(409);
     expect((await f.request(a, 3, { tools: [] })).status).toBe(409);
     const result = { type: "function_call_output", call_id: first.output[0].call_id, output: "source" };
     const next = await f.request(a, 4, { previous_response_id: first.id, input: [result] });
@@ -65,7 +106,9 @@ test("host HTTP rejects browser pairing and validates tool results and catalog",
     await next.json();
     expect((await f.request(a, 5, { input: [result, result] })).status).toBe(409);
     expect((await f.request(a, 6, { input: [{ ...result, output: "changed" }] })).status).toBe(409);
-  } finally { await f.stop(); }
+  } finally {
+    await f.stop();
+  }
 });
 
 test("host accepts paired imported history and exact result replay without giving it live tool authority", async () => {
@@ -74,13 +117,13 @@ test("host accepts paired imported history and exact result replay without givin
     const a = await f.pair();
     const historical = [
       { role: "user", content: "old question" },
-      { type: "function_call", call_id: "imported_call", name: "old_tool", arguments: '{}' },
+      { type: "function_call", call_id: "imported_call", name: "old_tool", arguments: "{}" },
       { type: "function_call_output", call_id: "imported_call", output: "old result" },
       { role: "user", content: "Read a.ts" },
     ];
     const response = await f.request(a, 1, { input: historical });
     expect(response.status).toBe(200);
-    const first = await response.json() as any;
+    const first = (await response.json()) as any;
     const result = { type: "function_call_output", call_id: first.output[0].call_id, output: "source" };
     const next = await f.request(a, 2, { input: [...historical, first.output[0], result] });
     expect(next.status).toBe(200);
@@ -88,15 +131,23 @@ test("host accepts paired imported history and exact result replay without givin
     const replay = await f.request(a, 3, { input: [...historical, first.output[0], result] });
     expect(replay.status).toBe(200);
     await replay.json();
-    expect((await f.request(a, 4, { input: [...historical, { type: "function_call_output", call_id: "imported_call", output: "spoof" }] })).status).toBe(409);
-  } finally { await f.stop(); }
+    expect(
+      (
+        await f.request(a, 4, {
+          input: [...historical, { type: "function_call_output", call_id: "imported_call", output: "spoof" }],
+        })
+      ).status,
+    ).toBe(409);
+  } finally {
+    await f.stop();
+  }
 });
 
 test("invalid continuation content does not commit a tool result or consume its sequence", async () => {
   const f = await fixture();
   try {
     const session = await f.pair();
-    const first = await (await f.request(session, 1)).json() as any;
+    const first = (await (await f.request(session, 1)).json()) as any;
     const callId = first.output[0].call_id;
     const invalid = await f.request(session, 2, {
       previous_response_id: first.id,
@@ -126,29 +177,63 @@ test("host cancellation only aborts its session and preserves honest requested/s
       const signal = options.abortSignal!;
       signals.set(parsed._hostTurn!.sessionId, signal);
       emit({ type: "text_delta", text: "started" });
-      await new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true }));
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
     },
   }));
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async req => (await routes.handle(req))! });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (req) => (await routes.handle(req))! });
   const url = `http://127.0.0.1:${server.port}`;
-  const pair = async () => await (await fetch(`${url}/host/v1/sessions`, { method: "POST", headers: { authorization: "Bearer cancel-control" }, body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }) })).json() as any;
+  const pair = async () =>
+    (await (
+      await fetch(`${url}/host/v1/sessions`, {
+        method: "POST",
+        headers: { authorization: "Bearer cancel-control" },
+        body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
+      })
+    ).json()) as any;
   const active: Response[] = [];
   try {
     const a = await pair();
     const b = await pair();
     for (const session of [a, b]) {
-      active.push(await fetch(`${url}/host/v1/responses`, { method: "POST", headers: { authorization: `Bearer ${session.token}`, "x-cgw-session-id": session.session_id, "x-cgw-turn-id": "same-turn", "x-cgw-sequence": "1" }, body: JSON.stringify({ model: session.models[0].id, stream: true, input: "wait" }) }));
+      active.push(
+        await fetch(`${url}/host/v1/responses`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${session.token}`,
+            "x-cgw-session-id": session.session_id,
+            "x-cgw-turn-id": "same-turn",
+            "x-cgw-sequence": "1",
+          },
+          body: JSON.stringify({ model: session.models[0].id, stream: true, input: "wait" }),
+        }),
+      );
     }
-    const cancel = async (session: any, turn = "same-turn") => await (await fetch(`${url}/host/v1/sessions/${session.session_id}/turns/${turn}/cancel`, { method: "POST", headers: { authorization: `Bearer ${session.token}` } })).json() as any;
+    const cancel = async (session: any, turn = "same-turn") =>
+      (await (
+        await fetch(`${url}/host/v1/sessions/${session.session_id}/turns/${turn}/cancel`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${session.token}` },
+        })
+      ).json()) as any;
     expect((await cancel(a, "unknown")).state).toBe("unknown");
     expect((await cancel(a)).state).toBe("requested");
     expect(signals.get(a.session_id)?.aborted).toBe(true);
     expect(signals.get(b.session_id)?.aborted).toBe(false);
     expect((await cancel(a)).state).toBe("settled");
-    const deleted = await fetch(`${url}/host/v1/sessions/${b.session_id}`, { method: "DELETE", headers: { authorization: `Bearer ${b.token}` } });
+    const deleted = await fetch(`${url}/host/v1/sessions/${b.session_id}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${b.token}` },
+    });
     expect(deleted.status).toBe(200);
     expect(signals.get(b.session_id)?.aborted).toBe(true);
-    expect((await fetch(`${url}/host/v1/sessions/${b.session_id}`, { method: "DELETE", headers: { authorization: `Bearer ${b.token}` } })).status).toBe(401);
+    expect(
+      (
+        await fetch(`${url}/host/v1/sessions/${b.session_id}`, {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${b.token}` },
+        })
+      ).status,
+    ).toBe(401);
   } finally {
     for (const response of active) await response.body?.cancel().catch(() => {});
     await routes.close();
@@ -160,39 +245,65 @@ test("host capabilities expire and session quota fails without evicting another 
   const { HostSessionStore } = await import("../src/server/host-state");
   let now = 0;
   const store = new HostSessionStore(() => now, 10, 1);
-  const routes = new HostHttpRoutes({ ...defaultConfig("full"), controlToken: "quota-control" }, new HttpTurnCounter(), undefined, store);
-  const pairing = () => routes.handle(new Request("http://127.0.0.1/host/v1/sessions", { method: "POST", headers: { authorization: "Bearer quota-control" }, body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }) }));
+  const routes = new HostHttpRoutes(
+    { ...defaultConfig("full"), controlToken: "quota-control" },
+    new HttpTurnCounter(),
+    undefined,
+    store,
+  );
+  const pairing = () =>
+    routes.handle(
+      new Request("http://127.0.0.1/host/v1/sessions", {
+        method: "POST",
+        headers: { authorization: "Bearer quota-control" },
+        body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
+      }),
+    );
   try {
-    const first = await (await pairing())!.json() as any;
+    const first = (await (await pairing())!.json()) as any;
     expect((await pairing())!.status).toBe(429);
     expect(store.sessions.has(first.session_id)).toBe(true);
     now = 11;
-    const old = await routes.handle(new Request(`http://127.0.0.1/host/v1/sessions/${first.session_id}`, { method: "DELETE", headers: { authorization: `Bearer ${first.token}` } }));
+    const old = await routes.handle(
+      new Request(`http://127.0.0.1/host/v1/sessions/${first.session_id}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${first.token}` },
+      }),
+    );
     expect(old!.status).toBe(401);
     expect((await pairing())!.status).toBe(200);
-  } finally { await routes.close(); }
+  } finally {
+    await routes.close();
+  }
 });
 
 test("host pairing advertises only reasoning efforts available to this account", async () => {
   for (const extraHighAvailable of [false, true]) {
-    const routes = new HostHttpRoutes({
-      ...defaultConfig("full"),
-      controlToken: "effort-control",
-      solAvailable: true,
-      extraHighAvailable,
-    }, new HttpTurnCounter());
+    const routes = new HostHttpRoutes(
+      {
+        ...defaultConfig("full"),
+        controlToken: "effort-control",
+        solAvailable: true,
+        extraHighAvailable,
+      },
+      new HttpTurnCounter(),
+    );
     try {
-      const response = await routes.handle(new Request("http://127.0.0.1/host/v1/sessions", {
-        method: "POST",
-        headers: { authorization: "Bearer effort-control" },
-        body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
-      }));
+      const response = await routes.handle(
+        new Request("http://127.0.0.1/host/v1/sessions", {
+          method: "POST",
+          headers: { authorization: "Bearer effort-control" },
+          body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
+        }),
+      );
       expect(response?.status).toBe(200);
-      const session = await response!.json() as { models: Array<{ id: string; supportedReasoningEfforts: string[] }> };
-      const sol = session.models.find(model => model.id === "chatgpt-web/gpt-5.6-sol");
-      expect(sol?.supportedReasoningEfforts).toEqual(extraHighAvailable
-        ? ["medium", "high", "xhigh"]
-        : ["medium", "high"]);
+      const session = (await response!.json()) as {
+        models: Array<{ id: string; supportedReasoningEfforts: string[] }>;
+      };
+      const sol = session.models.find((model) => model.id === "chatgpt-web/gpt-5.6-sol");
+      expect(sol?.supportedReasoningEfforts).toEqual(
+        extraHighAvailable ? ["medium", "high", "xhigh"] : ["medium", "high"],
+      );
     } finally {
       await routes.close();
     }
@@ -206,7 +317,7 @@ test("host capability rejection identifies a pre-admission 401", async () => {
     const response = await f.request({ ...session, token: "invalid-capability" }, 1);
     expect(response.status).toBe(401);
     expect(response.headers.get("x-cgw-admission")).toBe("rejected");
-    expect((await response.json() as any).error.code).toBe("host_capability_invalid");
+    expect(((await response.json()) as any).error.code).toBe("host_capability_invalid");
     expect(f.seen).toHaveLength(0);
   } finally {
     await f.stop();
@@ -222,36 +333,49 @@ test("host rejects catalog duplicates, foreign identity, unavailable models and 
       { prompt_cache_key: "other-session" },
       { model: "gpt-4" },
       { max_output_tokens: 32769 },
-      { tools: [{ type: "function", name: "read" }, { type: "function", name: "read" }] },
+      {
+        tools: [
+          { type: "function", name: "read" },
+          { type: "function", name: "read" },
+        ],
+      },
       { tools: [{ type: "web_search" }] },
-    ]) expect((await f.request(a, 1, body)).status).toBe(400);
+    ])
+      expect((await f.request(a, 1, body)).status).toBe(400);
     expect(f.seen.length).toBe(0);
-  } finally { await f.stop(); }
+  } finally {
+    await f.stop();
+  }
 });
 
 test("host replay accepts equivalent JSON tool arguments reserialized by Pi", async () => {
   const f = await fixture();
   try {
     const session = await f.pair();
-    const first = await (await f.request(session, 1)).json() as any;
+    const first = (await (await f.request(session, 1)).json()) as any;
     const call = first.output[0];
-    const response = await f.request(session, 2, { input: [
-      { role: "user", content: "Read a.ts" },
-      { ...call, arguments: ' { "path" : "a.ts" } ' },
-      { type: "function_call_output", call_id: call.call_id, output: "source" },
-    ] });
+    const response = await f.request(session, 2, {
+      input: [
+        { role: "user", content: "Read a.ts" },
+        { ...call, arguments: ' { "path" : "a.ts" } ' },
+        { type: "function_call_output", call_id: call.call_id, output: "source" },
+      ],
+    });
     expect(response.status).toBe(200);
     await response.json();
-  } finally { await f.stop(); }
+  } finally {
+    await f.stop();
+  }
 });
 
 test("a new user turn retains cancelled tool results as history without reviving execution", async () => {
   const f = await fixture();
   try {
     const session = await f.pair();
-    const first = await (await f.request(session, 1)).json() as any;
+    const first = (await (await f.request(session, 1)).json()) as any;
     await fetch(`${f.url}/host/v1/sessions/${session.session_id}/turns/turn-one/cancel`, {
-      method: "POST", headers: { authorization: `Bearer ${session.token}` },
+      method: "POST",
+      headers: { authorization: `Bearer ${session.token}` },
     });
     const history = [
       { role: "user", content: "Read a.ts" },
@@ -263,12 +387,13 @@ test("a new user turn retains cancelled tool results as history without reviving
     expect(next.status).toBe(200);
     await next.json();
     expect((await f.request(session, 3, { input: history })).status).toBe(409);
-    expect((await f.request(session, 4, { input: [{ ...history[2], output: "changed" }] }, "turn-three")).status).toBe(409);
+    expect((await f.request(session, 4, { input: [{ ...history[2], output: "changed" }] }, "turn-three")).status).toBe(
+      409,
+    );
   } finally {
     await f.stop();
   }
 });
-
 
 test("host model rate admission is shared across capabilities and does not block cancellation", async () => {
   const f = await fixture(1);
@@ -283,7 +408,8 @@ test("host model rate admission is shared across capabilities and does not block
     expect(Number(excess.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(f.seen.length).toBe(1);
     const cancelled = await fetch(`${f.url}/host/v1/sessions/${a.session_id}/turns/turn-one/cancel`, {
-      method: "POST", headers: { authorization: `Bearer ${a.token}` },
+      method: "POST",
+      headers: { authorization: `Bearer ${a.token}` },
     });
     expect(cancelled.status).toBe(200);
   } finally {
@@ -298,56 +424,83 @@ for (const action of ["cancel", "delete", "expire"] as const) {
     let clock = 0;
     const { HostSessionStore } = await import("../src/server/host-state");
     const config = { ...defaultConfig("full"), controlToken: "admission-control" };
-    const routes = new HostHttpRoutes(config, new HttpTurnCounter(), () => ({
-      name: "admission-cancel",
-      async runTurn(_parsed, _options, emit) {
-        adapterRuns += 1;
-        emit({ type: "text_delta", text: "must not execute" });
-        emit({ type: "done" });
-      },
-    }), new HostSessionStore(() => clock, 1000));
+    const routes = new HostHttpRoutes(
+      config,
+      new HttpTurnCounter(),
+      () => ({
+        name: "admission-cancel",
+        async runTurn(_parsed, _options, emit) {
+          adapterRuns += 1;
+          emit({ type: "text_delta", text: "must not execute" });
+          emit({ type: "done" });
+        },
+      }),
+      new HostSessionStore(() => clock, 1000),
+    );
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     let pending: Promise<Response | undefined> | undefined;
     try {
-      const paired = await routes.handle(new Request("http://127.0.0.1/host/v1/sessions", {
-        method: "POST", headers: { authorization: "Bearer admission-control" },
-        body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
-      }));
-      const session = await paired!.json() as any;
-      const payload = JSON.stringify({ model: session.models[0].id, stream: false, input: "hello" });
-      const headers = { authorization: `Bearer ${session.token}`, "x-cgw-session-id": session.session_id, "x-cgw-turn-id": "slow-body", "x-cgw-sequence": "1" };
-      pending = routes.handle(new Request("http://127.0.0.1/host/v1/responses", {
-        method: "POST", headers,
-        body: new ReadableStream({
-          start(value) {
-            controller = value;
-            controller.enqueue(new TextEncoder().encode(payload));
-          },
-          cancel() {
-            bodyCancelled = true;
-          },
+      const paired = await routes.handle(
+        new Request("http://127.0.0.1/host/v1/sessions", {
+          method: "POST",
+          headers: { authorization: "Bearer admission-control" },
+          body: JSON.stringify({ protocol: 1, host: "pi", cwd: process.cwd() }),
         }),
-        duplex: "half",
-      } as RequestInit));
+      );
+      const session = (await paired!.json()) as any;
+      const payload = JSON.stringify({ model: session.models[0].id, stream: false, input: "hello" });
+      const headers = {
+        authorization: `Bearer ${session.token}`,
+        "x-cgw-session-id": session.session_id,
+        "x-cgw-turn-id": "slow-body",
+        "x-cgw-sequence": "1",
+      };
+      pending = routes.handle(
+        new Request("http://127.0.0.1/host/v1/responses", {
+          method: "POST",
+          headers,
+          body: new ReadableStream({
+            start(value) {
+              controller = value;
+              controller.enqueue(new TextEncoder().encode(payload));
+            },
+            cancel() {
+              bodyCancelled = true;
+            },
+          }),
+          duplex: "half",
+        } as RequestInit),
+      );
       if (action === "expire") clock = 1001;
-      const path = action === "cancel" ? `/host/v1/sessions/${session.session_id}/turns/slow-body/cancel`
-        : `/host/v1/sessions/${session.session_id}`;
-      const retired = await routes.handle(new Request(`http://127.0.0.1${path}`, {
-        method: action === "cancel" ? "POST" : "DELETE", headers: { authorization: `Bearer ${session.token}` },
-      }));
+      const path =
+        action === "cancel"
+          ? `/host/v1/sessions/${session.session_id}/turns/slow-body/cancel`
+          : `/host/v1/sessions/${session.session_id}`;
+      const retired = await routes.handle(
+        new Request(`http://127.0.0.1${path}`, {
+          method: action === "cancel" ? "POST" : "DELETE",
+          headers: { authorization: `Bearer ${session.token}` },
+        }),
+      );
       if (action === "expire") expect(retired!.status).toBe(401);
-      else expect((await retired!.json() as any).state).not.toBe("unknown");
+      else expect(((await retired!.json()) as any).state).not.toBe("unknown");
       if (!bodyCancelled) controller.close();
       expect((await pending)!.status).toBe(409);
       expect(bodyCancelled).toBe(true);
       expect(adapterRuns).toBe(0);
-      const replay = await routes.handle(new Request("http://127.0.0.1/host/v1/responses", {
-        method: "POST", headers: { ...headers, "x-cgw-sequence": "2" }, body: payload,
-      }));
+      const replay = await routes.handle(
+        new Request("http://127.0.0.1/host/v1/responses", {
+          method: "POST",
+          headers: { ...headers, "x-cgw-sequence": "2" },
+          body: payload,
+        }),
+      );
       expect(replay!.status).toBe(action === "cancel" ? 409 : 401);
     } finally {
       if (controller && !bodyCancelled) {
-        try { controller.close(); } catch {}
+        try {
+          controller.close();
+        } catch {}
       }
       await pending;
       await routes.close();

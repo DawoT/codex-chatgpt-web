@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateImage, type ImageGenerationRequest } from "../src/image-generation";
+import { generateImage } from "../src/image-generation";
 
 describe("Image Generation Service", () => {
   let tempDir: string;
@@ -19,7 +19,8 @@ describe("Image Generation Service", () => {
   });
 
   // 1x1 transparent PNG in base64
-  const samplePngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const samplePngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   const samplePngBuffer = Buffer.from(samplePngBase64, "base64");
 
   test("generates an image and writes to specified outPath", async () => {

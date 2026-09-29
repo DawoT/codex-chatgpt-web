@@ -5,8 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chatGptWebTraceId } from "../src/adapters/chatgpt-web";
 import { runStructuredCompactionOnce } from "../src/adapters/chatgpt-web/compaction-handoff";
+import {
+  callTurnBroker,
+  closeTurnBrokers,
+  RemoteTurnBroker,
+  TurnBroker,
+} from "../src/adapters/chatgpt-web/turn-broker";
 import { ChatGptTextFeed, ChatGptTraceFeed, chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
-import { callTurnBroker, closeTurnBrokers, RemoteTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import { defaultBrokerEndpoint, defaultConfig, providerConfig } from "../src/config";
 import { parseRequest } from "../src/responses/parser";
 import { compactRequest, HttpTurnCounter, responseRequest, routeChatGptWebRequest, startServer } from "../src/server";
@@ -20,7 +25,7 @@ test("health reports local contract assembly cache without implying provider tok
   const server = startServer({ ...defaultConfig("browser-only"), port: 0 });
   try {
     const response = await fetch(`http://127.0.0.1:${server.port}/healthz`);
-    const health = await response.json() as Record<string, unknown>;
+    const health = (await response.json()) as Record<string, unknown>;
     expect(health.contract_assembly_cache).toMatchObject({
       hits: expect.any(Number),
       misses: expect.any(Number),
@@ -41,11 +46,16 @@ async function waitForTurnCount(turns: HttpTurnCounter, expected: number): Promi
 test("HTTP turn tracking follows the response stream instead of Bun's global request count", async () => {
   const turns = new HttpTurnCounter();
   let source!: ReadableStreamDefaultController<Uint8Array>;
-  const response = await turns.track(async () => new Response(new ReadableStream<Uint8Array>({
-    start(controller) {
-      source = controller;
-    },
-  })));
+  const response = await turns.track(
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            source = controller;
+          },
+        }),
+      ),
+  );
   const reader = response.body!.getReader();
 
   expect(turns.count()).toBe(1);
@@ -59,12 +69,9 @@ test("HTTP turn tracking follows the response stream instead of Bun's global req
 
 test("HTTP turn tracking releases a cancelled response stream", async () => {
   const failures: unknown[] = [];
-  const turns = new HttpTurnCounter(failure => failures.push(failure));
+  const turns = new HttpTurnCounter((failure) => failures.push(failure));
   const request = new AbortController();
-  const response = await turns.track(
-    async () => new Response(new ReadableStream<Uint8Array>()),
-    request.signal,
-  );
+  const response = await turns.track(async () => new Response(new ReadableStream<Uint8Array>()), request.signal);
 
   expect(turns.count()).toBe(1);
   const cancelled = response.body!.cancel();
@@ -78,7 +85,9 @@ test("HTTP turn tracking uses a tee branch on Windows", async () => {
   const turns = new HttpTurnCounter();
   let source!: ReadableStreamDefaultController<Uint8Array>;
   const original = new ReadableStream<Uint8Array>({
-    start(controller) { source = controller; },
+    start(controller) {
+      source = controller;
+    },
   });
   const response = await turns.track(async () => new Response(original), undefined, "win32");
   const reader = response.body!.getReader();
@@ -95,8 +104,12 @@ test("HTTP turn tracking uses direct pull and cancellation outside Windows", asy
   let source!: ReadableStreamDefaultController<Uint8Array>;
   let sourceCancelled = false;
   const original = new ReadableStream<Uint8Array>({
-    start(controller) { source = controller; },
-    cancel() { sourceCancelled = true; },
+    start(controller) {
+      source = controller;
+    },
+    cancel() {
+      sourceCancelled = true;
+    },
   });
   const response = await turns.track(async () => new Response(original), undefined, "darwin");
   const reader = response.body!.getReader();
@@ -110,12 +123,17 @@ test("HTTP turn tracking uses direct pull and cancellation outside Windows", asy
 
 test("HTTP turn tracking records privacy-safe client stream failure evidence", async () => {
   const failures: unknown[] = [];
-  const turns = new HttpTurnCounter(failure => failures.push(failure));
+  const turns = new HttpTurnCounter((failure) => failures.push(failure));
   let source!: ReadableStreamDefaultController<Uint8Array>;
   const response = await turns.track(
-    async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) { source = controller; },
-    })),
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            source = controller;
+          },
+        }),
+      ),
     undefined,
     "darwin",
     "responses",
@@ -128,27 +146,34 @@ test("HTTP turn tracking records privacy-safe client stream failure evidence", a
   await expect(reader.read()).rejects.toThrow("private upstream response fragment");
   await waitForTurnCount(turns, 0);
 
-  expect(failures).toEqual([{
-    httpTurnId: 1,
-    endpoint: "responses",
-    reader: "client",
-    platform: "darwin",
-    chunks: 1,
-    bytes: 4,
-    errorName: "TypeError",
-    errorCode: "ECONNRESET",
-  }]);
+  expect(failures).toEqual([
+    {
+      httpTurnId: 1,
+      endpoint: "responses",
+      reader: "client",
+      platform: "darwin",
+      chunks: 1,
+      bytes: 4,
+      errorName: "TypeError",
+      errorCode: "ECONNRESET",
+    },
+  ]);
   expect(JSON.stringify(failures)).not.toContain("private upstream response fragment");
 });
 
 test("HTTP turn tracking records privacy-safe Windows lifecycle failure evidence", async () => {
   const failures: unknown[] = [];
-  const turns = new HttpTurnCounter(failure => failures.push(failure));
+  const turns = new HttpTurnCounter((failure) => failures.push(failure));
   let source!: ReadableStreamDefaultController<Uint8Array>;
   const response = await turns.track(
-    async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) { source = controller; },
-    })),
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            source = controller;
+          },
+        }),
+      ),
     undefined,
     "win32",
     "responses",
@@ -161,26 +186,35 @@ test("HTTP turn tracking records privacy-safe Windows lifecycle failure evidence
   await expect(reader.read()).rejects.toThrow("sensitive socket detail");
   await waitForTurnCount(turns, 0);
 
-  expect(failures).toEqual([{
-    httpTurnId: 1,
-    endpoint: "responses",
-    reader: "windows_lifecycle",
-    platform: "win32",
-    chunks: 1,
-    bytes: 5,
-    errorName: "TypeError",
-    errorCode: "ECONNRESET",
-  }]);
+  expect(failures).toEqual([
+    {
+      httpTurnId: 1,
+      endpoint: "responses",
+      reader: "windows_lifecycle",
+      platform: "win32",
+      chunks: 1,
+      bytes: 5,
+      errorName: "TypeError",
+      errorCode: "ECONNRESET",
+    },
+  ]);
   expect(JSON.stringify(failures)).not.toContain("sensitive socket detail");
 });
 
 test("HTTP stream diagnostics cannot replace the source failure or retain turn ownership", async () => {
-  const turns = new HttpTurnCounter(() => { throw new Error("diagnostic sink failed"); });
+  const turns = new HttpTurnCounter(() => {
+    throw new Error("diagnostic sink failed");
+  });
   let source!: ReadableStreamDefaultController<Uint8Array>;
   const response = await turns.track(
-    async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) { source = controller; },
-    })),
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            source = controller;
+          },
+        }),
+      ),
     undefined,
     "darwin",
     "responses",
@@ -197,11 +231,14 @@ test("HTTP turn tracking releases a stream whose client disconnected without can
   const client = new AbortController();
   let cancelled = false;
   const response = await turns.track(
-    async () => new Response(new ReadableStream<Uint8Array>({
-      cancel() {
-        cancelled = true;
-      },
-    })),
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel() {
+            cancelled = true;
+          },
+        }),
+      ),
     client.signal,
   );
 
@@ -229,17 +266,22 @@ test("a real HTTP peer disconnect releases a streaming turn", async () => {
   let source!: ReadableStreamDefaultController<Uint8Array>;
   let sourceCancelled = false;
   let markSourceReady!: () => void;
-  const sourceReady = new Promise<void>(resolve => { markSourceReady = resolve; });
+  const sourceReady = new Promise<void>((resolve) => {
+    markSourceReady = resolve;
+  });
   const server = startServer(config, {
-    fetchUpstream: async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        source = controller;
-        markSourceReady();
-      },
-      cancel() {
-        sourceCancelled = true;
-      },
-    })),
+    fetchUpstream: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            source = controller;
+            markSourceReady();
+          },
+          cancel() {
+            sourceCancelled = true;
+          },
+        }),
+      ),
   });
   const port = server.port;
   if (port === undefined) throw new Error("test server did not bind a TCP port");
@@ -252,16 +294,18 @@ test("a real HTTP peer disconnect releases a streaming turn", async () => {
       socket.once("error", reject);
     });
     const body = JSON.stringify({ query: "disconnect lifecycle proof" });
-    socket.write([
-      "POST /v1/alpha/search HTTP/1.1",
-      "Host: 127.0.0.1",
-      "Authorization: Bearer test-codex-session",
-      "Content-Type: application/json",
-      `Content-Length: ${Buffer.byteLength(body)}`,
-      "Connection: keep-alive",
-      "",
-      body,
-    ].join("\r\n"));
+    socket.write(
+      [
+        "POST /v1/alpha/search HTTP/1.1",
+        "Host: 127.0.0.1",
+        "Authorization: Bearer test-codex-session",
+        "Content-Type: application/json",
+        `Content-Length: ${Buffer.byteLength(body)}`,
+        "Connection: keep-alive",
+        "",
+        body,
+      ].join("\r\n"),
+    );
     await sourceReady;
     source.enqueue(new TextEncoder().encode("stream-open"));
     await new Promise<void>((resolve, reject) => {
@@ -275,7 +319,7 @@ test("a real HTTP peer disconnect releases a streaming turn", async () => {
     const deadline = Date.now() + 1_000;
     let activeHttpTurns = 1;
     while (Date.now() < deadline && activeHttpTurns !== 0) {
-      const health = await (await fetch(`${endpoint}/healthz`)).json() as { active_http_turns: number };
+      const health = (await (await fetch(`${endpoint}/healthz`)).json()) as { active_http_turns: number };
       activeHttpTurns = health.active_http_turns;
       if (activeHttpTurns !== 0) await Bun.sleep(10);
     }
@@ -290,12 +334,19 @@ test("a real HTTP peer disconnect releases a streaming turn", async () => {
 test("HTTP turn cancellation aborts the tracked request and waits for lifecycle release", async () => {
   const turns = new HttpTurnCounter();
   let observedAbort = false;
-  const tracked = turns.track(signal => new Promise<Response>((_resolve, reject) => {
-    signal.addEventListener("abort", () => {
-      observedAbort = true;
-      reject(signal.reason);
-    }, { once: true });
-  }));
+  const tracked = turns.track(
+    (signal) =>
+      new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            observedAbort = true;
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      }),
+  );
 
   await waitForTurnCount(turns, 1);
   expect(await turns.cancelAll("launcher quit")).toBe(1);
@@ -312,15 +363,21 @@ test("native Codex interrupt cancels only HTTP streams owned by the exact thread
     { threadId: "thread_exact", turnId: "turn_exact" },
     { threadId: "thread_other", turnId: "turn_other" },
   ]) {
-    started.push(turns.track((signal, bindIdentity) => {
-      bindIdentity(identity);
-      return new Promise<Response>((_resolve, reject) => {
-        signal.addEventListener("abort", () => {
-          aborted.push(identity.turnId);
-          reject(signal.reason);
-        }, { once: true });
-      });
-    }));
+    started.push(
+      turns.track((signal, bindIdentity) => {
+        bindIdentity(identity);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted.push(identity.turnId);
+              reject(signal.reason);
+            },
+            { once: true },
+          );
+        });
+      }),
+    );
   }
   await waitForTurnCount(turns, 2);
 
@@ -337,7 +394,9 @@ test("native Codex interrupt remains authoritative when it arrives before HTTP i
   const turns = new HttpTurnCounter();
   const identity = { threadId: "thread_interrupt_race", turnId: "turn_interrupt_race" };
   let bind!: () => void;
-  const mayBind = new Promise<void>(resolve => { bind = resolve; });
+  const mayBind = new Promise<void>((resolve) => {
+    bind = resolve;
+  });
   let observedAbort = false;
   const response = turns.track(async (signal, bindIdentity) => {
     await mayBind;
@@ -358,40 +417,54 @@ test("native passthrough response and compaction requests expose their exact int
   const config = defaultConfig("browser-only");
   const responseIdentity = { threadId: "thread_native_response", turnId: "turn_native_response" };
   let boundResponseIdentity: typeof responseIdentity | undefined;
-  const response = await responseRequest(new Request("http://127.0.0.1/v1/responses", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-5.6-sol",
-      client_metadata: {
-        "x-codex-turn-metadata": JSON.stringify({
-          thread_id: responseIdentity.threadId,
-          turn_id: responseIdentity.turnId,
-        }),
-      },
-      input: [],
+  const response = await responseRequest(
+    new Request("http://127.0.0.1/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.6-sol",
+        client_metadata: {
+          "x-codex-turn-metadata": JSON.stringify({
+            thread_id: responseIdentity.threadId,
+            turn_id: responseIdentity.turnId,
+          }),
+        },
+        input: [],
+      }),
     }),
-  }), config, undefined, {
-    onTurnIdentity: identity => { boundResponseIdentity = identity; },
-  });
+    config,
+    undefined,
+    {
+      onTurnIdentity: (identity) => {
+        boundResponseIdentity = identity;
+      },
+    },
+  );
   expect(boundResponseIdentity).toEqual(responseIdentity);
   expect(response.status).toBe(502);
 
   const compactIdentity = { threadId: "thread_native_compact", turnId: "turn_native_compact" };
   let boundCompactIdentity: typeof compactIdentity | undefined;
-  const compact = await compactRequest(new Request("http://127.0.0.1/v1/responses/compact", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-codex-turn-metadata": JSON.stringify({
-        thread_id: compactIdentity.threadId,
-        turn_id: compactIdentity.turnId,
-      }),
+  const compact = await compactRequest(
+    new Request("http://127.0.0.1/v1/responses/compact", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-codex-turn-metadata": JSON.stringify({
+          thread_id: compactIdentity.threadId,
+          turn_id: compactIdentity.turnId,
+        }),
+      },
+      body: JSON.stringify({ model: "gpt-5.6-sol", input: [] }),
+    }),
+    config,
+    undefined,
+    {
+      onTurnIdentity: (identity) => {
+        boundCompactIdentity = identity;
+      },
     },
-    body: JSON.stringify({ model: "gpt-5.6-sol", input: [] }),
-  }), config, undefined, {
-    onTurnIdentity: identity => { boundCompactIdentity = identity; },
-  });
+  );
   expect(boundCompactIdentity).toEqual(compactIdentity);
   expect(compact.status).toBe(502);
 });
@@ -403,28 +476,45 @@ test("authenticated Interrupt hook endpoint releases the exact routed Web turn",
   let adapterAborted = false;
   let browserAborted = false;
   let rejectBrowser!: (error: Error) => void;
-  const browser = new Promise<string>((_resolve, reject) => { rejectBrowser = reject; });
+  const browser = new Promise<string>((_resolve, reject) => {
+    rejectBrowser = reject;
+  });
   chatGptTurnSessions.clear();
-  chatGptTurnSessions.getOrCreate("interrupt-hook-browser", () => ({
-    mode: "read-only",
-    browser,
-    physicalSettlement: browser.then(() => undefined, () => undefined),
-    trace: new ChatGptTraceFeed(),
-    text: new ChatGptTextFeed(),
-    cancel: reason => {
-      browserAborted = true;
-      rejectBrowser(reason ?? new Error("native turn interrupted"));
-    },
-  }), "interrupt-hook-trace", "interrupt-hook-owner", turnId, threadId);
+  chatGptTurnSessions.getOrCreate(
+    "interrupt-hook-browser",
+    () => ({
+      mode: "read-only",
+      browser,
+      physicalSettlement: browser.then(
+        () => undefined,
+        () => undefined,
+      ),
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: (reason) => {
+        browserAborted = true;
+        rejectBrowser(reason ?? new Error("native turn interrupted"));
+      },
+    }),
+    "interrupt-hook-trace",
+    "interrupt-hook-owner",
+    turnId,
+    threadId,
+  );
   const server = startServer(config, {
     adapterFactory: () => ({
       name: "interrupt-test",
-      runTurn: (_parsed, incoming) => new Promise<void>((_resolve, reject) => {
-        incoming.abortSignal!.addEventListener("abort", () => {
-          adapterAborted = true;
-          reject(incoming.abortSignal!.reason);
-        }, { once: true });
-      }),
+      runTurn: (_parsed, incoming) =>
+        new Promise<void>((_resolve, reject) => {
+          incoming.abortSignal!.addEventListener(
+            "abort",
+            () => {
+              adapterAborted = true;
+              reject(incoming.abortSignal!.reason);
+            },
+            { once: true },
+          );
+        }),
     }),
   });
   const endpoint = `http://127.0.0.1:${server.port}`;
@@ -437,12 +527,14 @@ test("authenticated Interrupt hook endpoint releases the exact routed Web turn",
       client_metadata: {
         "x-codex-turn-metadata": JSON.stringify({ thread_id: threadId, turn_id: turnId }),
       },
-      input: [{
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "wait until interrupted" }],
-        internal_chat_message_metadata_passthrough: { turn_id: turnId },
-      }],
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "wait until interrupted" }],
+          internal_chat_message_metadata_passthrough: { turn_id: turnId },
+        },
+      ],
     }),
   });
 
@@ -450,7 +542,8 @@ test("authenticated Interrupt hook endpoint releases the exact routed Web turn",
     const deadline = Date.now() + 1_000;
     let activeHttpTurns = 0;
     while (Date.now() < deadline && activeHttpTurns !== 1) {
-      activeHttpTurns = (await (await fetch(`${endpoint}/healthz`)).json() as { active_http_turns: number }).active_http_turns;
+      activeHttpTurns = ((await (await fetch(`${endpoint}/healthz`)).json()) as { active_http_turns: number })
+        .active_http_turns;
       if (activeHttpTurns !== 1) await Bun.sleep(5);
     }
     expect(activeHttpTurns).toBe(1);
@@ -486,12 +579,17 @@ test("authenticated Interrupt hook endpoint also releases the exact native compa
   const server = startServer(config, {
     adapterFactory: () => ({
       name: "interrupt-compact-test",
-      runTurn: (_parsed, incoming) => new Promise<void>((_resolve, reject) => {
-        incoming.abortSignal!.addEventListener("abort", () => {
-          adapterAborted = true;
-          reject(incoming.abortSignal!.reason);
-        }, { once: true });
-      }),
+      runTurn: (_parsed, incoming) =>
+        new Promise<void>((_resolve, reject) => {
+          incoming.abortSignal!.addEventListener(
+            "abort",
+            () => {
+              adapterAborted = true;
+              reject(incoming.abortSignal!.reason);
+            },
+            { once: true },
+          );
+        }),
     }),
   });
   const endpoint = `http://127.0.0.1:${server.port}`;
@@ -511,7 +609,8 @@ test("authenticated Interrupt hook endpoint also releases the exact native compa
     const deadline = Date.now() + 1_000;
     let activeHttpTurns = 0;
     while (Date.now() < deadline && activeHttpTurns !== 1) {
-      activeHttpTurns = (await (await fetch(`${endpoint}/healthz`)).json() as { active_http_turns: number }).active_http_turns;
+      activeHttpTurns = ((await (await fetch(`${endpoint}/healthz`)).json()) as { active_http_turns: number })
+        .active_http_turns;
       if (activeHttpTurns !== 1) await Bun.sleep(5);
     }
     expect(activeHttpTurns).toBe(1);
@@ -542,18 +641,29 @@ test("Interrupt acknowledges after exact browser cancellation starts without wai
   const threadId = "thread_interrupt_slow_cleanup";
   const turnId = "turn_interrupt_slow_cleanup";
   let resolvePhysical!: () => void;
-  const physicalSettlement = new Promise<void>(resolve => { resolvePhysical = resolve; });
+  const physicalSettlement = new Promise<void>((resolve) => {
+    resolvePhysical = resolve;
+  });
   let cancelled = false;
   let replacementStarted = false;
   chatGptTurnSessions.clear();
-  chatGptTurnSessions.getOrCreate("slow-cleanup", () => ({
-    mode: "read-only",
-    browser: new Promise<string>(() => {}),
-    physicalSettlement,
-    trace: new ChatGptTraceFeed(),
-    text: new ChatGptTextFeed(),
-    cancel: () => { cancelled = true; },
-  }), "slow-cleanup-trace", "slow-cleanup-owner", turnId, threadId);
+  chatGptTurnSessions.getOrCreate(
+    "slow-cleanup",
+    () => ({
+      mode: "read-only",
+      browser: new Promise<string>(() => {}),
+      physicalSettlement,
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: () => {
+        cancelled = true;
+      },
+    }),
+    "slow-cleanup-trace",
+    "slow-cleanup-owner",
+    turnId,
+    threadId,
+  );
   const server = startServer(config);
 
   try {
@@ -607,17 +717,28 @@ test("Interrupt retires a logically complete browser turn whose helper is still 
   const threadId = "thread_interrupt_logical_complete";
   const turnId = "turn_interrupt_logical_complete";
   let resolvePhysical!: () => void;
-  const physicalSettlement = new Promise<void>(resolve => { resolvePhysical = resolve; });
+  const physicalSettlement = new Promise<void>((resolve) => {
+    resolvePhysical = resolve;
+  });
   let cancelled = false;
   chatGptTurnSessions.clear();
-  const session = chatGptTurnSessions.getOrCreate("logical-complete", () => ({
-    mode: "read-only",
-    browser: Promise.resolve("complete"),
-    physicalSettlement,
-    trace: new ChatGptTraceFeed(),
-    text: new ChatGptTextFeed(),
-    cancel: () => { cancelled = true; },
-  }), "logical-complete-trace", "logical-complete-owner", turnId, threadId);
+  const session = chatGptTurnSessions.getOrCreate(
+    "logical-complete",
+    () => ({
+      mode: "read-only",
+      browser: Promise.resolve("complete"),
+      physicalSettlement,
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: () => {
+        cancelled = true;
+      },
+    }),
+    "logical-complete-trace",
+    "logical-complete-owner",
+    turnId,
+    threadId,
+  );
   await session.browserOutcome;
   expect(session.isActive()).toBeFalse();
   expect(session.isPhysicallySettled()).toBeFalse();
@@ -658,12 +779,17 @@ test("Interrupt cancels a detached structured compaction by exact native turn id
       nativeThreadId: threadId,
       nativeTurnId: turnId,
     },
-    signal => new Promise<string>((_resolve, reject) => {
-      signal.addEventListener("abort", () => {
-        aborted = true;
-        reject(signal.reason);
-      }, { once: true });
-    }),
+    (signal) =>
+      new Promise<string>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      }),
   );
   const server = startServer(config);
 
@@ -699,7 +825,9 @@ test("authenticated lifecycle control cancels orphaned browser turns", async () 
     physicalSettlement: Promise.resolve(),
     trace: new ChatGptTraceFeed(),
     text: new ChatGptTextFeed(),
-    cancel: () => { cancelled += 1; },
+    cancel: () => {
+      cancelled += 1;
+    },
   }));
 
   try {
@@ -731,74 +859,102 @@ test("authenticated lifecycle control cancels orphaned browser turns", async () 
 });
 
 for (const reason of [undefined, "browser_surface_bootstrap_timeout", "helper_heartbeat_expired"] as const)
-test(`targeted cancellation preserves peer turns and its cause: ${reason ?? "user close"}`, async () => {
-  const config = { ...defaultConfig("browser-only"), port: 0 };
-  const server = startServer(config);
-  chatGptTurnSessions.clear();
-  let rejectTarget!: (error: Error) => void;
-  let targetCancelled = 0;
-  let otherCancelled = 0;
-  const targetBrowser = new Promise<string>((_resolve, reject) => { rejectTarget = reject; });
-  let releaseHelper!: () => void;
-  const helperCleanup = new Promise<void>(resolve => { releaseHelper = resolve; });
-  const target = chatGptTurnSessions.getOrCreate("target-key", () => ({
-    mode: "read-only",
-    browser: targetBrowser,
-    physicalSettlement: reason ? targetBrowser.then(() => undefined, () => undefined) : helperCleanup,
-    trace: new ChatGptTraceFeed(),
-    text: new ChatGptTextFeed(),
-    cancel: reason => {
-      targetCancelled += 1;
-      rejectTarget(reason ?? new Error("tab closed"));
-    },
-  }), "trace_target");
-  chatGptTurnSessions.getOrCreate("other-key", () => ({
-    mode: "read-only",
-    browser: new Promise<string>(() => {}),
-    physicalSettlement: Promise.resolve(),
-    trace: new ChatGptTraceFeed(),
-    text: new ChatGptTextFeed(),
-    cancel: () => { otherCancelled += 1; },
-  }), "trace_other");
-
-  try {
-    const unauthorized = await fetch(`http://127.0.0.1:${server.port}/admin/cancel-turn`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: "Bearer invalid" },
-      body: JSON.stringify({ traceId: "trace_target", ...(reason ? { reason } : {}) }),
-    });
-    expect(unauthorized.status).toBe(401);
-
-    const response = await fetch(`http://127.0.0.1:${server.port}/admin/cancel-turn`, {
-      method: "POST",
-      signal: AbortSignal.timeout(1_000),
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.controlToken}`,
-      },
-      body: JSON.stringify({ traceId: "trace_target", ...(reason ? { reason } : {}) }),
-    });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      status: "ok",
-      trace_id: "trace_target",
-      cancelled_browser_turns: 1,
-      cancelled_broker_turns: 0,
-      // The receipt acknowledges cancellation before the browser's promise microtasks settle.
-      active_browser_turns: reason ? 1 : 2,
-    });
-    expect(targetCancelled).toBe(1);
-    expect(otherCancelled).toBe(0);
-    expect(target.settledOutcome()).toMatchObject({ type: "error", error: { code: reason ?? "client_cancelled", retryable: false } });
-    expect(chatGptTurnSessions.getOrCreate("target-key", () => {
-      throw new Error("cancelled trace must remain terminal");
-    }, "trace_target")).toBe(target);
-  } finally {
-    releaseHelper();
+  test(`targeted cancellation preserves peer turns and its cause: ${reason ?? "user close"}`, async () => {
+    const config = { ...defaultConfig("browser-only"), port: 0 };
+    const server = startServer(config);
     chatGptTurnSessions.clear();
-    await server.stop(true);
-  }
-});
+    let rejectTarget!: (error: Error) => void;
+    let targetCancelled = 0;
+    let otherCancelled = 0;
+    const targetBrowser = new Promise<string>((_resolve, reject) => {
+      rejectTarget = reject;
+    });
+    let releaseHelper!: () => void;
+    const helperCleanup = new Promise<void>((resolve) => {
+      releaseHelper = resolve;
+    });
+    const target = chatGptTurnSessions.getOrCreate(
+      "target-key",
+      () => ({
+        mode: "read-only",
+        browser: targetBrowser,
+        physicalSettlement: reason
+          ? targetBrowser.then(
+              () => undefined,
+              () => undefined,
+            )
+          : helperCleanup,
+        trace: new ChatGptTraceFeed(),
+        text: new ChatGptTextFeed(),
+        cancel: (reason) => {
+          targetCancelled += 1;
+          rejectTarget(reason ?? new Error("tab closed"));
+        },
+      }),
+      "trace_target",
+    );
+    chatGptTurnSessions.getOrCreate(
+      "other-key",
+      () => ({
+        mode: "read-only",
+        browser: new Promise<string>(() => {}),
+        physicalSettlement: Promise.resolve(),
+        trace: new ChatGptTraceFeed(),
+        text: new ChatGptTextFeed(),
+        cancel: () => {
+          otherCancelled += 1;
+        },
+      }),
+      "trace_other",
+    );
+
+    try {
+      const unauthorized = await fetch(`http://127.0.0.1:${server.port}/admin/cancel-turn`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer invalid" },
+        body: JSON.stringify({ traceId: "trace_target", ...(reason ? { reason } : {}) }),
+      });
+      expect(unauthorized.status).toBe(401);
+
+      const response = await fetch(`http://127.0.0.1:${server.port}/admin/cancel-turn`, {
+        method: "POST",
+        signal: AbortSignal.timeout(1_000),
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.controlToken}`,
+        },
+        body: JSON.stringify({ traceId: "trace_target", ...(reason ? { reason } : {}) }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        status: "ok",
+        trace_id: "trace_target",
+        cancelled_browser_turns: 1,
+        cancelled_broker_turns: 0,
+        // The receipt acknowledges cancellation before the browser's promise microtasks settle.
+        active_browser_turns: reason ? 1 : 2,
+      });
+      expect(targetCancelled).toBe(1);
+      expect(otherCancelled).toBe(0);
+      expect(target.settledOutcome()).toMatchObject({
+        type: "error",
+        error: { code: reason ?? "client_cancelled", retryable: false },
+      });
+      expect(
+        chatGptTurnSessions.getOrCreate(
+          "target-key",
+          () => {
+            throw new Error("cancelled trace must remain terminal");
+          },
+          "trace_target",
+        ),
+      ).toBe(target);
+    } finally {
+      releaseHelper();
+      chatGptTurnSessions.clear();
+      await server.stop(true);
+    }
+  });
 
 test("authenticated targeted cancellation aborts a shared structured compaction owner", async () => {
   const config = { ...defaultConfig("browser-only"), port: 0 };
@@ -809,12 +965,17 @@ test("authenticated targeted cancellation aborts a shared structured compaction 
   const run = runStructuredCompactionOnce(
     `structured-${Date.now()}-${Math.random()}`,
     { ownerKey: `owner-${traceId}`, traceIds: [handoffTraceId, traceId] },
-    signal => new Promise<string>((_resolve, reject) => {
-      signal.addEventListener("abort", () => {
-        aborted = true;
-        reject(signal.reason);
-      }, { once: true });
-    }),
+    (signal) =>
+      new Promise<string>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      }),
   );
 
   try {
@@ -848,12 +1009,17 @@ test("authenticated cancel-all aborts fresh structured compaction work", async (
   const run = runStructuredCompactionOnce(
     key,
     { ownerKey: `owner-${key}`, traceIds: [`trace-${key}`] },
-    signal => new Promise<string>((_resolve, reject) => {
-      signal.addEventListener("abort", () => {
-        aborted = true;
-        reject(signal.reason);
-      }, { once: true });
-    }),
+    (signal) =>
+      new Promise<string>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      }),
   );
 
   try {
@@ -886,40 +1052,55 @@ test("a Codex retry after tab cancellation receives terminal HTTP 400 without a 
         turn_id: turnId,
       }),
     },
-    input: [{
-      type: "message",
-      role: "user",
-      content: [{ type: "input_text", text: "Run until the browser tab is closed" }],
-      internal_chat_message_metadata_passthrough: { turn_id: turnId },
-    }],
+    input: [
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Run until the browser tab is closed" }],
+        internal_chat_message_metadata_passthrough: { turn_id: turnId },
+      },
+    ],
   };
   const parsed = parseRequest(body);
   routeChatGptWebRequest(parsed, config);
   const traceId = chatGptWebTraceId(providerConfig(config), parsed);
   let rejectBrowser!: (error: Error) => void;
   chatGptTurnSessions.clear();
-  const cancelledBrowser = new Promise<string>((_resolve, reject) => { rejectBrowser = reject; });
-  chatGptTurnSessions.getOrCreate("cancelled-replay", () => ({
-    mode: "read-only",
-    browser: cancelledBrowser,
-    physicalSettlement: cancelledBrowser.then(() => undefined, () => undefined),
-    trace: new ChatGptTraceFeed(),
-    text: new ChatGptTextFeed(),
-    cancel: reason => rejectBrowser(reason ?? new Error("cancelled")),
-  }), traceId);
+  const cancelledBrowser = new Promise<string>((_resolve, reject) => {
+    rejectBrowser = reject;
+  });
+  chatGptTurnSessions.getOrCreate(
+    "cancelled-replay",
+    () => ({
+      mode: "read-only",
+      browser: cancelledBrowser,
+      physicalSettlement: cancelledBrowser.then(
+        () => undefined,
+        () => undefined,
+      ),
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: (reason) => rejectBrowser(reason ?? new Error("cancelled")),
+    }),
+    traceId,
+  );
 
   try {
     expect(await chatGptTurnSessions.cancelTrace(traceId)).toBe(1);
     expect(chatGptTurnSessions.cancelledError(traceId)?.message).toContain("Codex turn was cancelled");
     let adapterConstructions = 0;
-    const response = await responseRequest(new Request("http://127.0.0.1:17841/v1/responses", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }), config, () => {
-      adapterConstructions += 1;
-      throw new Error("cancelled turn must not construct a new browser adapter");
-    });
+    const response = await responseRequest(
+      new Request("http://127.0.0.1:17841/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      config,
+      () => {
+        adapterConstructions += 1;
+        throw new Error("cancelled turn must not construct a new browser adapter");
+      },
+    );
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
@@ -965,14 +1146,18 @@ test("a restart recovery turn without a new user instruction fails terminally in
   };
   let adapterConstructions = 0;
 
-  const response = await responseRequest(new Request("http://127.0.0.1:17841/v1/responses", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), config, () => {
-    adapterConstructions += 1;
-    throw new Error("a context-only recovery turn must not construct a browser adapter");
-  });
+  const response = await responseRequest(
+    new Request("http://127.0.0.1:17841/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    config,
+    () => {
+      adapterConstructions += 1;
+      throw new Error("a context-only recovery turn must not construct a browser adapter");
+    },
+  );
 
   expect(response.status).toBe(400);
   expect(await response.json()).toEqual({
@@ -985,56 +1170,64 @@ test("a restart recovery turn without a new user instruction fails terminally in
   expect(adapterConstructions).toBe(0);
 });
 
-test.each(["alpha/search", "images/generations"])("authenticated lifecycle control aborts active %s before acknowledging cancellation", async path => {
-  const config = { ...defaultConfig("browser-only"), port: 0 };
-  let upstreamAbortObserved = false;
-  const server = startServer(config, {
-    fetchUpstream: request => new Promise<Response>((_resolve, reject) => {
-      request.signal.addEventListener("abort", () => {
-        upstreamAbortObserved = true;
-        reject(request.signal.reason);
-      }, { once: true });
-    }),
-  });
-  const endpoint = `http://127.0.0.1:${server.port}`;
-  const activeRequest = fetch(`${endpoint}/v1/${path}`, {
-    method: "POST",
-    headers: {
-      authorization: "Bearer test-codex-session",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(path === "alpha/search"
-      ? { query: "retained turn" }
-      : { model: "gpt-image-1", prompt: "A blue square" }),
-  }).catch(() => null);
-
-  try {
-    const deadline = Date.now() + 1_000;
-    let activeHttpTurns = 0;
-    while (Date.now() < deadline && activeHttpTurns !== 1) {
-      const health = await (await fetch(`${endpoint}/healthz`)).json() as { active_http_turns: number };
-      activeHttpTurns = health.active_http_turns;
-      if (activeHttpTurns !== 1) await Bun.sleep(5);
-    }
-    expect(activeHttpTurns).toBe(1);
-
-    const cancelled = await fetch(`${endpoint}/admin/cancel-turns`, {
+test.each(["alpha/search", "images/generations"])(
+  "authenticated lifecycle control aborts active %s before acknowledging cancellation",
+  async (path) => {
+    const config = { ...defaultConfig("browser-only"), port: 0 };
+    let upstreamAbortObserved = false;
+    const server = startServer(config, {
+      fetchUpstream: (request) =>
+        new Promise<Response>((_resolve, reject) => {
+          request.signal.addEventListener(
+            "abort",
+            () => {
+              upstreamAbortObserved = true;
+              reject(request.signal.reason);
+            },
+            { once: true },
+          );
+        }),
+    });
+    const endpoint = `http://127.0.0.1:${server.port}`;
+    const activeRequest = fetch(`${endpoint}/v1/${path}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.controlToken}` },
-    });
-    expect(cancelled.status).toBe(200);
-    expect(await cancelled.json()).toMatchObject({
-      status: "ok",
-      cancelled_http_turns: 1,
-      active_http_turns: 0,
-      active_browser_turns: 0,
-    });
-    expect(upstreamAbortObserved).toBe(true);
-    await activeRequest;
-  } finally {
-    await server.stop(true);
-  }
-});
+      headers: {
+        authorization: "Bearer test-codex-session",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(
+        path === "alpha/search" ? { query: "retained turn" } : { model: "gpt-image-1", prompt: "A blue square" },
+      ),
+    }).catch(() => null);
+
+    try {
+      const deadline = Date.now() + 1_000;
+      let activeHttpTurns = 0;
+      while (Date.now() < deadline && activeHttpTurns !== 1) {
+        const health = (await (await fetch(`${endpoint}/healthz`)).json()) as { active_http_turns: number };
+        activeHttpTurns = health.active_http_turns;
+        if (activeHttpTurns !== 1) await Bun.sleep(5);
+      }
+      expect(activeHttpTurns).toBe(1);
+
+      const cancelled = await fetch(`${endpoint}/admin/cancel-turns`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${config.controlToken}` },
+      });
+      expect(cancelled.status).toBe(200);
+      expect(await cancelled.json()).toMatchObject({
+        status: "ok",
+        cancelled_http_turns: 1,
+        active_http_turns: 0,
+        active_browser_turns: 0,
+      });
+      expect(upstreamAbortObserved).toBe(true);
+      await activeRequest;
+    } finally {
+      await server.stop(true);
+    }
+  },
+);
 
 test("a full-mode runtime exposes its broker endpoint before any turn registers", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-serve-"));
@@ -1085,7 +1278,7 @@ test("lifecycle drain and cancellation include browser turns owned by the extern
     const token = await remote.register(environment, 60_000, "dev-lifecycle");
     const waiting = remote.nextToolBatch(token).then(
       () => "resolved",
-      error => error instanceof Error ? error.message : String(error),
+      (error) => (error instanceof Error ? error.message : String(error)),
     );
 
     const drain = await fetch(`${endpoint}/admin/drain`, { method: "POST", headers: authorization });
@@ -1140,16 +1333,19 @@ test("a drained runtime rejects new model-catalog work before shutdown", async (
 test("health proves that Codex received a successful augmented model catalog", async () => {
   const config = { ...defaultConfig("browser-only"), port: 0 };
   const server = startServer(config, {
-    fetchUpstream: async () => Response.json({
-      models: [{
-        slug: "gpt-5.6-sol",
-        display_name: "5.6 Sol",
-        visibility: "list",
-        supported_in_api: true,
-        supported_reasoning_levels: [],
-        tool_mode: "code_mode_only",
-      }],
-    }),
+    fetchUpstream: async () =>
+      Response.json({
+        models: [
+          {
+            slug: "gpt-5.6-sol",
+            display_name: "5.6 Sol",
+            visibility: "list",
+            supported_in_api: true,
+            supported_reasoning_levels: [],
+            tool_mode: "code_mode_only",
+          },
+        ],
+      }),
   });
   const endpoint = `http://127.0.0.1:${server.port}`;
   try {
@@ -1163,7 +1359,7 @@ test("health proves that Codex received a successful augmented model catalog", a
     });
     expect(models.status).toBe(200);
 
-    const health = await (await fetch(`${endpoint}/healthz`)).json() as Record<string, unknown>;
+    const health = (await (await fetch(`${endpoint}/healthz`)).json()) as Record<string, unknown>;
     expect(health.successful_model_catalog_requests).toBe(1);
     expect(typeof health.last_successful_model_catalog_request_at).toBe("string");
   } finally {
@@ -1175,7 +1371,7 @@ test("server exposes authenticated standalone Web Search on the routed v1 base U
   const config = { ...defaultConfig("browser-only"), port: 0 };
   let upstreamRequest: Request | undefined;
   const server = startServer(config, {
-    fetchUpstream: async request => {
+    fetchUpstream: async (request) => {
       upstreamRequest = request;
       return Response.json({ results: ["native-search-result"] });
     },
@@ -1208,19 +1404,20 @@ test("standalone native image generation and edits preserve their upstream proto
   const denied = '{ "error": { "code": "rate_limit_exceeded", "message": "Image allowance reached" } }';
   const upstreamServer = Bun.serve({
     port: 0,
-    fetch: request => {
+    fetch: (request) => {
       const edit = new URL(request.url).pathname.endsWith("/edits");
       return new Response(Bun.gzipSync(edit ? denied : reply), {
         status: edit ? 429 : 200,
         headers: {
-          "content-type": "application/json", "content-encoding": "gzip",
+          "content-type": "application/json",
+          "content-encoding": "gzip",
           "x-codex-imagegen-request-id": "native-image-request",
         },
       });
     },
   });
   const server = startServer(config, {
-    fetchUpstream: async request => {
+    fetchUpstream: async (request) => {
       requests.push(request);
       const path = new URL(request.url).pathname;
       return fetch(new Request(`http://127.0.0.1:${upstreamServer.port}${path}`, request.clone()));
@@ -1229,9 +1426,10 @@ test("standalone native image generation and edits preserve their upstream proto
   const endpoint = `http://127.0.0.1:${server.port}`;
   try {
     for (const operation of ["generations", "edits"] as const) {
-      const body = operation === "generations"
-        ? '{ "model": "gpt-image-1", "prompt": "A blue square", "n": 1 }'
-        : '{ "model": "gpt-image-1", "prompt": "Make it green", "images": [{ "image_url": "data:image/png;base64,AAAA" }] }';
+      const body =
+        operation === "generations"
+          ? '{ "model": "gpt-image-1", "prompt": "A blue square", "n": 1 }'
+          : '{ "model": "gpt-image-1", "prompt": "Make it green", "images": [{ "image_url": "data:image/png;base64,AAAA" }] }';
       const response = await fetch(`${endpoint}/v1/images/${operation}?fixture=1`, {
         method: "POST",
         headers: {
@@ -1261,10 +1459,13 @@ test("standalone native image generation and edits preserve their upstream proto
     expect(unauthorized.status).toBe(401);
     expect(requests).toHaveLength(2);
     await fetch(`${endpoint}/admin/drain`, {
-      method: "POST", headers: { authorization: `Bearer ${config.controlToken}` },
+      method: "POST",
+      headers: { authorization: `Bearer ${config.controlToken}` },
     });
     const drained = await fetch(`${endpoint}/v1/images/edits`, {
-      method: "POST", headers: { authorization: "Bearer test-codex-session" }, body: "{}",
+      method: "POST",
+      headers: { authorization: "Bearer test-codex-session" },
+      body: "{}",
     });
     expect(drained.status).toBe(503);
     expect(requests).toHaveLength(2);
@@ -1329,16 +1530,20 @@ test("authenticated shutdown requires a verified idle drain", async () => {
 
 test("model catalog health distinguishes no request, transport failure, upstream denial, and recovery without secrets", async () => {
   let outcome: "transport" | "denied" | "invalid" | "ready" = "transport";
-  const server = startServer({ ...defaultConfig("browser-only"), port: 0 }, {
-    fetchUpstream: async () => {
-      if (outcome === "transport") throw Object.assign(new Error("private proxy credentials and host"), { code: "UnsupportedProxyProtocol" });
-      if (outcome === "denied") return new Response("private upstream account detail", { status: 403 });
-      if (outcome === "invalid") return Response.json({ models: [] });
-      return Response.json({ models: [{ slug: "native", visibility: "list", supported_reasoning_levels: [] }] });
+  const server = startServer(
+    { ...defaultConfig("browser-only"), port: 0 },
+    {
+      fetchUpstream: async () => {
+        if (outcome === "transport")
+          throw Object.assign(new Error("private proxy credentials and host"), { code: "UnsupportedProxyProtocol" });
+        if (outcome === "denied") return new Response("private upstream account detail", { status: 403 });
+        if (outcome === "invalid") return Response.json({ models: [] });
+        return Response.json({ models: [{ slug: "native", visibility: "list", supported_reasoning_levels: [] }] });
+      },
     },
-  });
+  );
   const base = `http://127.0.0.1:${server.port}`;
-  const health = async () => await (await fetch(`${base}/healthz`)).json() as Record<string, any>;
+  const health = async () => (await (await fetch(`${base}/healthz`)).json()) as Record<string, any>;
   try {
     expect(await health()).toMatchObject({ model_catalog_requests: 0, last_model_catalog_result: null });
     const unauthenticated = await fetch(`${base}/v1/models`);
@@ -1346,7 +1551,10 @@ test("model catalog health distinguishes no request, transport failure, upstream
     await unauthenticated.text();
     expect((await health()).last_model_catalog_result.failure.stage).toBe("request");
     for (const [next, status, stage] of [
-      ["transport", 502, "transport"], ["denied", 403, "upstream"], ["invalid", 502, "catalog"], ["ready", 200, undefined],
+      ["transport", 502, "transport"],
+      ["denied", 403, "upstream"],
+      ["invalid", 502, "catalog"],
+      ["ready", 200, undefined],
     ] as const) {
       outcome = next;
       const response = await fetch(`${base}/v1/models`, { headers: { authorization: "Bearer private-session-token" } });
@@ -1355,7 +1563,8 @@ test("model catalog health distinguishes no request, transport failure, upstream
       const snapshot = await health();
       expect(snapshot.last_model_catalog_result).toMatchObject({ status });
       expect(snapshot.last_model_catalog_result.failure?.stage).toBe(stage);
-      if (next === "transport") expect(snapshot.last_model_catalog_result.failure.code).toBe("UnsupportedProxyProtocol");
+      if (next === "transport")
+        expect(snapshot.last_model_catalog_result.failure.code).toBe("UnsupportedProxyProtocol");
       expect(JSON.stringify(snapshot)).not.toContain("private");
       expect(snapshot.successful_model_catalog_requests).toBe(next === "ready" ? 1 : 0);
     }

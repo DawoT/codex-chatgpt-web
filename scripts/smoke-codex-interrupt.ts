@@ -1,15 +1,11 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { extractChatGptTurnIdentity } from "../src/adapters/chatgpt-web/environment";
-import {
-  ChatGptTextFeed,
-  ChatGptTraceFeed,
-  chatGptTurnSessions,
-} from "../src/adapters/chatgpt-web/turn-execution";
-import { defaultConfig, saveConfig } from "../src/config";
+import { ChatGptTextFeed, ChatGptTraceFeed, chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
 import { installCodexIntegration } from "../src/codex-integration";
+import { defaultConfig, saveConfig } from "../src/config";
 import { startServer } from "../src/server";
 
 const codex = resolve(process.argv[2] ?? "/Applications/ChatGPT.app/Contents/Resources/codex");
@@ -39,46 +35,54 @@ chatGptTurnSessions.clear();
 const config = { ...defaultConfig("browser-only"), port: 0, subagentProtocol: "native" as const };
 config.runtimeCommand = [resolve(process.execPath), resolve("src/cli.ts")];
 const server = startServer(config, {
-  fetchUpstream: async request => {
+  fetchUpstream: async (request) => {
     if (new URL(request.url).pathname.endsWith("/models")) return Response.json(nativeCatalog);
     return new Response("Unexpected native request", { status: 500 });
   },
   adapterFactory: () => ({
     name: "interrupt-smoke",
-    runTurn: (parsed, incoming) => new Promise<void>((_resolve, reject) => {
-      adapterStarted = true;
-      const identity = extractChatGptTurnIdentity(parsed);
-      if (!identity.threadId || !identity.turnId) {
-        reject(new Error("Routed smoke turn has no native Codex identity"));
-        return;
-      }
-      let rejectBrowser!: (error: Error) => void;
-      const browser = new Promise<string>((_resolveBrowser, rejectBrowserPromise) => {
-        rejectBrowser = rejectBrowserPromise;
-      });
-      chatGptTurnSessions.getOrCreate(
-        `interrupt-smoke:${identity.threadId}:${identity.turnId}`,
-        () => ({
-          mode: "read-only",
-          browser,
-          physicalSettlement: browser.then(() => undefined, () => undefined),
-          trace: new ChatGptTraceFeed(),
-          text: new ChatGptTextFeed(),
-          cancel: reason => {
-            browserAborted = true;
-            rejectBrowser(reason ?? new Error("native turn interrupted"));
+    runTurn: (parsed, incoming) =>
+      new Promise<void>((_resolve, reject) => {
+        adapterStarted = true;
+        const identity = extractChatGptTurnIdentity(parsed);
+        if (!identity.threadId || !identity.turnId) {
+          reject(new Error("Routed smoke turn has no native Codex identity"));
+          return;
+        }
+        let rejectBrowser!: (error: Error) => void;
+        const browser = new Promise<string>((_resolveBrowser, rejectBrowserPromise) => {
+          rejectBrowser = rejectBrowserPromise;
+        });
+        chatGptTurnSessions.getOrCreate(
+          `interrupt-smoke:${identity.threadId}:${identity.turnId}`,
+          () => ({
+            mode: "read-only",
+            browser,
+            physicalSettlement: browser.then(
+              () => undefined,
+              () => undefined,
+            ),
+            trace: new ChatGptTraceFeed(),
+            text: new ChatGptTextFeed(),
+            cancel: (reason) => {
+              browserAborted = true;
+              rejectBrowser(reason ?? new Error("native turn interrupted"));
+            },
+          }),
+          "interrupt-smoke",
+          `interrupt-smoke-owner:${identity.threadId}`,
+          identity.turnId,
+          identity.threadId,
+        );
+        incoming.abortSignal!.addEventListener(
+          "abort",
+          () => {
+            adapterAborted = true;
+            reject(incoming.abortSignal!.reason);
           },
-        }),
-        "interrupt-smoke",
-        `interrupt-smoke-owner:${identity.threadId}`,
-        identity.turnId,
-        identity.threadId,
-      );
-      incoming.abortSignal!.addEventListener("abort", () => {
-        adapterAborted = true;
-        reject(incoming.abortSignal!.reason);
-      }, { once: true });
-    }),
+          { once: true },
+        );
+      }),
   }),
 });
 if (server.port === undefined) throw new Error("Interrupt smoke server did not bind a port");
@@ -138,7 +142,8 @@ class AppServerClient {
             const waiting = this.pending.get(message.id);
             if (!waiting) continue;
             this.pending.delete(message.id);
-            if (message.error) waiting.reject(new Error(`${message.error.code ?? "RPC"}: ${message.error.message ?? "unknown error"}`));
+            if (message.error)
+              waiting.reject(new Error(`${message.error.code ?? "RPC"}: ${message.error.message ?? "unknown error"}`));
             else waiting.resolve(message.result);
           } else if (message.method) {
             this.notifications.push(message);
@@ -169,7 +174,7 @@ class AppServerClient {
   async waitForNotification(method: string, predicate: (message: any) => boolean, timeoutMs = 5_000): Promise<any> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const index = this.notifications.findIndex(message => message.method === method && predicate(message));
+      const index = this.notifications.findIndex((message) => message.method === method && predicate(message));
       if (index >= 0) return this.notifications.splice(index, 1)[0];
       await Bun.sleep(10);
     }
@@ -196,7 +201,8 @@ try {
   const hookList = await client.request("hooks/list", { cwds: [root] });
   const hooks = Array.isArray(hookList?.data) ? hookList.data.flatMap((entry: any) => entry.hooks ?? []) : [];
   const installedHook = hooks.find((hook: any) => hook.command === journal.interruptHook.command);
-  if (!installedHook) throw new Error(`Codex did not discover the installed Interrupt hook: ${JSON.stringify(hookList)}`);
+  if (!installedHook)
+    throw new Error(`Codex did not discover the installed Interrupt hook: ${JSON.stringify(hookList)}`);
   if (installedHook.currentHash !== journal.interruptHook.trustedHash || installedHook.trustStatus !== "trusted") {
     throw new Error(`Codex did not trust the exact installed Interrupt hook: ${JSON.stringify(installedHook)}`);
   }
@@ -221,7 +227,7 @@ try {
   let activeHttpTurns = 0;
   let activeBrowserTurns = 0;
   while (Date.now() < activeDeadline && (activeHttpTurns !== 1 || activeBrowserTurns !== 1)) {
-    const health = await (await fetch(`http://${config.host}:${config.port}/healthz`)).json() as {
+    const health = (await (await fetch(`http://${config.host}:${config.port}/healthz`)).json()) as {
       active_http_turns: number;
       active_browser_turns: number;
     };
@@ -231,22 +237,23 @@ try {
   }
   if (!adapterStarted || activeHttpTurns !== 1 || activeBrowserTurns !== 1) {
     throw new Error(
-      `Routed turn did not become active: adapterStarted=${adapterStarted} `
-      + `activeHttpTurns=${activeHttpTurns} activeBrowserTurns=${activeBrowserTurns}`,
+      `Routed turn did not become active: adapterStarted=${adapterStarted} ` +
+        `activeHttpTurns=${activeHttpTurns} activeBrowserTurns=${activeBrowserTurns}`,
     );
   }
 
   await client.request("turn/interrupt", { threadId, turnId });
   await client.waitForNotification(
     "turn/completed",
-    message => message.params?.threadId === threadId
-      && message.params?.turn?.id === turnId
-      && message.params?.turn?.status === "interrupted",
+    (message) =>
+      message.params?.threadId === threadId &&
+      message.params?.turn?.id === turnId &&
+      message.params?.turn?.status === "interrupted",
   );
 
   const releasedDeadline = Date.now() + 5_000;
   do {
-    const health = await (await fetch(`http://${config.host}:${config.port}/healthz`)).json() as {
+    const health = (await (await fetch(`http://${config.host}:${config.port}/healthz`)).json()) as {
       active_http_turns: number;
       active_browser_turns: number;
     };
@@ -256,8 +263,8 @@ try {
   } while (Date.now() < releasedDeadline && (activeHttpTurns !== 0 || activeBrowserTurns !== 0));
   if (!adapterAborted || !browserAborted || activeHttpTurns !== 0 || activeBrowserTurns !== 0) {
     throw new Error(
-      `Interrupt leaked routed work: adapterAborted=${adapterAborted} browserAborted=${browserAborted} `
-      + `activeHttpTurns=${activeHttpTurns} activeBrowserTurns=${activeBrowserTurns}`,
+      `Interrupt leaked routed work: adapterAborted=${adapterAborted} browserAborted=${browserAborted} ` +
+        `activeHttpTurns=${activeHttpTurns} activeBrowserTurns=${activeBrowserTurns}`,
     );
   }
   process.stdout.write("NATIVE_CODEX_INTERRUPT_LIFECYCLE_SMOKE_OK\n");
@@ -271,6 +278,8 @@ try {
   delete process.env.CODEX_HOME;
   delete process.env.CODEX_CHATGPT_WEB_HOME;
   if (smokeError) {
-    throw new Error(`${smokeError instanceof Error ? smokeError.message : String(smokeError)}\nCodex stderr:\n${stderr.slice(-8_000)}`);
+    throw new Error(
+      `${smokeError instanceof Error ? smokeError.message : String(smokeError)}\nCodex stderr:\n${stderr.slice(-8_000)}`,
+    );
   }
 }

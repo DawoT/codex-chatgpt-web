@@ -125,7 +125,9 @@ export class SubagentConcurrencyGovernor {
       waiter.cleanup = cleanup;
 
       const onAbort = () => {
-        waiter.reject(new DOMException("Subagent execution aborted while waiting for an available browser slot", "AbortError"));
+        waiter.reject(
+          new DOMException("Subagent execution aborted while waiting for an available browser slot", "AbortError"),
+        );
       };
 
       if (signal) {
@@ -134,10 +136,12 @@ export class SubagentConcurrencyGovernor {
 
       if (waitTimeout > 0 && Number.isFinite(waitTimeout)) {
         waiter.timer = setTimeout(() => {
-          waiter.reject(new Error(
-            `Subagent concurrency limit reached (${this.maxConcurrent} active). ` +
-            `Waited ${Math.round(waitTimeout / 1000)}s for an available browser tab slot without success.`,
-          ));
+          waiter.reject(
+            new Error(
+              `Subagent concurrency limit reached (${this.maxConcurrent} active). ` +
+                `Waited ${Math.round(waitTimeout / 1000)}s for an available browser tab slot without success.`,
+            ),
+          );
         }, waitTimeout);
       }
 

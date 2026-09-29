@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
+import { chatGptNativeThreadOwnershipKey } from "../turn-execution/keys";
 import { SessionActor } from "./actor";
-import { SessionActorJournal } from "./journal";
-import { SessionResultStore } from "./results";
+import type { SessionActorJournal } from "./journal";
+import type { SessionResultStore } from "./results";
 import type { SessionAcknowledgement } from "./types";
 import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
-import { chatGptNativeThreadOwnershipKey } from "../turn-execution/keys";
 
 /** Holds only actor mailboxes; the WAL journal owns session state. */
 export class SessionActorManager {
@@ -104,17 +104,11 @@ export class SessionActorManager {
   async revokeAdmittedTurn(sessionId: string, nativeTurnId: string, traceId: string): Promise<boolean> {
     const snapshot = this.journal.snapshot(sessionId);
     if (!snapshot || snapshot.turnId !== nativeTurnId) return false;
-    return this.revokeOwner(
-      { sessionId, generation: snapshot.generation, turnId: nativeTurnId },
-      `revoke:${traceId}`,
-    );
+    return this.revokeOwner({ sessionId, generation: snapshot.generation, turnId: nativeTurnId }, `revoke:${traceId}`);
   }
 
   async revokeNativeTurn(threadId: string, nativeTurnId: string): Promise<number> {
-    const owners = this.journal.nativeTurnOwners(
-      chatGptNativeThreadOwnershipKey(threadId),
-      nativeTurnId,
-    );
+    const owners = this.journal.nativeTurnOwners(chatGptNativeThreadOwnershipKey(threadId), nativeTurnId);
     let revoked = 0;
     for (const owner of owners) {
       if (await this.revokeOwner(owner, `revoke-native:${nativeTurnId}`)) revoked += 1;
@@ -188,7 +182,10 @@ export class SessionActorManager {
     sessionId: string,
     nativeTurnId: string,
     operationId: string,
-  ): { state: "accepted"; summary: string } | { state: "prepared" | "received" | "validated" | "persisted" | "rejected" } | null {
+  ):
+    | { state: "accepted"; summary: string }
+    | { state: "prepared" | "received" | "validated" | "persisted" | "rejected" }
+    | null {
     const snapshot = this.journal.snapshot(sessionId);
     if (!snapshot) return null;
     const checkpoint = this.journal.compaction(sessionId, snapshot.generation, operationId);
@@ -201,9 +198,12 @@ export class SessionActorManager {
       throw new Error("Session actor accepted checkpoint has no durable result");
     }
     const recovered = this.results.get(checkpoint.checkpointRef);
-    if (recovered.sessionId !== sessionId || recovered.generation !== snapshot.generation
-      || recovered.turnId !== nativeTurnId
-      || recovered.operationId !== `checkpoint:${operationId}`) {
+    if (
+      recovered.sessionId !== sessionId ||
+      recovered.generation !== snapshot.generation ||
+      recovered.turnId !== nativeTurnId ||
+      recovered.operationId !== `checkpoint:${operationId}`
+    ) {
       throw new Error("Session actor checkpoint recovery identity mismatch");
     }
     return { state: "accepted", summary: recovered.text };
@@ -213,8 +213,13 @@ export class SessionActorManager {
     sessionId: string,
     nativeTurnId: string,
     operationId: string,
-    phase: "compaction_prepared" | "compaction_received" | "compaction_validated"
-      | "compaction_persisted" | "compaction_accepted" | "compaction_rejected",
+    phase:
+      | "compaction_prepared"
+      | "compaction_received"
+      | "compaction_validated"
+      | "compaction_persisted"
+      | "compaction_accepted"
+      | "compaction_rejected",
     summary?: string,
   ): Promise<SessionAcknowledgement> {
     if (!this.results) throw new Error("Session actor checkpoint result store is unavailable");
@@ -273,9 +278,13 @@ export class SessionActorManager {
         throw new Error("Session actor completed tool result has conflicting identity");
       }
       const completed = this.results.get(existing.resultRef);
-      if (completed.sessionId !== sessionId || completed.generation !== snapshot.generation
-        || completed.turnId !== nativeTurnId || completed.operationId !== operationId
-        || completed.text !== result) {
+      if (
+        completed.sessionId !== sessionId ||
+        completed.generation !== snapshot.generation ||
+        completed.turnId !== nativeTurnId ||
+        completed.operationId !== operationId ||
+        completed.text !== result
+      ) {
         throw new Error("Session actor completed tool result has conflicting identity");
       }
       return;
@@ -287,11 +296,16 @@ export class SessionActorManager {
       `tool-call:${callId}`,
     );
     const browser = this.journal.operation(sessionId, snapshot.generation, browserOperationId);
-    if (!emitted || emitted.command.parentOperationId !== browserOperationId
-      || emitted.command.turnId !== nativeTurnId
-      || emitted.command.historyRevision !== snapshot.historyRevision
-      || browser?.kind !== "browser_send" || browser.turnId !== nativeTurnId
-      || browser.historyRevision !== snapshot.historyRevision || browser.state !== "accepted") {
+    if (
+      !emitted ||
+      emitted.command.parentOperationId !== browserOperationId ||
+      emitted.command.turnId !== nativeTurnId ||
+      emitted.command.historyRevision !== snapshot.historyRevision ||
+      browser?.kind !== "browser_send" ||
+      browser.turnId !== nativeTurnId ||
+      browser.historyRevision !== snapshot.historyRevision ||
+      browser.state !== "accepted"
+    ) {
       throw new Error("Session actor tool result requires an emitted call on the accepted browser turn");
     }
     const resultRef = this.results.put({
@@ -302,23 +316,26 @@ export class SessionActorManager {
       text: result,
     });
     const actor = this.actor(sessionId);
-    const launched = await actor.launch({
-      protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
-      sessionId,
-      generation: snapshot.generation,
-      turnId: nativeTurnId,
-      operationId,
-      producerId: `operation:${operationId}`,
-      producerSequence: 1,
-      type: "operation_intent",
-      operationKind: "tool_result_delivery",
-      parentOperationId: browserOperationId,
-      historyRevision: snapshot.historyRevision,
-    }, async emit => {
-      await emit("operation_accepted");
-      await deliver();
-      await emit("operation_completed", resultRef);
-    });
+    const launched = await actor.launch(
+      {
+        protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
+        sessionId,
+        generation: snapshot.generation,
+        turnId: nativeTurnId,
+        operationId,
+        producerId: `operation:${operationId}`,
+        producerSequence: 1,
+        type: "operation_intent",
+        operationKind: "tool_result_delivery",
+        parentOperationId: browserOperationId,
+        historyRevision: snapshot.historyRevision,
+      },
+      async (emit) => {
+        await emit("operation_accepted");
+        await deliver();
+        await emit("operation_completed", resultRef);
+      },
+    );
     await launched.settled;
     const completed = this.journal.operation(sessionId, snapshot.generation, operationId);
     if (completed?.state !== "completed" || completed.resultRef !== resultRef) {
@@ -481,16 +498,13 @@ export class SessionActorManager {
       operationKind: "browser_send",
       historyRevision: snapshot.historyRevision,
     };
-    const launched = await actor.launch(intent, async emit => {
+    const launched = await actor.launch(intent, async (emit) => {
       let acceptance: Promise<void> | undefined;
       const onAccepted = (): Promise<void> => {
         acceptance ??= emit("operation_accepted");
         return acceptance;
       };
-      const onToolBatchObserved = async (
-        requestId: number,
-        revision: number,
-      ): Promise<SessionAcknowledgement> => {
+      const onToolBatchObserved = async (requestId: number, revision: number): Promise<SessionAcknowledgement> => {
         if (!Number.isSafeInteger(requestId) || requestId < 1) {
           throw new Error("Session actor tool batch request id is invalid");
         }
@@ -576,8 +590,12 @@ export class SessionActorManager {
       const assertResultOwner = (): void => {
         const current = this.journal.snapshot(sessionId);
         const operation = this.journal.operation(sessionId, generation, operationId);
-        if (current?.generation !== generation || current.turnId !== nativeTurnId
-          || operation?.kind !== "browser_send" || operation.state !== "accepted") {
+        if (
+          current?.generation !== generation ||
+          current.turnId !== nativeTurnId ||
+          operation?.kind !== "browser_send" ||
+          operation.state !== "accepted"
+        ) {
           throw new Error("Session actor browser result generation or operation changed before persistence");
         }
       };
@@ -592,13 +610,7 @@ export class SessionActorManager {
           text,
         });
       };
-      const text = await run(
-        onAccepted,
-        onToolBatchObserved,
-        onSurfaceLeased,
-        onSurfaceReleased,
-        onResultReady,
-      );
+      const text = await run(onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased, onResultReady);
       await onAccepted();
       assertResultOwner();
       const resultRef = this.results!.put({
@@ -616,8 +628,12 @@ export class SessionActorManager {
       throw new Error("Session actor browser result was not durably completed");
     }
     const result = this.results.get(operation.resultRef);
-    if (result.sessionId !== sessionId || result.generation !== generation
-      || result.turnId !== nativeTurnId || result.operationId !== operationId) {
+    if (
+      result.sessionId !== sessionId ||
+      result.generation !== generation ||
+      result.turnId !== nativeTurnId ||
+      result.operationId !== operationId
+    ) {
       throw new Error("Session actor browser result ownership mismatch");
     }
     return result.text;

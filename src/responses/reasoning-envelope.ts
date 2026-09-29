@@ -31,7 +31,9 @@ export function encodeReasoningEnvelope(envelope: ReasoningEnvelope): string {
 export function decodeReasoningEnvelope(encryptedContent: string): ReasoningEnvelope | null {
   if (!encryptedContent.startsWith(BRIDGE_REASONING_PREFIX)) return null;
   try {
-    const parsed: unknown = JSON.parse(Buffer.from(encryptedContent.slice(BRIDGE_REASONING_PREFIX.length), "base64").toString("utf-8"));
+    const parsed: unknown = JSON.parse(
+      Buffer.from(encryptedContent.slice(BRIDGE_REASONING_PREFIX.length), "base64").toString("utf-8"),
+    );
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const obj = parsed as { sig?: unknown; red?: unknown };
     const envelope: ReasoningEnvelope = {};

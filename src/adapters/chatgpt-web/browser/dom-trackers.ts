@@ -1,15 +1,11 @@
-import type { Locator } from "playwright-core";
+import type { ChatGptMarkdownSegment } from "../markdown";
+import { type ChatGptExternalTurnProgressSnapshot, chatGptExternalProgressIsLive } from "../turn-progress";
 import {
   CHATGPT_COMPLETION_ACTION_GRACE_MS,
   CHATGPT_COMPLETION_SETTLE_MS,
   CHATGPT_EMPTY_RESPONSE_GRACE_MS,
   CHATGPT_RESPONSE_DOM_GRACE_MS,
 } from "./suspension-clock";
-import type { ChatGptMarkdownSegment } from "../markdown";
-import {
-  chatGptExternalProgressIsLive,
-  type ChatGptExternalTurnProgressSnapshot,
-} from "../turn-progress";
 
 /**
  * How long completion may stay vetoed by tool-status evidence that nothing corroborates any more.
@@ -61,20 +57,14 @@ export function chatGptTurnIsComplete(state: {
   currentHtml?: string;
   completionActionVisible: boolean;
 }): boolean {
-  return state.responsePresent
-    && !state.running
-    && state.currentText.length > 0
-    && state.completionActionVisible;
+  return state.responsePresent && !state.running && state.currentText.length > 0 && state.completionActionVisible;
 }
 
 export type ChatGptSubmissionEvidence = "user_turn" | "assistant_turn" | "generation_running" | "mcp_tool_call";
 
-export function chatGptNewTurnIdentity(
-  initial: readonly string[],
-  current: readonly string[],
-): string | undefined {
+export function chatGptNewTurnIdentity(initial: readonly string[], current: readonly string[]): string | undefined {
   const previous = new Set(initial);
-  const added = current.filter(identity => !previous.has(identity));
+  const added = current.filter((identity) => !previous.has(identity));
   if (added.length > 1) {
     throw new Error(`ChatGPT exposed ${added.length} new conversation turns for one submitted message`);
   }
@@ -224,13 +214,16 @@ export class ChatGptTurnDomHealthTracker {
     this.missingResponseSince = undefined;
   }
 
-  update(state: {
-    responsePresent: boolean;
-    running: boolean;
-    currentText: string;
-    completionActionVisible: boolean;
-    externalProgressLive?: boolean;
-  }, now = Date.now()): string | undefined {
+  update(
+    state: {
+      responsePresent: boolean;
+      running: boolean;
+      currentText: string;
+      completionActionVisible: boolean;
+      externalProgressLive?: boolean;
+    },
+    now = Date.now(),
+  ): string | undefined {
     if (state.responsePresent) this.sawResponse = true;
     if (state.externalProgressLive || state.running) {
       // Every conclusion below asserts that ChatGPT stopped producing this turn. A tool call that
@@ -252,10 +245,8 @@ export class ChatGptTurnDomHealthTracker {
       }
     }
 
-    const emptyCompletion = state.responsePresent
-      && !state.running
-      && state.currentText.length === 0
-      && state.completionActionVisible;
+    const emptyCompletion =
+      state.responsePresent && !state.running && state.currentText.length === 0 && state.completionActionVisible;
     if (!emptyCompletion) {
       this.emptyCompletionSince = undefined;
     } else {
@@ -265,10 +256,8 @@ export class ChatGptTurnDomHealthTracker {
       }
     }
 
-    const missingCompletionAction = state.responsePresent
-      && !state.running
-      && state.currentText.length > 0
-      && !state.completionActionVisible;
+    const missingCompletionAction =
+      state.responsePresent && !state.running && state.currentText.length > 0 && !state.completionActionVisible;
     if (!missingCompletionAction) {
       this.missingCompletionAction = undefined;
     } else if (this.missingCompletionAction?.text !== state.currentText) {
@@ -298,15 +287,18 @@ export class ChatGptPendingToolEvidenceTracker {
     private readonly inFlightCeilingMs = CHATGPT_TOOL_IN_FLIGHT_CEILING_MS,
   ) {}
 
-  update(state: {
-    pendingToolEvidence: boolean;
-    running: boolean;
-    streamDelta: boolean;
-    externalProgressLive: boolean;
-    toolCallsInFlight?: boolean;
-    activeToolCalls?: number;
-    lastProgressAt?: number;
-  }, now = Date.now()): string | undefined {
+  update(
+    state: {
+      pendingToolEvidence: boolean;
+      running: boolean;
+      streamDelta: boolean;
+      externalProgressLive: boolean;
+      toolCallsInFlight?: boolean;
+      activeToolCalls?: number;
+      lastProgressAt?: number;
+    },
+    now = Date.now(),
+  ): string | undefined {
     if (state.streamDelta) {
       this.lastStreamDeltaAt = now;
       this.pendingSince = undefined;
@@ -315,12 +307,15 @@ export class ChatGptPendingToolEvidenceTracker {
       this.inFlightSince ??= now;
       if (now - this.inFlightSince >= this.inFlightCeilingMs) {
         const activeCalls = state.activeToolCalls ?? 0;
-        const silence = state.lastProgressAt === undefined
-          ? "no recorded MCP progress"
-          : `${Math.round(Math.max(0, now - state.lastProgressAt) / 1000)}s of silence since the last recorded MCP progress`;
-        return `A Codex tool call has been in flight for ${Math.round((now - this.inFlightSince) / 1000)}s`
-          + ` (${activeCalls} active tool call(s), ${silence}); the tool call appears hung.`
-          + " Capture a browser diagnostic for this turn or set a turn timeout to bound the wait.";
+        const silence =
+          state.lastProgressAt === undefined
+            ? "no recorded MCP progress"
+            : `${Math.round(Math.max(0, now - state.lastProgressAt) / 1000)}s of silence since the last recorded MCP progress`;
+        return (
+          `A Codex tool call has been in flight for ${Math.round((now - this.inFlightSince) / 1000)}s` +
+          ` (${activeCalls} active tool call(s), ${silence}); the tool call appears hung.` +
+          " Capture a browser diagnostic for this turn or set a turn timeout to bound the wait."
+        );
       }
     } else {
       this.inFlightSince = undefined;
@@ -331,9 +326,7 @@ export class ChatGptPendingToolEvidenceTracker {
     }
     this.pendingSince ??= now;
     if (now - this.pendingSince < this.stallMs) return undefined;
-    const quietMs = this.lastStreamDeltaAt === undefined
-      ? this.stallMs
-      : now - this.lastStreamDeltaAt;
+    const quietMs = this.lastStreamDeltaAt === undefined ? this.stallMs : now - this.lastStreamDeltaAt;
     return `ChatGPT kept pending tool evidence for ${Math.round(this.stallMs / 1000)}s after generation stopped, with no stream output for ${Math.round(quietMs / 1000)}s; an orphan status or tool container is likely vetoing completion. Capture a browser diagnostic for this turn or set a turn timeout to bound the wait.`;
   }
 }
@@ -349,8 +342,7 @@ export function chatGptExternalProgressSuppressesDomHealth(
   const age = now - lastProgressAt;
   // A timestamp from the future would keep `age` below the ceiling forever. Recorded activity can
   // only precede the observation, so anything meaningfully ahead of now is not evidence at all.
-  return age >= -CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS
-    && age < CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS;
+  return age >= -CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS && age < CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS;
 }
 
 export interface ChatGptVisibleTraceBlock {
@@ -401,7 +393,11 @@ export class ChatGptVisibleTraceTracker {
 
   constructor(private readonly traceStabilityMs = 250) {}
 
-  observe(blocks: ChatGptVisibleTraceBlock[], completionActionVisible: boolean, now = Date.now()): ChatGptVisibleTraceEvent[] {
+  observe(
+    blocks: ChatGptVisibleTraceBlock[],
+    completionActionVisible: boolean,
+    now = Date.now(),
+  ): ChatGptVisibleTraceEvent[] {
     const output: ChatGptVisibleTraceEvent[] = [];
     let statusSlot = 0;
     let commentarySlot = 0;
@@ -414,7 +410,7 @@ export class ChatGptVisibleTraceTracker {
       const stripped = block.text
         .replace(/\r\n/g, "\n")
         .split("\n")
-        .map(line => line.replace(/[\t ]+/g, " ").trim())
+        .map((line) => line.replace(/[\t ]+/g, " ").trim())
         .join("\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultBrokerEndpoint } from "../src/config";
 import { callTurnBroker, RemoteTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { defaultBrokerEndpoint } from "../src/config";
 
 test("turn broker aliases predecessor token to active successor turn", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-lineage-1-"));
@@ -21,7 +21,7 @@ test("turn broker aliases predecessor token to active successor turn", async () 
     // Register Turn 1
     const token1 = await broker.register(environment, 60_000, "trace-sess-1");
     // Register Turn 2 declaring token1 as predecessor
-    const token2 = await broker.register(environment, 60_000, "trace-sess-1", false, "turn", token1);
+    const _token2 = await broker.register(environment, 60_000, "trace-sess-1", false, "turn", token1);
 
     // Commit Turn 1 completion fence (so Turn 1 is finished)
     const rev1 = broker.beginCompletionFence(token1);
@@ -66,7 +66,7 @@ test("turn broker resolves multi-turn alias chains (T1 -> T2 -> T3)", async () =
 
     const token1 = await broker.register(environment, 60_000, "trace-sess-2");
     const token2 = await broker.register(environment, 60_000, "trace-sess-2", false, "turn", token1);
-    const token3 = await broker.register(environment, 60_000, "trace-sess-2", false, "turn", token2);
+    const _token3 = await broker.register(environment, 60_000, "trace-sess-2", false, "turn", token2);
 
     // Finish Turn 1 and Turn 2
     const rev1 = broker.beginCompletionFence(token1);
@@ -111,7 +111,7 @@ test("turn broker resolves trace lineage when tokens share a traceId", async () 
     // Register token 1 without explicit predecessor
     const token1 = await broker.register(environment, 60_000, "trace-lineage-shared");
     // Register token 2 under the same trace
-    const token2 = await broker.register(environment, 60_000, "trace-lineage-shared");
+    const _token2 = await broker.register(environment, 60_000, "trace-lineage-shared");
 
     // Commit token 1
     const rev1 = broker.beginCompletionFence(token1);
@@ -148,11 +148,13 @@ test("turn broker rejects when entire trace is finished and no active successor 
     broker.commitCompletionFence(token1, rev1!);
     broker.revoke(token1);
 
-    await expect(callTurnBroker(socketPath, {
-      method: "claim",
-      token: token1,
-      activityId: "activity_test_term_12345678",
-    })).rejects.toThrow("already finished");
+    await expect(
+      callTurnBroker(socketPath, {
+        method: "claim",
+        token: token1,
+        activityId: "activity_test_term_12345678",
+      }),
+    ).rejects.toThrow("already finished");
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });
@@ -178,11 +180,13 @@ test("a ghost activity from a retired-token claim blocks the successor fence unt
     broker.commitCompletionFence(token1, rev1!);
 
     // The claim resolves through the alias, so its activity lease lands on the successor channel.
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: token1,
-      activityId: "activity_ghost_claim_12345678",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: token1,
+        activityId: "activity_ghost_claim_12345678",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
 
     // A claimant that never settles it vetoes the successor's completion fence forever.
     expect(broker.beginCompletionFence(token2)).toBeUndefined();
@@ -217,16 +221,20 @@ test("an activity settled before the liveness bound keeps the successor fence wo
     const rev1 = broker.beginCompletionFence(token1);
     broker.commitCompletionFence(token1, rev1!);
 
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: token1,
-      activityId: "activity_settled_claim_123456",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
-    await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
-      method: "activity_complete",
-      token: token1,
-      activityId: "activity_settled_claim_123456",
-    })).resolves.toMatchObject({ completed: true });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: token1,
+        activityId: "activity_settled_claim_123456",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ completed: boolean }>(socketPath, {
+        method: "activity_complete",
+        token: token1,
+        activityId: "activity_settled_claim_123456",
+      }),
+    ).resolves.toMatchObject({ completed: true });
 
     const rev2 = broker.beginCompletionFence(token2);
     expect(rev2).toBeDefined();
@@ -256,11 +264,13 @@ test("revoking a successor keeps the predecessor claim fail-closed without a lat
     broker.commitCompletionFence(token1, rev1!);
     broker.revoke(token2);
 
-    await expect(callTurnBroker(socketPath, {
-      method: "claim",
-      token: token1,
-      activityId: "activity_revoke_closed_123456",
-    })).rejects.toThrow("already finished");
+    await expect(
+      callTurnBroker(socketPath, {
+        method: "claim",
+        token: token1,
+        activityId: "activity_revoke_closed_123456",
+      }),
+    ).rejects.toThrow("already finished");
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });
@@ -282,23 +292,27 @@ test("revoking a middle turn keeps later same-trace successors reachable", async
 
     const token1 = await broker.register(environment, 60_000, "trace-revoke-chain");
     const token2 = await broker.register(environment, 60_000, "trace-revoke-chain", false, "turn", token1);
-    const token3 = await broker.register(environment, 60_000, "trace-revoke-chain", false, "turn", token2);
+    const _token3 = await broker.register(environment, 60_000, "trace-revoke-chain", false, "turn", token2);
     const rev1 = broker.beginCompletionFence(token1);
     broker.commitCompletionFence(token1, rev1!);
     const rev2 = broker.beginCompletionFence(token2);
     broker.commitCompletionFence(token2, rev2!);
     broker.revoke(token2);
 
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: token1,
-      activityId: "activity_revoke_chain_123456",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: token2,
-      activityId: "activity_revoke_mid_1234567",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: token1,
+        activityId: "activity_revoke_chain_123456",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: token2,
+        activityId: "activity_revoke_mid_1234567",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });
@@ -324,18 +338,22 @@ test("token alias eviction keeps recent lineage routable", async () => {
     }
 
     // The oldest aliases are evicted, so their claims can no longer resolve anywhere.
-    await expect(callTurnBroker(socketPath, {
-      method: "claim",
-      token: "turn_stale_0_aaaaaaaaaaaaaaaa",
-      activityId: "activity_evict_old_1234567",
-    })).rejects.toThrow("turn token is invalid, expired, or revoked");
+    await expect(
+      callTurnBroker(socketPath, {
+        method: "claim",
+        token: "turn_stale_0_aaaaaaaaaaaaaaaa",
+        activityId: "activity_evict_old_1234567",
+      }),
+    ).rejects.toThrow("turn token is invalid, expired, or revoked");
 
     // The most recent alias still routes to the active turn.
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: "turn_stale_299_aaaaaaaaaaaaaaaa",
-      activityId: "activity_evict_new_1234567",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: "turn_stale_299_aaaaaaaaaaaaaaaa",
+        activityId: "activity_evict_new_1234567",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });
@@ -365,11 +383,13 @@ test("bounded lineage keeps recent turns routable across many registrations and 
 
     // The alias into the still-active successor survives its predecessor's revoke, so a stale
     // claim from the last retired handle keeps routing forward after hundreds of churn cycles.
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: predecessor,
-      activityId: "activity_churn_recent_123456",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: predecessor,
+        activityId: "activity_churn_recent_123456",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });
@@ -396,11 +416,13 @@ test("touching an activity refreshes its lease past the liveness bound without a
     broker.commitCompletionFence(token1, rev1!);
 
     // The claim resolves through the alias, so its activity lease lands on the successor channel.
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token: token1,
-      activityId: "activity_touch_claim_1234567",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token: token1,
+        activityId: "activity_touch_claim_1234567",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
     expect(broker.beginCompletionFence(token2)).toBeUndefined();
 
     // A multi-invoke owner refreshes the lease through the retired handle before each invoke.
@@ -414,11 +436,13 @@ test("touching an activity refreshes its lease past the liveness bound without a
     expect(broker.commitCompletionFence(token2, 0)).toBeFalse();
 
     // A touch is not a causal event: the fence only opens once the claim settles.
-    await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
-      method: "activity_complete",
-      token: token1,
-      activityId: "activity_touch_claim_1234567",
-    })).resolves.toMatchObject({ completed: true });
+    await expect(
+      callTurnBroker<{ completed: boolean }>(socketPath, {
+        method: "activity_complete",
+        token: token1,
+        activityId: "activity_touch_claim_1234567",
+      }),
+    ).resolves.toMatchObject({ completed: true });
     const rev2 = broker.beginCompletionFence(token2);
     expect(rev2).toBeDefined();
     expect(broker.commitCompletionFence(token2, rev2!)).toBeTrue();
@@ -445,46 +469,57 @@ test("touching a missing, settled, or revoked activity returns false and moves n
     const token = await broker.register(environment, 60_000, "trace-touch-miss");
     await expect(remote.touchActivity(token, "activity_unknown_touch_123456")).resolves.toBeFalse();
 
-    await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-      method: "claim",
-      token,
-      activityId: "activity_touch_settled_123456",
-    })).resolves.toMatchObject({ bindingId: expect.any(String) });
-    await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
-      method: "activity_complete",
-      token,
-      activityId: "activity_touch_settled_123456",
-    })).resolves.toMatchObject({ completed: true });
+    await expect(
+      callTurnBroker<{ bindingId: string }>(socketPath, {
+        method: "claim",
+        token,
+        activityId: "activity_touch_settled_123456",
+      }),
+    ).resolves.toMatchObject({ bindingId: expect.any(String) });
+    await expect(
+      callTurnBroker<{ completed: boolean }>(socketPath, {
+        method: "activity_complete",
+        token,
+        activityId: "activity_touch_settled_123456",
+      }),
+    ).resolves.toMatchObject({ completed: true });
     // A settled (tombstoned) activity is never revived by a touch.
     await expect(remote.touchActivity(token, "activity_touch_settled_123456")).resolves.toBeFalse();
 
     // The socket path validates the activity id exactly like claim and activity_complete.
-    await expect(callTurnBroker(socketPath, {
-      method: "owner_touch_activity",
-      token,
-      activityId: "not-an-activity-id",
-    })).rejects.toThrow("turn activity id is invalid");
+    await expect(
+      callTurnBroker(socketPath, {
+        method: "owner_touch_activity",
+        token,
+        activityId: "not-an-activity-id",
+      }),
+    ).rejects.toThrow("turn activity id is invalid");
 
     broker.revoke(token);
     await expect(remote.touchActivity(token, "activity_unknown_touch_123456")).resolves.toBeFalse();
-    await expect(remote.touchActivity("turn_missing_aaaaaaaaaaaaaaaa", "activity_unknown_touch_123456"))
-      .resolves.toBeFalse();
+    await expect(
+      remote.touchActivity("turn_missing_aaaaaaaaaaaaaaaa", "activity_unknown_touch_123456"),
+    ).resolves.toBeFalse();
 
     // A touch is not a causal event: two claims plus two settles leave the fence revision at
     // exactly four, where an extra revision bump from either touch would read five.
     const revisionToken = await broker.register(environment, 60_000, "trace-touch-revision");
     for (const activityId of ["activity_touch_first_1234567", "activity_touch_second_123456"]) {
-      await expect(callTurnBroker<{ bindingId: string }>(socketPath, {
-        method: "claim",
-        token: revisionToken,
-        activityId,
-      })).resolves.toMatchObject({ bindingId: expect.any(String) });
+      await expect(
+        callTurnBroker<{ bindingId: string }>(socketPath, {
+          method: "claim",
+          token: revisionToken,
+          activityId,
+        }),
+      ).resolves.toMatchObject({ bindingId: expect.any(String) });
       await expect(remote.touchActivity(revisionToken, activityId)).resolves.toBeTrue();
-      await expect(callTurnBroker<{ completed: boolean }>(socketPath, {
-        method: "activity_complete",
-        token: revisionToken,
-        activityId,
-      })).resolves.toMatchObject({ completed: true });
+      await expect(
+        callTurnBroker<{ completed: boolean }>(socketPath, {
+          method: "activity_complete",
+          token: revisionToken,
+          activityId,
+        }),
+      ).resolves.toMatchObject({ completed: true });
     }
     expect(broker.beginCompletionFence(revisionToken)).toBe(4);
   } finally {

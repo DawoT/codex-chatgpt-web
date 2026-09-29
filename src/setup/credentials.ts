@@ -9,21 +9,21 @@ export function launcherCapabilityProbeRequired(
   interactionMode: BrowserInteractionMode = existing?.browserInteractionMode ?? "automatic",
 ): boolean {
   if (interactionMode === "manual") return false;
-  return refreshAccountCapabilities
-    || existing?.browserInteractionMode === "manual"
-    || existing?.browserHost !== "launcher"
-    || typeof existing.solAvailable !== "boolean"
-    || typeof existing.extraHighAvailable !== "boolean"
-    || typeof existing.proAvailable !== "boolean";
+  return (
+    refreshAccountCapabilities ||
+    existing?.browserInteractionMode === "manual" ||
+    existing?.browserHost !== "launcher" ||
+    typeof existing.solAvailable !== "boolean" ||
+    typeof existing.extraHighAvailable !== "boolean" ||
+    typeof existing.proAvailable !== "boolean"
+  );
 }
 
 export function existingFullSetupCredentials(
   existing: AppConfig | undefined,
   interactionMode: BrowserInteractionMode = existing?.browserInteractionMode ?? "automatic",
 ): ExistingFullSetupCredentials {
-  const tunnel = existing?.mode === "full"
-    ? tunnelConfigForInteractionMode(existing, interactionMode)
-    : undefined;
+  const tunnel = existing?.mode === "full" ? tunnelConfigForInteractionMode(existing, interactionMode) : undefined;
   return {
     tunnelId: Boolean(tunnel?.tunnelId),
     runtimeKey: Boolean(tunnel?.runtimeKeyFile && existsSync(tunnel.runtimeKeyFile)),
@@ -83,12 +83,14 @@ export function meaningfulRuntimeChange(before: AppConfig, after: AppConfig): bo
 }
 
 export function tunnelWorkerRuntimeChanged(before: AppConfig | undefined, after: AppConfig): boolean {
-  if (!before || before.mode !== "full" || after.mode !== "full") return false;
+  if (before?.mode !== "full" || after.mode !== "full") return false;
   const beforeTunnel = tunnelConfigForInteractionMode(before, before.browserInteractionMode);
   const afterTunnel = tunnelConfigForInteractionMode(after, after.browserInteractionMode);
-  return before.releaseVersion !== after.releaseVersion
-    || JSON.stringify(before.runtimeCommand) !== JSON.stringify(after.runtimeCommand)
-    || before.brokerSocketPath !== after.brokerSocketPath
-    || before.browserInteractionMode !== after.browserInteractionMode
-    || JSON.stringify(beforeTunnel) !== JSON.stringify(afterTunnel);
+  return (
+    before.releaseVersion !== after.releaseVersion ||
+    JSON.stringify(before.runtimeCommand) !== JSON.stringify(after.runtimeCommand) ||
+    before.brokerSocketPath !== after.brokerSocketPath ||
+    before.browserInteractionMode !== after.browserInteractionMode ||
+    JSON.stringify(beforeTunnel) !== JSON.stringify(afterTunnel)
+  );
 }

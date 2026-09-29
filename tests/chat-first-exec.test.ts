@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 import {
   DEFAULT_EXEC_TIMEOUT_MS,
-  MAX_EXEC_TIMEOUT_MS,
-  MIN_EXEC_TIMEOUT_MS,
-  handleExecCommand,
   executeFastPathBatch,
   type FastPathToolResult,
+  handleExecCommand,
+  MAX_EXEC_TIMEOUT_MS,
+  MIN_EXEC_TIMEOUT_MS,
 } from "../src/adapters/chatgpt-web/fast-path-handlers";
-import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 
 function payload(res: FastPathToolResult): Record<string, any> {
   return res.structuredContent as Record<string, any>;
@@ -19,8 +19,8 @@ function payload(res: FastPathToolResult): Record<string, any> {
 describe("Chat-First Shell Execution (codex_exec)", () => {
   test("exports generous timeout constants for heavy testing and compilation", () => {
     expect(DEFAULT_EXEC_TIMEOUT_MS).toBe(600_000); // 10 minutes default
-    expect(MAX_EXEC_TIMEOUT_MS).toBe(1_800_000);   // 30 minutes ceiling
-    expect(MIN_EXEC_TIMEOUT_MS).toBe(1_000);       // 1 second floor
+    expect(MAX_EXEC_TIMEOUT_MS).toBe(1_800_000); // 30 minutes ceiling
+    expect(MIN_EXEC_TIMEOUT_MS).toBe(1_000); // 1 second floor
   });
 
   test("executes basic shell command and returns stdout and exit_code 0", async () => {

@@ -1,18 +1,14 @@
 import type { Locator } from "playwright-core";
+import { CHATGPT_COMPOSER_SELECTOR } from "../../../chatgpt-session";
 import { parseDataUrl } from "../../image";
-import { validateSkillFiles } from "../skill-attachments";
-import {
-  CHATGPT_MAX_INPUT_IMAGES,
-  type ChatGptWebPromptImage,
-  type CompiledChatGptWebPrompt,
-} from "../prompt";
 import { ChatGptWebAdapterError } from "../adapter-error";
+import { CHATGPT_MAX_INPUT_IMAGES, type ChatGptWebPromptImage, type CompiledChatGptWebPrompt } from "../prompt";
+import { validateSkillFiles } from "../skill-attachments";
 import {
   CHATGPT_COMPOSER_DOCUMENT_END_KEY,
   throwIfPromptAttachmentAborted,
   withBrowserTurnAbort,
 } from "./suspension-clock";
-import { CHATGPT_COMPOSER_SELECTOR } from "../../../chatgpt-session";
 
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
 
@@ -23,9 +19,7 @@ export async function setChatGptThinkMode(
   abortSignal?: AbortSignal,
 ): Promise<void> {
   throwIfPromptAttachmentAborted(abortSignal);
-  const controls = composerForm
-    .getByRole("button", { name: "Think", exact: true })
-    .filter({ visible: true });
+  const controls = composerForm.getByRole("button", { name: "Think", exact: true }).filter({ visible: true });
   const count = await controls.count();
   if (count === 0 && !enabled) {
     await captureDiagnostic?.("luna-default-confirmed");
@@ -41,15 +35,22 @@ export async function setChatGptThinkMode(
   const target = enabled ? "true" : "false";
   if (pressed !== target) {
     const composer = composerForm.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true }).first();
-    const composerState = () => composer.evaluate(element => {
-      const copy = element.cloneNode(true) as HTMLElement;
-      const pills = [...copy.querySelectorAll('[data-id^="plugin:"][data-keyword]')];
-      const connectors = pills.map(pill => pill.getAttribute("data-keyword")).sort();
-      for (const pill of pills) pill.remove();
-      const text = element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement
-        ? element.value : copy.textContent ?? "";
-      return { text: text.trim(), connectors };
-    }, undefined, actionOptions);
+    const composerState = () =>
+      composer.evaluate(
+        (element) => {
+          const copy = element.cloneNode(true) as HTMLElement;
+          const pills = [...copy.querySelectorAll('[data-id^="plugin:"][data-keyword]')];
+          const connectors = pills.map((pill) => pill.getAttribute("data-keyword")).sort();
+          for (const pill of pills) pill.remove();
+          const text =
+            element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement
+              ? element.value
+              : (copy.textContent ?? "");
+          return { text: text.trim(), connectors };
+        },
+        undefined,
+        actionOptions,
+      );
     const before = await composerState();
     if (before.text) throw new Error("ChatGPT Think selection requires an empty prompt draft");
     await composer.focus(actionOptions);
@@ -57,17 +58,24 @@ export async function setChatGptThinkMode(
     await composer.pressSequentially("/think", { ...actionOptions, delay: 25 });
     await captureDiagnostic?.("think-slash-triggered");
     // The command popup shares menu-item classes with sidebar history. Count only this popup.
-    const popup = composerForm.page().locator('.popover[aria-busy="false"], [class*="suggestionMenu"], .composer-home-top-menu').filter({ visible: true });
-    const rows = popup.locator('.__menu-item[tabindex="0"], [class*="suggestionMenu"] button, .composer-home-top-menu button, [role="menuitem"], [role="option"]').filter({ visible: true });
+    const popup = composerForm
+      .page()
+      .locator('.popover[aria-busy="false"], [class*="suggestionMenu"], .composer-home-top-menu')
+      .filter({ visible: true });
+    const rows = popup
+      .locator(
+        '.__menu-item[tabindex="0"], [class*="suggestionMenu"] button, .composer-home-top-menu button, [role="menuitem"], [role="option"]',
+      )
+      .filter({ visible: true });
     await rows.first().waitFor({ state: "visible", timeout: 5_000, signal: abortSignal });
-    if (await popup.count() !== 1 || await rows.count() !== 1) {
+    if ((await popup.count()) !== 1 || (await rows.count()) !== 1) {
       throw new Error("ChatGPT Think slash menu must expose exactly one command option");
     }
     const row = rows.first();
-    if (await row.getAttribute("data-highlighted", actionOptions) === null) {
+    if ((await row.getAttribute("data-highlighted", actionOptions)) === null) {
       await composer.press("ArrowDown", actionOptions);
     }
-    if (await row.getAttribute("data-highlighted", actionOptions) === null) {
+    if ((await row.getAttribute("data-highlighted", actionOptions)) === null) {
       throw new Error("ChatGPT Think slash option is not highlighted");
     }
     await captureDiagnostic?.("think-slash-menu-ready");
@@ -83,7 +91,7 @@ export async function setChatGptThinkMode(
       if (currentCount === 1 && pressed !== "true" && pressed !== "false") {
         throw new Error("ChatGPT Think control lost its semantic pressed state");
       }
-      await withBrowserTurnAbort(new Promise(resolveSleep => setTimeout(resolveSleep, 100)), abortSignal);
+      await withBrowserTurnAbort(new Promise((resolveSleep) => setTimeout(resolveSleep, 100)), abortSignal);
     }
     if (pressed !== target) {
       throw new Error(`ChatGPT did not ${enabled ? "enable" : "disable"} Think mode`);
@@ -103,16 +111,19 @@ const imageExtensions = new Map([
   ["image/webp", "webp"],
 ]);
 
-export function chatGptImageFilePayloads(images: ChatGptWebPromptImage[]): Array<{ name: string; mimeType: string; buffer: Buffer }> {
+export function chatGptImageFilePayloads(
+  images: ChatGptWebPromptImage[],
+): Array<{ name: string; mimeType: string; buffer: Buffer }> {
   if (images.length > CHATGPT_MAX_INPUT_IMAGES) {
     throw new Error(`ChatGPT web accepts at most ${CHATGPT_MAX_INPUT_IMAGES} input images per Codex turn`);
   }
   let totalBytes = 0;
-  return images.map(image => {
+  return images.map((image) => {
     const parsed = parseDataUrl(image.imageUrl);
     if (!parsed) throw new Error(`ChatGPT web input image ${image.ref} must be an inline base64 data URL`);
     const extension = imageExtensions.get(parsed.mediaType.toLowerCase());
-    if (!extension) throw new Error(`ChatGPT web input image ${image.ref} has unsupported media type: ${parsed.mediaType}`);
+    if (!extension)
+      throw new Error(`ChatGPT web input image ${image.ref} has unsupported media type: ${parsed.mediaType}`);
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(parsed.base64) || parsed.base64.length % 4 !== 0) {
       throw new Error(`ChatGPT web input image ${image.ref} contains invalid base64 data`);
     }
@@ -139,9 +150,14 @@ export function chatGptPromptFilePayloads(
   prompt: CompiledChatGptWebPrompt,
 ): Array<{ name: string; mimeType: string; buffer: Buffer }> {
   assertChatGptPromptAttachments(prompt);
-  const files = [...chatGptImageFilePayloads(prompt.images), ...(prompt.skillFiles ?? []).map(file => ({
-    name: file.name, mimeType: "text/plain", buffer: Buffer.from(file.text, "utf8"),
-  }))];
+  const files = [
+    ...chatGptImageFilePayloads(prompt.images),
+    ...(prompt.skillFiles ?? []).map((file) => ({
+      name: file.name,
+      mimeType: "text/plain",
+      buffer: Buffer.from(file.text, "utf8"),
+    })),
+  ];
   if (files.reduce((sum, file) => sum + file.buffer.length, 0) > 50_000_000) {
     throw new Error("ChatGPT web attachments exceed the 50 MB per-turn limit");
   }
@@ -170,9 +186,8 @@ export function insertPlainTextIntoComposer(element: HTMLElement, value: string)
   if (document.activeElement !== element) return false;
   const selection = window.getSelection();
   if (!selection) return false;
-  const alreadyPlaced = selection.isCollapsed
-    && selection.anchorNode !== null
-    && element.contains(selection.anchorNode);
+  const alreadyPlaced =
+    selection.isCollapsed && selection.anchorNode !== null && element.contains(selection.anchorNode);
   if (!alreadyPlaced) {
     const range = document.createRange();
     range.selectNodeContents(element);
@@ -180,11 +195,7 @@ export function insertPlainTextIntoComposer(element: HTMLElement, value: string)
     selection.removeAllRanges();
     selection.addRange(range);
   }
-  if (
-    !selection.isCollapsed
-    || !selection.anchorNode
-    || !element.contains(selection.anchorNode)
-  ) {
+  if (!selection.isCollapsed || !selection.anchorNode || !element.contains(selection.anchorNode)) {
     return false;
   }
   return document.execCommand("insertText", false, value);
@@ -197,7 +208,5 @@ export function insertPlainTextIntoComposer(element: HTMLElement, value: string)
  * rendering semantics without altering indentation or syntax.
  */
 export function normalizePromptForComparison(text: string): string {
-  return text
-    .replace(/\r\n|\r/g, "\n")
-    .replace(/[ \t]+(?=\n|$)/g, "");
+  return text.replace(/\r\n|\r/g, "\n").replace(/[ \t]+(?=\n|$)/g, "");
 }

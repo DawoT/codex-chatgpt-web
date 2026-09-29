@@ -26,13 +26,15 @@ function bundleIdFor(files) {
 }
 
 function validateManifestPath(relativePath) {
-  if (typeof relativePath !== "string"
-    || relativePath.length === 0
-    || relativePath === "manifest.json"
-    || relativePath.includes("\\")
-    || path.posix.isAbsolute(relativePath)
-    || path.posix.normalize(relativePath) !== relativePath
-    || relativePath.split("/").some(segment => segment.length === 0 || segment === "." || segment === "..")) {
+  if (
+    typeof relativePath !== "string" ||
+    relativePath.length === 0 ||
+    relativePath === "manifest.json" ||
+    relativePath.includes("\\") ||
+    path.posix.isAbsolute(relativePath) ||
+    path.posix.normalize(relativePath) !== relativePath ||
+    relativePath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
     throw new Error(`Runtime manifest contains an unsafe file path: ${JSON.stringify(relativePath)}`);
   }
   return relativePath;
@@ -50,30 +52,35 @@ function readRuntimeManifest(runtimeRoot, { version, platform, arch, bundleId })
     );
   }
   const expectedLauncher = `bin/${platform === "win32" ? "codex-chatgpt-web.cmd" : "codex-chatgpt-web"}`;
-  if (manifest?.schemaVersion !== 2
-    || manifest.appVersion !== version
-    || manifest.platform !== platform
-    || manifest.arch !== arch
-    || manifest.launcher !== expectedLauncher
-    || manifest.entrypoint !== "app/cli.js"
-    || typeof manifest.bunVersion !== "string"
-    || typeof manifest.playwright !== "string"
-    || !SHA256_PATTERN.test(manifest.bundleId)
-    || (bundleId && manifest.bundleId !== bundleId)
-    || !Array.isArray(manifest.files)
-    || manifest.files.length === 0) {
-    const received = manifest && typeof manifest === "object" ? {
-      schemaVersion: manifest.schemaVersion,
-      appVersion: manifest.appVersion,
-      bundleId: manifest.bundleId,
-      bunVersion: manifest.bunVersion,
-      platform: manifest.platform,
-      arch: manifest.arch,
-      launcher: manifest.launcher,
-      entrypoint: manifest.entrypoint,
-      playwright: manifest.playwright,
-      fileCount: Array.isArray(manifest.files) ? manifest.files.length : null,
-    } : manifest;
+  if (
+    manifest?.schemaVersion !== 2 ||
+    manifest.appVersion !== version ||
+    manifest.platform !== platform ||
+    manifest.arch !== arch ||
+    manifest.launcher !== expectedLauncher ||
+    manifest.entrypoint !== "app/cli.js" ||
+    typeof manifest.bunVersion !== "string" ||
+    typeof manifest.playwright !== "string" ||
+    !SHA256_PATTERN.test(manifest.bundleId) ||
+    (bundleId && manifest.bundleId !== bundleId) ||
+    !Array.isArray(manifest.files) ||
+    manifest.files.length === 0
+  ) {
+    const received =
+      manifest && typeof manifest === "object"
+        ? {
+            schemaVersion: manifest.schemaVersion,
+            appVersion: manifest.appVersion,
+            bundleId: manifest.bundleId,
+            bunVersion: manifest.bunVersion,
+            platform: manifest.platform,
+            arch: manifest.arch,
+            launcher: manifest.launcher,
+            entrypoint: manifest.entrypoint,
+            playwright: manifest.playwright,
+            fileCount: Array.isArray(manifest.files) ? manifest.files.length : null,
+          }
+        : manifest;
     throw new Error(
       `Runtime bundle identity mismatch: expected ${version} ${platform}/${arch}, received ${JSON.stringify(received)}`,
     );
@@ -81,10 +88,13 @@ function readRuntimeManifest(runtimeRoot, { version, platform, arch, bundleId })
 
   let previousPath = null;
   const files = manifest.files.map((file, index) => {
-    if (!file || typeof file !== "object"
-      || !Number.isSafeInteger(file.size)
-      || file.size < 0
-      || !SHA256_PATTERN.test(file.sha256)) {
+    if (
+      !file ||
+      typeof file !== "object" ||
+      !Number.isSafeInteger(file.size) ||
+      file.size < 0 ||
+      !SHA256_PATTERN.test(file.sha256)
+    ) {
       throw new Error(`Runtime manifest contains an invalid file record at index ${index}`);
     }
     const relativePath = validateManifestPath(file.path);
@@ -103,7 +113,9 @@ function readRuntimeManifest(runtimeRoot, { version, platform, arch, bundleId })
 function runtimeFilePaths(runtimeRoot) {
   const paths = [];
   const visit = (directory) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => comparePaths(left.name, right.name))) {
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => comparePaths(left.name, right.name))) {
       const absolutePath = path.join(directory, entry.name);
       const relativePath = path.relative(runtimeRoot, absolutePath).split(path.sep).join("/");
       if (relativePath === "manifest.json") continue;
@@ -144,7 +156,7 @@ function validateRuntimeFile(runtimeRoot, canonicalRoot, file) {
 
 function inspectRuntimeBundle(runtimeRoot, identity) {
   const manifest = readRuntimeManifest(runtimeRoot, identity);
-  const expectedPaths = manifest.files.map(file => file.path);
+  const expectedPaths = manifest.files.map((file) => file.path);
   const expectedSet = new Set(expectedPaths);
   const paths = runtimeBundlePaths(runtimeRoot, identity.platform);
   for (const required of [
@@ -161,14 +173,18 @@ function inspectRuntimeBundle(runtimeRoot, identity) {
 
   const actualPaths = runtimeFilePaths(runtimeRoot);
   const actualSet = new Set(actualPaths);
-  const missing = expectedPaths.find(relativePath => !actualSet.has(relativePath));
+  const missing = expectedPaths.find((relativePath) => !actualSet.has(relativePath));
   if (missing) throw new Error(`Runtime bundle file is missing: ${path.join(runtimeRoot, ...missing.split("/"))}`);
-  const unexpected = actualPaths.find(relativePath => !expectedSet.has(relativePath));
+  const unexpected = actualPaths.find((relativePath) => !expectedSet.has(relativePath));
   if (unexpected) {
-    throw new Error(`Runtime bundle contains an unmanifested file: ${path.join(runtimeRoot, ...unexpected.split("/"))}`);
+    throw new Error(
+      `Runtime bundle contains an unmanifested file: ${path.join(runtimeRoot, ...unexpected.split("/"))}`,
+    );
   }
   if (actualPaths.length !== expectedPaths.length) {
-    throw new Error(`Runtime bundle file count mismatch: expected ${expectedPaths.length}, received ${actualPaths.length}`);
+    throw new Error(
+      `Runtime bundle file count mismatch: expected ${expectedPaths.length}, received ${actualPaths.length}`,
+    );
   }
 
   const canonicalRoot = fs.realpathSync(runtimeRoot);
@@ -209,7 +225,7 @@ async function waitForPackagedRuntimeSource({
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    await new Promise(resolve => setTimeout(resolve, Math.min(intervalMs, remaining)));
+    await new Promise((resolve) => setTimeout(resolve, Math.min(intervalMs, remaining)));
   }
   const detail = lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(`Packaged runtime did not fully materialize within ${timeoutMs}ms: ${detail}`);
@@ -226,10 +242,7 @@ function ensurePackagedRuntime({ app, coreHome, resourcesPath }) {
   const sourceBundle = inspectRuntimeBundle(source, identity);
   const expectedIdentity = { ...identity, bundleId: sourceBundle.manifest.bundleId };
   const versionsRoot = path.join(coreHome, "versions");
-  const destination = path.join(
-    versionsRoot,
-    `${identity.version}-${identity.platform}-${identity.arch}`,
-  );
+  const destination = path.join(versionsRoot, `${identity.version}-${identity.platform}-${identity.arch}`);
   if (fs.existsSync(destination)) {
     try {
       return validateRuntimeBundle(destination, expectedIdentity);
@@ -266,8 +279,8 @@ function ensurePackagedRuntime({ app, coreHome, resourcesPath }) {
           previousMoved = false;
         } catch (restoreError) {
           throw new Error(
-            `Runtime replacement failed: ${error instanceof Error ? error.message : String(error)}`
-            + `; previous runtime restoration failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+            `Runtime replacement failed: ${error instanceof Error ? error.message : String(error)}` +
+              `; previous runtime restoration failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
           );
         }
       }
@@ -284,7 +297,9 @@ function ensurePackagedRuntime({ app, coreHome, resourcesPath }) {
       previousMoved = false;
     }
   }
-  try { fs.chmodSync(destination, 0o700); } catch {}
+  try {
+    fs.chmodSync(destination, 0o700);
+  } catch {}
   return validateRuntimeBundle(destination, expectedIdentity);
 }
 

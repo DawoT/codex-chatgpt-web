@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import {
-  trimDeepSubagentHistory,
-  SUBAGENT_RESULT_TAG_OPEN,
-  SUBAGENT_RESULT_TAG_CLOSE,
-} from "../src/adapters/chatgpt-web/subagent-protocol";
-import { withAdaptiveHistoryPruning, compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { compileChatGptWebPrompt, withAdaptiveHistoryPruning } from "../src/adapters/chatgpt-web/prompt";
+import {
+  SUBAGENT_RESULT_TAG_CLOSE,
+  SUBAGENT_RESULT_TAG_OPEN,
+  trimDeepSubagentHistory,
+} from "../src/adapters/chatgpt-web/subagent-protocol";
 import type { CodexMessage } from "../src/types";
 
 describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () => {
@@ -165,8 +165,12 @@ describe("Sprint S: Multi-Agent Message Isolation & Deep Subagent Trimming", () 
       retainRecentSubagents: 1,
       maxPromptTokens: 16_000,
     });
-    expect(subagentPruned[1]!.content).toContain("[Historical tool output omitted: codex_read_file completed in earlier turn");
-    expect(subagentPruned[2]!.content).toContain("[Historical tool output omitted: codex_list_dir completed in earlier turn");
+    expect(subagentPruned[1]!.content).toContain(
+      "[Historical tool output omitted: codex_read_file completed in earlier turn",
+    );
+    expect(subagentPruned[2]!.content).toContain(
+      "[Historical tool output omitted: codex_list_dir completed in earlier turn",
+    );
     expect(subagentPruned[3]!.content).toBe("C".repeat(180)); // most recent is retained
   });
 

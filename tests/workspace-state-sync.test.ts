@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { getConfigDir } from "../src/config";
+import { join } from "node:path";
 import {
   ensureWorkspaceState,
   parseWorkspaceState,
   readWorkspaceState,
   resolveWorkspaceStatePath,
   serializeWorkspaceState,
-  writeWorkspaceState,
   type WorkspaceState,
+  writeWorkspaceState,
 } from "../src/adapters/chatgpt-web/workspace-state";
+import { getConfigDir } from "../src/config";
 
 describe("Sprint U: Persistent Workspace State (.agents/STATE.md)", () => {
   function makeTempWorkspace(): string {
@@ -40,17 +40,9 @@ describe("Sprint U: Persistent Workspace State (.agents/STATE.md)", () => {
     const original: WorkspaceState = {
       goal: "Implement contextual resilience and local spooling",
       activePhase: "Sprint U: Persistent State",
-      completedMilestones: [
-        "Sprint T: MCP Tool Output Offloading",
-        "Bundle verification & deployment",
-      ],
-      invariantsAndDecisions: [
-        "Never kill Codex Desktop processes",
-        "Tool threshold set at 2500 chars",
-      ],
-      blockersAndOpenItems: [
-        "Lazy loading of skills scheduled for Sprint V",
-      ],
+      completedMilestones: ["Sprint T: MCP Tool Output Offloading", "Bundle verification & deployment"],
+      invariantsAndDecisions: ["Never kill Codex Desktop processes", "Tool threshold set at 2500 chars"],
+      blockersAndOpenItems: ["Lazy loading of skills scheduled for Sprint V"],
       nextImmediateAction: "Run TDD test suite for Sprint U",
       lastUpdatedIso: "2026-09-24T21:50:00.000Z",
     };

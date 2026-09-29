@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import type { AppConfig } from "../config";
 import { formatErrorResponse } from "../bridge";
-import { augmentNativeModelCatalog } from "../model-catalog";
-import { codexClientVersionFromUserAgent, forwardNativeCodexRequest, type NativeFetch } from "../native-passthrough";
-import { fetchNativeCodex } from "../native-network";
 import type { CodexModelContextOverride } from "../codex-integration";
+import type { AppConfig } from "../config";
+import { augmentNativeModelCatalog } from "../model-catalog";
+import { fetchNativeCodex } from "../native-network";
+import { codexClientVersionFromUserAgent, forwardNativeCodexRequest, type NativeFetch } from "../native-passthrough";
 
 export interface ModelCatalogFailure {
   stage: "config" | "request" | "transport" | "upstream" | "catalog";
@@ -40,7 +40,7 @@ export async function modelsRequest(
   let upstream: Response;
   let sent = false;
   try {
-    upstream = await forwardNativeCodexRequest(req, "models", input => {
+    upstream = await forwardNativeCodexRequest(req, "models", (input) => {
       sent = true;
       return (fetchUpstream ?? fetchNativeCodex)(input);
     });
@@ -64,6 +64,6 @@ export async function modelsRequest(
   headers.delete("content-encoding");
   headers.delete("content-length");
   headers.set("content-type", "application/json");
-  headers.set("etag", `W/\"${createHash("sha256").update(body).digest("base64url")}\"`);
+  headers.set("etag", `W/"${createHash("sha256").update(body).digest("base64url")}"`);
   return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers });
 }

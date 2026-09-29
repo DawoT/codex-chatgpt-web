@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { BRIDGE_TOOL_NAMES, safeVisibleTools } from "../src/adapters/chatgpt-web/mcp/tool-visibility";
 import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
+import { BRIDGE_TOOL_NAMES, safeVisibleTools } from "../src/adapters/chatgpt-web/mcp/tool-visibility";
 
 test("safe registry recognizes wait_tasks and hides its entire bridge namespace", () => {
   const environment: ChatGptTurnEnvironment = {
@@ -14,7 +14,7 @@ test("safe registry recognizes wait_tasks and hides its entire bridge namespace"
       { name: "facts_query", description: "Facts", parameters: {} },
     ],
   };
-  expect(safeVisibleTools(environment, "safe").map(tool => tool.name)).toEqual(["facts_query"]);
+  expect(safeVisibleTools(environment, "safe").map((tool) => tool.name)).toEqual(["facts_query"]);
   expect(BRIDGE_TOOL_NAMES.has("codex_wait_tasks")).toBe(true);
   expect(safeVisibleTools(environment, "native")).toEqual(environment.tools);
 });

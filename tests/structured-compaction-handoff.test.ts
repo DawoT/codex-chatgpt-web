@@ -1,20 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
   COMPACT_PROMPT,
-  COMPACTION_STATE_TAG_START,
   COMPACTION_STATE_TAG_END,
+  COMPACTION_STATE_TAG_START,
+  type CompactionStateBlock,
   compactionItemToText,
-  countCompactionRequirementItems,
   compactionStateFields,
+  countCompactionRequirementItems,
   decodeCompactionSummary,
   encodeCompactionSummary,
   extractStructuredCompactionHandoff,
   formatCompactionStateBlock,
-  isReadableCompactionSummaryText,
   inspectCompactionStateFormat,
+  isReadableCompactionSummaryText,
   parseCompactionState,
   SUMMARY_PREFIX,
-  type CompactionStateBlock,
 } from "../src/responses/compaction";
 
 describe("Sprint Q: Structured Compaction Handoff Envelope", () => {
@@ -49,14 +49,9 @@ All 871 tests were passing before compaction.
       "src/adapters/chatgpt-web/fast-path-cache.ts",
       "src/adapters/chatgpt-web/session-guard.ts",
     ]);
-    expect(parsed?.activeHypothesis).toBe(
-      "The fast-path cache reduces disk I/O while preserving mtime validation.",
-    );
+    expect(parsed?.activeHypothesis).toBe("The fast-path cache reduces disk I/O while preserving mtime validation.");
     expect(parsed?.blockersOrTestFailures).toEqual([]);
-    expect(parsed?.nextActions).toEqual([
-      "Run bun test ./tests to verify zero regressions",
-      "Verify /healthz output",
-    ]);
+    expect(parsed?.nextActions).toEqual(["Run bun test ./tests to verify zero regressions", "Verify /healthz output"]);
   });
 
   test("returns null when <compaction_state> block is absent", () => {
@@ -65,7 +60,8 @@ All 871 tests were passing before compaction.
   });
 
   test("reads a legacy checkpoint tag after narrative on the same line", () => {
-    const checkpoint = "Summary text <compaction_state>\nversion: 2\nmodified_files:\n- src/legacy.ts\n</compaction_state>";
+    const checkpoint =
+      "Summary text <compaction_state>\nversion: 2\nmodified_files:\n- src/legacy.ts\n</compaction_state>";
     expect(parseCompactionState(checkpoint)?.modifiedFiles).toEqual(["src/legacy.ts"]);
     expect(extractStructuredCompactionHandoff(checkpoint).narrative).toBe("Summary text");
   });
@@ -73,8 +69,7 @@ All 871 tests were passing before compaction.
   test("reads a legacy inline state block without treating backticked examples as state", () => {
     const checkpoint = "<compaction_state>modified_files:\n- src/inline.ts\n</compaction_state>";
     expect(parseCompactionState(checkpoint)?.modifiedFiles).toEqual(["src/inline.ts"]);
-    expect(parseCompactionState("`<compaction_state>modified_files: - example.ts</compaction_state>`"))
-      .toBeNull();
+    expect(parseCompactionState("`<compaction_state>modified_files: - example.ts</compaction_state>`")).toBeNull();
   });
 
   test("extracts the parsed block rather than a fenced example with identical tags", () => {
@@ -130,7 +125,9 @@ All 871 tests were passing before compaction.
     expect(formatted).toContain(COMPACTION_STATE_TAG_START);
     expect(formatted).toContain("modified_files:\n- src/index.ts\n- package.json");
     expect(formatted).toContain("active_hypothesis: Refactoring bundle pipeline to optimize startup time.");
-    expect(formatted).toContain("verified_achievements:\n- Timeout regression test passes — evidence: bun test timeout.test.ts");
+    expect(formatted).toContain(
+      "verified_achievements:\n- Timeout regression test passes — evidence: bun test timeout.test.ts",
+    );
     expect(formatted).toContain("decisions_and_invariants:\n- Never emit a tool call before browser observation");
     expect(formatted).toContain("blockers_or_test_failures:\n- TypeError in browser worker");
     expect(formatted).toContain("pending_obligations:\n- Run the integration suite");
@@ -149,7 +146,12 @@ All 871 tests were passing before compaction.
       activeHypothesis: "Finish bridge delivery",
       requirements: [
         { id: "REQ-1", status: "pending", source: "user message at turn 1: deliver bridge" },
-        { id: "REQ-2", status: "verified", source: "user message at turn 1: test bridge", evidence: "bun test bridge.test.ts: 2 pass" },
+        {
+          id: "REQ-2",
+          status: "verified",
+          source: "user message at turn 1: test bridge",
+          evidence: "bun test bridge.test.ts: 2 pass",
+        },
       ],
       closureCriteria: ["All tests pass"],
       blockersOrTestFailures: [],
@@ -193,7 +195,7 @@ Second paragraph of narrative summary.`;
 
   test.each(["ocx1:", "ocx1:!!!", "ocx1:a", "ocx1:////", "ocx1:SGVsbG8=garbage"])(
     "rejects malformed bridge checkpoint envelope %s instead of replaying corrupt history",
-    envelope => {
+    (envelope) => {
       expect(decodeCompactionSummary(envelope)).toBeNull();
       expect(isReadableCompactionSummaryText(compactionItemToText(envelope))).toBeFalse();
     },
@@ -229,7 +231,9 @@ Second paragraph of narrative summary.`;
     expect(parsed?.nextActions).toEqual(["Verify build bundle"]);
 
     const handoff = extractStructuredCompactionHandoff(fenced);
-    expect(handoff.narrative).toBe("Here is the compaction state for the session:\n\nPlease proceed with the next task.");
+    expect(handoff.narrative).toBe(
+      "Here is the compaction state for the session:\n\nPlease proceed with the next task.",
+    );
     expect(handoff.state?.version).toBe(2);
   });
 
@@ -376,18 +380,20 @@ Second paragraph of narrative summary.`;
     const parsed = parseCompactionState(singleLine);
     expect(parsed).not.toBeNull();
     expect(parsed?.version).toBe(2);
-    expect(parsed?.originalRequestRef).toBe("\"sha256:d88a1e86d8dd121300c4172b5a2590d42ac3637d57f748e54fabdfe680adb555\"");
+    expect(parsed?.originalRequestRef).toBe(
+      '"sha256:d88a1e86d8dd121300c4172b5a2590d42ac3637d57f748e54fabdfe680adb555"',
+    );
     expect(parsed?.modifiedFiles).toEqual(["src/a.ts", "src/b.ts"]);
-    expect(parsed?.activeHypothesis).toBe("\"Single line test hypothesis\"");
+    expect(parsed?.activeHypothesis).toBe('"Single line test hypothesis"');
     expect(parsed?.requirements).toHaveLength(2);
     expect(parsed?.requirements?.[0]?.id).toBe("REQ-1");
     expect(parsed?.requirements?.[1]?.id).toBe("REQ-2");
-    expect(parsed?.closureCriteria).toEqual(["\"All tests pass\""]);
-    expect(parsed?.verifiedAchievements).toEqual(["\"Tests pass — evidence: tests pass\""]);
-    expect(parsed?.decisionsAndInvariants).toEqual(["\"Keep invariants intact\""]);
-    expect(parsed?.blockersOrTestFailures).toEqual(["\"None\""]);
-    expect(parsed?.pendingObligations).toEqual(["\"Complete validation\""]);
-    expect(parsed?.nextActions).toEqual(["\"Run suite\""]);
+    expect(parsed?.closureCriteria).toEqual(['"All tests pass"']);
+    expect(parsed?.verifiedAchievements).toEqual(['"Tests pass — evidence: tests pass"']);
+    expect(parsed?.decisionsAndInvariants).toEqual(['"Keep invariants intact"']);
+    expect(parsed?.blockersOrTestFailures).toEqual(['"None"']);
+    expect(parsed?.pendingObligations).toEqual(['"Complete validation"']);
+    expect(parsed?.nextActions).toEqual(['"Run suite"']);
 
     const fields = compactionStateFields(singleLine);
     expect(fields.has("version")).toBe(true);
@@ -420,7 +426,8 @@ Second paragraph of narrative summary.`;
   });
 
   test("preserves unquoted hyphenated scalar checkpoint values", () => {
-    const summary = "<compaction_state> version: 2 original_request_ref: Keep A - B modified_files: - src/a.ts active_hypothesis: Check A - B requirements: - {\"id\":\"REQ-1\",\"status\":\"pending\",\"source\":\"Check A - B\"} next_actions: - Continue </compaction_state>";
+    const summary =
+      '<compaction_state> version: 2 original_request_ref: Keep A - B modified_files: - src/a.ts active_hypothesis: Check A - B requirements: - {"id":"REQ-1","status":"pending","source":"Check A - B"} next_actions: - Continue </compaction_state>';
 
     const state = parseCompactionState(summary);
     expect(state?.originalRequestRef).toBe("Keep A - B");

@@ -8,11 +8,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import {
-  SESSION_ACTOR_PROTOCOL_VERSION,
-  type SessionAcknowledgement,
-  type SessionCommand,
-} from "./types";
+import { SESSION_ACTOR_PROTOCOL_VERSION, type SessionAcknowledgement, type SessionCommand } from "./types";
 
 interface SessionRow {
   generation: number;
@@ -47,9 +43,11 @@ interface OperationRow {
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value).filter(([, item]) => item !== undefined)
+    return `{${Object.entries(value)
+      .filter(([, item]) => item !== undefined)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -63,8 +61,12 @@ function assertCommand(command: SessionCommand): void {
       throw new Error("Session actor command identity is invalid");
     }
   }
-  if (!Number.isSafeInteger(command.generation) || command.generation < 1
-    || !Number.isSafeInteger(command.producerSequence) || command.producerSequence < 1) {
+  if (
+    !Number.isSafeInteger(command.generation) ||
+    command.generation < 1 ||
+    !Number.isSafeInteger(command.producerSequence) ||
+    command.producerSequence < 1
+  ) {
     throw new Error("Session actor command sequence is invalid");
   }
 }
@@ -78,16 +80,20 @@ export class SessionActorJournal {
     const home = dirname(path);
     mkdirSync(home, { recursive: true, mode: 0o700 });
     const directory = lstatSync(home);
-    if (!directory.isDirectory() || directory.isSymbolicLink()
-      || (process.platform !== "win32" && (
-        directory.uid !== process.getuid?.() || (directory.mode & 0o077) !== 0
-      ))) {
+    if (
+      !directory.isDirectory() ||
+      directory.isSymbolicLink() ||
+      (process.platform !== "win32" && (directory.uid !== process.getuid?.() || (directory.mode & 0o077) !== 0))
+    ) {
       throw new Error("Session actor journal requires a private owned directory");
     }
     try {
       const existing = lstatSync(path);
-      if (!existing.isFile() || existing.isSymbolicLink()
-        || (process.platform !== "win32" && existing.uid !== process.getuid?.())) {
+      if (
+        !existing.isFile() ||
+        existing.isSymbolicLink() ||
+        (process.platform !== "win32" && existing.uid !== process.getuid?.())
+      ) {
         throw new Error("Session actor journal requires an owned regular database file");
       }
     } catch (error) {
@@ -181,24 +187,28 @@ export class SessionActorJournal {
   }
 
   operation(sessionId: string, generation: number, operationId: string): OperationRow | null {
-    return this.database.query<OperationRow, [string, number, string]>(`
+    return this.database
+      .query<OperationRow, [string, number, string]>(`
       SELECT session_id AS sessionId, generation, operation_id AS operationId,
         turn_id AS turnId, history_revision AS historyRevision, kind, state,
         result_ref AS resultRef
       FROM session_operation
       WHERE session_id = ? AND generation = ? AND operation_id = ?
-    `).get(sessionId, generation, operationId);
+    `)
+      .get(sessionId, generation, operationId);
   }
 
   uncertainOperations(): Array<OperationRow> {
-    return this.database.query<OperationRow, []>(`
+    return this.database
+      .query<OperationRow, []>(`
       SELECT session_id AS sessionId, generation, operation_id AS operationId,
         turn_id AS turnId, history_revision AS historyRevision, kind, state,
         result_ref AS resultRef
       FROM session_operation
       WHERE state = 'uncertain'
       ORDER BY session_id, generation, operation_id
-    `).all();
+    `)
+      .all();
   }
 
   uncertainBrowserSendOperations(): Array<OperationRow> {
@@ -206,11 +216,15 @@ export class SessionActorJournal {
   }
 
   activeBrowserOwner(operationId: string): { sessionId: string; generation: number; turnId: string } | null {
-    const owners = this.database.query<{
-      sessionId: string;
-      generation: number;
-      turnId: string;
-    }, [string]>(`
+    const owners = this.database
+      .query<
+        {
+          sessionId: string;
+          generation: number;
+          turnId: string;
+        },
+        [string]
+      >(`
       SELECT operation.session_id AS sessionId, operation.generation,
         operation.turn_id AS turnId
       FROM session_operation AS operation
@@ -220,33 +234,46 @@ export class SessionActorJournal {
       WHERE operation.operation_id = ? AND operation.kind = 'browser_send'
         AND operation.state IN ('intent', 'accepted')
       LIMIT 2
-    `).all(operationId);
+    `)
+      .all(operationId);
     if (owners.length > 1) throw new Error("Browser trace has ambiguous session ownership");
     return owners[0] ?? null;
   }
 
-  nativeTurnOwners(ownershipKey: string, turnId: string): Array<{
+  nativeTurnOwners(
+    ownershipKey: string,
+    turnId: string,
+  ): Array<{
     sessionId: string;
     generation: number;
     turnId: string;
   }> {
-    return this.database.query<{
-      sessionId: string;
-      generation: number;
-      turnId: string;
-    }, [string, string]>(`
+    return this.database
+      .query<
+        {
+          sessionId: string;
+          generation: number;
+          turnId: string;
+        },
+        [string, string]
+      >(`
       SELECT session_id AS sessionId, generation, turn_id AS turnId
       FROM session_actor
       WHERE turn_id = ? AND substr(session_id, -65) = ':' || ?
-    `).all(turnId, ownershipKey);
+    `)
+      .all(turnId, ownershipKey);
   }
 
   currentTurnOwners(): Array<{ sessionId: string; generation: number; turnId: string }> {
-    return this.database.query<{
-      sessionId: string;
-      generation: number;
-      turnId: string;
-    }, []>(`
+    return this.database
+      .query<
+        {
+          sessionId: string;
+          generation: number;
+          turnId: string;
+        },
+        []
+      >(`
       SELECT actor.session_id AS sessionId, actor.generation,
         actor.turn_id AS turnId
       FROM session_actor AS actor
@@ -281,56 +308,66 @@ export class SessionActorJournal {
         )
       )
       ORDER BY actor.session_id
-    `).all();
+    `)
+      .all();
   }
 
   surfaceOwner(surfaceId: string): { sessionId: string; generation: number } | null {
-    return this.database.query<{ sessionId: string; generation: number }, [string]>(`
+    return this.database
+      .query<{ sessionId: string; generation: number }, [string]>(`
       SELECT session_id AS sessionId, generation
       FROM session_surface WHERE surface_id = ?
-    `).get(surfaceId);
+    `)
+      .get(surfaceId);
   }
 
   surfaceForSession(sessionId: string, generation: number): string | null {
-    const row = this.database.query<{ surfaceId: string }, [string, number]>(`
+    const row = this.database
+      .query<{ surfaceId: string }, [string, number]>(`
       SELECT surface_id AS surfaceId FROM session_surface
       WHERE session_id = ? AND generation = ?
-    `).get(sessionId, generation);
+    `)
+      .get(sessionId, generation);
     return row?.surfaceId ?? null;
   }
 
   revokedSurfaces(sessionId: string): Array<{ surfaceId: string; generation: number }> {
-    return this.database.query<{
-      surfaceId: string;
-      generation: number;
-    }, [string]>(`
+    return this.database
+      .query<
+        {
+          surfaceId: string;
+          generation: number;
+        },
+        [string]
+      >(`
       SELECT surface.surface_id AS surfaceId, surface.generation
       FROM session_surface AS surface
       JOIN session_actor AS actor ON actor.session_id = surface.session_id
       WHERE surface.session_id = ? AND surface.generation < actor.generation
       ORDER BY surface.generation, surface.surface_id
-    `).all(sessionId);
+    `)
+      .all(sessionId);
   }
 
   snapshot(sessionId: string): SessionRow | null {
-    return this.database.query<SessionRow, [string]>(`
+    return this.database
+      .query<SessionRow, [string]>(`
       SELECT generation, sequence, turn_id AS turnId,
         history_revision AS historyRevision, compaction_epoch AS compactionEpoch
       FROM session_actor WHERE session_id = ?
-    `).get(sessionId);
+    `)
+      .get(sessionId);
   }
 
-  compaction(
-    sessionId: string,
-    generation: number,
-    operationId: string,
-  ): (CompactionRow & { turnId: string }) | null {
-    return this.database.query<CompactionRow & { turnId: string }, [string, number, string]>(`
+  compaction(sessionId: string, generation: number, operationId: string): (CompactionRow & { turnId: string }) | null {
+    return this.database
+      .query<CompactionRow & { turnId: string }, [string, number, string]>(`
       SELECT turn_id AS turnId, state, history_revision AS historyRevision,
         checkpoint_ref AS checkpointRef
       FROM session_compaction
       WHERE session_id = ? AND generation = ? AND operation_id = ?
-    `).get(sessionId, generation, operationId);
+    `)
+      .get(sessionId, generation, operationId);
   }
 
   findLocalTransition(
@@ -339,25 +376,31 @@ export class SessionActorJournal {
     type: SessionCommand["type"],
     operationId: string,
   ): { command: SessionCommand; acknowledgement: SessionAcknowledgement } | null {
-    const row = this.database.query<EventRow, [string, number, string, string]>(`
+    const row = this.database
+      .query<EventRow, [string, number, string, string]>(`
       SELECT command_json AS commandJson, acknowledgement_json AS acknowledgementJson
       FROM session_event
       WHERE session_id = ? AND generation = ?
         AND json_extract(command_json, '$.type') = ?
         AND json_extract(command_json, '$.operationId') = ?
       ORDER BY sequence LIMIT 1
-    `).get(sessionId, generation, type, operationId);
-    return row ? {
-      command: JSON.parse(row.commandJson) as SessionCommand,
-      acknowledgement: JSON.parse(row.acknowledgementJson) as SessionAcknowledgement,
-    } : null;
+    `)
+      .get(sessionId, generation, type, operationId);
+    return row
+      ? {
+          command: JSON.parse(row.commandJson) as SessionCommand,
+          acknowledgement: JSON.parse(row.acknowledgementJson) as SessionAcknowledgement,
+        }
+      : null;
   }
 
   nextProducerSequence(sessionId: string, generation: number, producerId: string): number {
-    const row = this.database.query<{ latest: number | null }, [string, number, string]>(`
+    const row = this.database
+      .query<{ latest: number | null }, [string, number, string]>(`
       SELECT MAX(producer_sequence) AS latest FROM session_event
       WHERE session_id = ? AND generation = ? AND producer_id = ?
-    `).get(sessionId, generation, producerId);
+    `)
+      .get(sessionId, generation, producerId);
     return (row?.latest ?? 0) + 1;
   }
 
@@ -379,17 +422,18 @@ export class SessionActorJournal {
     return this.database.transaction(() => {
       const operation = this.operation(sessionId, generation, operationId);
       const session = this.snapshot(sessionId);
-      if (!operation || operation.state !== "uncertain" || !session) {
+      if (operation?.state !== "uncertain" || !session) {
         throw new Error("Session actor operation is not pending reconciliation");
       }
       const state = outcome === "not_sent" ? "abandoned" : "completed";
-      this.database.query(`
+      this.database
+        .query(`
         UPDATE session_operation SET state = ?, result_ref = ?
         WHERE session_id = ? AND generation = ? AND operation_id = ?
-      `).run(state, evidenceRef, sessionId, generation, operationId);
+      `)
+        .run(state, evidenceRef, sessionId, generation, operationId);
       const sequence = session.sequence + 1;
-      this.database.query("UPDATE session_actor SET sequence = ? WHERE session_id = ?")
-        .run(sequence, sessionId);
+      this.database.query("UPDATE session_actor SET sequence = ? WHERE session_id = ?").run(sequence, sessionId);
       const event = {
         protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
         sessionId,
@@ -402,12 +446,21 @@ export class SessionActorJournal {
         outcome,
         evidenceRef,
       };
-      this.database.query(`
+      this.database
+        .query(`
         INSERT INTO session_event
         (session_id, generation, sequence, producer_id, producer_sequence, command_json, acknowledgement_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(sessionId, generation, sequence, "recovery", sequence,
-        canonicalJson(event), JSON.stringify({ status: "accepted", sequence }));
+      `)
+        .run(
+          sessionId,
+          generation,
+          sequence,
+          "recovery",
+          sequence,
+          canonicalJson(event),
+          JSON.stringify({ status: "accepted", sequence }),
+        );
       return sequence;
     })();
   }
@@ -418,21 +471,25 @@ export class SessionActorJournal {
     if (command.generation !== generation) {
       return { status: "stale_generation", currentGeneration: generation };
     }
-    const existing = this.database.query<EventRow, [string, number, string, number]>(`
+    const existing = this.database
+      .query<EventRow, [string, number, string, number]>(`
       SELECT command_json AS commandJson, acknowledgement_json AS acknowledgementJson
       FROM session_event
       WHERE session_id = ? AND generation = ? AND producer_id = ? AND producer_sequence = ?
-    `).get(command.sessionId, command.generation, command.producerId, command.producerSequence);
+    `)
+      .get(command.sessionId, command.generation, command.producerId, command.producerSequence);
     if (existing) {
       if (existing.commandJson !== canonicalJson(command)) {
         throw new Error("Session actor duplicate producer sequence has different contents");
       }
       return JSON.parse(existing.acknowledgementJson) as SessionAcknowledgement;
     }
-    const producer = this.database.query<{ latest: number }, [string, number, string]>(`
+    const producer = this.database
+      .query<{ latest: number }, [string, number, string]>(`
       SELECT MAX(producer_sequence) AS latest FROM session_event
       WHERE session_id = ? AND generation = ? AND producer_id = ?
-    `).get(command.sessionId, generation, command.producerId);
+    `)
+      .get(command.sessionId, generation, command.producerId);
     const expected = (producer?.latest ?? 0) + 1;
     if (command.producerSequence !== expected) {
       return { status: "recovery_required", expectedProducerSequence: expected };
@@ -440,30 +497,34 @@ export class SessionActorJournal {
     if (!current) {
       this.database.query("INSERT INTO session_actor VALUES (?, 1, 0, NULL, 0, 0)").run(command.sessionId);
     }
-    this.applyEffect(command, current ?? {
-      generation: 1,
-      sequence: 0,
-      turnId: null,
-      historyRevision: 0,
-      compactionEpoch: 0,
-    });
+    this.applyEffect(
+      command,
+      current ?? {
+        generation: 1,
+        sequence: 0,
+        turnId: null,
+        historyRevision: 0,
+        compactionEpoch: 0,
+      },
+    );
     const sequence = (current?.sequence ?? 0) + 1;
     const acknowledgement: SessionAcknowledgement = { status: "accepted", sequence };
-    this.database.query("UPDATE session_actor SET sequence = ? WHERE session_id = ?")
-      .run(sequence, command.sessionId);
-    this.database.query(`
+    this.database.query("UPDATE session_actor SET sequence = ? WHERE session_id = ?").run(sequence, command.sessionId);
+    this.database
+      .query(`
       INSERT INTO session_event
       (session_id, generation, sequence, producer_id, producer_sequence, command_json, acknowledgement_json)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      command.sessionId,
-      command.generation,
-      sequence,
-      command.producerId,
-      command.producerSequence,
-      canonicalJson(command),
-      JSON.stringify(acknowledgement),
-    );
+    `)
+      .run(
+        command.sessionId,
+        command.generation,
+        sequence,
+        command.producerId,
+        command.producerSequence,
+        canonicalJson(command),
+        JSON.stringify(acknowledgement),
+      );
     return acknowledgement;
   }
 
@@ -471,13 +532,17 @@ export class SessionActorJournal {
     const operation = () => this.operation(command.sessionId, command.generation, command.operationId);
     if (command.type === "turn_started") {
       if (session.turnId && session.turnId !== command.turnId) {
-        const active = this.database.query<{ count: number }, [string, number]>(`
+        const active =
+          this.database
+            .query<{ count: number }, [string, number]>(`
           SELECT COUNT(*) AS count FROM session_operation
           WHERE session_id = ? AND generation = ? AND state IN ('intent', 'accepted')
-        `).get(command.sessionId, command.generation)?.count ?? 0;
+        `)
+            .get(command.sessionId, command.generation)?.count ?? 0;
         if (active > 0) throw new Error("Session actor cannot replace a turn with pending effects");
       }
-      this.database.query("UPDATE session_actor SET turn_id = ? WHERE session_id = ?")
+      this.database
+        .query("UPDATE session_actor SET turn_id = ? WHERE session_id = ?")
         .run(command.turnId, command.sessionId);
       return;
     }
@@ -485,26 +550,35 @@ export class SessionActorJournal {
       if (session.turnId !== command.turnId) {
         throw new Error("Session actor revocation turn ownership changed");
       }
-      this.database.query(`
+      this.database
+        .query(`
         UPDATE session_operation SET state = 'uncertain'
         WHERE session_id = ? AND generation = ? AND state IN ('intent', 'accepted')
-      `).run(command.sessionId, command.generation);
-      this.database.query(`
+      `)
+        .run(command.sessionId, command.generation);
+      this.database
+        .query(`
         UPDATE session_actor SET generation = generation + 1, turn_id = NULL
         WHERE session_id = ?
-      `).run(command.sessionId);
+      `)
+        .run(command.sessionId);
       return;
     }
     if (command.type === "surface_reconciled") {
-      if (!command.surfaceId || !Number.isSafeInteger(command.surfaceGeneration)
-        || command.surfaceGeneration! < 1
-        || command.surfaceGeneration! >= session.generation) {
+      if (
+        !command.surfaceId ||
+        !Number.isSafeInteger(command.surfaceGeneration) ||
+        command.surfaceGeneration! < 1 ||
+        command.surfaceGeneration! >= session.generation
+      ) {
         throw new Error("Session actor revoked surface generation is invalid");
       }
-      const removed = this.database.query(`
+      const removed = this.database
+        .query(`
         DELETE FROM session_surface
         WHERE surface_id = ? AND session_id = ? AND generation = ?
-      `).run(command.surfaceId, command.sessionId, command.surfaceGeneration!);
+      `)
+        .run(command.surfaceId, command.sessionId, command.surfaceGeneration!);
       if (removed.changes !== 1) {
         throw new Error("Session actor revoked surface release owner mismatch");
       }
@@ -514,8 +588,11 @@ export class SessionActorJournal {
       throw new Error("Session actor turn ownership mismatch");
     }
     if (command.type === "operation_intent") {
-      if (!command.operationKind || !Number.isSafeInteger(command.historyRevision)
-        || command.historyRevision !== session.historyRevision) {
+      if (
+        !command.operationKind ||
+        !Number.isSafeInteger(command.historyRevision) ||
+        command.historyRevision !== session.historyRevision
+      ) {
         throw new Error("Session actor operation revision or kind is invalid");
       }
       if (command.operationKind === "tool_result_delivery") {
@@ -528,89 +605,117 @@ export class SessionActorJournal {
           "tool_call_emitted",
           `tool-call:${command.operationId.slice("tool-result:".length)}`,
         );
-        if (!parent || parent.kind !== "browser_send" || parent.turnId !== command.turnId
-          || parent.historyRevision !== session.historyRevision || parent.state !== "accepted"
-          || !emitted || emitted.command.parentOperationId !== command.parentOperationId
-          || emitted.command.turnId !== command.turnId) {
+        if (
+          parent?.kind !== "browser_send" ||
+          parent.turnId !== command.turnId ||
+          parent.historyRevision !== session.historyRevision ||
+          parent.state !== "accepted" ||
+          !emitted ||
+          emitted.command.parentOperationId !== command.parentOperationId ||
+          emitted.command.turnId !== command.turnId
+        ) {
           throw new Error("Session actor tool result requires an emitted call on the accepted browser turn");
         }
       }
       if (operation()) throw new Error("Session actor operation id is already registered");
-      const uncertain = this.database.query<{ count: number }, [string]>(`
+      const uncertain =
+        this.database
+          .query<{ count: number }, [string]>(`
         SELECT COUNT(*) AS count FROM session_operation
         WHERE session_id = ? AND state = 'uncertain'
-      `).get(command.sessionId)?.count ?? 0;
+      `)
+          .get(command.sessionId)?.count ?? 0;
       if (uncertain > 0) {
         throw new Error("Session actor requires reconciliation before another external effect");
       }
-      this.database.query(`
+      this.database
+        .query(`
         INSERT INTO session_operation VALUES (?, ?, ?, ?, ?, ?, 'intent', NULL)
-      `).run(
-        command.sessionId,
-        command.generation,
-        command.operationId,
-        command.turnId,
-        command.historyRevision,
-        command.operationKind,
-      );
+      `)
+        .run(
+          command.sessionId,
+          command.generation,
+          command.operationId,
+          command.turnId,
+          command.historyRevision,
+          command.operationKind,
+        );
       return;
     }
-    if (command.type === "operation_accepted" || command.type === "operation_completed"
-      || command.type === "operation_uncertain") {
+    if (
+      command.type === "operation_accepted" ||
+      command.type === "operation_completed" ||
+      command.type === "operation_uncertain"
+    ) {
       const pending = operation();
-      if (!pending || pending.turnId !== command.turnId
-        || pending.historyRevision !== session.historyRevision) {
+      if (!pending || pending.turnId !== command.turnId || pending.historyRevision !== session.historyRevision) {
         throw new Error("Session actor operation ownership or revision mismatch");
       }
       if (command.type === "operation_accepted") {
         if (pending.state !== "intent") throw new Error("Session actor operation acceptance is out of order");
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_operation SET state = 'accepted'
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(command.sessionId, command.generation, command.operationId);
+        `)
+          .run(command.sessionId, command.generation, command.operationId);
       } else if (command.type === "operation_completed") {
         if (pending.state !== "accepted" || !command.resultRef) {
           throw new Error("Session actor operation result is out of order or unreferenced");
         }
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_operation SET state = 'completed', result_ref = ?
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(command.resultRef, command.sessionId, command.generation, command.operationId);
+        `)
+          .run(command.resultRef, command.sessionId, command.generation, command.operationId);
       } else {
         if (pending.state !== "intent" && pending.state !== "accepted") {
           throw new Error("Session actor operation cannot become uncertain after completion");
         }
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_operation SET state = 'uncertain'
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(command.sessionId, command.generation, command.operationId);
+        `)
+          .run(command.sessionId, command.generation, command.operationId);
       }
       return;
     }
-    if (command.type === "tool_batch_observed" || command.type === "tool_call_prepared"
-      || command.type === "tool_call_emitted") {
+    if (
+      command.type === "tool_batch_observed" ||
+      command.type === "tool_call_prepared" ||
+      command.type === "tool_call_emitted"
+    ) {
       const parent = command.parentOperationId
         ? this.operation(command.sessionId, command.generation, command.parentOperationId)
         : null;
-      const confirmed = command.type === "tool_call_prepared" || command.type === "tool_call_emitted"
-        ? this.findLocalTransition(
-          command.sessionId,
-          command.generation,
-          "tool_batch_observed",
-          `batch-confirmed:${command.parentOperationId}:${command.toolBatchRevision}`,
-        )
-        : null;
-      if (!parent || parent.kind !== "browser_send" || parent.turnId !== command.turnId
-        || parent.historyRevision !== session.historyRevision
-        || parent.state !== "accepted"
-        || command.historyRevision !== session.historyRevision
-        || !Number.isSafeInteger(command.toolBatchRevision)
-        || command.toolBatchRevision! < 1) {
+      const confirmed =
+        command.type === "tool_call_prepared" || command.type === "tool_call_emitted"
+          ? this.findLocalTransition(
+              command.sessionId,
+              command.generation,
+              "tool_batch_observed",
+              `batch-confirmed:${command.parentOperationId}:${command.toolBatchRevision}`,
+            )
+          : null;
+      if (
+        parent?.kind !== "browser_send" ||
+        parent.turnId !== command.turnId ||
+        parent.historyRevision !== session.historyRevision ||
+        parent.state !== "accepted" ||
+        command.historyRevision !== session.historyRevision ||
+        !Number.isSafeInteger(command.toolBatchRevision) ||
+        command.toolBatchRevision! < 1
+      ) {
         throw new Error("Session actor tool call owner or revision mismatch on accepted browser turn");
       }
-      if ((command.type === "tool_call_prepared" || command.type === "tool_call_emitted") && (!confirmed
-        || confirmed.command.parentOperationId !== command.parentOperationId
-        || confirmed.command.turnId !== command.turnId)) {
+      if (
+        (command.type === "tool_call_prepared" || command.type === "tool_call_emitted") &&
+        (!confirmed ||
+          confirmed.command.parentOperationId !== command.parentOperationId ||
+          confirmed.command.turnId !== command.turnId)
+      ) {
         throw new Error("Session actor tool call requires an observed batch at the same revision");
       }
       if (command.type === "tool_call_emitted") {
@@ -620,32 +725,41 @@ export class SessionActorJournal {
           "tool_call_prepared",
           command.operationId,
         );
-        if (!prepared || prepared.command.parentOperationId !== command.parentOperationId
-          || prepared.command.toolBatchRevision !== command.toolBatchRevision
-          || prepared.command.turnId !== command.turnId) {
+        if (
+          !prepared ||
+          prepared.command.parentOperationId !== command.parentOperationId ||
+          prepared.command.toolBatchRevision !== command.toolBatchRevision ||
+          prepared.command.turnId !== command.turnId
+        ) {
           throw new Error("Session actor tool emission requires a prepared call");
         }
       }
       return;
     }
     if (command.type.startsWith("compaction_")) {
-      const compacted = this.database.query<CompactionRow, [string, number, string]>(`
+      const compacted = this.database
+        .query<CompactionRow, [string, number, string]>(`
         SELECT state, history_revision AS historyRevision, checkpoint_ref AS checkpointRef
         FROM session_compaction
         WHERE session_id = ? AND generation = ? AND operation_id = ?
-      `).get(command.sessionId, command.generation, command.operationId);
+      `)
+        .get(command.sessionId, command.generation, command.operationId);
       if (command.type === "compaction_prepared") {
         if (compacted) throw new Error("Session actor checkpoint operation already exists");
-        const active = this.database.query<{ count: number }, [string, number]>(`
+        const active =
+          this.database
+            .query<{ count: number }, [string, number]>(`
           SELECT COUNT(*) AS count FROM session_compaction
           WHERE session_id = ? AND generation = ?
             AND state IN ('prepared', 'received', 'validated', 'persisted')
-        `).get(command.sessionId, command.generation)?.count ?? 0;
+        `)
+            .get(command.sessionId, command.generation)?.count ?? 0;
         if (active > 0) throw new Error("Session actor checkpoint transaction is already active");
-        this.database.query(`
+        this.database
+          .query(`
           INSERT INTO session_compaction VALUES (?, ?, ?, ?, ?, 'prepared', NULL)
-        `).run(command.sessionId, command.generation, command.operationId,
-          command.turnId, session.historyRevision);
+        `)
+          .run(command.sessionId, command.generation, command.operationId, command.turnId, session.historyRevision);
         return;
       }
       if (!compacted || compacted.historyRevision !== session.historyRevision) {
@@ -661,10 +775,12 @@ export class SessionActorJournal {
         if (!["prepared", "received", "validated"].includes(compacted.state)) {
           throw new Error("Session actor checkpoint rejection is out of order");
         }
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_compaction SET state = 'rejected'
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(command.sessionId, command.generation, command.operationId);
+        `)
+          .run(command.sessionId, command.generation, command.operationId);
         return;
       }
       if (compacted.state !== expected[command.type]) {
@@ -674,52 +790,66 @@ export class SessionActorJournal {
         throw new Error("Session actor checkpoint reference is required");
       }
       if (command.type === "compaction_received") {
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_compaction SET state = 'received', checkpoint_ref = ?
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(command.checkpointRef!, command.sessionId, command.generation, command.operationId);
+        `)
+          .run(command.checkpointRef!, command.sessionId, command.generation, command.operationId);
       } else {
         if (!compacted.checkpointRef) throw new Error("Session actor checkpoint is unreferenced");
         const state = command.type.slice("compaction_".length);
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_compaction SET state = ?
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(state, command.sessionId, command.generation, command.operationId);
+        `)
+          .run(state, command.sessionId, command.generation, command.operationId);
         if (command.type === "compaction_accepted") {
-          this.database.query(`
+          this.database
+            .query(`
             UPDATE session_actor
             SET history_revision = history_revision + 1, compaction_epoch = compaction_epoch + 1
             WHERE session_id = ?
-          `).run(command.sessionId);
+          `)
+            .run(command.sessionId);
         }
       }
       return;
     }
     if (!command.surfaceId) throw new Error("Session actor surface id is required");
     if (command.type === "surface_claimed") {
-      const owner = this.database.query<{ sessionId: string; generation: number }, [string]>(`
+      const owner = this.database
+        .query<{ sessionId: string; generation: number }, [string]>(`
         SELECT session_id AS sessionId, generation FROM session_surface WHERE surface_id = ?
-      `).get(command.surfaceId);
+      `)
+        .get(command.surfaceId);
       if (owner && (owner.sessionId !== command.sessionId || owner.generation !== command.generation)) {
         throw new Error("Browser surface is already owned by another session or generation");
       }
-      const prior = this.database.query<{ surfaceId: string }, [string, number]>(`
+      const prior = this.database
+        .query<{ surfaceId: string }, [string, number]>(`
         SELECT surface_id AS surfaceId FROM session_surface
         WHERE session_id = ? AND generation = ?
-      `).get(command.sessionId, command.generation);
+      `)
+        .get(command.sessionId, command.generation);
       if (prior && prior.surfaceId !== command.surfaceId) {
         throw new Error("Session actor generation already owns another browser surface");
       }
-      this.database.query(`
+      this.database
+        .query(`
         INSERT OR IGNORE INTO session_surface VALUES (?, ?, ?)
-      `).run(command.surfaceId, command.sessionId, command.generation);
+      `)
+        .run(command.surfaceId, command.sessionId, command.generation);
       return;
     }
     if (command.type === "surface_released") {
-      const removed = this.database.query(`
+      const removed = this.database
+        .query(`
         DELETE FROM session_surface
         WHERE surface_id = ? AND session_id = ? AND generation = ?
-      `).run(command.surfaceId, command.sessionId, command.generation);
+      `)
+        .run(command.surfaceId, command.sessionId, command.generation);
       if (removed.changes !== 1) throw new Error("Session actor surface release owner mismatch");
       return;
     }
@@ -728,23 +858,26 @@ export class SessionActorJournal {
 
   private recoverInterrupted(): void {
     this.database.transaction(() => {
-      const interrupted = this.database.query<OperationRow, []>(`
+      const interrupted = this.database
+        .query<OperationRow, []>(`
         SELECT session_id AS sessionId, generation, operation_id AS operationId,
           turn_id AS turnId, history_revision AS historyRevision, kind, state,
           result_ref AS resultRef
         FROM session_operation WHERE state IN ('intent', 'accepted')
         ORDER BY session_id, generation, operation_id
-      `).all();
+      `)
+        .all();
       for (const item of interrupted) {
-        this.database.query(`
+        this.database
+          .query(`
           UPDATE session_operation SET state = 'uncertain'
           WHERE session_id = ? AND generation = ? AND operation_id = ?
-        `).run(item.sessionId, item.generation, item.operationId);
+        `)
+          .run(item.sessionId, item.generation, item.operationId);
         const row = this.snapshot(item.sessionId);
         if (!row) throw new Error("Session actor journal has an orphan operation");
         const sequence = row.sequence + 1;
-        this.database.query("UPDATE session_actor SET sequence = ? WHERE session_id = ?")
-          .run(sequence, item.sessionId);
+        this.database.query("UPDATE session_actor SET sequence = ? WHERE session_id = ?").run(sequence, item.sessionId);
         const command = {
           protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
           sessionId: item.sessionId,
@@ -755,19 +888,21 @@ export class SessionActorJournal {
           producerSequence: sequence,
           type: "operation_uncertain",
         };
-        this.database.query(`
+        this.database
+          .query(`
           INSERT INTO session_event
           (session_id, generation, sequence, producer_id, producer_sequence, command_json, acknowledgement_json)
           VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          item.sessionId,
-          item.generation,
-          sequence,
-          "recovery",
-          sequence,
-          canonicalJson(command),
-          JSON.stringify({ status: "accepted", sequence }),
-        );
+        `)
+          .run(
+            item.sessionId,
+            item.generation,
+            sequence,
+            "recovery",
+            sequence,
+            canonicalJson(command),
+            JSON.stringify({ status: "accepted", sequence }),
+          );
       }
     })();
   }

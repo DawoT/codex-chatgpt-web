@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync, type Stats } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, readFileSync, type Stats, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 export interface CachedFile {
   resolvedPath: string;
@@ -65,10 +65,7 @@ export class FastPathWorkspaceCache {
     stat: Pick<Stats, "mtimeMs" | "size">,
     data: { text: string; lines: string[]; isBinary: boolean },
   ): void {
-    const byteSize = Math.max(
-      64,
-      stat.size + (data.isBinary ? 0 : data.lines.length * 8 + 64),
-    );
+    const byteSize = Math.max(64, stat.size + (data.isBinary ? 0 : data.lines.length * 8 + 64));
 
     // Skip items larger than cache ceiling
     if (byteSize > this.maxMemoryBytes) {
@@ -81,10 +78,7 @@ export class FastPathWorkspaceCache {
       this.currentMemoryBytes -= existing.byteSize;
     }
 
-    while (
-      this.entries.size > 0 &&
-      this.currentMemoryBytes + byteSize > this.maxMemoryBytes
-    ) {
+    while (this.entries.size > 0 && this.currentMemoryBytes + byteSize > this.maxMemoryBytes) {
       const oldestKey = this.entries.keys().next().value;
       if (!oldestKey) break;
       const evicted = this.entries.get(oldestKey);
@@ -120,9 +114,7 @@ export class FastPathWorkspaceCache {
   }
 
   invalidatePrefix(dirOrPrefixPath: string): number {
-    const prefix = dirOrPrefixPath.endsWith("/")
-      ? dirOrPrefixPath
-      : `${dirOrPrefixPath}/`;
+    const prefix = dirOrPrefixPath.endsWith("/") ? dirOrPrefixPath : `${dirOrPrefixPath}/`;
     let invalidated = 0;
     for (const [key, entry] of this.entries) {
       if (key === dirOrPrefixPath || key.startsWith(prefix)) {
@@ -145,11 +137,12 @@ export class FastPathWorkspaceCache {
     const candidateSpecifiers: string[] = [];
 
     // Match JS/TS/JSON imports & requires
-    const importRegex = /(?:import|export)\s+(?:(?:[\w*\s{},]*)\s+from\s+)?['"](\.[^'"]+)['"]|require\(['"](\.[^'"]+)['"]\)|import\(['"](\.[^'"]+)['"]\)/g;
+    const importRegex =
+      /(?:import|export)\s+(?:(?:[\w*\s{},]*)\s+from\s+)?['"](\.[^'"]+)['"]|require\(['"](\.[^'"]+)['"]\)|import\(['"](\.[^'"]+)['"]\)/g;
     let match: RegExpExecArray | null;
     while ((match = importRegex.exec(content)) !== null) {
       const specifier = match[1] ?? match[2] ?? match[3];
-      if (specifier && specifier.startsWith(".")) {
+      if (specifier?.startsWith(".")) {
         candidateSpecifiers.push(specifier);
       }
     }
@@ -175,7 +168,7 @@ export class FastPathWorkspaceCache {
       const resolvedBase = resolve(baseDir, specifier);
 
       if (roots && roots.length > 0) {
-        const isAllowed = roots.some(root => {
+        const isAllowed = roots.some((root) => {
           const absRoot = resolve(root);
           return resolvedBase === absRoot || resolvedBase.startsWith(absRoot.endsWith("/") ? absRoot : `${absRoot}/`);
         });
@@ -193,7 +186,10 @@ export class FastPathWorkspaceCache {
             let isBinary = false;
             const checkBytes = Math.min(buffer.length, 512);
             for (let i = 0; i < checkBytes; i++) {
-              if (buffer[i] === 0) { isBinary = true; break; }
+              if (buffer[i] === 0) {
+                isBinary = true;
+                break;
+              }
             }
             if (isBinary) {
               this.set(candidate, st, { text: "", lines: [], isBinary: true });

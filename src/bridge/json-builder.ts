@@ -1,19 +1,8 @@
 import { encodeCompactionSummary } from "../responses/compaction";
 import { encodeReasoningEnvelope, type ReasoningEnvelope } from "../responses/reasoning-envelope";
-import type {
-  AdapterEvent,
-  CodexMessagePhase,
-  CodexProviderContinuationState,
-  CodexUsage,
-} from "../types";
+import type { AdapterEvent, CodexMessagePhase, CodexProviderContinuationState, CodexUsage } from "../types";
 import { adapterFailureFromEvent } from "./errors";
-import {
-  freeformInput,
-  parseArgsObj,
-  plaintextCollaborationFields,
-  uuid,
-  type OutputItem,
-} from "./types";
+import { freeformInput, type OutputItem, parseArgsObj, plaintextCollaborationFields, uuid } from "./types";
 import { responsesUsage } from "./usage";
 
 export function buildResponseJSON(
@@ -52,7 +41,10 @@ export function buildResponseJSON(
   const flushText = () => {
     if (!currentText) return;
     output.push({
-      type: "message", id: `msg_${uuid()}`, role: "assistant", status: "completed",
+      type: "message",
+      id: `msg_${uuid()}`,
+      role: "assistant",
+      status: "completed",
       content: [{ type: "output_text", text: currentText, annotations: [] }],
       ...(currentTextPhase ? { phase: currentTextPhase } : {}),
     });
@@ -69,9 +61,13 @@ export function buildResponseJSON(
     const encrypted = envelope.sig || envelope.red || envelope.txt ? encodeReasoningEnvelope(envelope) : undefined;
     batchSignature = undefined;
     batchRedacted = [];
-    if (hidden && !encrypted) { currentSummaryReasoning = ""; return; }
+    if (hidden && !encrypted) {
+      currentSummaryReasoning = "";
+      return;
+    }
     output.push({
-      type: "reasoning", id: `rs_${uuid()}`,
+      type: "reasoning",
+      id: `rs_${uuid()}`,
       summary: !hidden && currentSummaryReasoning ? [{ type: "summary_text", text: currentSummaryReasoning }] : [],
       ...(encrypted ? { encrypted_content: encrypted } : {}),
     });
@@ -82,14 +78,18 @@ export function buildResponseJSON(
     if (options?.hideThinkingSummary === true) {
       // Same contract as the streaming path: no visible reasoning, txt-only envelope round-trip.
       output.push({
-        type: "reasoning", id: `rs_${uuid()}`, summary: [],
+        type: "reasoning",
+        id: `rs_${uuid()}`,
+        summary: [],
         encrypted_content: encodeReasoningEnvelope({ txt: currentRawReasoning }),
       });
       currentRawReasoning = "";
       return;
     }
     output.push({
-      type: "reasoning", id: `rs_${uuid()}`, summary: [],
+      type: "reasoning",
+      id: `rs_${uuid()}`,
+      summary: [],
       content: [{ type: "reasoning_text", text: currentRawReasoning }],
     });
     currentRawReasoning = "";
@@ -103,21 +103,30 @@ export function buildResponseJSON(
     const freeform = !toolSearch && (options?.freeformToolNames?.has(realName) ?? false);
     if (toolSearch) {
       output.push({
-        type: "tool_search_call", id: `tsc_${uuid()}`,
-        call_id: currentToolCallId, execution: "client",
-        arguments: parseArgsObj(currentToolCallArgs), status: "completed",
+        type: "tool_search_call",
+        id: `tsc_${uuid()}`,
+        call_id: currentToolCallId,
+        execution: "client",
+        arguments: parseArgsObj(currentToolCallArgs),
+        status: "completed",
       });
     } else if (freeform) {
       output.push({
-        type: "custom_tool_call", id: `ctc_${uuid()}`,
-        call_id: currentToolCallId, name: realName,
-        input: freeformInput(currentToolCallArgs), status: "completed",
+        type: "custom_tool_call",
+        id: `ctc_${uuid()}`,
+        call_id: currentToolCallId,
+        name: realName,
+        input: freeformInput(currentToolCallArgs),
+        status: "completed",
       });
     } else {
       output.push({
-        type: "function_call", id: `fc_${uuid()}`,
-        call_id: currentToolCallId, name: realName,
-        arguments: currentToolCallArgs || "{}", status: "completed",
+        type: "function_call",
+        id: `fc_${uuid()}`,
+        call_id: currentToolCallId,
+        name: realName,
+        arguments: currentToolCallArgs || "{}",
+        status: "completed",
         ...(ns ? { namespace: ns } : {}),
         ...plaintextCollaborationFields(ns, realName),
       });
@@ -210,32 +219,38 @@ export function buildResponseJSON(
   // A truncated turn must never become replacement history. Emit a compaction item only after
   // authoritative turn completion.
   if (options?.compaction && !errorEvent && !incompleteEvent && stopReason !== "max_tokens") {
-    output.push({ type: "compaction", id: `cmp_${uuid()}`, encrypted_content: encodeCompactionSummary(compactionText) });
+    output.push({
+      type: "compaction",
+      id: `cmp_${uuid()}`,
+      encrypted_content: encodeCompactionSummary(compactionText),
+    });
   }
 
   const failure = errorEvent ? adapterFailureFromEvent(errorEvent) : undefined;
-  const status = errorEvent
-    ? "failed"
-    : incompleteEvent || stopReason === "max_tokens"
-      ? "incomplete"
-      : "completed";
+  const status = errorEvent ? "failed" : incompleteEvent || stopReason === "max_tokens" ? "incomplete" : "completed";
   return {
-    id: responseId, object: "response",
+    id: responseId,
+    object: "response",
     created_at: Math.floor(Date.now() / 1000),
     status,
-    model: modelId, output,
+    model: modelId,
+    output,
     ...(endTurn !== undefined ? { end_turn: endTurn } : {}),
     ...(failure ? { error: failure.error, last_error: failure.error } : {}),
     ...(errorEvent?.retryable !== undefined ? { retryable: errorEvent.retryable } : {}),
-    ...(incompleteEvent ? {
-      incomplete_details: {
-        reason: incompleteEvent.reason,
-        ...(incompleteEvent.message ? { message: incompleteEvent.message } : {}),
-        ...(incompleteEvent.retryable !== undefined ? { retryable: incompleteEvent.retryable } : {}),
-      },
-    } : stopReason === "max_tokens" ? {
-      incomplete_details: { reason: "max_output_tokens" },
-    } : {}),
+    ...(incompleteEvent
+      ? {
+          incomplete_details: {
+            reason: incompleteEvent.reason,
+            ...(incompleteEvent.message ? { message: incompleteEvent.message } : {}),
+            ...(incompleteEvent.retryable !== undefined ? { retryable: incompleteEvent.retryable } : {}),
+          },
+        }
+      : stopReason === "max_tokens"
+        ? {
+            incomplete_details: { reason: "max_output_tokens" },
+          }
+        : {}),
     usage: responsesUsage(incompleteEvent?.usage ?? usage),
   };
 }

@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { defaultBrokerEndpoint, getConfigDir } from "../src/config";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { defaultBrokerEndpoint, getConfigDir } from "../src/config";
 
 const importedHome = getConfigDir();
 
@@ -23,12 +23,15 @@ test("Bun tests isolate default runtime paths before module initialization", () 
 });
 
 test("direct bun test overrides an inherited live home and removes its temporary home on exit", async () => {
-  const child = Bun.spawn([process.execPath, "test", import.meta.path, "--test-name-pattern", "Bun tests isolate default runtime"], {
-    cwd: join(import.meta.dir, ".."),
-    env: { ...process.env, CODEX_CHATGPT_WEB_HOME: join(homedir(), ".codex-chatgpt-web"), CGW_ISOLATION_CHILD: "1" },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const child = Bun.spawn(
+    [process.execPath, "test", import.meta.path, "--test-name-pattern", "Bun tests isolate default runtime"],
+    {
+      cwd: join(import.meta.dir, ".."),
+      env: { ...process.env, CODEX_CHATGPT_WEB_HOME: join(homedir(), ".codex-chatgpt-web"), CGW_ISOLATION_CHILD: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const [stdout, stderr, status] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),

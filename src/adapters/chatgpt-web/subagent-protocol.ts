@@ -43,7 +43,10 @@ export function parseSubagentStructuredResult(text: string): SubagentStructuredR
   if (!rawJson) return null;
 
   // 3. Strip optional markdown code fences: ```json ... ```
-  rawJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  rawJson = rawJson
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
 
   try {
     const parsed = JSON.parse(rawJson) as Record<string, unknown>;
@@ -58,32 +61,34 @@ export function parseSubagentStructuredResult(text: string): SubagentStructuredR
     }
 
     // Normalize summary
-    const summary = typeof parsed.summary === "string" && parsed.summary.trim().length > 0
-      ? parsed.summary.trim()
-      : typeof parsed.diagnostics === "string" && parsed.diagnostics.trim().length > 0
-        ? parsed.diagnostics.trim()
-        : "Subagent task finished without description.";
+    const summary =
+      typeof parsed.summary === "string" && parsed.summary.trim().length > 0
+        ? parsed.summary.trim()
+        : typeof parsed.diagnostics === "string" && parsed.diagnostics.trim().length > 0
+          ? parsed.diagnostics.trim()
+          : "Subagent task finished without description.";
 
     // Normalize modified_files
     const modifiedFiles = Array.isArray(parsed.modified_files)
       ? (parsed.modified_files as unknown[])
           .filter((f): f is string => typeof f === "string" && f.trim().length > 0)
-          .map(f => f.trim())
+          .map((f) => f.trim())
       : undefined;
 
     // Normalize created_artifacts
     const createdArtifacts = Array.isArray(parsed.created_artifacts)
       ? (parsed.created_artifacts as unknown[])
           .filter((a): a is string => typeof a === "string" && a.trim().length > 0)
-          .map(a => a.trim())
+          .map((a) => a.trim())
       : undefined;
 
     // Normalize diagnostics
-    const diagnostics = typeof parsed.diagnostics === "string" && parsed.diagnostics.trim().length > 0
-      ? parsed.diagnostics.trim()
-      : typeof parsed.error === "string" && parsed.error.trim().length > 0
-        ? parsed.error.trim()
-        : undefined;
+    const diagnostics =
+      typeof parsed.diagnostics === "string" && parsed.diagnostics.trim().length > 0
+        ? parsed.diagnostics.trim()
+        : typeof parsed.error === "string" && parsed.error.trim().length > 0
+          ? parsed.error.trim()
+          : undefined;
 
     return {
       status,
@@ -102,10 +107,7 @@ export function parseSubagentStructuredResult(text: string): SubagentStructuredR
  * suitable for embedding in the parent orchestrator's context.
  */
 export function formatSubagentResultSummary(result: SubagentStructuredResult): string {
-  const lines: string[] = [
-    `[Subagent Result: ${result.status.toUpperCase()}]`,
-    `Summary: ${result.summary}`,
-  ];
+  const lines: string[] = [`[Subagent Result: ${result.status.toUpperCase()}]`, `Summary: ${result.summary}`];
   if (result.modified_files && result.modified_files.length > 0) {
     lines.push(`Modified files (${result.modified_files.length}): ${result.modified_files.join(", ")}`);
   }
@@ -124,13 +126,17 @@ export function formatSubagentResultSummary(result: SubagentStructuredResult): s
 export const SUBAGENT_STRUCTURED_RESULT_SCHEMA_INSTRUCTION = [
   "STRUCTURED RESULT CONTRACT: You must end your final answer with a machine-readable <subagent_result> JSON block matching this exact schema:",
   SUBAGENT_RESULT_TAG_OPEN,
-  JSON.stringify({
-    status: "completed",
-    summary: "Brief 1-3 sentence summary of completed work",
-    modified_files: ["path/to/modified-file.ts"],
-    created_artifacts: ["path/to/artifact.log"],
-    diagnostics: "Error details if failed or blocked (omit if completed)",
-  }, null, 2),
+  JSON.stringify(
+    {
+      status: "completed",
+      summary: "Brief 1-3 sentence summary of completed work",
+      modified_files: ["path/to/modified-file.ts"],
+      created_artifacts: ["path/to/artifact.log"],
+      diagnostics: "Error details if failed or blocked (omit if completed)",
+    },
+    null,
+    2,
+  ),
   SUBAGENT_RESULT_TAG_CLOSE,
   "Rules:",
   "1. The status must be 'completed', 'failed', or 'blocked'.",
@@ -158,8 +164,8 @@ export function trimDeepSubagentHistory(
     const msg = messages[i]!;
     if (msg.role === "assistant") {
       const text = msg.content
-        .filter(p => p.type === "text")
-        .map(p => (p.type === "text" ? p.text : ""))
+        .filter((p) => p.type === "text")
+        .map((p) => (p.type === "text" ? p.text : ""))
         .join("\n");
       if (parseSubagentStructuredResult(text)) {
         subagentResultIndices.push(i);
@@ -184,7 +190,7 @@ export function trimDeepSubagentHistory(
 
     if (message.role === "assistant") {
       let changed = false;
-      const condensedContent = message.content.map(part => {
+      const condensedContent = message.content.map((part) => {
         if (part.type !== "text") return part;
         const res = parseSubagentStructuredResult(part.text);
         if (res) {
@@ -197,13 +203,18 @@ export function trimDeepSubagentHistory(
     }
 
     if (message.role === "agentMessage") {
-      const rawContent = typeof message.content === "string"
-        ? message.content
-        : Array.isArray(message.content)
-          ? message.content.map(p => (p.type === "text" ? p.text : "")).join("\n")
-          : "";
+      const rawContent =
+        typeof message.content === "string"
+          ? message.content
+          : Array.isArray(message.content)
+            ? message.content.map((p) => (p.type === "text" ? p.text : "")).join("\n")
+            : "";
       if (rawContent.length > 200) {
-        const target = message.recipient ? `to ${message.recipient}` : message.author ? `from ${message.author}` : "worker";
+        const target = message.recipient
+          ? `to ${message.recipient}`
+          : message.author
+            ? `from ${message.author}`
+            : "worker";
         return {
           ...message,
           content: `[Historical subagent task dialogue ${target}: completed in earlier turn (${rawContent.length.toLocaleString("en-US")} chars)]`,

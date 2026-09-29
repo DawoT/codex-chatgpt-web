@@ -3,17 +3,17 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProviderAdapter } from "../src/adapters/base";
-import { ChatGptBrowserWorker, type BrowserTurn } from "../src/adapters/chatgpt-web/browser-worker";
 import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
-import { chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
+import { type BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import {
+  type BrokerToolResult,
   callTurnBroker,
   RemoteTurnBroker,
   TurnBroker,
-  type BrokerToolResult,
 } from "../src/adapters/chatgpt-web/turn-broker";
+import { chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
 import { defaultBrokerEndpoint, defaultConfig, providerConfig } from "../src/config";
-import { defaultDevChatModel, DEV_CHAT_TOOLS, DevChatDriver } from "../src/dev-chat/driver";
+import { DEV_CHAT_TOOLS, DevChatDriver, defaultDevChatModel } from "../src/dev-chat/driver";
 import {
   createDevCoherentContextPayload,
   createDevContextFiller,
@@ -44,8 +44,9 @@ test("remote outer harness owns a turn through the live broker protocol", async 
   await broker.listen();
   try {
     await remote.assertCompatible();
-    await expect(remote.register({ cwd: "relative", roots: [], tools: [] } as never, 60_000, "invalid-owner"))
-      .rejects.toThrow("environment is invalid");
+    await expect(
+      remote.register({ cwd: "relative", roots: [], tools: [] } as never, 60_000, "invalid-owner"),
+    ).rejects.toThrow("environment is invalid");
     const environment = {
       cwd: root,
       roots: [root],
@@ -56,12 +57,16 @@ test("remote outer harness owns a turn through the live broker protocol", async 
     const token = await remote.register(environment, 60_000, "dev-owner-test");
     const retirement = remote.waitForRetirement(token);
     const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, { method: "claim", token });
-    const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
-      method: "invoke",
-      bindingId: claimed.bindingId,
-      wireName: "exec_command",
-      arguments: { cmd: "pwd" },
-    }, 10_000);
+    const invocation = callTurnBroker<BrokerToolResult>(
+      socketPath,
+      {
+        method: "invoke",
+        bindingId: claimed.bindingId,
+        wireName: "exec_command",
+        arguments: { cmd: "pwd" },
+      },
+      10_000,
+    );
     const batch = await remote.nextToolBatch(token);
     expect(batch).toHaveLength(1);
     expect(batch[0]).toMatchObject({ wireName: "exec_command", arguments: { cmd: "pwd" } });
@@ -95,7 +100,7 @@ test("disconnecting a remote owner_next removes its broker waiter", async () => 
   try {
     const abandoned = new AbortController();
     const firstWait = remote.nextToolBatch(token, abandoned.signal);
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     abandoned.abort();
     await expect(firstWait).rejects.toMatchObject({ name: "AbortError" });
 
@@ -106,12 +111,16 @@ test("disconnecting a remote owner_next removes its broker waiter", async () => 
       token,
       activityId,
     });
-    const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
-      method: "invoke",
-      bindingId: claimed.bindingId,
-      wireName: "exec_command",
-      arguments: { cmd: "pwd" },
-    }, 10_000);
+    const invocation = callTurnBroker<BrokerToolResult>(
+      socketPath,
+      {
+        method: "invoke",
+        bindingId: claimed.bindingId,
+        wireName: "exec_command",
+        arguments: { cmd: "pwd" },
+      },
+      10_000,
+    );
     const [request] = await secondWait;
     broker.completeTool(token, request!.callId, { content: [{ type: "text", text: "ok" }] });
     await invocation;
@@ -151,20 +160,24 @@ test("coherent DEV MCP payloads are bounded, deterministic, and distinct", () =>
   expect(second.text).not.toBe(first.text);
   expect(() => createDevCoherentContextPayload(0, 3_000)).toThrow("segment must be 1, 2, or 3");
   expect(() => createDevCoherentContextPayload(1, 999)).toThrow("1000 to 95000 tokens");
-  expect(DEV_CHAT_TOOLS).toContainEqual(expect.objectContaining({
-    type: "function",
-    name: "mcp__dev_simulator__large_context_payload",
-  }));
+  expect(DEV_CHAT_TOOLS).toContainEqual(
+    expect.objectContaining({
+      type: "function",
+      name: "mcp__dev_simulator__large_context_payload",
+    }),
+  );
 });
 
 test("new DEV chats default to the cheapest account-supported browser model", () => {
   expect(defaultDevChatModel({ ...defaultConfig("full"), solAvailable: true })).toBe("chatgpt-web/gpt-5.6-sol-instant");
   expect(defaultDevChatModel({ ...defaultConfig("full"), solAvailable: false })).toBe("chatgpt-web/gpt-5.6-luna");
   expect(DEV_CHAT_MODELS).toContain("chatgpt-web/think");
-  expect(defaultDevChatModel({
-    ...defaultConfig("full"),
-    browserInteractionMode: "manual",
-  })).toBe("chatgpt-web/zero-risk");
+  expect(
+    defaultDevChatModel({
+      ...defaultConfig("full"),
+      browserInteractionMode: "manual",
+    }),
+  ).toBe("chatgpt-web/zero-risk");
 });
 
 test("Zero Risk DEV chats open only the generic route", () => {
@@ -182,9 +195,7 @@ test("Zero Risk DEV chats open only the generic route", () => {
     root,
   );
   expect(driver.open("safe").state.model).toBe("chatgpt-web/zero-risk");
-  expect(() => driver.open("automatic", "chatgpt-web/high")).toThrow(
-    "not available while Zero Risk is enabled",
-  );
+  expect(() => driver.open("automatic", "chatgpt-web/high")).toThrow("not available while Zero Risk is enabled");
 });
 
 test("an existing DEV chat changes route only when the user explicitly requests it", () => {
@@ -210,9 +221,7 @@ test("an existing DEV chat changes route only when the user explicitly requests 
     },
     root,
   );
-  expect(() => manual.open("switchable")).toThrow(
-    "not available while Zero Risk is enabled",
-  );
+  expect(() => manual.open("switchable")).toThrow("not available while Zero Risk is enabled");
   const migrated = manual.open("switchable", "chatgpt-web/zero-risk").state;
   expect(migrated).toMatchObject({
     model: "chatgpt-web/zero-risk",
@@ -226,14 +235,17 @@ test("Bigger Context grows the DEV window while preserving the preventive compac
     ...defaultConfig("browser-only"),
     purpose: "dev-harness" as const,
     solAvailable: true,
-    extraHighAvailable: true, proAvailable: true,
+    extraHighAvailable: true,
+    proAvailable: true,
   };
   const factory = (): ProviderAdapter => ({
     name: "dev-bigger-context-test",
     async runTurn(_parsed, _incoming, emit) {
       emit({ type: "text_delta", text: "unused", phase: "final_answer" });
       emit({
-        type: "done", stopReason: "stop", endTurn: true,
+        type: "done",
+        stopReason: "stop",
+        endTurn: true,
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, estimated: true },
       });
     },
@@ -252,11 +264,18 @@ test("Bigger Context grows the DEV window while preserving the preventive compac
     contextWindow: 333_579,
   });
   expect(biggerStatus.percent).toBe(Math.round((biggerStatus.inputTokens / 285_000) * 1_000) / 10);
-  const luna = new DevChatDriver({
-    ...biggerConfig,
-    solAvailable: false,
-    extraHighAvailable: false, proAvailable: false,
-  }, store, factory, root, { biggerContext: true });
+  const luna = new DevChatDriver(
+    {
+      ...biggerConfig,
+      solAvailable: false,
+      extraHighAvailable: false,
+      proAvailable: false,
+    },
+    store,
+    factory,
+    root,
+    { biggerContext: true },
+  );
   expect(() => luna.open("luna-window", "chatgpt-web/luna")).toThrow("unavailable for Luna");
   expect(() => luna.open("think-window", "chatgpt-web/think")).toThrow("unavailable for Luna");
   await Promise.all([normal.close(), bigger.close(), luna.close()]);
@@ -268,7 +287,8 @@ test("browser-only DEV driver runs real turns without advertising simulated tool
     ...defaultConfig("browser-only"),
     purpose: "dev-harness" as const,
     solAvailable: true,
-    extraHighAvailable: true, proAvailable: true,
+    extraHighAvailable: true,
+    proAvailable: true,
   };
   const factory = (): ProviderAdapter => ({
     name: "dev-browser-only-test",
@@ -276,7 +296,9 @@ test("browser-only DEV driver runs real turns without advertising simulated tool
       expect(parsed.context.tools ?? []).toEqual([]);
       emit({ type: "text_delta", text: "Browser-only DEV turn completed.", phase: "final_answer" });
       emit({
-        type: "done", stopReason: "stop", endTurn: true,
+        type: "done",
+        stopReason: "stop",
+        endTurn: true,
         usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105, estimated: true },
       });
     },
@@ -284,8 +306,10 @@ test("browser-only DEV driver runs real turns without advertising simulated tool
   const driver = new DevChatDriver(config, new DevChatStore(join(root, "chats")), factory, root);
   try {
     const state = driver.open("browser-only", "chatgpt-web/extra-high").state;
-    await expect(driver.send(state, "Exercise Extra High without MCP credentials."))
-      .resolves.toMatchObject({ text: "Browser-only DEV turn completed.", toolCalls: 0 });
+    await expect(driver.send(state, "Exercise Extra High without MCP credentials.")).resolves.toMatchObject({
+      text: "Browser-only DEV turn completed.",
+      toolCalls: 0,
+    });
   } finally {
     await driver.close();
   }
@@ -322,23 +346,21 @@ test("DEV chat attaches its broker to the launcher-owned tunnel without a Respon
       }),
     });
     expect(transport.config).toBe(config);
-    expect(await callTurnBroker(transport.config.brokerSocketPath, { method: "owner_status" }))
-      .toMatchObject({
-        protocolVersion: 6,
-        identity: {
-          protocolVersion: 2,
-          pid: process.pid,
-          generation: expect.any(String),
-          artifactSha256: expect.any(String),
-        },
-      });
+    expect(await callTurnBroker(transport.config.brokerSocketPath, { method: "owner_status" })).toMatchObject({
+      protocolVersion: 6,
+      identity: {
+        protocolVersion: 2,
+        pid: process.pid,
+        generation: expect.any(String),
+        artifactSha256: expect.any(String),
+      },
+    });
     expect(await (await fetch(`http://127.0.0.1:${occupied.port}`)).text()).toBe("normal Codex route");
   } finally {
     await transport?.close();
     await occupied.stop(true);
   }
-  await expect(callTurnBroker(devBroker, { method: "owner_status" }))
-    .rejects.toThrow("unavailable");
+  await expect(callTurnBroker(devBroker, { method: "owner_status" })).rejects.toThrow("unavailable");
 });
 
 test("DEV chat fails closed until the launcher-owned MCP tunnel is ready", async () => {
@@ -355,26 +377,32 @@ test("DEV chat fails closed until the launcher-owned MCP tunnel is ready", async
       alias: "production-alias",
     },
   };
-  await expect(startDevChatTransport(config, join(root, "dev"), {
-    status: () => ({
-      ok: false,
-      processRunning: false,
-      healthy: false,
-      ready: false,
-      state: "stopped",
-      detail: "stopped",
+  await expect(
+    startDevChatTransport(config, join(root, "dev"), {
+      status: () => ({
+        ok: false,
+        processRunning: false,
+        healthy: false,
+        ready: false,
+        state: "stopped",
+        detail: "stopped",
+      }),
     }),
-  })).rejects.toThrow("launcher-owned DEV MCP tunnel is not ready");
+  ).rejects.toThrow("launcher-owned DEV MCP tunnel is not ready");
 });
 
 test("DEV driver uses shared browser methods and its own broker while an unrelated Responses port stays occupied", async () => {
   const root = scratch("cgw-dev-driver");
   const codexConfig = join(root, "codex", "config.toml");
   mkdirSync(join(root, "codex"), { recursive: true });
-  writeFileSync(codexConfig, "openai_base_url = \"http://127.0.0.1:17841/v1\"\n");
+  writeFileSync(codexConfig, 'openai_base_url = "http://127.0.0.1:17841/v1"\n');
   const sentinel = readFileSync(codexConfig, "utf8");
   const occupied = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("live") });
-  const config = { ...defaultConfig("full"), port: occupied.port!, brokerSocketPath: defaultBrokerEndpoint(join(root, "broker")) };
+  const config = {
+    ...defaultConfig("full"),
+    port: occupied.port!,
+    brokerSocketPath: defaultBrokerEndpoint(join(root, "broker")),
+  };
   const localBroker = TurnBroker.forSocket(config.brokerSocketPath);
   await localBroker.listen();
   const remote = new RemoteTurnBroker(config.brokerSocketPath);
@@ -391,7 +419,7 @@ test("DEV driver uses shared browser methods and its own broker while an unrelat
   const worker = ChatGptBrowserWorker.forProvider(devProvider(providerConfig(config)));
   const originalRun = worker.run.bind(worker);
   let browserStarts = 0;
-  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async (turn) => {
     browserStarts += 1;
     const prepared = await turn.prepare();
     try {
@@ -402,12 +430,16 @@ test("DEV driver uses shared browser methods and its own broker while an unrelat
       const progress = turn.externalProgress;
       if (!progress) throw new Error("DEV tool-capable browser has no progress transport");
       const previousBatchRevision = progress.snapshot().lastToolBatchRevision;
-      const invocation = callTurnBroker<BrokerToolResult>(config.brokerSocketPath, {
-        method: "invoke",
-        bindingId: claimed.bindingId,
-        wireName: "exec_command",
-        arguments: { cmd: "git status --short" },
-      }, 30_000);
+      const invocation = callTurnBroker<BrokerToolResult>(
+        config.brokerSocketPath,
+        {
+          method: "invoke",
+          bindingId: claimed.bindingId,
+          wireName: "exec_command",
+          arguments: { cmd: "git status --short" },
+        },
+        30_000,
+      );
       let snapshot = progress.snapshot();
       while (snapshot.lastToolBatchRevision <= previousBatchRevision) {
         snapshot = await progress.waitForChange(snapshot.revision, turn.abortSignal);
@@ -428,8 +460,9 @@ test("DEV driver uses shared browser methods and its own broker while an unrelat
     const state = driver.open("tool-round").state;
     const result = await driver.send(state, "Use a command tool, then report its receipt.");
     expect(result).toMatchObject({ text: "DEV receipt simulated=true", toolCalls: 1 });
-    expect(state.input.find(item => (item as { role?: string }).role === "assistant"))
-      .toMatchObject({ internal_chat_message_metadata_passthrough: { turn_id: expect.stringContaining("dev_turn_") } });
+    expect(state.input.find((item) => (item as { role?: string }).role === "assistant")).toMatchObject({
+      internal_chat_message_metadata_passthrough: { turn_id: expect.stringContaining("dev_turn_") },
+    });
     expect(browserStarts).toBe(1);
     expect(await (await fetch(`http://127.0.0.1:${occupied.port}`)).text()).toBe("live");
     expect(readFileSync(codexConfig, "utf8")).toBe(sentinel);
@@ -457,7 +490,9 @@ test("synthetic fill crosses the production threshold and triggers the real comp
         emit({ type: "text_delta", text: "DEV turn completed after compaction.", phase: "final_answer" });
       }
       emit({
-        type: "done", stopReason: "stop", endTurn: true,
+        type: "done",
+        stopReason: "stop",
+        endTurn: true,
         usage: { inputTokens: 1_000, outputTokens: 20, totalTokens: 1_020, estimated: true },
       });
     },
@@ -468,7 +503,9 @@ test("synthetic fill crosses the production threshold and triggers the real comp
   driver.fill(state, 30_000);
   expect(driver.status(state).inputTokens).toBeGreaterThanOrEqual(32_000);
   const events: string[] = [];
-  const result = await driver.send(state, "Continue after compacting the synthetic history.", event => events.push(event.type));
+  const result = await driver.send(state, "Continue after compacting the synthetic history.", (event) =>
+    events.push(event.type),
+  );
   expect(result).toMatchObject({ text: "DEV turn completed after compaction.", compactions: 1 });
   expect(compactRuns).toBe(1);
   expect(events).toContain("compaction_start");

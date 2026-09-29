@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  SessionHealthGuard,
   SessionExpiredPreflightError,
+  SessionHealthGuard,
   sessionHealthGuard,
 } from "../src/adapters/chatgpt-web/session-guard";
 

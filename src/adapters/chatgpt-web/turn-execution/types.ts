@@ -1,10 +1,8 @@
 import type { CodexParsedRequest } from "../../../types";
-import type { ChatGptTextFeed, ChatGptTraceFeed } from "./feeds";
 import type { ChatGptExternalTurnProgress } from "../turn-progress";
+import type { ChatGptTextFeed, ChatGptTraceFeed } from "./feeds";
 
-export type ChatGptBrowserOutcome =
-  | { type: "final"; answer: string }
-  | { type: "error"; error: Error };
+export type ChatGptBrowserOutcome = { type: "final"; answer: string } | { type: "error"; error: Error };
 
 export interface ChatGptTraceEvent {
   kind: "reasoning" | "commentary";
@@ -47,10 +45,10 @@ export interface ChatGptTurnRuntimeBase {
 
 export type ChatGptTurnRuntime =
   | (ChatGptTurnRuntimeBase & {
-    mode: "tools";
-    token: Promise<string>;
-    externalProgress: ChatGptExternalTurnProgress;
-  })
+      mode: "tools";
+      token: Promise<string>;
+      externalProgress: ChatGptExternalTurnProgress;
+    })
   | (ChatGptTurnRuntimeBase & { mode: "read-only" });
 
 export interface ChatGptInstructionLineage {

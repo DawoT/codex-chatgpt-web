@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import {
   activeCompactionToolResultInstruction,
   zeroRiskActiveCompactionToolResultInstruction,
 } from "../src/adapters/chatgpt-web/native-compaction-control";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import type { CodexParsedRequest } from "../src/types";
 
 const capabilities = { localToolsEnabled: true, solAvailable: false, extraHighAvailable: false, proAvailable: false };
@@ -16,11 +16,13 @@ function request(compaction = false): CodexParsedRequest {
     options: {},
     context: {
       messages: [{ role: "user", content: "Inspect the repository and fix the defect.", timestamp: 1 }],
-      tools: [{
-        name: "exec_command",
-        description: "Run a command",
-        parameters: { type: "object", properties: { cmd: { type: "string" } }, required: ["cmd"] },
-      }],
+      tools: [
+        {
+          name: "exec_command",
+          description: "Run a command",
+          parameters: { type: "object", properties: { cmd: { type: "string" } }, required: ["cmd"] },
+        },
+      ],
     },
     ...(compaction ? { _compactionRequest: true } : {}),
   };
@@ -32,7 +34,7 @@ test("Zero Risk prompt carries only a neutral request id while MCP metadata owns
   });
   expect(compiled.multipart).toBeUndefined();
   expect(compiled.text).toContain("<codex_zero_risk_request_json>");
-  expect(compiled.text).toContain(`\"request_id\":\"${requestId}\"`);
+  expect(compiled.text).toContain(`"request_id":"${requestId}"`);
   expect(compiled.text).not.toContain("turn_token");
   expect(compiled.text).not.toContain("surface_nonce");
   expect(compiled.text).not.toContain("Before reasoning");
@@ -55,16 +57,22 @@ test("Zero Risk compaction prompt stays task-focused while MCP metadata owns com
 });
 
 test("Zero Risk prompt fails closed without Full harness or an exact manual binding", () => {
-  expect(() => compileChatGptWebPrompt(request(), { ...capabilities, localToolsEnabled: false }, requestId, {
-    manualControl: true,
-  })).toThrow("requires the Full Codex harness");
-  expect(() => compileChatGptWebPrompt(request(), capabilities, undefined, {
-    manualControl: true,
-  })).toThrow("requires a broker request id");
-  expect(() => compileChatGptWebPrompt(request(), capabilities, requestId, {
-    manualControl: true,
-    experimentalMultipartParts: 2,
-  })).toThrow("does not support rolling or multipart browser transport");
+  expect(() =>
+    compileChatGptWebPrompt(request(), { ...capabilities, localToolsEnabled: false }, requestId, {
+      manualControl: true,
+    }),
+  ).toThrow("requires the Full Codex harness");
+  expect(() =>
+    compileChatGptWebPrompt(request(), capabilities, undefined, {
+      manualControl: true,
+    }),
+  ).toThrow("requires a broker request id");
+  expect(() =>
+    compileChatGptWebPrompt(request(), capabilities, requestId, {
+      manualControl: true,
+      experimentalMultipartParts: 2,
+    }),
+  ).toThrow("does not support rolling or multipart browser transport");
 });
 
 test("active Zero Risk compaction returns its checkpoint through the bound completion control", () => {

@@ -9,11 +9,7 @@ import { LAUNCHER_BROWSER_IDLE_URL } from "../src/launcher-browser-host";
 setDefaultTimeout(30_000);
 
 async function runCli(args: string[], env: Record<string, string | undefined>) {
-  const child = Bun.spawn([
-    process.execPath,
-    resolve(import.meta.dir, "../src/cli.ts"),
-    ...args,
-  ], {
+  const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/cli.ts"), ...args], {
     env,
     stdout: "pipe",
     stderr: "pipe",
@@ -36,9 +32,10 @@ test("production and DEV setup reject the removed connector-name option before c
       CODEX_CHATGPT_WEB_DEV_HOME: join(root, "dev"),
     };
     for (const command of [["setup"], ["dev", "setup"]]) {
-      const result = await runCli([
-        ...command, "--browser-only", "--app-name", "Other Connector", "--acknowledge-unofficial",
-      ], env);
+      const result = await runCli(
+        [...command, "--browser-only", "--app-name", "Other Connector", "--acknowledge-unofficial"],
+        env,
+      );
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toMatch(/Unknown.*arguments: --app-name Other Connector/);
     }
@@ -55,9 +52,7 @@ test("production and DEV setup reject conflicting conversation modes before conf
   const root = mkdtempSync(join(tmpdir(), "codex-web-conversation-flags-"));
   try {
     for (const command of [["setup"], ["dev", "setup"]]) {
-      const result = await runCli([
-        ...command, "--browser-only", "--fresh-conversation", "--retained-conversation",
-      ], {
+      const result = await runCli([...command, "--browser-only", "--fresh-conversation", "--retained-conversation"], {
         ...process.env,
         CODEX_HOME: join(root, "codex"),
         CODEX_CHATGPT_WEB_HOME: join(root, "app"),
@@ -76,21 +71,24 @@ test("production and DEV setup reject conflicting conversation modes before conf
 test("setup validates the port before performing runtime work", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-cli-"));
   try {
-    const result = await runCli([
-      "setup",
-      "--browser-only",
-      "--chrome",
-      process.execPath,
-      "--browser-host-descriptor",
-      join(root, "launcher-browser.json"),
-      "--port",
-      "0",
-      "--acknowledge-unofficial",
-    ], {
-      ...process.env,
-      CODEX_HOME: join(root, "codex"),
-      CODEX_CHATGPT_WEB_HOME: join(root, "app"),
-    });
+    const result = await runCli(
+      [
+        "setup",
+        "--browser-only",
+        "--chrome",
+        process.execPath,
+        "--browser-host-descriptor",
+        join(root, "launcher-browser.json"),
+        "--port",
+        "0",
+        "--acknowledge-unofficial",
+      ],
+      {
+        ...process.env,
+        CODEX_HOME: join(root, "codex"),
+        CODEX_CHATGPT_WEB_HOME: join(root, "app"),
+      },
+    );
     const { stderr } = result;
     expect(result.exitCode).toBe(1);
     expect(stderr).toContain("--port must be an integer from 1 to 65535");
@@ -104,32 +102,38 @@ test("setup validates the port before performing runtime work", async () => {
 test("setup browser-interaction flags are explicit and mutually exclusive", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-cli-interaction-"));
   try {
-    const result = await runCli([
-      "setup",
-      "--browser-only",
-      "--automatic-browser-interaction",
-      "--zero-risk-browser-interaction",
-      "--acknowledge-unofficial",
-    ], {
-      ...process.env,
-      CODEX_HOME: join(root, "codex"),
-      CODEX_CHATGPT_WEB_HOME: join(root, "app"),
-    });
+    const result = await runCli(
+      [
+        "setup",
+        "--browser-only",
+        "--automatic-browser-interaction",
+        "--zero-risk-browser-interaction",
+        "--acknowledge-unofficial",
+      ],
+      {
+        ...process.env,
+        CODEX_HOME: join(root, "codex"),
+        CODEX_CHATGPT_WEB_HOME: join(root, "app"),
+      },
+    );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Choose at most one browser interaction mode");
 
-    const profileConflict = await runCli([
-      "setup",
-      "--browser-only",
-      "--zero-risk-browser-interaction",
-      "--zero-risk-pro",
-      "--zero-risk-default",
-      "--acknowledge-unofficial",
-    ], {
-      ...process.env,
-      CODEX_HOME: join(root, "codex"),
-      CODEX_CHATGPT_WEB_HOME: join(root, "app"),
-    });
+    const profileConflict = await runCli(
+      [
+        "setup",
+        "--browser-only",
+        "--zero-risk-browser-interaction",
+        "--zero-risk-pro",
+        "--zero-risk-default",
+        "--acknowledge-unofficial",
+      ],
+      {
+        ...process.env,
+        CODEX_HOME: join(root, "codex"),
+        CODEX_CHATGPT_WEB_HOME: join(root, "app"),
+      },
+    );
     expect(profileConflict.exitCode).toBe(1);
     expect(profileConflict.stderr).toContain("Choose at most one Zero Risk model profile");
   } finally {
@@ -145,32 +149,30 @@ test("manual setup rejects capability refresh and Bigger Context", async () => {
       CODEX_HOME: join(root, "codex"),
       CODEX_CHATGPT_WEB_HOME: join(root, "app"),
     };
-    const refresh = await runCli([
-      "setup",
-      "--browser-only",
-      "--zero-risk-browser-interaction",
-      "--refresh-account-capabilities",
-      "--acknowledge-unofficial",
-    ], env);
+    const refresh = await runCli(
+      [
+        "setup",
+        "--browser-only",
+        "--zero-risk-browser-interaction",
+        "--refresh-account-capabilities",
+        "--acknowledge-unofficial",
+      ],
+      env,
+    );
     expect(refresh.exitCode).toBe(1);
     expect(refresh.stderr).toContain("cannot refresh account capabilities");
 
-    const bigger = await runCli([
-      "setup",
-      "--browser-only",
-      "--zero-risk-browser-interaction",
-      "--bigger-context",
-      "--acknowledge-unofficial",
-    ], env);
+    const bigger = await runCli(
+      ["setup", "--browser-only", "--zero-risk-browser-interaction", "--bigger-context", "--acknowledge-unofficial"],
+      env,
+    );
     expect(bigger.exitCode).toBe(1);
     expect(bigger.stderr).toContain("does not support Bigger Context");
 
-    const browserOnly = await runCli([
-      "setup",
-      "--browser-only",
-      "--zero-risk-browser-interaction",
-      "--acknowledge-unofficial",
-    ], env);
+    const browserOnly = await runCli(
+      ["setup", "--browser-only", "--zero-risk-browser-interaction", "--acknowledge-unofficial"],
+      env,
+    );
     expect(browserOnly.exitCode).toBe(1);
     expect(browserOnly.stderr).toContain("requires --full");
   } finally {
@@ -181,14 +183,17 @@ test("manual setup rejects capability refresh and Bigger Context", async () => {
 test("passkey capture cannot be invoked outside the live Launcher control channel", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-chatgpt-web-cli-passkey-auth-"));
   try {
-    const result = await runCli([
-      "login",
-      "--launcher-control",
-      "--chrome",
-      process.execPath,
-      "--storage-state",
-      join(root, "storage-state.json"),
-    ], { ...process.env });
+    const result = await runCli(
+      [
+        "login",
+        "--launcher-control",
+        "--chrome",
+        process.execPath,
+        "--storage-state",
+        join(root, "storage-state.json"),
+      ],
+      { ...process.env },
+    );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Launcher-controlled passkey login requires a live launcher authorization");
     expect(existsSync(join(root, "storage-state.json"))).toBe(false);
@@ -304,13 +309,16 @@ test("DEV browser-only setup persists only the isolated harness profile", async 
     expect(request.headers.authorization).toBe(`Bearer ${controlToken}`);
     expect(JSON.parse(Buffer.concat(chunks).toString("utf8"))).toEqual({ detectCapabilities: true });
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({
-      authenticated: true,
-      temporary: true,
-      solAvailable: true,
-      extraHighAvailable: false, proAvailable: false,
-      url: "https://chatgpt.com/?temporary-chat=true",
-    }));
+    response.end(
+      JSON.stringify({
+        authenticated: true,
+        temporary: true,
+        solAvailable: true,
+        extraHighAvailable: false,
+        proAvailable: false,
+        url: "https://chatgpt.com/?temporary-chat=true",
+      }),
+    );
   });
   await new Promise<void>((resolveListen, rejectListen) => {
     control.once("error", rejectListen);
@@ -321,34 +329,34 @@ test("DEV browser-only setup persists only the isolated harness profile", async 
     if (!address || typeof address === "string") throw new Error("control server has no port");
     mkdirSync(join(devHome, "runtime"), { recursive: true });
     writeFileSync(helperScript, "module.exports = {};\n", { mode: 0o700 });
-    writeFileSync(descriptorPath, `${JSON.stringify({
-      version: 3,
-      kind: "codex-web-gpt-launcher",
-      profile: "development",
-      pid: process.pid,
-      endpoint: "http://127.0.0.1:48121",
-      control: { endpoint: `http://127.0.0.1:${address.port}`, token: controlToken },
-      helper: { executable: process.execPath, script: helperScript },
-      partition: "persist:codex-web-gpt-dev-chatgpt",
-      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
-      surfaceId: "d".repeat(32),
-      surfaceTargets: { ["d".repeat(32)]: "native-owned-target" },
-      createdAt: new Date().toISOString(),
-    })}\n`, { mode: 0o600 });
-
-    const result = await runCli([
-      "dev",
-      "setup",
-      "--browser-only",
-      "--browser-host-descriptor",
+    writeFileSync(
       descriptorPath,
-      "--acknowledge-unofficial",
-    ], {
-      ...process.env,
-      CODEX_WEB_GPT_DEV_HOME: devHome,
-      CODEX_CHATGPT_WEB_HOME: join(root, "production"),
-      CODEX_HOME: join(root, "production-codex"),
-    });
+      `${JSON.stringify({
+        version: 3,
+        kind: "codex-web-gpt-launcher",
+        profile: "development",
+        pid: process.pid,
+        endpoint: "http://127.0.0.1:48121",
+        control: { endpoint: `http://127.0.0.1:${address.port}`, token: controlToken },
+        helper: { executable: process.execPath, script: helperScript },
+        partition: "persist:codex-web-gpt-dev-chatgpt",
+        idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+        surfaceId: "d".repeat(32),
+        surfaceTargets: { ["d".repeat(32)]: "native-owned-target" },
+        createdAt: new Date().toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
+
+    const result = await runCli(
+      ["dev", "setup", "--browser-only", "--browser-host-descriptor", descriptorPath, "--acknowledge-unofficial"],
+      {
+        ...process.env,
+        CODEX_WEB_GPT_DEV_HOME: devHome,
+        CODEX_CHATGPT_WEB_HOME: join(root, "production"),
+        CODEX_HOME: join(root, "production-codex"),
+      },
+    );
     expect({ exitCode: result.exitCode, stderr: result.stderr }).toEqual({ exitCode: 0, stderr: "" });
     expect(result.stdout).toContain("No Codex route, Responses listener, or system service was installed");
     expect(result.stdout).toContain("DEV launcher owns the isolated MCP tunnel");
@@ -361,12 +369,13 @@ test("DEV browser-only setup persists only the isolated harness profile", async 
       browserHost: "launcher",
       browserHostDescriptorPath: descriptorPath,
       solAvailable: true,
-      extraHighAvailable: false, proAvailable: false,
+      extraHighAvailable: false,
+      proAvailable: false,
     });
     expect(existsSync(join(root, "production-codex", "config.toml"))).toBe(false);
     expect(existsSync(join(devHome, "codex-home", "config.toml"))).toBe(false);
   } finally {
-    await new Promise<void>(resolveClose => control.close(() => resolveClose()));
+    await new Promise<void>((resolveClose) => control.close(() => resolveClose()));
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -379,23 +388,27 @@ test("DEV setup accepts explicit browser-interaction flags and preserves manual 
   try {
     mkdirSync(join(devHome, "runtime"), { recursive: true });
     writeFileSync(helperScript, "module.exports = {};\n", { mode: 0o700 });
-    writeFileSync(descriptorPath, `${JSON.stringify({
-      version: 3,
-      kind: "codex-web-gpt-launcher",
-      profile: "development",
-      pid: process.pid,
-      endpoint: "http://127.0.0.1:48131",
-      control: {
-        endpoint: "http://127.0.0.1:48132",
-        token: "dev-manual-control-token-0123456789abcdefghijklmnop",
-      },
-      helper: { executable: process.execPath, script: helperScript },
-      partition: "persist:codex-web-gpt-dev-chatgpt",
-      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
-      surfaceId: "m".repeat(32),
-      surfaceTargets: { ["m".repeat(32)]: "native-owned-target" },
-      createdAt: new Date().toISOString(),
-    })}\n`, { mode: 0o600 });
+    writeFileSync(
+      descriptorPath,
+      `${JSON.stringify({
+        version: 3,
+        kind: "codex-web-gpt-launcher",
+        profile: "development",
+        pid: process.pid,
+        endpoint: "http://127.0.0.1:48131",
+        control: {
+          endpoint: "http://127.0.0.1:48132",
+          token: "dev-manual-control-token-0123456789abcdefghijklmnop",
+        },
+        helper: { executable: process.execPath, script: helperScript },
+        partition: "persist:codex-web-gpt-dev-chatgpt",
+        idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+        surfaceId: "m".repeat(32),
+        surfaceTargets: { ["m".repeat(32)]: "native-owned-target" },
+        createdAt: new Date().toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
     const env = {
       ...process.env,
       CODEX_WEB_GPT_DEV_HOME: devHome,
@@ -403,26 +416,26 @@ test("DEV setup accepts explicit browser-interaction flags and preserves manual 
       CODEX_HOME: join(root, "production-codex"),
     };
 
-    const manualBrowserOnly = await runCli([
-      "dev",
-      "setup",
-      "--browser-only",
-      "--browser-host-descriptor",
-      descriptorPath,
-      "--zero-risk-browser-interaction",
-      "--acknowledge-unofficial",
-    ], env);
+    const manualBrowserOnly = await runCli(
+      [
+        "dev",
+        "setup",
+        "--browser-only",
+        "--browser-host-descriptor",
+        descriptorPath,
+        "--zero-risk-browser-interaction",
+        "--acknowledge-unofficial",
+      ],
+      env,
+    );
     expect(manualBrowserOnly.exitCode).toBe(1);
     expect(manualBrowserOnly.stderr).toContain("requires --full");
     expect(manualBrowserOnly.stderr).not.toContain("Unknown DEV arguments");
 
-    const conflicting = await runCli([
-      "dev",
-      "setup",
-      "--browser-only",
-      "--automatic-browser-interaction",
-      "--zero-risk-browser-interaction",
-    ], env);
+    const conflicting = await runCli(
+      ["dev", "setup", "--browser-only", "--automatic-browser-interaction", "--zero-risk-browser-interaction"],
+      env,
+    );
     expect(conflicting.exitCode).toBe(1);
     expect(conflicting.stderr).toContain("Choose at most one browser interaction mode");
   } finally {
@@ -440,9 +453,11 @@ test("browser check uses metadata-only launcher liveness in Zero Risk", async ()
     requests += 1;
     expect(request.url).toBe("/json/version");
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({
-      webSocketDebuggerUrl: "ws://127.0.0.1:48142/devtools/browser/manual-check",
-    }));
+    response.end(
+      JSON.stringify({
+        webSocketDebuggerUrl: "ws://127.0.0.1:48142/devtools/browser/manual-check",
+      }),
+    );
   });
   await new Promise<void>((resolveListen, rejectListen) => {
     cdp.once("error", rejectListen);
@@ -453,23 +468,27 @@ test("browser check uses metadata-only launcher liveness in Zero Risk", async ()
     if (!address || typeof address === "string") throw new Error("CDP test server has no port");
     mkdirSync(join(appHome, "runtime"), { recursive: true });
     writeFileSync(helperScript, "module.exports = {};\n", { mode: 0o700 });
-    writeFileSync(descriptorPath, `${JSON.stringify({
-      version: 3,
-      kind: "codex-web-gpt-launcher",
-      profile: "production",
-      pid: process.pid,
-      endpoint: `http://127.0.0.1:${address.port}`,
-      control: {
-        endpoint: "http://127.0.0.1:48143",
-        token: "manual-browser-check-token-0123456789abcdefghijklmnop",
-      },
-      helper: { executable: process.execPath, script: helperScript },
-      partition: "persist:codex-web-gpt-chatgpt",
-      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
-      surfaceId: "s".repeat(32),
-      surfaceTargets: { ["s".repeat(32)]: "native-owned-target" },
-      createdAt: new Date().toISOString(),
-    })}\n`, { mode: 0o600 });
+    writeFileSync(
+      descriptorPath,
+      `${JSON.stringify({
+        version: 3,
+        kind: "codex-web-gpt-launcher",
+        profile: "production",
+        pid: process.pid,
+        endpoint: `http://127.0.0.1:${address.port}`,
+        control: {
+          endpoint: "http://127.0.0.1:48143",
+          token: "manual-browser-check-token-0123456789abcdefghijklmnop",
+        },
+        helper: { executable: process.execPath, script: helperScript },
+        partition: "persist:codex-web-gpt-chatgpt",
+        idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+        surfaceId: "s".repeat(32),
+        surfaceTargets: { ["s".repeat(32)]: "native-owned-target" },
+        createdAt: new Date().toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
     const config = {
       ...defaultConfig("full"),
       appName: ZERO_RISK_CHATGPT_CONNECTOR_NAME,
@@ -496,7 +515,7 @@ test("browser check uses metadata-only launcher liveness in Zero Risk", async ()
     expect(result.stdout).toContain("DOM inspection is intentionally disabled");
     expect(requests).toBe(1);
   } finally {
-    await new Promise<void>(resolveClose => cdp.close(() => resolveClose()));
+    await new Promise<void>((resolveClose) => cdp.close(() => resolveClose()));
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -506,30 +525,31 @@ test("terminal uninstall refuses to race a launcher-owned runtime", async () => 
   const appHome = join(root, "app");
   const configPath = join(appHome, "config.json");
   mkdirSync(appHome, { recursive: true });
-  writeFileSync(configPath, `${JSON.stringify({
-    version: 3,
-    releaseVersion: "0.2.0",
-    mode: "browser-only",
-    host: "127.0.0.1",
-    port: 17841,
-    contextWindow: 256_000,
-    appName: "Codex Native",
-    browserHost: "launcher",
-    browserHostDescriptorPath: join(appHome, "runtime", "launcher-browser.json"),
-    chromeExecutablePath: process.execPath,
-    storageStatePath: join(appHome, "browser", "storage-state.json"),
-    brokerSocketPath: defaultBrokerEndpoint(appHome),
-    headed: true,
-    extraHighAvailable: false, proAvailable: false,
-    autoApproveToolCalls: false,
-    controlToken: "launcher-uninstall-control-token-0123456789abcdef",
-    runtimeCommand: [process.execPath],
-  })}\n`);
+  writeFileSync(
+    configPath,
+    `${JSON.stringify({
+      version: 3,
+      releaseVersion: "0.2.0",
+      mode: "browser-only",
+      host: "127.0.0.1",
+      port: 17841,
+      contextWindow: 256_000,
+      appName: "Codex Native",
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(appHome, "runtime", "launcher-browser.json"),
+      chromeExecutablePath: process.execPath,
+      storageStatePath: join(appHome, "browser", "storage-state.json"),
+      brokerSocketPath: defaultBrokerEndpoint(appHome),
+      headed: true,
+      extraHighAvailable: false,
+      proAvailable: false,
+      autoApproveToolCalls: false,
+      controlToken: "launcher-uninstall-control-token-0123456789abcdef",
+      runtimeCommand: [process.execPath],
+    })}\n`,
+  );
   try {
-    const result = await runCli([
-      "uninstall",
-      "--yes",
-    ], {
+    const result = await runCli(["uninstall", "--yes"], {
       ...process.env,
       CODEX_HOME: join(root, "codex"),
       CODEX_CHATGPT_WEB_HOME: appHome,
@@ -555,53 +575,57 @@ test("authorized launcher uninstall does not re-probe an already stopped full ru
   mkdirSync(codexHome, { recursive: true });
   writeFileSync(helperScript, "module.exports = {};\n");
   writeFileSync(runtimeKeyFile, "test-key\n");
-  writeFileSync(descriptorPath, `${JSON.stringify({
-    version: 3,
-    kind: "codex-web-gpt-launcher",
-    profile: "production",
-    pid: process.pid,
-    endpoint: "http://127.0.0.1:48111",
-    control: { endpoint: "http://127.0.0.1:48112", token },
-    helper: { executable: process.execPath, script: helperScript },
-    partition: "persist:codex-web-gpt-chatgpt",
-    idleUrl: LAUNCHER_BROWSER_IDLE_URL,
-    surfaceId: "a".repeat(32),
-    surfaceTargets: { ["a".repeat(32)]: "native-owned-target" },
-    createdAt: new Date().toISOString(),
-  })}\n`, { mode: 0o600 });
-  writeFileSync(join(appHome, "config.json"), `${JSON.stringify({
-    version: 3,
-    releaseVersion: "0.2.0",
-    mode: "full",
-    host: "127.0.0.1",
-    port: 17841,
-    contextWindow: 256_000,
-    appName: "Codex Native",
-    browserHost: "launcher",
-    browserHostDescriptorPath: descriptorPath,
-    chromeExecutablePath: process.execPath,
-    storageStatePath: join(appHome, "browser", "storage-state.json"),
-    brokerSocketPath: defaultBrokerEndpoint(appHome),
-    headed: true,
-    extraHighAvailable: false, proAvailable: false,
-    autoApproveToolCalls: false,
-    controlToken: "runtime-control-token-0123456789abcdef0123456789",
-    runtimeCommand: [process.execPath],
-    tunnel: {
-      binaryPath: join(root, "missing-tunnel-client"),
-      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
-      runtimeKeyFile,
-      profileDir: join(appHome, "tunnel", "profiles"),
-      profileName: "codex-chatgpt-web",
-      alias: "codex-chatgpt-web",
-    },
-  })}\n`);
+  writeFileSync(
+    descriptorPath,
+    `${JSON.stringify({
+      version: 3,
+      kind: "codex-web-gpt-launcher",
+      profile: "production",
+      pid: process.pid,
+      endpoint: "http://127.0.0.1:48111",
+      control: { endpoint: "http://127.0.0.1:48112", token },
+      helper: { executable: process.execPath, script: helperScript },
+      partition: "persist:codex-web-gpt-chatgpt",
+      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+      surfaceId: "a".repeat(32),
+      surfaceTargets: { ["a".repeat(32)]: "native-owned-target" },
+      createdAt: new Date().toISOString(),
+    })}\n`,
+    { mode: 0o600 },
+  );
+  writeFileSync(
+    join(appHome, "config.json"),
+    `${JSON.stringify({
+      version: 3,
+      releaseVersion: "0.2.0",
+      mode: "full",
+      host: "127.0.0.1",
+      port: 17841,
+      contextWindow: 256_000,
+      appName: "Codex Native",
+      browserHost: "launcher",
+      browserHostDescriptorPath: descriptorPath,
+      chromeExecutablePath: process.execPath,
+      storageStatePath: join(appHome, "browser", "storage-state.json"),
+      brokerSocketPath: defaultBrokerEndpoint(appHome),
+      headed: true,
+      extraHighAvailable: false,
+      proAvailable: false,
+      autoApproveToolCalls: false,
+      controlToken: "runtime-control-token-0123456789abcdef0123456789",
+      runtimeCommand: [process.execPath],
+      tunnel: {
+        binaryPath: join(root, "missing-tunnel-client"),
+        tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+        runtimeKeyFile,
+        profileDir: join(appHome, "tunnel", "profiles"),
+        profileName: "codex-chatgpt-web",
+        alias: "codex-chatgpt-web",
+      },
+    })}\n`,
+  );
   try {
-    const result = await runCli([
-      "uninstall",
-      "--yes",
-      "--launcher-control",
-    ], {
+    const result = await runCli(["uninstall", "--yes", "--launcher-control"], {
       ...process.env,
       CODEX_HOME: codexHome,
       CODEX_CHATGPT_WEB_HOME: appHome,

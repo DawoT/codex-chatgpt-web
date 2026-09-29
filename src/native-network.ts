@@ -29,8 +29,13 @@ export async function fetchNativeCodex(request: Request): Promise<Response> {
   const descriptorPath = process.env.CODEX_CHATGPT_WEB_BROWSER_HOST_DESCRIPTOR?.trim();
   // Standalone CLI and explicitly configured proxy environments retain Bun's existing semantics,
   // including NO_PROXY. No proxy variables or machine-wide settings are rewritten.
-  if (!descriptorPath || ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
-    .some(key => process.env[key]?.trim())) return fetch(request);
+  if (
+    !descriptorPath ||
+    ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"].some((key) =>
+      process.env[key]?.trim(),
+    )
+  )
+    return fetch(request);
 
   const descriptor = readLauncherBrowserHostDescriptor(descriptorPath);
   const response = await fetch(`${descriptor.control.endpoint}/v1/network/resolve-proxy`, {
@@ -41,7 +46,7 @@ export async function fetchNativeCodex(request: Request): Promise<Response> {
     redirect: "error",
   });
   if (!response.ok) throw proxyError(`Launcher native proxy resolution failed (HTTP ${response.status})`);
-  const result = await response.json() as { proxy?: unknown };
+  const result = (await response.json()) as { proxy?: unknown };
   const proxy = nativeProxyFromPac(result.proxy);
   return fetch(request, proxy ? { proxy } : undefined);
 }

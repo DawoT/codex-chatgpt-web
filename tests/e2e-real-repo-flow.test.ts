@@ -1,53 +1,35 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-
+import { join } from "node:path";
 import {
-  resolveProjectScratchDirectory,
-  sanitizeToolOutputWithSpooler,
-  spoolToolOutput,
-} from "../src/adapters/chatgpt-web/tool-spooler";
+  evaluateAutonomousCompactionNeeded,
+  listTurnCheckpoints,
+  mergeCompactionIntoWorkspaceState,
+  saveTurnCheckpoint,
+  validateCompactionQuality,
+} from "../src/adapters/chatgpt-web/autonomous-compaction";
 import {
-  defaultWorkspaceState,
-  ensureWorkspaceState,
-  readWorkspaceState,
-  writeWorkspaceState,
-  resolveWorkspaceStatePath,
-} from "../src/adapters/chatgpt-web/workspace-state";
-import {
-  scanSkillsDirectory,
   buildLazySkillsIndex,
+  scanSkillsDirectory,
   transformSkillsInstructionsBlock,
 } from "../src/adapters/chatgpt-web/lazy-skills";
+import { evaluatePreflightBudget, preparePreflightInput } from "../src/adapters/chatgpt-web/preflight-budget";
 import {
-  resolveSubagentWorkspace,
-  resolveSubagentScratchDir,
-  writeSubagentResult,
-  readSubagentResult,
   listSubagentWorkspaces,
+  readSubagentResult,
+  resolveSubagentScratchDir,
+  resolveSubagentWorkspace,
+  writeSubagentResult,
 } from "../src/adapters/chatgpt-web/subagent-workspace";
+import { resolveProjectScratchDirectory, spoolToolOutput } from "../src/adapters/chatgpt-web/tool-spooler";
 import {
-  evaluatePreflightBudget,
-  preparePreflightInput,
-  PREFLIGHT_SAFE_INLINE_CHAR_LIMIT,
-} from "../src/adapters/chatgpt-web/preflight-budget";
-import {
-  saveTurnCheckpoint,
-  listTurnCheckpoints,
-  validateCompactionQuality,
-  mergeCompactionIntoWorkspaceState,
-  evaluateAutonomousCompactionNeeded,
-} from "../src/adapters/chatgpt-web/autonomous-compaction";
+  ensureWorkspaceState,
+  readWorkspaceState,
+  resolveWorkspaceStatePath,
+  writeWorkspaceState,
+} from "../src/adapters/chatgpt-web/workspace-state";
 import type { CodexMessage, CodexParsedRequest } from "../src/types";
 
 describe("E2E Real Temporary Repository Workflow Verification", () => {
@@ -61,7 +43,10 @@ describe("E2E Real Temporary Repository Workflow Verification", () => {
     execSync('git config user.email "test@codex.local"', { cwd: realRepoDir, stdio: "ignore" });
 
     // Create a dummy commit
-    writeFileSync(join(realRepoDir, "README.md"), "# Test Project\nTemporary testing ground for Codex ChatGPT Web harness.");
+    writeFileSync(
+      join(realRepoDir, "README.md"),
+      "# Test Project\nTemporary testing ground for Codex ChatGPT Web harness.",
+    );
     execSync("git add README.md && git commit -m 'Initial commit'", { cwd: realRepoDir, stdio: "ignore" });
   });
 
@@ -99,7 +84,7 @@ describe("E2E Real Temporary Repository Workflow Verification", () => {
     expect(spooled.text).toContain("line 1000:");
 
     // Verify that the actual log file was created on disk in the real repo
-    const logFiles = readdirSync(scratchOutputs).filter(f => f.endsWith(".log"));
+    const logFiles = readdirSync(scratchOutputs).filter((f) => f.endsWith(".log"));
     expect(logFiles.length).toBe(1);
 
     const logContent = readFileSync(join(scratchOutputs, logFiles[0]), "utf-8");
@@ -123,13 +108,8 @@ describe("E2E Real Temporary Repository Workflow Verification", () => {
       "Sprint U: Workspace State Persistence",
       "Sprint V: Lazy Skills Loading",
     ];
-    state.invariantsAndDecisions = [
-      "Never crash or touch Codex Desktop",
-      "Inline safe limit is 65k chars",
-    ];
-    state.blockersAndOpenItems = [
-      "Verify live end-to-end integration",
-    ];
+    state.invariantsAndDecisions = ["Never crash or touch Codex Desktop", "Inline safe limit is 65k chars"];
+    state.blockersAndOpenItems = ["Verify live end-to-end integration"];
     state.nextImmediateAction = "Deploy and verify /healthz";
 
     writeWorkspaceState(realRepoDir, state);
@@ -165,8 +145,8 @@ describe("E2E Real Temporary Repository Workflow Verification", () => {
 
     const discovered = scanSkillsDirectory(skillsDir);
     expect(discovered.length).toBe(2);
-    expect(discovered.some(s => s.name === "cloud-deploy")).toBe(true);
-    expect(discovered.some(s => s.name === "db-migrate")).toBe(true);
+    expect(discovered.some((s) => s.name === "cloud-deploy")).toBe(true);
+    expect(discovered.some((s) => s.name === "db-migrate")).toBe(true);
 
     const indexTable = buildLazySkillsIndex(discovered);
     expect(indexTable).toContain("| cloud-deploy | Deploys workers to Cloudflare infrastructure.");
@@ -245,16 +225,14 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
 
   it("Step 5: Preflight retains evidence without an unmeasured rejection", () => {
     // Construct a mock Codex request containing 5 sequential tool outputs that sum to 120k chars
-    const messages: CodexMessage[] = [
-      { role: "user", content: "Analyze these 5 large log dumps", timestamp: 1 },
-    ];
+    const messages: CodexMessage[] = [{ role: "user", content: "Analyze these 5 large log dumps", timestamp: 1 }];
 
     for (let i = 1; i <= 5; i++) {
       messages.push({
         role: "toolResult",
         toolCallId: `call_${i}`,
         toolName: "read_log_file",
-        content: `Log dump ${i}:\n` + "2026-09-24 INFO Worker heartbeat healthy [ok]\n".repeat(400),
+        content: `Log dump ${i}:\n${"2026-09-24 INFO Worker heartbeat healthy [ok]\n".repeat(400)}`,
         isError: false,
         timestamp: 10 + i,
       });
@@ -274,31 +252,22 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
       proAvailable: false,
     };
 
-    const initialVerdict = evaluatePreflightBudget(
-      request,
-      mockCapabilities,
-      {
-        experimentalBiggerContext: false, // compiled model and composer limits decide admission
-      },
-    );
+    const initialVerdict = evaluatePreflightBudget(request, mockCapabilities, {
+      experimentalBiggerContext: false, // compiled model and composer limits decide admission
+    });
 
     expect(initialVerdict.safe).toBe(false);
     expect(initialVerdict.actionRequired).toBe("none");
     expect(initialVerdict.prunableToolResultsCount).toBe(0); // No historical result is automatically disposable
 
     // Apply preflight preparation
-    const { input: preparedRequest, verdict: preparedVerdict } = preparePreflightInput(
-      request,
-      mockCapabilities,
-      {
-        experimentalBiggerContext: false,
-      },
-    );
+    const { input: preparedRequest, verdict: preparedVerdict } = preparePreflightInput(request, mockCapabilities, {
+      experimentalBiggerContext: false,
+    });
 
     expect(preparedVerdict.actionRequired).toBe("none");
 
     expect(preparedRequest).toEqual(request);
-
   });
 
   it("Step 6: Autonomous compaction & turn checkpoints in real .agents/checkpoints/", () => {
@@ -329,17 +298,24 @@ ${"Detailed database migration procedures and schema rules. ".repeat(200)}
 
     // 3. Quality Gate check
     const mockMessages: CodexMessage[] = [
-      { role: "user", content: "Implement spooling in src/adapters/chatgpt-web/tool-spooler.ts and run tests.", timestamp: 1000 },
+      {
+        role: "user",
+        content: "Implement spooling in src/adapters/chatgpt-web/tool-spooler.ts and run tests.",
+        timestamp: 1000,
+      },
     ];
-    const qualityValid = validateCompactionQuality(mockMessages, "Finished implementing in src/adapters/chatgpt-web/tool-spooler.ts with all tests passing.");
+    const qualityValid = validateCompactionQuality(
+      mockMessages,
+      "Finished implementing in src/adapters/chatgpt-web/tool-spooler.ts with all tests passing.",
+    );
     expect(qualityValid.valid).toBe(true);
 
     // 4. Merge into .agents/STATE.md
-    const updatedState = mergeCompactionIntoWorkspaceState(
-      realRepoDir,
-      "Finished milestone verification",
-      ["Sprint W: Isolated Subagents", "Sprint X: Pre-flight Guardian", "Sprint Y: Autonomous Compaction"],
-    );
+    const updatedState = mergeCompactionIntoWorkspaceState(realRepoDir, "Finished milestone verification", [
+      "Sprint W: Isolated Subagents",
+      "Sprint X: Pre-flight Guardian",
+      "Sprint Y: Autonomous Compaction",
+    ]);
 
     expect(updatedState.completedMilestones).toContain("Sprint Y: Autonomous Compaction");
 

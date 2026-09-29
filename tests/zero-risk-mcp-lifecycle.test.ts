@@ -1,18 +1,18 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
 import { CODEX_COMPACTION_CONTROL_WIRE_NAME } from "../src/adapters/chatgpt-web/native-compaction-control";
 import {
+  type BrokerToolResult,
   callTurnBroker,
   RemoteTurnBroker,
   TurnBroker,
-  type BrokerToolResult,
 } from "../src/adapters/chatgpt-web/turn-broker";
 import { defaultBrokerEndpoint } from "../src/config";
-import type { ChatGptTurnEnvironment } from "../src/adapters/chatgpt-web/environment";
 
 const testTempRoot = process.platform === "win32" ? tmpdir() : "/tmp";
 const root = mkdtempSync(join(testTempRoot, "cgw-zero-risk-mcp-"));
@@ -47,7 +47,9 @@ describe("Zero Risk turn broker lifecycle", () => {
     const socketPath = endpoint("strict-lifecycle");
     const broker = TurnBroker.forSocket(socketPath);
     const logs: string[] = [];
-    const logger = spyOn(console, "info").mockImplementation((...args) => { logs.push(args.join(" ")); });
+    const logger = spyOn(console, "info").mockImplementation((...args) => {
+      logs.push(args.join(" "));
+    });
     try {
       // The TTL bounds human setup, not local named-pipe scheduling. Keep enough margin for loaded
       // Windows CI, then cross that exact boundary after activation to prove the turn remains live.
@@ -58,28 +60,25 @@ describe("Zero Risk turn broker lifecycle", () => {
         { method: "claim", token: requestId, contract: "safe" },
         null,
       );
-      expect(await Promise.race([
-        earlyClaim.then(() => "claimed"),
-        Bun.sleep(20).then(() => "waiting_for_confirmation"),
-      ])).toBe("waiting_for_confirmation");
-      await expect(callTurnBroker(socketPath, { method: "claim", token: requestId, contract: "native" }))
-        .rejects.toThrow("requires the Zero Risk MCP contract");
-      expect(() => broker.startSafeTurn("request_missing_012345678901234567890123"))
-        .toThrow("request_id is invalid");
+      expect(
+        await Promise.race([earlyClaim.then(() => "claimed"), Bun.sleep(20).then(() => "waiting_for_confirmation")]),
+      ).toBe("waiting_for_confirmation");
+      await expect(
+        callTurnBroker(socketPath, { method: "claim", token: requestId, contract: "native" }),
+      ).rejects.toThrow("requires the Zero Risk MCP contract");
+      expect(() => broker.startSafeTurn("request_missing_012345678901234567890123")).toThrow("request_id is invalid");
 
       const started = broker.waitForSafeStart(requestId);
       const ownerBatch = broker.nextToolBatch(requestId);
-      expect(await Promise.race([
-        ownerBatch.then(() => "delivered"),
-        Bun.sleep(20).then(() => "waiting_for_start"),
-      ])).toBe("waiting_for_start");
+      expect(
+        await Promise.race([ownerBatch.then(() => "delivered"), Bun.sleep(20).then(() => "waiting_for_start")]),
+      ).toBe("waiting_for_start");
       expect(() => broker.confirmSafeTurnSent(requestId, nonceB)).toThrow("local browser binding does not match");
       expect(broker.confirmSafeTurnSent(requestId, nonceA)).toEqual({ confirmed: true, duplicate: false });
       await expect(earlyClaim).rejects.toThrow("codex_turn_start");
-      expect(await Promise.race([
-        started.then(() => "started"),
-        Bun.sleep(20).then(() => "waiting_for_connector"),
-      ])).toBe("waiting_for_connector");
+      expect(
+        await Promise.race([started.then(() => "started"), Bun.sleep(20).then(() => "waiting_for_connector")]),
+      ).toBe("waiting_for_connector");
       expect(broker.startSafeTurn(requestId)).toEqual({ started: true, duplicate: false });
       await started;
       expect(broker.confirmSafeTurnSent(requestId, nonceA)).toEqual({ confirmed: true, duplicate: true });
@@ -91,22 +90,24 @@ describe("Zero Risk turn broker lifecycle", () => {
         token: requestId,
         contract: "safe",
       });
-      const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
-        method: "invoke",
-        bindingId: claimed.bindingId,
-        wireName: "exec_command",
-        freeform: false,
-        arguments: { cmd: "pwd" },
-      }, null);
+      const invocation = callTurnBroker<BrokerToolResult>(
+        socketPath,
+        {
+          method: "invoke",
+          bindingId: claimed.bindingId,
+          wireName: "exec_command",
+          freeform: false,
+          arguments: { cmd: "pwd" },
+        },
+        null,
+      );
       const [request] = await ownerBatch;
       expect(request).toMatchObject({ wireName: "exec_command", arguments: { cmd: "pwd" } });
-      expect(() => broker.completeSafeTurn(requestId, "premature"))
-        .toThrow("1 pending Codex tool invocation");
+      expect(() => broker.completeSafeTurn(requestId, "premature")).toThrow("1 pending Codex tool invocation");
       broker.completeTool(requestId, request!.callId, toolResult({ output: root }));
       await expect(invocation).resolves.toMatchObject({ structuredContent: { output: root } });
-      expect(() => broker.completeSafeTurn(requestId, "activity still settling"))
-        .toThrow("1 active Codex MCP request");
-      expect(logs.filter(line => line.includes("accepted safe completion"))).toEqual([]);
+      expect(() => broker.completeSafeTurn(requestId, "activity still settling")).toThrow("1 active Codex MCP request");
+      expect(logs.filter((line) => line.includes("accepted safe completion"))).toEqual([]);
       await callTurnBroker(socketPath, {
         method: "activity_complete",
         token: requestId,
@@ -123,18 +124,28 @@ describe("Zero Risk turn broker lifecycle", () => {
         completed: true,
         duplicate: true,
       });
-      expect(() => broker.completeSafeTurn(requestId, "conflicting answer"))
-        .toThrow("conflicts with the accepted final_answer");
+      expect(() => broker.completeSafeTurn(requestId, "conflicting answer")).toThrow(
+        "conflicts with the accepted final_answer",
+      );
       expect(() => broker.completeSafeTurn(requestId, "   ")).toThrow("must not be empty");
-      await expect(callTurnBroker(socketPath, { method: "claim", token: requestId, contract: "safe" }))
-        .rejects.toThrow("already terminal");
-      expect(logs.filter(line => line.includes(" delivered "))).toEqual([
+      await expect(callTurnBroker(socketPath, { method: "claim", token: requestId, contract: "safe" })).rejects.toThrow(
+        "already terminal",
+      );
+      expect(logs.filter((line) => line.includes(" delivered "))).toEqual([
         `[chatgpt-web] broker trace=safe-lifecycle delivered call=${request!.callId.slice(0, 17)} path=waiter replay=false`,
       ]);
-      expect(logs.filter(line => line.includes("accepted safe completion"))).toEqual([
+      expect(logs.filter((line) => line.includes("accepted safe completion"))).toEqual([
         "[chatgpt-web] broker trace=safe-lifecycle accepted safe completion",
       ]);
-      for (const privateValue of [requestId, claimed.bindingId, request!.callId, nonceA, nonceB, "final answer", "conflicting answer"]) {
+      for (const privateValue of [
+        requestId,
+        claimed.bindingId,
+        request!.callId,
+        nonceA,
+        nonceB,
+        "final answer",
+        "conflicting answer",
+      ]) {
         expect(logs.join("\n")).not.toContain(privateValue);
       }
     } finally {
@@ -148,21 +159,23 @@ describe("Zero Risk turn broker lifecycle", () => {
     const broker = TurnBroker.forSocket(socketPath);
     try {
       const requestId = await broker.registerSafe(environment(), nonceA, undefined, "safe-early-completion");
-      const completion = callTurnBroker<{ completed: true; duplicate: boolean }>(socketPath, {
-        method: "safe_complete",
-        token: requestId,
-        finalAnswer: "early final",
-      }, null);
-      expect(await Promise.race([
-        completion.then(() => "completed"),
-        Bun.sleep(20).then(() => "waiting_for_confirmation"),
-      ])).toBe("waiting_for_confirmation");
+      const completion = callTurnBroker<{ completed: true; duplicate: boolean }>(
+        socketPath,
+        {
+          method: "safe_complete",
+          token: requestId,
+          finalAnswer: "early final",
+        },
+        null,
+      );
+      expect(
+        await Promise.race([completion.then(() => "completed"), Bun.sleep(20).then(() => "waiting_for_confirmation")]),
+      ).toBe("waiting_for_confirmation");
 
       broker.startSafeTurn(requestId);
-      expect(await Promise.race([
-        completion.then(() => "completed"),
-        Bun.sleep(20).then(() => "waiting_for_confirmation"),
-      ])).toBe("waiting_for_confirmation");
+      expect(
+        await Promise.race([completion.then(() => "completed"), Bun.sleep(20).then(() => "waiting_for_confirmation")]),
+      ).toBe("waiting_for_confirmation");
       broker.confirmSafeTurnSent(requestId, nonceA);
       await expect(completion).resolves.toEqual({ completed: true, duplicate: false });
       await expect(broker.waitForSafeCompletion(requestId)).resolves.toBe("early final");
@@ -188,10 +201,9 @@ describe("Zero Risk turn broker lifecycle", () => {
       broker.startSafeTurn(first);
       broker.confirmSafeTurnSent(first, nonceA);
       await expect(broker.waitForSafeStart(first)).resolves.toBeUndefined();
-      expect(await Promise.race([
-        secondStart.then(() => "started"),
-        Bun.sleep(20).then(() => "pending"),
-      ])).toBe("pending");
+      expect(await Promise.race([secondStart.then(() => "started"), Bun.sleep(20).then(() => "pending")])).toBe(
+        "pending",
+      );
       secondStartAbort.abort();
       await expect(secondStart).rejects.toMatchObject({ name: "AbortError" });
       ownerBatchAbort.abort();
@@ -218,8 +230,9 @@ describe("Zero Risk turn broker lifecycle", () => {
       broker.startSafeTurn(requestId);
       broker.confirmSafeTurnSent(requestId, nonceA);
       broker.requestCompaction(requestId, toolResult({ compact: true }));
-      await expect(callTurnBroker(socketPath, { method: "claim", token: requestId, contract: "safe" }))
-        .rejects.toThrow("awaiting completion for Codex context compaction");
+      await expect(callTurnBroker(socketPath, { method: "claim", token: requestId, contract: "safe" })).rejects.toThrow(
+        "awaiting completion for Codex context compaction",
+      );
 
       const summary = broker.waitForSafeCompletion(requestId);
       expect(broker.completeSafeTurn(requestId, "complete compacted summary")).toEqual({
@@ -241,10 +254,12 @@ describe("Zero Risk turn broker lifecycle", () => {
       await remote.assertCompatible();
       const requestId = await remote.registerSafe(environment(), nonceA, 5_000, "remote-safe");
       expect(await remote.confirmSafeTurnSent(requestId, nonceA)).toEqual({ confirmed: true, duplicate: false });
-      expect(await callTurnBroker<{ started: true; duplicate: boolean }>(socketPath, {
-        method: "safe_start",
-        token: requestId,
-      })).toEqual({ started: true, duplicate: false });
+      expect(
+        await callTurnBroker<{ started: true; duplicate: boolean }>(socketPath, {
+          method: "safe_start",
+          token: requestId,
+        }),
+      ).toEqual({ started: true, duplicate: false });
       const cancelledWait = new AbortController();
       const abandonedCompletion = remote.waitForSafeCompletion(requestId, cancelledWait.signal);
       await Bun.sleep(10);
@@ -272,7 +287,12 @@ describe("Zero Risk public MCP ABI", () => {
     const broker = TurnBroker.forSocket(socketPath);
     writeFileSync(join(root, "pages.txt"), "ab\n😀\ncd");
     const requestId = await broker.registerSafe(environment(), nonceA, 60000, "byte-pages");
-    const transport = new StdioClientTransport({ command: process.execPath, args: ["src/cli.ts", "mcp", "--contract", "safe", "--broker-socket", socketPath], cwd: process.cwd(), stderr: "pipe" });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["src/cli.ts", "mcp", "--contract", "safe", "--broker-socket", socketPath],
+      cwd: process.cwd(),
+      stderr: "pipe",
+    });
     const client = new Client({ name: "safe-byte-test", version: "1" });
     try {
       await client.connect(transport);
@@ -297,16 +317,45 @@ describe("Zero Risk public MCP ABI", () => {
     const socketPath = endpoint("stdio-contract");
     const broker = TurnBroker.forSocket(socketPath);
     const ownNamespace = "mcp__codex_safe";
-    const requestId = await broker.registerSafe(environment([
-      { name: "exec", description: "Recursive freeform gateway", parameters: {}, freeform: true },
-      { name: "exec_command", description: "Run a command", parameters: { type: "object" } },
-      { name: "codex_tool_inventory", description: "Top-level recursive bridge", parameters: { type: "object" } },
-      { name: CODEX_COMPACTION_CONTROL_WIRE_NAME, description: "Internal compaction", parameters: { type: "object" } },
-      { name: "codex_exec", namespace: ownNamespace, description: "Recursive bridge", parameters: { type: "object" } },
-      { name: "codex_turn_complete", namespace: ownNamespace, description: "Recursive completion", parameters: { type: "object" } },
-      { name: "shadow_tool", namespace: ownNamespace, description: "Same recursive namespace", parameters: { type: "object" } },
-      { name: "useful_tool", namespace: "mcp__useful", description: "Useful external tool", parameters: { type: "object" } },
-    ]), nonceA, 60_000, "safe-stdio");
+    const requestId = await broker.registerSafe(
+      environment([
+        { name: "exec", description: "Recursive freeform gateway", parameters: {}, freeform: true },
+        { name: "exec_command", description: "Run a command", parameters: { type: "object" } },
+        { name: "codex_tool_inventory", description: "Top-level recursive bridge", parameters: { type: "object" } },
+        {
+          name: CODEX_COMPACTION_CONTROL_WIRE_NAME,
+          description: "Internal compaction",
+          parameters: { type: "object" },
+        },
+        {
+          name: "codex_exec",
+          namespace: ownNamespace,
+          description: "Recursive bridge",
+          parameters: { type: "object" },
+        },
+        {
+          name: "codex_turn_complete",
+          namespace: ownNamespace,
+          description: "Recursive completion",
+          parameters: { type: "object" },
+        },
+        {
+          name: "shadow_tool",
+          namespace: ownNamespace,
+          description: "Same recursive namespace",
+          parameters: { type: "object" },
+        },
+        {
+          name: "useful_tool",
+          namespace: "mcp__useful",
+          description: "Useful external tool",
+          parameters: { type: "object" },
+        },
+      ]),
+      nonceA,
+      60_000,
+      "safe-stdio",
+    );
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: ["src/cli.ts", "mcp", "--contract", "safe", "--broker-socket", socketPath],
@@ -319,7 +368,7 @@ describe("Zero Risk public MCP ABI", () => {
       expect(client.getInstructions()).toContain("begin with codex_turn_start using the request_id");
       expect(client.getInstructions()).toContain("send the complete answer with codex_turn_complete");
       const listed = await client.listTools();
-      expect(listed.tools.map(tool => tool.name).sort()).toEqual([
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
         "codex_apply_patch",
         "codex_exec",
         "codex_grep",
@@ -335,15 +384,17 @@ describe("Zero Risk public MCP ABI", () => {
         "codex_write_file",
         "codex_write_stdin",
       ]);
-      expect(listed.tools.find(tool => tool.name === "codex_turn_start")?.description)
-        .toContain("request_id included in the pasted Codex Web GPT request");
-      expect(listed.tools.find(tool => tool.name === "codex_tool_inventory")?.description)
-        .toStartWith("List tools available to the connected Zero Risk request");
-      const startSchema = listed.tools.find(tool => tool.name === "codex_turn_start")?.inputSchema;
+      expect(listed.tools.find((tool) => tool.name === "codex_turn_start")?.description).toContain(
+        "request_id included in the pasted Codex Web GPT request",
+      );
+      expect(listed.tools.find((tool) => tool.name === "codex_tool_inventory")?.description).toStartWith(
+        "List tools available to the connected Zero Risk request",
+      );
+      const startSchema = listed.tools.find((tool) => tool.name === "codex_turn_start")?.inputSchema;
       expect(startSchema).toMatchObject({ required: ["request_id"] });
       expect(JSON.stringify(startSchema)).not.toContain("turn_token");
       expect(JSON.stringify(startSchema)).not.toContain("surface_nonce");
-      const inventorySchema = listed.tools.find(tool => tool.name === "codex_tool_inventory")?.inputSchema;
+      const inventorySchema = listed.tools.find((tool) => tool.name === "codex_tool_inventory")?.inputSchema;
       expect(inventorySchema).toMatchObject({ required: expect.arrayContaining(["request_id"]) });
       expect(JSON.stringify(inventorySchema)).not.toContain("turn_token");
 
@@ -353,8 +404,7 @@ describe("Zero Risk public MCP ABI", () => {
         arguments: { request_id: requestId },
       });
       expect(beforeStart.isError).toBe(true);
-      expect(JSON.stringify(beforeStart.content))
-        .toContain("codex_turn_start with its request_id first");
+      expect(JSON.stringify(beforeStart.content)).toContain("codex_turn_start with its request_id first");
 
       const remoteStart = await client.callTool({
         name: "codex_turn_start",
@@ -378,10 +428,7 @@ describe("Zero Risk public MCP ABI", () => {
       const inventory = await inventoryAfterStart;
       expect(inventory.structuredContent).toMatchObject({
         total: 2,
-        tools: [
-          { wire_name: "exec_command" },
-          { wire_name: "mcp__useful__useful_tool" },
-        ],
+        tools: [{ wire_name: "exec_command" }, { wire_name: "mcp__useful__useful_tool" }],
       });
       expect(JSON.stringify(inventory)).not.toContain(ownNamespace);
       expect(JSON.stringify(inventory)).not.toContain("Top-level recursive bridge");

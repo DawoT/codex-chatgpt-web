@@ -1,17 +1,13 @@
 #!/usr/bin/env bun
-import { createInterface } from "node:readline/promises";
-import { Writable } from "node:stream";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { stdin, stdout } from "node:process";
+import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
+import { runChatGptMcpMain } from "./adapters/chatgpt-web/mcp-main";
+import { SharedCommandAdmission } from "./adapters/chatgpt-web/shared-command-admission";
 import { captureSystemBrowserLoginToFile, checkBrowserEngine, loginToChatGpt } from "./browser-login";
-import { defaultConfig, getConfigDir, getConfigPath, loadConfig, loadConfigForSetup } from "./config";
-import {
-  inspectLauncherBrowserHost,
-  inspectLauncherBrowserHostLiveness,
-  readLauncherBrowserHostDescriptor,
-} from "./launcher-browser-host";
 import {
   activateCodexIntegration,
   deactivateCodexIntegration,
@@ -20,19 +16,39 @@ import {
   setCodexSubagentProtocol,
   uninstallCodexIntegration,
 } from "./codex-integration";
+import { defaultConfig, getConfigDir, getConfigPath, loadConfig, loadConfigForSetup } from "./config";
+import { runDevCommand } from "./dev-chat/cli";
 import { formatDoctorReport, runDoctor } from "./doctor";
-import { runChatGptMcpMain } from "./adapters/chatgpt-web/mcp-main";
-import { SharedCommandAdmission } from "./adapters/chatgpt-web/shared-command-admission";
+import { installImageGenCliWrappers, uninstallImageGenCliWrappers } from "./image-gen-install";
+import { generateImage } from "./image-generation";
+import {
+  inspectLauncherBrowserHost,
+  inspectLauncherBrowserHostLiveness,
+  readLauncherBrowserHostDescriptor,
+} from "./launcher-browser-host";
 import { runCommand } from "./process";
 import { startServer } from "./server";
-import { assertServiceIdle, cancelActiveTurns, getServiceStatus, installService, interruptActiveTurn, restartService, startService, stopService, uninstallService } from "./service";
-import { existingFullSetupCredentials, preflightSetup, setup, type SetupOptions } from "./setup";
+import {
+  assertServiceIdle,
+  cancelActiveTurns,
+  getServiceStatus,
+  installService,
+  interruptActiveTurn,
+  restartService,
+  startService,
+  stopService,
+  uninstallService,
+} from "./service";
+import { existingFullSetupCredentials, preflightSetup, type SetupOptions, setup } from "./setup";
 import { installRuntimeKeyBytes, managedRuntimeKeyPath, stopTunnel, tunnelStatus, waitForTunnelReady } from "./tunnel";
-import { getTunnelServiceStatus, restartTunnelService, startTunnelService, stopTunnelService, uninstallTunnelService } from "./tunnel-service";
+import {
+  getTunnelServiceStatus,
+  restartTunnelService,
+  startTunnelService,
+  stopTunnelService,
+  uninstallTunnelService,
+} from "./tunnel-service";
 import { VERSION } from "./version";
-import { runDevCommand } from "./dev-chat/cli";
-import { generateImage } from "./image-generation";
-import { installImageGenCliWrappers, uninstallImageGenCliWrappers } from "./image-gen-install";
 
 const HELP = `codex-chatgpt-web ${VERSION}
 
@@ -128,17 +144,25 @@ async function confirm(question: string): Promise<boolean> {
 async function prompt(question: string): Promise<string> {
   if (!stdin.isTTY || !stdout.isTTY) return "";
   const reader = createInterface({ input: stdin, output: stdout });
-  try { return (await reader.question(question)).trim(); }
-  finally { reader.close(); }
+  try {
+    return (await reader.question(question)).trim();
+  } finally {
+    reader.close();
+  }
 }
 
 async function secretPrompt(question: string): Promise<string> {
   if (!stdin.isTTY || !stdout.isTTY) return "";
   stdout.write(question);
-  const muted = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+  const muted = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
   const reader = createInterface({ input: stdin, output: muted, terminal: true });
-  try { return (await reader.question("")).trim(); }
-  finally {
+  try {
+    return (await reader.question("")).trim();
+  } finally {
     reader.close();
     stdout.write("\n");
   }
@@ -208,9 +232,12 @@ function launcherLoginContinuation(): { promise: Promise<void>; close: () => voi
       fail("Launcher passkey control sent invalid JSON");
       return;
     }
-    if (!message || typeof message !== "object"
-      || (message as { version?: unknown }).version !== 1
-      || (message as { type?: unknown }).type !== "passkey-login-continue") {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      (message as { version?: unknown }).version !== 1 ||
+      (message as { type?: unknown }).type !== "passkey-login-continue"
+    ) {
       fail("Launcher passkey control sent an invalid continuation message");
       return;
     }
@@ -258,11 +285,14 @@ async function loginCommand(args: string[]): Promise<void> {
   }
   const continuation = launcherLoginContinuation();
   try {
-    await captureSystemBrowserLoginToFile({
-      ...defaultConfig(),
-      chromeExecutablePath,
-      storageStatePath,
-    }, { continuation: continuation.promise });
+    await captureSystemBrowserLoginToFile(
+      {
+        ...defaultConfig(),
+        chromeExecutablePath,
+        storageStatePath,
+      },
+      { continuation: continuation.promise },
+    );
   } finally {
     continuation.close();
   }
@@ -340,8 +370,8 @@ async function setupCommand(args: string[]): Promise<void> {
 
   if (!acknowledged) {
     stdout.write(
-      "This is independent, unofficial software. It automates your ChatGPT web session, can break when the UI changes, "
-      + "and must not be used to evade usage limits or access controls.\n",
+      "This is independent, unofficial software. It automates your ChatGPT web session, can break when the UI changes, " +
+        "and must not be used to evade usage limits or access controls.\n",
     );
     acknowledged = await confirm("Continue and store this acknowledgement?");
   }
@@ -358,9 +388,8 @@ async function setupCommand(args: string[]): Promise<void> {
   const interactionMode = options.browserInteractionMode ?? existing?.browserInteractionMode ?? "automatic";
   const reusableCredentials = existingFullSetupCredentials(existing, interactionMode);
   const needsTunnelId = !options.tunnelId && !reusableCredentials.tunnelId;
-  const needsRuntimeKey = !options.runtimeKeyFile
-    && !reusableCredentials.runtimeKey
-    && !existsSync(managedRuntimeKeyPath(interactionMode));
+  const needsRuntimeKey =
+    !options.runtimeKeyFile && !reusableCredentials.runtimeKey && !existsSync(managedRuntimeKeyPath(interactionMode));
 
   if (full && (needsTunnelId || needsRuntimeKey) && stdin.isTTY) {
     stdout.write("Full mode needs an OpenAI tunnel and a runtime key with Tunnels Read + Use.\n");
@@ -394,29 +423,30 @@ async function doctorCommand(args: string[]): Promise<void> {
 async function routeCommand(args: string[]): Promise<void> {
   const action = args.shift() ?? "status";
   assertNoArgs(args);
-  const result = action === "status"
-    ? (() => {
-        const status = inspectCodexIntegration();
-        return {
-          installed: status.installed,
-          active: status.active,
-          ...(status.routeUrl ? { routeUrl: status.routeUrl } : {}),
-          errors: status.errors,
-        };
-      })()
-    : action === "connect"
+  const result =
+    action === "status"
       ? (() => {
-          const res = activateCodexIntegration();
-          installImageGenCliWrappers();
-          return res;
+          const status = inspectCodexIntegration();
+          return {
+            installed: status.installed,
+            active: status.active,
+            ...(status.routeUrl ? { routeUrl: status.routeUrl } : {}),
+            errors: status.errors,
+          };
         })()
-      : action === "disconnect"
+      : action === "connect"
         ? (() => {
-            const res = deactivateCodexIntegration();
-            uninstallImageGenCliWrappers();
+            const res = activateCodexIntegration();
+            installImageGenCliWrappers();
             return res;
           })()
-        : undefined;
+        : action === "disconnect"
+          ? (() => {
+              const res = deactivateCodexIntegration();
+              uninstallImageGenCliWrappers();
+              return res;
+            })()
+          : undefined;
   if (!result) throw new Error(`Unknown route action: ${action}`);
   stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if ("changed" in result && result.changed) {
@@ -433,22 +463,34 @@ async function subagentsCommand(args: string[]): Promise<void> {
   }
   if (action === "status") {
     const integration = inspectCodexIntegration();
-    stdout.write(`${JSON.stringify({
-      protocol: readCodexSubagentProtocol(config.subagentProtocol),
-      installed: integration.installed,
-      active: integration.active,
-    }, null, 2)}\n`);
+    stdout.write(
+      `${JSON.stringify(
+        {
+          protocol: readCodexSubagentProtocol(config.subagentProtocol),
+          installed: integration.installed,
+          active: integration.active,
+        },
+        null,
+        2,
+      )}\n`,
+    );
     return;
   }
   if (action !== "compatibility-v1" && action !== "native") {
     throw new Error("Subagent protocol must be one of: status, compatibility-v1, native");
   }
   const journal = setCodexSubagentProtocol(config, action);
-  stdout.write(`${JSON.stringify({
-    protocol: journal.installed.subagent_protocol,
-    codexRestartRequired: true,
-    launcherRestartRequired: true,
-  }, null, 2)}\n`);
+  stdout.write(
+    `${JSON.stringify(
+      {
+        protocol: journal.installed.subagent_protocol,
+        codexRestartRequired: true,
+        launcherRestartRequired: true,
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 async function serviceCommand(args: string[]): Promise<void> {
@@ -459,12 +501,18 @@ async function serviceCommand(args: string[]): Promise<void> {
     stdout.write(`${JSON.stringify(await cancelActiveTurns(config!), null, 2)}\n`);
     return;
   }
-  const status = action === "status" ? getServiceStatus()
-    : action === "install" ? installService(config!)
-      : action === "start" ? startService()
-        : action === "restart" ? await restartService(config!)
-          : action === "stop" ? await stopService(config!)
-            : undefined;
+  const status =
+    action === "status"
+      ? getServiceStatus()
+      : action === "install"
+        ? installService(config!)
+        : action === "start"
+          ? startService()
+          : action === "restart"
+            ? await restartService(config!)
+            : action === "stop"
+              ? await stopService(config!)
+              : undefined;
   if (!status) throw new Error(`Unknown service action: ${action}`);
   stdout.write(`${JSON.stringify(status, null, 2)}\n`);
 }
@@ -487,9 +535,11 @@ async function interruptHookCommand(args: string[]): Promise<void> {
   }
   const threadId = typeof payload.session_id === "string" ? payload.session_id.trim() : "";
   const turnId = typeof payload.turn_id === "string" ? payload.turn_id.trim() : "";
-  if (payload.hook_event_name !== "Interrupt"
-    || !/^[A-Za-z0-9_-]{6,128}$/.test(threadId)
-    || !/^[A-Za-z0-9_-]{6,128}$/.test(turnId)) {
+  if (
+    payload.hook_event_name !== "Interrupt" ||
+    !/^[A-Za-z0-9_-]{6,128}$/.test(threadId) ||
+    !/^[A-Za-z0-9_-]{6,128}$/.test(turnId)
+  ) {
     throw new Error("Codex Interrupt hook payload has no valid session_id or turn_id");
   }
   await interruptActiveTurn(loadConfig(), { threadId, turnId });
@@ -510,16 +560,12 @@ async function tunnelCommand(args: string[]): Promise<void> {
   else if (action === "restart") {
     await assertServiceIdle(config);
     await restartTunnelService();
-  }
-  else if (action === "stop") {
+  } else if (action === "stop") {
     await assertServiceIdle(config);
     await stopTunnelService();
     stopTunnel(config);
-  }
-  else if (action !== "status") throw new Error(`Unknown tunnel action: ${action}`);
-  const status = action === "start" || action === "restart"
-    ? await waitForTunnelReady(config)
-    : tunnelStatus(config);
+  } else if (action !== "status") throw new Error(`Unknown tunnel action: ${action}`);
+  const status = action === "start" || action === "restart" ? await waitForTunnelReady(config) : tunnelStatus(config);
   const service = getTunnelServiceStatus();
   stdout.write(`${JSON.stringify({ service, runtime: status }, null, 2)}\n`);
   if (action !== "stop" && (!service.running || !status.ok)) process.exitCode = 1;
@@ -549,7 +595,7 @@ async function uninstallCommand(args: string[]): Promise<void> {
   const launcherControl = takeFlag(args, "--launcher-control");
   assertNoArgs(args);
   if (launcherControl) authorizeLauncherControl("uninstall");
-  if (!yes && !await confirm("Restore Codex config, stop services, and remove this installation?")) {
+  if (!yes && !(await confirm("Restore Codex config, stop services, and remove this installation?"))) {
     throw new Error("Uninstall cancelled");
   }
   const config = existsSync(getConfigPath()) ? loadConfig() : undefined;
@@ -571,7 +617,11 @@ async function uninstallCommand(args: string[]): Promise<void> {
   uninstallCodexIntegration();
   uninstallImageGenCliWrappers();
   if (!keepData) rmSync(getConfigDir(), { recursive: true, force: true });
-  stdout.write(keepData ? "Uninstalled; private application data was preserved.\n" : "Uninstalled and removed private application data.\n");
+  stdout.write(
+    keepData
+      ? "Uninstalled; private application data was preserved.\n"
+      : "Uninstalled and removed private application data.\n",
+  );
 }
 
 async function runImageGenCommand(args: string[]): Promise<void> {
@@ -641,7 +691,9 @@ async function main(): Promise<void> {
   }
   const command = args.shift() ?? "help";
   if (command === "dev" && home) {
-    throw new Error("--home does not apply to DEV mode; use CODEX_WEB_GPT_DEV_HOME for an explicit isolated DEV profile");
+    throw new Error(
+      "--home does not apply to DEV mode; use CODEX_WEB_GPT_DEV_HOME for an explicit isolated DEV profile",
+    );
   }
   if (command === "help") stdout.write(HELP);
   else if (command === "setup") await setupCommand(args);
@@ -657,7 +709,9 @@ async function main(): Promise<void> {
     if (config.browserHost === "launcher") {
       if (config.browserInteractionMode === "manual") {
         await inspectLauncherBrowserHostLiveness(config.browserHostDescriptorPath!);
-        stdout.write("The launcher browser is reachable; ChatGPT DOM inspection is intentionally disabled in Zero Risk.\n");
+        stdout.write(
+          "The launcher browser is reachable; ChatGPT DOM inspection is intentionally disabled in Zero Risk.\n",
+        );
       } else {
         await inspectLauncherBrowserHost(config.browserHostDescriptorPath!);
         stdout.write("Playwright can reach the authenticated ChatGPT surface embedded in the launcher.\n");
@@ -670,7 +724,9 @@ async function main(): Promise<void> {
     assertNoArgs(args);
     const config = loadConfig();
     const server = startServer(config);
-    stdout.write(`codex-chatgpt-web ${VERSION} listening on http://${config.host}:${server.port}/v1 (${config.mode})\n`);
+    stdout.write(
+      `codex-chatgpt-web ${VERSION} listening on http://${config.host}:${server.port}/v1 (${config.mode})\n`,
+    );
     await new Promise<void>(() => {});
   } else if (command === "dev") await runDevCommand(args);
   else if (command === "mcp") await runChatGptMcpMain(args);
@@ -697,22 +753,22 @@ async function main(): Promise<void> {
       admission.recoverStale(id, acknowledged, ownerOffline);
       stdout.write(`Recovered command lease ${id}; this does not undo command effects.\n`);
     } else {
-      throw new Error("Admission command must be: status [--json] or recover ID --ack-descendants-settled [--ack-owner-offline]");
+      throw new Error(
+        "Admission command must be: status [--json] or recover ID --ack-descendants-settled [--ack-owner-offline]",
+      );
     }
-  }
-  else if (command === "service") await serviceCommand(args);
+  } else if (command === "service") await serviceCommand(args);
   else if (command === "hook") {
     const action = args.shift();
     if (action !== "interrupt") throw new Error("Hook command must be: hook interrupt");
     await interruptHookCommand(args);
-  }
-  else if (command === "tunnel") await tunnelCommand(args);
+  } else if (command === "tunnel") await tunnelCommand(args);
   else if (command === "open") await openCommand(args);
   else if (command === "uninstall") await uninstallCommand(args);
   else throw new Error(`Unknown command: ${command}\n\n${HELP}`);
 }
 
-main().catch(error => {
+main().catch((error) => {
   process.stderr.write(`codex-chatgpt-web: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });

@@ -21,7 +21,7 @@ async function freePort() {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      server.close((error) => error ? reject(error) : resolve(address.port));
+      server.close((error) => (error ? reject(error) : resolve(address.port)));
     });
   });
 }
@@ -38,7 +38,7 @@ async function localHealthServer(statusForPath = () => 200, bodyForPath = () => 
   const address = server.address();
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())),
+    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
   };
 }
 
@@ -56,11 +56,13 @@ function launcherConfig(descriptorPath, overrides = {}) {
     browserHostDescriptorPath: descriptorPath,
     chromeExecutablePath: process.execPath,
     storageStatePath: path.join(root, "storage-state.json"),
-    brokerSocketPath: process.platform === "win32"
-      ? "\\\\.\\pipe\\codex-chatgpt-web-runtime-supervisor-test"
-      : path.join(root, "turn-broker.sock"),
+    brokerSocketPath:
+      process.platform === "win32"
+        ? "\\\\.\\pipe\\codex-chatgpt-web-runtime-supervisor-test"
+        : path.join(root, "turn-broker.sock"),
     headed: true,
-    extraHighAvailable: true, proAvailable: true,
+    extraHighAvailable: true,
+    proAvailable: true,
     autoApproveToolCalls: false,
     controlToken: "runtime-supervisor-control-token-0123456789abcdef",
     runtimeCommand: [process.execPath],
@@ -83,10 +85,7 @@ test("Linux autostart launches the durable AppImage invisibly", () => {
     { getPath: () => "/tmp/transient-electron" },
     "/home/example/Applications/Codex Web GPT.AppImage",
   );
-  assert.match(
-    entry,
-    /^Exec="\/home\/example\/Applications\/Codex Web GPT\.AppImage" --hidden$/m,
-  );
+  assert.match(entry, /^Exec="\/home\/example\/Applications\/Codex Web GPT\.AppImage" --hidden$/m);
   assert.doesNotMatch(entry, /APPIMAGE_EXTRACT_AND_RUN/);
   assert.match(entry, /^Terminal=false$/m);
   assert.match(entry, /^X-GNOME-Autostart-enabled=true$/m);
@@ -113,10 +112,7 @@ test("Linux autostart follows the stable installer wrapper across app updates", 
 });
 
 test("launcher autostart fails explicitly when the operating system rejects the requested state", () => {
-  assert.deepEqual(
-    requireAutostartState({ supported: true, enabled: true }, true),
-    { supported: true, enabled: true },
-  );
+  assert.deepEqual(requireAutostartState({ supported: true, enabled: true }, true), { supported: true, enabled: true });
   assert.throws(
     () => requireAutostartState({ supported: true, enabled: false }, true),
     /did not enable launcher autostart/,
@@ -148,23 +144,24 @@ test("launcher runtime ownership cannot cross production and DEV profiles", () =
     () => validateConfig({ ...production, subagentProtocol: "v0" }, descriptorPath),
     /invalid subagent protocol/,
   );
-  assert.throws(
-    () => validateConfig({ ...production, stallTimeoutSec: 0 }, descriptorPath),
-    /invalid stallTimeoutSec/,
-  );
-  assert.equal(
-    validateConfig({ ...production, stallTimeoutSec: 900 }, descriptorPath).stallTimeoutSec,
-    900,
-  );
+  assert.throws(() => validateConfig({ ...production, stallTimeoutSec: 0 }, descriptorPath), /invalid stallTimeoutSec/);
+  assert.equal(validateConfig({ ...production, stallTimeoutSec: 900 }, descriptorPath).stallTimeoutSec, 900);
   for (const enabled of [false, true]) {
     for (const browserInteractionMode of ["automatic", "manual"]) {
-      assert.equal(validateConfig({ ...production, browserInteractionMode,
-        experimentalFreshConversationPerTurn: enabled }, descriptorPath).experimentalFreshConversationPerTurn, enabled);
+      assert.equal(
+        validateConfig(
+          { ...production, browserInteractionMode, experimentalFreshConversationPerTurn: enabled },
+          descriptorPath,
+        ).experimentalFreshConversationPerTurn,
+        enabled,
+      );
     }
   }
   for (const invalid of ["true", 1, null]) {
-    assert.throws(() => validateConfig({ ...production,
-      experimentalFreshConversationPerTurn: invalid }, descriptorPath), /invalid experimentalFreshConversationPerTurn/);
+    assert.throws(
+      () => validateConfig({ ...production, experimentalFreshConversationPerTurn: invalid }, descriptorPath),
+      /invalid experimentalFreshConversationPerTurn/,
+    );
   }
 });
 
@@ -230,17 +227,24 @@ test("DEV runtime supervision ignores launcher version mismatch and starts only 
 
 test("launcher runtime validation rejects a relative full-mode executable before spawn", () => {
   const descriptorPath = path.join(os.tmpdir(), "launcher.json");
-  assert.throws(() => validateConfig(launcherConfig(descriptorPath, {
-    mode: "full",
-    tunnel: {
-      binaryPath: "tunnel-client",
-      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
-      runtimeKeyFile: path.join(os.tmpdir(), "runtime.key"),
-      profileDir: path.join(os.tmpdir(), "profiles"),
-      profileName: "codex-chatgpt-web",
-      alias: "codex-chatgpt-web",
-    },
-  }), descriptorPath), /absolute tunnel\.binaryPath/);
+  assert.throws(
+    () =>
+      validateConfig(
+        launcherConfig(descriptorPath, {
+          mode: "full",
+          tunnel: {
+            binaryPath: "tunnel-client",
+            tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+            runtimeKeyFile: path.join(os.tmpdir(), "runtime.key"),
+            profileDir: path.join(os.tmpdir(), "profiles"),
+            profileName: "codex-chatgpt-web",
+            alias: "codex-chatgpt-web",
+          },
+        }),
+        descriptorPath,
+      ),
+    /absolute tunnel\.binaryPath/,
+  );
 });
 
 test("launcher runtime validation accepts native Windows paths and a named pipe", () => {
@@ -260,7 +264,8 @@ test("launcher runtime validation accepts native Windows paths and a named pipe"
     brokerSocketPath: "\\\\.\\pipe\\codex-chatgpt-web-runtime-supervisor-test",
     headed: true,
     solAvailable: true,
-    extraHighAvailable: true, proAvailable: true,
+    extraHighAvailable: true,
+    proAvailable: true,
     autoApproveToolCalls: false,
     controlToken: "runtime-supervisor-control-token-0123456789abcdef",
     runtimeCommand: ["C:\\Users\\Example\\.codex-chatgpt-web\\runtime\\bun.exe"],
@@ -296,18 +301,16 @@ test("launcher delegates long-lived tunnel supervision to native runtimes connec
     cwd: "C:\\Program Files\\Codex Web GPT\\resources\\runtime",
   };
   const args = managedTunnelConnectArgs(config, invocation);
-  assert.deepEqual(args.slice(0, 4), [
-    "runtimes", "connect", "--alias", "codex-chatgpt-web",
-  ]);
+  assert.deepEqual(args.slice(0, 4), ["runtimes", "connect", "--alias", "codex-chatgpt-web"]);
   assert.equal(args.includes("run"), false);
   assert.equal(args.at(-1), "--json");
   assert.equal(args[args.indexOf("--mcp-command") + 1].includes("bun.exe"), true);
-  assert.equal(args[args.indexOf("--mcp-command") + 1].includes("\\\\\\\\.\\\\pipe\\\\codex-chatgpt-web-example"), true);
-  assert.equal(args[args.indexOf("--mcp-command") + 1].includes("versions"), false);
-  assert.throws(
-    () => managedTunnelConnectArgs(config),
-    /requires an explicit runtime invocation/,
+  assert.equal(
+    args[args.indexOf("--mcp-command") + 1].includes("\\\\\\\\.\\\\pipe\\\\codex-chatgpt-web-example"),
+    true,
   );
+  assert.equal(args[args.indexOf("--mcp-command") + 1].includes("versions"), false);
+  assert.throws(() => managedTunnelConnectArgs(config), /requires an explicit runtime invocation/);
 });
 
 test("launcher repairs its runtime before building the tunnel MCP command", async () => {
@@ -371,15 +374,17 @@ test("tunnel control failures preserve stderr even when stdout is also present",
     browserDescriptorPath: path.join(root, "launcher.json"),
   });
   try {
-    const result = await supervisor.runTunnelCommand({
-      tunnel: {
-        binaryPath: process.execPath,
-        profileDir: root,
+    const result = await supervisor.runTunnelCommand(
+      {
+        tunnel: {
+          binaryPath: process.execPath,
+          profileDir: root,
+        },
       },
-    }, [
-      "-e",
-      "process.stdout.write('machine-readable output'); process.stderr.write('root failure'); process.exit(9)",
-    ], 5_000, "Synthetic tunnel command");
+      ["-e", "process.stdout.write('machine-readable output'); process.stderr.write('root failure'); process.exit(9)"],
+      5_000,
+      "Synthetic tunnel command",
+    );
     assert.equal(result.code, 9);
     assert.equal(result.stdout, "machine-readable output");
     assert.equal(result.stderr, "root failure");
@@ -404,28 +409,34 @@ test("tunnel health diagnostics preserve the machine-readable readiness state", 
     return {
       code: 0,
       output: JSON.stringify({
-        entries: [{
-          alias: "codex-web-gpt",
-          runtime_state: "stopped",
-          classification: "stale_alias",
-          live_runtime: { found: false },
-        }],
+        entries: [
+          {
+            alias: "codex-web-gpt",
+            runtime_state: "stopped",
+            classification: "stale_alias",
+            live_runtime: { found: false },
+          },
+        ],
       }),
     };
   };
   try {
-    assert.deepEqual(await supervisor.readTunnelHealth({
-      tunnel: { alias: "codex-web-gpt" },
-    }), {
-      ready: false,
-      pid: null,
-      state: "stopped",
-      processRunning: false,
-      healthy: false,
-      absent: false,
-      statusKnown: true,
-      detail: "state=stopped; process_running=false; healthy=false; ready=false; classification=stale_alias; live_admin=false; pid=missing",
-    });
+    assert.deepEqual(
+      await supervisor.readTunnelHealth({
+        tunnel: { alias: "codex-web-gpt" },
+      }),
+      {
+        ready: false,
+        pid: null,
+        state: "stopped",
+        processRunning: false,
+        healthy: false,
+        absent: false,
+        statusKnown: true,
+        detail:
+          "state=stopped; process_running=false; healthy=false; ready=false; classification=stale_alias; live_admin=false; pid=missing",
+      },
+    );
     assert.deepEqual(commandArgs, ["runtimes", "cleanup", "--json"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -480,31 +491,37 @@ test("tunnel readiness preserves a native managed process identity when one is r
   supervisor.runTunnelCommand = async () => ({
     code: 0,
     output: JSON.stringify({
-      entries: [{
-        alias: "codex-web-gpt",
-        runtime_state: "ready",
-        classification: "active_runtime",
-        live_runtime: {
-          found: true,
-          base_url: "http://127.0.0.1:12345",
-          system: { pid: 123_456_779 },
+      entries: [
+        {
+          alias: "codex-web-gpt",
+          runtime_state: "ready",
+          classification: "active_runtime",
+          live_runtime: {
+            found: true,
+            base_url: "http://127.0.0.1:12345",
+            system: { pid: 123_456_779 },
+          },
         },
-      }],
+      ],
     }),
   });
   try {
-    assert.deepEqual(await supervisor.readTunnelHealth({
-      tunnel: { alias: "codex-web-gpt" },
-    }), {
-      ready: true,
-      pid: 123_456_779,
-      state: "ready",
-      processRunning: true,
-      healthy: true,
-      absent: false,
-      statusKnown: true,
-      detail: "state=ready; process_running=true; healthy=true; ready=true; classification=active_runtime; live_admin=true; pid=123456779",
-    });
+    assert.deepEqual(
+      await supervisor.readTunnelHealth({
+        tunnel: { alias: "codex-web-gpt" },
+      }),
+      {
+        ready: true,
+        pid: 123_456_779,
+        state: "ready",
+        processRunning: true,
+        healthy: true,
+        absent: false,
+        statusKnown: true,
+        detail:
+          "state=ready; process_running=true; healthy=true; ready=true; classification=active_runtime; live_admin=true; pid=123456779",
+      },
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -512,8 +529,10 @@ test("tunnel readiness preserves a native managed process identity when one is r
 
 test("steady tunnel monitoring uses the runtime local health endpoints without a control-plane status lookup", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-local-tunnel-health-"));
-  const health = await localHealthServer(() => 200, pathname => pathname.startsWith("/api/logs")
-    ? JSON.stringify({ events: [] }) : "ok");
+  const health = await localHealthServer(
+    () => 200,
+    (pathname) => (pathname.startsWith("/api/logs") ? JSON.stringify({ events: [] }) : "ok"),
+  );
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
     logger: { info() {}, warn() {}, error() {} },
@@ -564,7 +583,7 @@ test("an unavailable local probe plus a stalled native status is unknown, not pr
 
 test("an explicit local readiness failure remains actionable tunnel evidence", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-degraded-tunnel-health-"));
-  const health = await localHealthServer(pathname => pathname === "/readyz" ? 503 : 200);
+  const health = await localHealthServer((pathname) => (pathname === "/readyz" ? 503 : 200));
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
     logger: { info() {}, warn() {}, error() {} },
@@ -589,21 +608,24 @@ test("recent internal MCP transport failures override false-green tunnel readine
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-tunnel-mcp-degraded-"));
   const health = await localHealthServer(
     () => 200,
-    pathname => pathname.startsWith("/api/logs")
-      ? JSON.stringify({
-        events: [{
-          time: new Date().toISOString(),
-          level: "WARN",
-          message: "dispatcher received MCP upstream error; posted error response to control plane",
-          attrs: {
-            failure_source: "client_internal",
-            status_code: 502,
-            upstream_response_received: false,
-            rpc_method: "initialize",
-          },
-        }],
-      })
-      : "ok",
+    (pathname) =>
+      pathname.startsWith("/api/logs")
+        ? JSON.stringify({
+            events: [
+              {
+                time: new Date().toISOString(),
+                level: "WARN",
+                message: "dispatcher received MCP upstream error; posted error response to control plane",
+                attrs: {
+                  failure_source: "client_internal",
+                  status_code: 502,
+                  upstream_response_received: false,
+                  rpc_method: "initialize",
+                },
+              },
+            ],
+          })
+        : "ok",
   );
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
@@ -630,20 +652,27 @@ test("ready inventory cannot replace missing MCP evidence, and local evidence re
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-tunnel-evidence-"));
   let diagnosticsAvailable = false;
   const health = await localHealthServer(
-    pathname => pathname.startsWith("/api/logs") && !diagnosticsAvailable ? 503 : 200,
-    pathname => pathname.startsWith("/api/logs") ? JSON.stringify({ events: [] }) : "ok",
+    (pathname) => (pathname.startsWith("/api/logs") && !diagnosticsAvailable ? 503 : 200),
+    (pathname) => (pathname.startsWith("/api/logs") ? JSON.stringify({ events: [] }) : "ok"),
   );
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
     logger: { info() {}, warn() {}, error() {} },
-    sourceRoot: root, coreHome: root, browserDescriptorPath: path.join(root, "launcher.json"),
+    sourceRoot: root,
+    coreHome: root,
+    browserDescriptorPath: path.join(root, "launcher.json"),
   });
   let inventoryReads = 0;
   let stopped = false;
   supervisor.readTunnelHealth = async () => {
     inventoryReads += 1;
-    return { ready: !stopped, statusKnown: true, state: stopped ? "stopped" : "ready",
-      processRunning: !stopped, detail: "native inventory" };
+    return {
+      ready: !stopped,
+      statusKnown: true,
+      state: stopped ? "stopped" : "ready",
+      processRunning: !stopped,
+      detail: "native inventory",
+    };
   };
   try {
     // This inventory shape is observed on both real managed profiles: ready without a URL.
@@ -685,12 +714,14 @@ test("tunnel readiness accepts the official tmux status without inventing a PID"
   supervisor.runTunnelCommand = async () => ({
     code: 0,
     output: JSON.stringify({
-      entries: [{
-        alias: "codex-chatgpt-web",
-        runtime_state: "ready",
-        classification: "active_runtime",
-        live_runtime: { found: true, base_url: "http://127.0.0.1:12345" },
-      }],
+      entries: [
+        {
+          alias: "codex-chatgpt-web",
+          runtime_state: "ready",
+          classification: "active_runtime",
+          live_runtime: { found: true, base_url: "http://127.0.0.1:12345" },
+        },
+      ],
     }),
   });
   try {
@@ -752,10 +783,7 @@ test("managed startup fails immediately when native status reports a stopped run
     detail: "state=stopped; process_running=false",
   });
   try {
-    await assert.rejects(
-      supervisor.waitForTunnel({ tunnel: {} }, 120_000),
-      /stopped during startup/,
-    );
+    await assert.rejects(supervisor.waitForTunnel({ tunnel: {} }, 120_000), /stopped during startup/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -763,8 +791,10 @@ test("managed startup fails immediately when native status reports a stopped run
 
 test("launcher adopts a healthy native managed tunnel without spawning a foreground wrapper", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-managed-tunnel-adopt-"));
-  const health = await localHealthServer(() => 200, pathname => pathname.startsWith("/api/logs")
-    ? JSON.stringify({ events: [] }) : "ok");
+  const health = await localHealthServer(
+    () => 200,
+    (pathname) => (pathname.startsWith("/api/logs") ? JSON.stringify({ events: [] }) : "ok"),
+  );
   const binaryPath = path.join(root, "tunnel-client");
   const runtimeKeyFile = path.join(root, "runtime.key");
   const profileDir = path.join(root, "profiles");
@@ -794,9 +824,13 @@ test("launcher adopts a healthy native managed tunnel without spawning a foregro
   };
   const healthFile = path.join(root, "health.url");
   fs.writeFileSync(healthFile, health.baseUrl);
-  supervisor.runTunnelCommand = async () => ({ code: 0,
-    output: JSON.stringify({ aliases: [{ alias: "codex-chatgpt-web", health_url_file: healthFile }] }) });
-  supervisor.startTunnelMonitor = () => { monitors += 1; };
+  supervisor.runTunnelCommand = async () => ({
+    code: 0,
+    output: JSON.stringify({ aliases: [{ alias: "codex-chatgpt-web", health_url_file: healthFile }] }),
+  });
+  supervisor.startTunnelMonitor = () => {
+    monitors += 1;
+  };
   try {
     await supervisor.startTunnel({
       mode: "full",
@@ -824,14 +858,18 @@ test("first launcher tunnel startup creates its missing profile and keeps the ve
   skip: process.platform === "win32", // Executable manager fixture uses a Unix shebang.
 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-first-tunnel-"));
-  const health = await localHealthServer(() => 200, pathname => pathname.startsWith("/api/logs")
-    ? JSON.stringify({ events: [] }) : "ok");
+  const health = await localHealthServer(
+    () => 200,
+    (pathname) => (pathname.startsWith("/api/logs") ? JSON.stringify({ events: [] }) : "ok"),
+  );
   const profileDir = path.join(root, "profiles");
   const profile = path.join(profileDir, "first-setup.yaml");
   const binaryPath = path.join(root, "tunnel-client");
   const runtimeKeyFile = path.join(root, "runtime.key");
   const eventPath = path.join(root, "commands.jsonl");
-  fs.writeFileSync(binaryPath, `#!/usr/bin/env node
+  fs.writeFileSync(
+    binaryPath,
+    `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 const profile = ${JSON.stringify(profile)};
@@ -853,23 +891,44 @@ if (args[1] === "connect") {
     live_runtime: { base_url: ${JSON.stringify(health.baseUrl)}, system: { pid: ${process.pid} } }
   }] : [] }));
 } else process.exitCode = 2;
-`, { mode: 0o700 });
+`,
+    { mode: 0o700 },
+  );
   fs.writeFileSync(runtimeKeyFile, "fixture");
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
     logger: { info() {}, warn() {}, error() {} },
-    sourceRoot: root, coreHome: root, browserDescriptorPath: path.join(root, "launcher.json"),
+    sourceRoot: root,
+    coreHome: root,
+    browserDescriptorPath: path.join(root, "launcher.json"),
   });
   let monitored = false;
-  const config = { mode: "full", brokerSocketPath: path.join(root, "broker.sock"), tunnel: {
-    binaryPath, runtimeKeyFile, profileDir, profileName: "first-setup", alias: "first-setup",
-    tunnelId: `tunnel_${"a".repeat(32)}`,
-  } };
-  supervisor.startTunnelMonitor = () => { monitored = true; };
+  const config = {
+    mode: "full",
+    brokerSocketPath: path.join(root, "broker.sock"),
+    tunnel: {
+      binaryPath,
+      runtimeKeyFile,
+      profileDir,
+      profileName: "first-setup",
+      alias: "first-setup",
+      tunnelId: `tunnel_${"a".repeat(32)}`,
+    },
+  };
+  supervisor.startTunnelMonitor = () => {
+    monitored = true;
+  };
   try {
     await supervisor.startTunnel(config);
-    const commands = fs.readFileSync(eventPath, "utf8").trim().split("\n").map(line => JSON.parse(line));
-    assert.deepEqual(commands.map(args => args[1]), ["cleanup", "stop", "connect", "cleanup"]);
+    const commands = fs
+      .readFileSync(eventPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(
+      commands.map((args) => args[1]),
+      ["cleanup", "stop", "connect", "cleanup"],
+    );
     assert.equal(monitored, true);
     assert.equal(fs.existsSync(profile), true);
     assert.equal(supervisor.tunnel?.pid, process.pid);
@@ -883,30 +942,64 @@ if (args[1] === "connect") {
 for (const existingReady of [true, false]) {
   test(`a ${existingReady ? "previously running" : "newly connected"} tunnel cannot start monitoring before MCP verification`, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-tunnel-start-proof-"));
-    const health = await localHealthServer(() => 200, pathname => pathname.startsWith("/api/logs")
-      ? JSON.stringify({ events: [{ time: new Date().toISOString(),
-        message: "dispatcher received MCP upstream error; posted error response to control plane",
-        attrs: { failure_source: "client_internal", status_code: 502, upstream_response_received: false, rpc_method: "tools/call" },
-      }] }) : "ok");
+    const health = await localHealthServer(
+      () => 200,
+      (pathname) =>
+        pathname.startsWith("/api/logs")
+          ? JSON.stringify({
+              events: [
+                {
+                  time: new Date().toISOString(),
+                  message: "dispatcher received MCP upstream error; posted error response to control plane",
+                  attrs: {
+                    failure_source: "client_internal",
+                    status_code: 502,
+                    upstream_response_received: false,
+                    rpc_method: "tools/call",
+                  },
+                },
+              ],
+            })
+          : "ok",
+    );
     const supervisor = new RuntimeSupervisor({
       app: { getVersion: () => "0.2.0", isPackaged: false },
       logger: { info() {}, warn() {}, error() {} },
-      sourceRoot: root, coreHome: root, browserDescriptorPath: path.join(root, "launcher.json"),
+      sourceRoot: root,
+      coreHome: root,
+      browserDescriptorPath: path.join(root, "launcher.json"),
     });
     let connected = existingReady;
     let monitoring = false;
     const config = { mode: "full", tunnel: { alias: "owned-test" } };
     supervisor.assertTunnelClientReady = () => {};
-    supervisor.readTunnelHealth = async () => ({ ready: connected, statusKnown: true,
-      state: connected ? "ready" : "stopped", processRunning: connected, pid: null });
+    supervisor.readTunnelHealth = async () => ({
+      ready: connected,
+      statusKnown: true,
+      state: connected ? "ready" : "stopped",
+      processRunning: connected,
+      pid: null,
+    });
     const healthFile = path.join(root, "health.url");
     fs.writeFileSync(healthFile, health.baseUrl);
-    supervisor.runTunnelCommand = async () => ({ code: 0,
-      output: JSON.stringify({ aliases: [{ alias: "owned-test", health_url_file: healthFile }] }) });
-    supervisor.runTunnelConnectCommand = async () => { connected = true; return { code: 0 }; };
-    supervisor.runTunnelStopCommand = async () => { connected = false; return { code: 0 }; };
-    supervisor.waitForTunnelStopped = async () => { assert.equal(connected, false); };
-    supervisor.startTunnelMonitor = () => { monitoring = true; };
+    supervisor.runTunnelCommand = async () => ({
+      code: 0,
+      output: JSON.stringify({ aliases: [{ alias: "owned-test", health_url_file: healthFile }] }),
+    });
+    supervisor.runTunnelConnectCommand = async () => {
+      connected = true;
+      return { code: 0 };
+    };
+    supervisor.runTunnelStopCommand = async () => {
+      connected = false;
+      return { code: 0 };
+    };
+    supervisor.waitForTunnelStopped = async () => {
+      assert.equal(connected, false);
+    };
+    supervisor.startTunnelMonitor = () => {
+      monitoring = true;
+    };
     try {
       await assert.rejects(supervisor.startTunnel(config), /MCP transport is unhealthy/);
       assert.equal(monitoring, false);
@@ -971,17 +1064,13 @@ test("tunnel recovery replaces a false-green managed runtime and proves the fres
   supervisor.waitForTunnelMcpTransport = async () => {
     events.push("mcp");
   };
-  supervisor.startTunnelMonitor = () => { events.push("monitor"); };
+  supervisor.startTunnelMonitor = () => {
+    events.push("monitor");
+  };
   supervisor.tryWriteState = () => true;
   try {
     await supervisor.recover("tunnel");
-    assert.deepEqual(events, [
-      "stop",
-      "stopped",
-      "connect",
-      "mcp",
-      "monitor",
-    ]);
+    assert.deepEqual(events, ["stop", "stopped", "connect", "mcp", "monitor"]);
     assert.equal(supervisor.tunnel?.pid, 123_456_779);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -1093,8 +1182,12 @@ test("launcher stops an unhealthy managed runtime before reconnecting the alias"
     events.push("connect");
     return { code: 0, output: "{}" };
   };
-  supervisor.waitForTunnelMcpTransport = async () => { events.push("mcp"); };
-  supervisor.startTunnelMonitor = () => { events.push("monitor"); };
+  supervisor.waitForTunnelMcpTransport = async () => {
+    events.push("mcp");
+  };
+  supervisor.startTunnelMonitor = () => {
+    events.push("monitor");
+  };
   try {
     await supervisor.startTunnel({
       mode: "full",
@@ -1105,13 +1198,7 @@ test("launcher stops an unhealthy managed runtime before reconnecting the alias"
         profileName: "codex-chatgpt-web",
       },
     });
-    assert.deepEqual(events, [
-      "stop",
-      "stopped",
-      "connect",
-      "mcp",
-      "monitor",
-    ]);
+    assert.deepEqual(events, ["stop", "stopped", "connect", "mcp", "monitor"]);
     assert.equal(supervisor.tunnel?.pid, 123_456_776);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -1221,12 +1308,11 @@ test("failed native tunnel shutdown keeps the managed runtime monitored", async 
   let monitorRestarts = 0;
   supervisor.tunnel = child;
   supervisor.runTunnelStopCommand = async () => ({ code: 9, output: "runtime refused stop" });
-  supervisor.startTunnelMonitor = () => { monitorRestarts += 1; };
+  supervisor.startTunnelMonitor = () => {
+    monitorRestarts += 1;
+  };
   try {
-    await assert.rejects(
-      supervisor.stopTunnelGracefully({ tunnel: {} }, 10),
-      /runtime refused stop/,
-    );
+    await assert.rejects(supervisor.stopTunnelGracefully({ tunnel: {} }, 10), /runtime refused stop/);
     assert.equal(supervisor.tunnel, child);
     assert.equal(monitorRestarts, 1);
   } finally {
@@ -1250,12 +1336,11 @@ test("an accepted tunnel stop without terminal proof keeps the alias supervised"
   supervisor.waitForTunnelStopped = async () => {
     throw new Error("native status remained ambiguous");
   };
-  supervisor.startTunnelMonitor = () => { monitorRestarts += 1; };
+  supervisor.startTunnelMonitor = () => {
+    monitorRestarts += 1;
+  };
   try {
-    await assert.rejects(
-      supervisor.stopTunnelGracefully({ tunnel: {} }, 10),
-      /native status remained ambiguous/,
-    );
+    await assert.rejects(supervisor.stopTunnelGracefully({ tunnel: {} }, 10), /native status remained ambiguous/);
     assert.equal(supervisor.tunnel, managed);
     assert.equal(monitorRestarts, 1);
   } finally {
@@ -1330,12 +1415,9 @@ test("crash-loop diagnostics include the last redacted child failure", () => {
     sourceRoot: root,
     coreHome: root,
     browserDescriptorPath: path.join(root, "launcher.json"),
-    publishOperation: operation => operations.push(operation),
+    publishOperation: (operation) => operations.push(operation),
   });
-  supervisor.restartHistory.tunnel = Array.from(
-    { length: MAX_RESTARTS_PER_WINDOW },
-    () => Date.now(),
-  );
+  supervisor.restartHistory.tunnel = Array.from({ length: MAX_RESTARTS_PER_WINDOW }, () => Date.now());
   supervisor.lastChildFailure.tunnel = "tunnel exited (1): invalid profile for [tunnel-id]";
   try {
     supervisor.scheduleRecovery("tunnel");
@@ -1363,10 +1445,7 @@ test("launcher supervisor refuses shutdown while a Codex turn is active and comp
       ? { accepting_turns: false, active_http_turns: 1, active_browser_turns: 0 }
       : { accepting_turns: true, active_http_turns: 1, active_browser_turns: 0 };
   };
-  await assert.rejects(
-    supervisor.acquireDrain({}, 0),
-    /atomic idleness could not be proven.*1 active HTTP turn/,
-  );
+  await assert.rejects(supervisor.acquireDrain({}, 0), /atomic idleness could not be proven.*1 active HTTP turn/);
   assert.deepEqual(actions, ["drain", "resume"]);
 });
 
@@ -1412,39 +1491,36 @@ test("explicit launcher shutdown cancels active turns before the graceful stop",
     return { status: "stopped" };
   };
 
-  assert.deepEqual(
-    await supervisor.shutdown({ cancelActiveTurns: true, force: true }),
-    { status: "stopped" },
-  );
+  assert.deepEqual(await supervisor.shutdown({ cancelActiveTurns: true, force: true }), { status: "stopped" });
   assert.deepEqual(actions, ["cancel-turns", "graceful-stop"]);
 });
 
 for (const reason of [undefined, "browser_surface_bootstrap_timeout", "helper_heartbeat_expired"])
-test(`launcher supervisor forwards exact trace cancellation: ${reason ?? "user close"}`, async () => {
-  const supervisor = new RuntimeSupervisor({
-    app: { getVersion: () => "0.2.0", isPackaged: false },
-    logger: { info() {}, warn() {}, error() {} },
-    sourceRoot: os.tmpdir(),
-    coreHome: os.tmpdir(),
-    browserDescriptorPath: path.join(os.tmpdir(), "launcher.json"),
-  });
-  supervisor.readConfig = () => ({ controlToken: "control", host: "127.0.0.1", port: 17841 });
-  supervisor.daemon = { exitCode: null, signalCode: null };
-  supervisor.control = async (_config, action, options) => {
-    assert.equal(action, "cancel-turn");
-    assert.deepEqual(options.body, { traceId: "trace_exact", ...(reason ? { reason } : {}) });
-    assert.equal(options.timeoutMs, 15_000);
-    return {
-      status: "ok",
-      trace_id: "trace_exact",
-      cancelled_browser_turns: 1,
-      cancelled_broker_turns: 1,
+  test(`launcher supervisor forwards exact trace cancellation: ${reason ?? "user close"}`, async () => {
+    const supervisor = new RuntimeSupervisor({
+      app: { getVersion: () => "0.2.0", isPackaged: false },
+      logger: { info() {}, warn() {}, error() {} },
+      sourceRoot: os.tmpdir(),
+      coreHome: os.tmpdir(),
+      browserDescriptorPath: path.join(os.tmpdir(), "launcher.json"),
+    });
+    supervisor.readConfig = () => ({ controlToken: "control", host: "127.0.0.1", port: 17841 });
+    supervisor.daemon = { exitCode: null, signalCode: null };
+    supervisor.control = async (_config, action, options) => {
+      assert.equal(action, "cancel-turn");
+      assert.deepEqual(options.body, { traceId: "trace_exact", ...(reason ? { reason } : {}) });
+      assert.equal(options.timeoutMs, 15_000);
+      return {
+        status: "ok",
+        trace_id: "trace_exact",
+        cancelled_browser_turns: 1,
+        cancelled_broker_turns: 1,
+      };
     };
-  };
 
-  const result = await supervisor.cancelBrowserTurn("trace_exact", reason);
-  assert.equal(result.trace_id, "trace_exact");
-});
+    const result = await supervisor.cancelBrowserTurn("trace_exact", reason);
+    assert.equal(result.trace_id, "trace_exact");
+  });
 
 test("explicit launcher shutdown force-stops only its owned runtime when graceful shutdown fails", async () => {
   const actions = [];
@@ -1455,25 +1531,23 @@ test("explicit launcher shutdown force-stops only its owned runtime when gracefu
     coreHome: os.tmpdir(),
     browserDescriptorPath: path.join(os.tmpdir(), "launcher.json"),
   });
-  supervisor.cancelActiveTurns = async () => { actions.push("cancel-turns"); };
+  supervisor.cancelActiveTurns = async () => {
+    actions.push("cancel-turns");
+  };
   supervisor.stopForSetup = async () => {
     actions.push("graceful-stop");
     throw new Error("daemon still reports one HTTP turn");
   };
-  supervisor.forceStopOwnedRuntime = async error => {
+  supervisor.forceStopOwnedRuntime = async (error) => {
     actions.push(`forced-stop:${error.message}`);
     return { status: "forced", detail: error.message };
   };
 
-  assert.deepEqual(
-    await supervisor.shutdown({ cancelActiveTurns: true, force: true }),
-    { status: "forced", detail: "daemon still reports one HTTP turn" },
-  );
-  assert.deepEqual(actions, [
-    "cancel-turns",
-    "graceful-stop",
-    "forced-stop:daemon still reports one HTTP turn",
-  ]);
+  assert.deepEqual(await supervisor.shutdown({ cancelActiveTurns: true, force: true }), {
+    status: "forced",
+    detail: "daemon still reports one HTTP turn",
+  });
+  assert.deepEqual(actions, ["cancel-turns", "graceful-stop", "forced-stop:daemon still reports one HTTP turn"]);
 });
 
 test("launcher resumes an owned drained daemon before reporting it ready", async () => {
@@ -1488,9 +1562,8 @@ test("launcher resumes an owned drained daemon before reporting it ready", async
   let accepting = false;
   const actions = [];
   supervisor.daemon = child;
-  supervisor.proxyHealth = async (_config, _timeoutMs, expectedPid, requireAccepting) => (
-    expectedPid === child.pid && (!requireAccepting || accepting)
-  );
+  supervisor.proxyHealth = async (_config, _timeoutMs, expectedPid, requireAccepting) =>
+    expectedPid === child.pid && (!requireAccepting || accepting);
   supervisor.control = async (_config, action) => {
     actions.push(action);
     accepting = true;
@@ -1516,7 +1589,9 @@ test("launcher restarts the daemon when a failed stop already terminated the dra
   let portReleased = 0;
   let starts = 0;
   supervisor.daemon = null;
-  supervisor.waitForPortRelease = async () => { portReleased += 1; };
+  supervisor.waitForPortRelease = async () => {
+    portReleased += 1;
+  };
   supervisor.startDaemon = async () => {
     starts += 1;
     supervisor.daemon = { pid: 123_456_782, exitCode: null, signalCode: null };
@@ -1586,10 +1661,15 @@ test("launcher preserves stale ownership evidence when an old active runtime can
   const statePath = path.join(root, "runtime", "launcher-supervisor.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, "{}\n");
-  fs.writeFileSync(path.join(root, "config.json"), `${JSON.stringify(launcherConfig(descriptorPath, {
-    releaseVersion: "0.1.16",
-    controlToken: "active-stale-control-token-0123456789abcdef",
-  }))}\n`);
+  fs.writeFileSync(
+    path.join(root, "config.json"),
+    `${JSON.stringify(
+      launcherConfig(descriptorPath, {
+        releaseVersion: "0.1.16",
+        controlToken: "active-stale-control-token-0123456789abcdef",
+      }),
+    )}\n`,
+  );
   const staleState = {
     version: 1,
     ownerPid: 999_999_999,
@@ -1626,26 +1706,34 @@ test("launcher recovers a stale tunnel even when no stale Responses proxy is rea
   const descriptorPath = path.join(root, "runtime", "launcher-browser.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, "{}\n");
-  fs.writeFileSync(path.join(root, "config.json"), `${JSON.stringify(launcherConfig(descriptorPath, {
-    mode: "full",
-    controlToken: "stale-tunnel-control-token-0123456789abcdef",
-    tunnel: {
-      binaryPath: path.join(root, "tunnel-client"),
-      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
-      runtimeKeyFile: path.join(root, "runtime.key"),
-      profileDir: path.join(root, "profiles"),
-      profileName: "codex-chatgpt-web",
-      alias: "codex-chatgpt-web",
-    },
-  }))}\n`);
-  fs.writeFileSync(path.join(root, "runtime", "launcher-supervisor.json"), `${JSON.stringify({
-    version: 1,
-    ownerPid: 999_999_999,
-    daemonPid: null,
-    tunnelPid: process.pid,
-    status: "degraded",
-    updatedAt: new Date().toISOString(),
-  })}\n`);
+  fs.writeFileSync(
+    path.join(root, "config.json"),
+    `${JSON.stringify(
+      launcherConfig(descriptorPath, {
+        mode: "full",
+        controlToken: "stale-tunnel-control-token-0123456789abcdef",
+        tunnel: {
+          binaryPath: path.join(root, "tunnel-client"),
+          tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+          runtimeKeyFile: path.join(root, "runtime.key"),
+          profileDir: path.join(root, "profiles"),
+          profileName: "codex-chatgpt-web",
+          alias: "codex-chatgpt-web",
+        },
+      }),
+    )}\n`,
+  );
+  fs.writeFileSync(
+    path.join(root, "runtime", "launcher-supervisor.json"),
+    `${JSON.stringify({
+      version: 1,
+      ownerPid: 999_999_999,
+      daemonPid: null,
+      tunnelPid: process.pid,
+      status: "degraded",
+      updatedAt: new Date().toISOString(),
+    })}\n`,
+  );
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
     logger: { info() {}, warn() {}, error() {} },
@@ -1684,14 +1772,17 @@ test("stale ownership recovery stops a managed tmux runtime even though it has n
     browserDescriptorPath: path.join(root, "launcher.json"),
   });
   fs.mkdirSync(path.dirname(supervisor.statePath), { recursive: true });
-  fs.writeFileSync(supervisor.statePath, `${JSON.stringify({
-    version: 1,
-    ownerPid: 999_999_999,
-    daemonPid: null,
-    tunnelPid: null,
-    status: "ready",
-    updatedAt: new Date().toISOString(),
-  })}\n`);
+  fs.writeFileSync(
+    supervisor.statePath,
+    `${JSON.stringify({
+      version: 1,
+      ownerPid: 999_999_999,
+      daemonPid: null,
+      tunnelPid: null,
+      status: "ready",
+      updatedAt: new Date().toISOString(),
+    })}\n`,
+  );
   supervisor.proxyHealthPayload = async () => null;
   supervisor.waitForKnownTunnelStatus = async () => ({
     ready: true,
@@ -1718,10 +1809,13 @@ test("stale ownership recovery stops a managed tmux runtime even though it has n
     detail: "state=stopped; process_running=false",
   });
   try {
-    assert.equal(await supervisor.stopStaleOwnedRuntime({
-      mode: "full",
-      tunnel: { alias: "codex-chatgpt-web" },
-    }), true);
+    assert.equal(
+      await supervisor.stopStaleOwnedRuntime({
+        mode: "full",
+        tunnel: { alias: "codex-chatgpt-web" },
+      }),
+      true,
+    );
     assert.equal(stops, 1);
     assert.equal(fs.existsSync(supervisor.statePath), false);
   } finally {
@@ -1739,7 +1833,7 @@ test("launcher fails closed on a corrupt runtime ownership marker", () => {
     browserDescriptorPath: path.join(root, "launcher.json"),
   });
   fs.mkdirSync(path.dirname(supervisor.statePath), { recursive: true });
-  fs.writeFileSync(supervisor.statePath, "{\"version\":1}\n");
+  fs.writeFileSync(supervisor.statePath, '{"version":1}\n');
   try {
     assert.throws(() => supervisor.readState(), /ownership state is invalid/);
   } finally {
@@ -1760,14 +1854,17 @@ test("launcher clears an empty stale ownership marker when Windows reuses its PI
     browserDescriptorPath: path.join(root, "launcher.json"),
   });
   fs.mkdirSync(path.dirname(supervisor.statePath), { recursive: true });
-  fs.writeFileSync(supervisor.statePath, `${JSON.stringify({
-    version: 1,
-    ownerPid: pidOccupant.pid,
-    daemonPid: null,
-    tunnelPid: null,
-    status: "failed",
-    updatedAt: new Date().toISOString(),
-  })}\n`);
+  fs.writeFileSync(
+    supervisor.statePath,
+    `${JSON.stringify({
+      version: 1,
+      ownerPid: pidOccupant.pid,
+      daemonPid: null,
+      tunnelPid: null,
+      status: "failed",
+      updatedAt: new Date().toISOString(),
+    })}\n`,
+  );
   try {
     assert.deepEqual(await supervisor.startConfigured(), { status: "not-configured" });
     assert.equal(fs.existsSync(supervisor.statePath), false);
@@ -1784,25 +1881,33 @@ test("a failed full-runtime marker with no child evidence cannot block removal o
   const statePath = path.join(root, "runtime", "launcher-supervisor.json");
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, "{}\n");
-  fs.writeFileSync(configPath, `${JSON.stringify(launcherConfig(descriptorPath, {
-    mode: "full",
-    tunnel: {
-      binaryPath: path.join(root, "tunnel-client"),
-      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
-      runtimeKeyFile: path.join(root, "runtime.key"),
-      profileDir: path.join(root, "profiles"),
-      profileName: "codex-chatgpt-web",
-      alias: "codex-chatgpt-web",
-    },
-  }))}\n`);
-  fs.writeFileSync(statePath, `${JSON.stringify({
-    version: 1,
-    ownerPid: process.pid,
-    daemonPid: null,
-    tunnelPid: null,
-    status: "external",
-    updatedAt: new Date().toISOString(),
-  })}\n`);
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      launcherConfig(descriptorPath, {
+        mode: "full",
+        tunnel: {
+          binaryPath: path.join(root, "tunnel-client"),
+          tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+          runtimeKeyFile: path.join(root, "runtime.key"),
+          profileDir: path.join(root, "profiles"),
+          profileName: "codex-chatgpt-web",
+          alias: "codex-chatgpt-web",
+        },
+      }),
+    )}\n`,
+  );
+  fs.writeFileSync(
+    statePath,
+    `${JSON.stringify({
+      version: 1,
+      ownerPid: process.pid,
+      daemonPid: null,
+      tunnelPid: null,
+      status: "external",
+      updatedAt: new Date().toISOString(),
+    })}\n`,
+  );
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
     logger: { info() {}, warn() {}, error() {} },
@@ -1845,10 +1950,7 @@ test("external migration clears only stale launcher ownership evidence", () => {
   });
   try {
     fs.writeFileSync(supervisor.statePath, `${JSON.stringify(state(process.pid))}\n`);
-    assert.throws(
-      () => supervisor.prepareExternalMigration(),
-      /ownership processes are still alive/,
-    );
+    assert.throws(() => supervisor.prepareExternalMigration(), /ownership processes are still alive/);
     fs.writeFileSync(supervisor.statePath, `${JSON.stringify(state(999_999_999))}\n`);
     supervisor.prepareExternalMigration();
     assert.equal(fs.existsSync(supervisor.statePath), false);
@@ -1865,11 +1967,18 @@ test("launcher supervisor starts, health-checks, drains, and stops its daemon", 
   const port = await freePort();
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, "{}\n");
-  fs.writeFileSync(configPath, `${JSON.stringify(launcherConfig(descriptorPath, {
-    port,
-    controlToken: "runtime-supervisor-control-token-0123456789abcdef",
-  }))}\n`);
-  fs.writeFileSync(serverPath, `
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      launcherConfig(descriptorPath, {
+        port,
+        controlToken: "runtime-supervisor-control-token-0123456789abcdef",
+      }),
+    )}\n`,
+  );
+  fs.writeFileSync(
+    serverPath,
+    `
 const fs = require("node:fs");
 const http = require("node:http");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -1903,13 +2012,20 @@ const server = http.createServer((request, response) => {
 });
 server.listen(config.port, config.host);
 process.once("SIGTERM", () => server.close(() => process.exit(0)));
-`);
+`,
+  );
 
   const records = [];
   const logger = {
-    info(event, detail) { records.push({ level: "info", event, detail }); },
-    warn(event, detail) { records.push({ level: "warning", event, detail }); },
-    error(event, detail) { records.push({ level: "error", event, detail }); },
+    info(event, detail) {
+      records.push({ level: "info", event, detail });
+    },
+    warn(event, detail) {
+      records.push({ level: "warning", event, detail });
+    },
+    error(event, detail) {
+      records.push({ level: "error", event, detail });
+    },
   };
   const supervisor = new RuntimeSupervisor({
     app: { getVersion: () => "0.2.0", isPackaged: false },
@@ -1935,7 +2051,10 @@ process.once("SIGTERM", () => server.close(() => process.exit(0)));
     const stopped = await supervisor.stopForSetup();
     assert.equal(stopped.status, "stopped");
     assert.equal(fs.existsSync(path.join(root, "runtime", "launcher-supervisor.json")), false);
-    assert.equal(records.some((record) => record.event === "runtime.daemon_started"), true);
+    assert.equal(
+      records.some((record) => record.event === "runtime.daemon_started"),
+      true,
+    );
   } finally {
     await supervisor.stopForSetup().catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
@@ -1951,11 +2070,18 @@ test("launcher supervisor safely replaces an idle daemon left by a crashed launc
   const port = await freePort();
   fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
   fs.writeFileSync(descriptorPath, "{}\n");
-  fs.writeFileSync(configPath, `${JSON.stringify(launcherConfig(descriptorPath, {
-    port,
-    controlToken: "stale-owner-test-control-token-0123456789",
-  }))}\n`);
-  fs.writeFileSync(serverPath, `
+  fs.writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      launcherConfig(descriptorPath, {
+        port,
+        controlToken: "stale-owner-test-control-token-0123456789",
+      }),
+    )}\n`,
+  );
+  fs.writeFileSync(
+    serverPath,
+    `
 const fs = require("node:fs");
 const http = require("node:http");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -1993,7 +2119,8 @@ const server = http.createServer((request, response) => {
   response.end(JSON.stringify({ status: "ok", accepting_turns: !draining, active_http_turns: 0, active_browser_turns: 0 }));
 });
 server.listen(config.port, config.host);
-`);
+`,
+  );
   const stale = spawn(process.execPath, [serverPath, configPath], {
     cwd: root,
     stdio: "ignore",
@@ -2021,14 +2148,17 @@ server.listen(config.port, config.host);
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     assert.equal((await fetch(`http://127.0.0.1:${port}/healthz`)).ok, true);
-    fs.writeFileSync(statePath, `${JSON.stringify({
-      version: 1,
-      ownerPid: 999_999_999,
-      daemonPid: stale.pid,
-      tunnelPid: null,
-      status: "ready",
-      updatedAt: new Date().toISOString(),
-    })}\n`);
+    fs.writeFileSync(
+      statePath,
+      `${JSON.stringify({
+        version: 1,
+        ownerPid: 999_999_999,
+        daemonPid: stale.pid,
+        tunnelPid: null,
+        status: "ready",
+        updatedAt: new Date().toISOString(),
+      })}\n`,
+    );
 
     const started = await supervisor.startIfConfigured();
     assert.equal(started.status, "ready");
@@ -2051,30 +2181,79 @@ test("observed CLI fresh-conversation changes retire completed tabs once and def
   const configPath = path.join(root, "config.json");
   const state = { experimentalFreshConversationPerTurn: false, useSavedChats: false };
   const key = "a".repeat(64);
-  const old = { id: "old", traceId: "old-trace", status: "ready", interactionMode: "automatic", conversationKey: key,
-    connectorIdentity: "Codex Native2", connectorBound: true };
-  const active = { id: "active", traceId: "active-trace", status: "running", interactionMode: "automatic", conversationKey: key };
+  const old = {
+    id: "old",
+    traceId: "old-trace",
+    status: "ready",
+    interactionMode: "automatic",
+    conversationKey: key,
+    connectorIdentity: "Codex Native2",
+    connectorBound: true,
+  };
+  const active = {
+    id: "active",
+    traceId: "active-trace",
+    status: "running",
+    interactionMode: "automatic",
+    conversationKey: key,
+  };
   const manual = { id: "manual", status: "ready", interactionMode: "manual", conversationKey: "b".repeat(64) };
-  let operation = null, updates = 0;
+  let operation = null,
+    updates = 0;
   const removed = [];
   const browserHost = Object.assign(Object.create(BrowserHost.prototype), {
-    manualOperation: null, turnTabs: new Map([[old.id, old], [active.id, active], [manual.id, manual]]),
-    userCancelledTurnOwners: new Map(), logger: { info() {} },
-    removeTurnTab(tab, abort) { assert.equal(abort, false); removed.push(tab.id); this.turnTabs.delete(tab.id); },
+    manualOperation: null,
+    turnTabs: new Map([
+      [old.id, old],
+      [active.id, active],
+      [manual.id, manual],
+    ]),
+    userCancelledTurnOwners: new Map(),
+    logger: { info() {} },
+    removeTurnTab(tab, abort) {
+      assert.equal(abort, false);
+      removed.push(tab.id);
+      this.turnTabs.delete(tab.id);
+    },
     createTurnTab: async () => ({ id: "new", surfaceId: "new-surface" }),
-    syncViewVisibility() {}, snapshot: () => ({}), publishState() {}, writeDescriptor() {},
+    syncViewVisibility() {},
+    snapshot: () => ({}),
+    publishState() {},
+    writeDescriptor() {},
   });
   const sandbox = {
-    browserHost, releaseRetainedConversation, runtimeHost: { currentOperation: () => operation },
-    stateStore: { read: () => ({ ...state }), update: patch => { updates++; return Object.assign(state, patch); } },
+    browserHost,
+    releaseRetainedConversation,
+    runtimeHost: { currentOperation: () => operation },
+    stateStore: {
+      read: () => ({ ...state }),
+      update: (patch) => {
+        updates++;
+        return Object.assign(state, patch);
+      },
+    },
     send() {},
   };
-  vm.runInNewContext(main.slice(main.indexOf("function syncFreshConversationPreference("), main.indexOf("function registerIpc(")), sandbox);
-  const supervisor = new RuntimeSupervisor({ coreHome: root, browserDescriptorPath: descriptorPath,
-    onConfigRead: config => sandbox.syncFreshConversationPreference(sandbox.stateStore, config) });
-  const persist = enabled => fs.writeFileSync(configPath, JSON.stringify(launcherConfig(descriptorPath, {
-    solAvailable: true, browserInteractionMode: "automatic", experimentalFreshConversationPerTurn: enabled,
-  })));
+  vm.runInNewContext(
+    main.slice(main.indexOf("function syncFreshConversationPreference("), main.indexOf("function registerIpc(")),
+    sandbox,
+  );
+  const supervisor = new RuntimeSupervisor({
+    coreHome: root,
+    browserDescriptorPath: descriptorPath,
+    onConfigRead: (config) => sandbox.syncFreshConversationPreference(sandbox.stateStore, config),
+  });
+  const persist = (enabled) =>
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        launcherConfig(descriptorPath, {
+          solAvailable: true,
+          browserInteractionMode: "automatic",
+          experimentalFreshConversationPerTurn: enabled,
+        }),
+      ),
+    );
   try {
     persist(true);
     operation = "fresh-conversation-per-turn";
@@ -2097,5 +2276,7 @@ test("observed CLI fresh-conversation changes retire completed tabs once and def
     const lease = await browserHost.beginTurn("new-trace", false, 123, key, "Codex Native2");
     assert.equal(lease.reused, false);
     assert.equal(lease.tabId, "new");
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

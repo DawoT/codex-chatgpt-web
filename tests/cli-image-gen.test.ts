@@ -1,5 +1,5 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -7,11 +7,7 @@ import { join, resolve } from "node:path";
 setDefaultTimeout(30_000);
 
 async function runCli(args: string[], env: Record<string, string | undefined>) {
-  const child = Bun.spawn([
-    process.execPath,
-    resolve(import.meta.dir, "../src/cli.ts"),
-    ...args,
-  ], {
+  const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/cli.ts"), ...args], {
     env,
     stdout: "pipe",
     stderr: "pipe",
@@ -25,7 +21,8 @@ async function runCli(args: string[], env: Record<string, string | undefined>) {
 }
 
 describe("CLI image-gen command", () => {
-  const samplePngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const samplePngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   const samplePngBuffer = Buffer.from(samplePngBase64, "base64");
 
   test("shows help for image-gen command", async () => {
@@ -51,14 +48,18 @@ describe("CLI image-gen command", () => {
       if (req.method === "POST" && req.url === "/v1/images/generations") {
         receivedAuth = req.headers.authorization || "";
         let bodyStr = "";
-        req.on("data", chunk => { bodyStr += chunk; });
+        req.on("data", (chunk) => {
+          bodyStr += chunk;
+        });
         req.on("end", () => {
           receivedBody = JSON.parse(bodyStr);
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            created: 1727500000,
-            data: [{ b64_json: samplePngBase64 }],
-          }));
+          res.end(
+            JSON.stringify({
+              created: 1727500000,
+              data: [{ b64_json: samplePngBase64 }],
+            }),
+          );
         });
       } else {
         res.writeHead(404);
@@ -66,7 +67,7 @@ describe("CLI image-gen command", () => {
       }
     });
 
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", () => resolve()));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
     const address = server.address() as { port: number };
     const baseUrl = `http://127.0.0.1:${address.port}`;
 
@@ -76,17 +77,20 @@ describe("CLI image-gen command", () => {
         CODEX_AUTH_TOKEN: "mock-token-from-env",
       };
 
-      const result = await runCli([
-        "image-gen",
-        "generate",
-        "A photo of a solar eclipse",
-        "--out",
-        outPath,
-        "--base-url",
-        baseUrl,
-        "--size",
-        "1024x1024",
-      ], env);
+      const result = await runCli(
+        [
+          "image-gen",
+          "generate",
+          "A photo of a solar eclipse",
+          "--out",
+          outPath,
+          "--base-url",
+          baseUrl,
+          "--size",
+          "1024x1024",
+        ],
+        env,
+      );
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout.trim()).toBe(outPath);

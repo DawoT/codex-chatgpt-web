@@ -9,10 +9,7 @@ export interface ProcessLineWriter {
   close(): void;
 }
 
-export function createProcessLineWriter(
-  stream: Writable,
-  onFailure: (error: Error) => void,
-): ProcessLineWriter {
+export function createProcessLineWriter(stream: Writable, onFailure: (error: Error) => void): ProcessLineWriter {
   let writable = true;
 
   const fail = (error: unknown): void => {
@@ -30,7 +27,7 @@ export function createProcessLineWriter(
     write(line: string): boolean {
       if (!writable || stream.destroyed || stream.writableEnded) return false;
       try {
-        stream.write(`${line}\n`, error => {
+        stream.write(`${line}\n`, (error) => {
           if (error) fail(error);
         });
         return true;

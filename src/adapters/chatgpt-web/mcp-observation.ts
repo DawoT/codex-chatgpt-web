@@ -1,5 +1,5 @@
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { randomUUID } from "node:crypto";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { mcpTraceContext } from "./mcp-trace-context";
 
 interface PendingObservation {
@@ -11,13 +11,18 @@ interface PendingObservation {
 export function observeMcpToolCalls(
   transport: Transport,
   knownTools: ReadonlySet<string>,
-  write: (event: Record<string, unknown>) => void = event => console.error(`[chatgpt-web-mcp] transport=${JSON.stringify(event)}`),
+  write: (event: Record<string, unknown>) => void = (event) =>
+    console.error(`[chatgpt-web-mcp] transport=${JSON.stringify(event)}`),
 ): Transport {
   let sequence = 0;
   const pending = new Map<string | number, PendingObservation>();
   const emit = (event: Record<string, unknown>) => {
     // Logging is observational: a broken sink cannot change the invocation or its result.
-    try { write({ pid: process.pid, ...event }); } catch { /* Preserve transport semantics. */ }
+    try {
+      write({ pid: process.pid, ...event });
+    } catch {
+      /* Preserve transport semantics. */
+    }
   };
   const receive = transport.onmessage;
   transport.onmessage = (message, extra) => {
@@ -54,7 +59,10 @@ export function observeMcpToolCalls(
       if (call) {
         const result = "result" in message ? message.result : undefined;
         emit({
-          event: "reply_sent", call: call.call, tool: call.tool, trace_id: call.trace_id,
+          event: "reply_sent",
+          call: call.call,
+          tool: call.tool,
+          trace_id: call.trace_id,
           elapsed_ms: Math.round(performance.now() - call.started),
           outcome: "error" in message ? "protocol_error" : "result",
           ...("result" in message ? { is_error: result?.isError === true } : {}),

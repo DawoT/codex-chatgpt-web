@@ -1,11 +1,11 @@
-import { existsSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runtimeMetrics } from "./runtime-metrics";
 
 /**
  * Sprint AC: Session Store Compaction & Pruning Utility
- * 
+ *
  * Safely prunes, compacts, and garbage-collects historical rollout session files
  * located in ~/.codex/sessions/ (or custom path). Protects active sessions,
  * recent files within a grace period, and allows filtering by session source (e.g. subagents).
@@ -73,7 +73,10 @@ export function syncCodexStateDatabase(
     const { Database } = require("bun:sqlite");
     const db = new Database(stateDbPath);
     try {
-      const rows = db.query("SELECT id, rollout_path FROM threads").all() as Array<{ id: string; rollout_path: string }>;
+      const rows = db.query("SELECT id, rollout_path FROM threads").all() as Array<{
+        id: string;
+        rollout_path: string;
+      }>;
       const staleIds: string[] = [];
       for (const row of rows) {
         if (!row.rollout_path || !existsSync(row.rollout_path)) {
@@ -193,7 +196,8 @@ export function pruneCodexSessions(options: CodexSessionPruningOptions = {}): Co
   const protectRecentMs = options.protectRecentMs ?? 3_600_000; // default 1 hour grace period
   const dryRun = options.dryRun ?? false;
   const removeEmptyDirs = options.removeEmptyDirs ?? true;
-  const targetSources = options.targetSources && options.targetSources.length > 0 ? new Set(options.targetSources) : undefined;
+  const targetSources =
+    options.targetSources && options.targetSources.length > 0 ? new Set(options.targetSources) : undefined;
   const maxFiles = options.maxFiles;
   const maxTotalBytes = options.maxTotalBytes;
   const maxAgeMs = options.maxAgeMs;
@@ -207,7 +211,7 @@ export function pruneCodexSessions(options: CodexSessionPruningOptions = {}): Co
   const prunedPaths = new Set<string>();
 
   // Filter candidates: recent files are strictly protected from deletion
-  const eligibleFiles = allFiles.filter(f => {
+  const eligibleFiles = allFiles.filter((f) => {
     const ageMs = now - f.mtimeMs;
     if (ageMs < protectRecentMs) return false;
     if (targetSources && f.source && !targetSources.has(f.source)) return false;
@@ -252,15 +256,11 @@ export function pruneCodexSessions(options: CodexSessionPruningOptions = {}): Co
   }
 
   // Sort remaining eligible files from oldest to newest (FIFO)
-  const remainingEligible = eligibleFiles
-    .filter(f => !prunedPaths.has(f.path))
-    .sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const remainingEligible = eligibleFiles.filter((f) => !prunedPaths.has(f.path)).sort((a, b) => a.mtimeMs - b.mtimeMs);
 
   // Helper to calculate current active files and active bytes
   let currentFileCount = allFiles.length - prunedPaths.size;
-  let currentTotalBytes = allFiles
-    .filter(f => !prunedPaths.has(f.path))
-    .reduce((acc, f) => acc + f.size, 0);
+  let currentTotalBytes = allFiles.filter((f) => !prunedPaths.has(f.path)).reduce((acc, f) => acc + f.size, 0);
 
   // 3. Max Files (Quota) pass - prune oldest first
   if (typeof maxFiles === "number" && maxFiles >= 0) {
@@ -457,7 +457,9 @@ export class SessionStoreJanitor {
           bytesReclaimed: result.reclaimedBytes,
           error: false,
         });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       if (this.options.logger) {
         this.options.logger(
@@ -472,7 +474,9 @@ export class SessionStoreJanitor {
       // Record error metrics — non-blocking, never throws
       try {
         runtimeMetrics.recordJanitorRun({ filesPruned: 0, bytesReclaimed: 0, error: true });
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       if (this.options.logger) {
         this.options.logger(`[session-janitor] Error during prune: ${this.lastError}`);
       }
@@ -507,4 +511,3 @@ export class SessionStoreJanitor {
     };
   }
 }
-

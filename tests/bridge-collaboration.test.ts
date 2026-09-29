@@ -36,15 +36,13 @@ describe("MultiAgent V2 plaintext collaboration contract", () => {
         encrypted_function_args: [],
       });
 
-      const body = await new Response(bridgeToResponsesSSE(
-        streamed(events),
-        "chatgpt-web/pro",
-        collaborationMap,
-      )).text();
+      const body = await new Response(
+        bridgeToResponsesSSE(streamed(events), "chatgpt-web/pro", collaborationMap),
+      ).text();
       const items = body
         .split("\n")
-        .filter(line => line.startsWith("data: "))
-        .flatMap(line => {
+        .filter((line) => line.startsWith("data: "))
+        .flatMap((line) => {
           const payload = line.slice(6);
           if (payload === "[DONE]") return [];
           const event = JSON.parse(payload) as { type?: string; item?: Record<string, unknown> };

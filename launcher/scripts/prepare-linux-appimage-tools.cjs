@@ -12,10 +12,12 @@ function requireLibnotifySymbol(libraryPath, arch = process.arch) {
   const header = Buffer.alloc(20);
   const fd = fs.openSync(libraryPath, "r");
   try {
-    if (fs.readSync(fd, header, 0, header.length, 0) !== header.length
-      || header.toString("hex", 0, 6) !== "7f454c460201"
-      || header.readUInt16LE(16) !== 3
-      || header.readUInt16LE(18) !== machine) {
+    if (
+      fs.readSync(fd, header, 0, header.length, 0) !== header.length ||
+      header.toString("hex", 0, 6) !== "7f454c460201" ||
+      header.readUInt16LE(16) !== 3 ||
+      header.readUInt16LE(18) !== machine
+    ) {
       throw new Error(`${libraryPath} must be a Linux ${arch} ELF shared library`);
     }
   } finally {
@@ -29,9 +31,7 @@ function requireLibnotifySymbol(libraryPath, arch = process.arch) {
   if (result.status !== 0) {
     throw new Error(`Could not inspect ${libraryPath}: ${result.stderr.trim() || `nm exited ${result.status}`}`);
   }
-  if (!result.stdout.split(/\r?\n/).some((line) => (
-    line.trim().split(/\s+/).at(-1) === REQUIRED_LIBNOTIFY_SYMBOL
-  ))) {
+  if (!result.stdout.split(/\r?\n/).some((line) => line.trim().split(/\s+/).at(-1) === REQUIRED_LIBNOTIFY_SYMBOL)) {
     throw new Error(`${libraryPath} does not export ${REQUIRED_LIBNOTIFY_SYMBOL}`);
   }
 }
@@ -85,10 +85,10 @@ async function main() {
   const tools = await getAppImageTools("0.0.0", Arch[process.arch]);
   const downloadedRoot = path.dirname(tools.runtime);
   const outputRoot = path.resolve(
-    process.env.CODEX_WEB_GPT_APPIMAGE_TOOLS_OUTPUT
-      || path.join(__dirname, "..", "build", "appimage-tools"),
+    process.env.CODEX_WEB_GPT_APPIMAGE_TOOLS_OUTPUT || path.join(__dirname, "..", "build", "appimage-tools"),
   );
-  if (downloadedRoot === outputRoot) throw new Error("AppImage toolset output must not replace the shared download cache");
+  if (downloadedRoot === outputRoot)
+    throw new Error("AppImage toolset output must not replace the shared download cache");
   fs.rmSync(outputRoot, { recursive: true, force: true });
   fs.cpSync(downloadedRoot, outputRoot, {
     recursive: true,

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   promptCodeUnitEquivalent,
-  promptUnitsEquivalent,
-  promptTextEquivalent,
   promptEquivalentPrefixLength,
+  promptTextEquivalent,
+  promptUnitsEquivalent,
 } from "../src/adapters/chatgpt-web/browser/prompt-equivalence";
 
 describe("promptCodeUnitEquivalent", () => {

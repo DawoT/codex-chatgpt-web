@@ -1,6 +1,6 @@
 import { TurnBroker } from "../adapters/chatgpt-web/turn-broker";
 import type { AppConfig } from "../config";
-import { tunnelStatus, type TunnelRuntimeStatus } from "../tunnel";
+import { type TunnelRuntimeStatus, tunnelStatus } from "../tunnel";
 import { DEV_CONFIG_PURPOSE } from "./constants";
 
 interface DevTransportDependencies {

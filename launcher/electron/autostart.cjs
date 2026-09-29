@@ -61,10 +61,13 @@ function setAutostart(app, enabled) {
     } else {
       fs.rmSync(target, { force: true });
     }
-    return requireAutostartState({
-      supported: true,
-      enabled: enabled ? linuxAutostartMatches(app) : false,
-    }, enabled);
+    return requireAutostartState(
+      {
+        supported: true,
+        enabled: enabled ? linuxAutostartMatches(app) : false,
+      },
+      enabled,
+    );
   }
   if (process.platform === "darwin" || process.platform === "win32") {
     app.setLoginItemSettings({
@@ -72,10 +75,13 @@ function setAutostart(app, enabled) {
       openAsHidden: Boolean(enabled),
       args: ["--hidden"],
     });
-    return requireAutostartState({
-      supported: true,
-      enabled: app.getLoginItemSettings({ args: ["--hidden"] }).openAtLogin === true,
-    }, enabled);
+    return requireAutostartState(
+      {
+        supported: true,
+        enabled: app.getLoginItemSettings({ args: ["--hidden"] }).openAtLogin === true,
+      },
+      enabled,
+    );
   }
   return { supported: false, enabled: false };
 }

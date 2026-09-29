@@ -7,10 +7,7 @@ import { VERSION } from "../src/version";
 
 const require = createRequire(import.meta.url);
 const { validateRuntimeBundle } = require("../launcher/electron/runtime-install.cjs") as {
-  validateRuntimeBundle: (
-    runtimeRoot: string,
-    identity: { version: string; platform: string; arch: string },
-  ) => string;
+  validateRuntimeBundle: (runtimeRoot: string, identity: { version: string; platform: string; arch: string }) => string;
 };
 
 const sourceBundle = resolve(process.argv[2] ?? "dist/runtime");
@@ -27,12 +24,14 @@ validateRuntimeBundle(runtimeRoot, {
 });
 
 const manifest = JSON.parse(readFileSync(join(runtimeRoot, "manifest.json"), "utf8")) as Record<string, unknown>;
-if (manifest.schemaVersion !== 2
-  || manifest.appVersion !== VERSION
-  || manifest.playwright !== "1.62.0"
-  || !Array.isArray(manifest.files)
-  || manifest.files.length === 0
-  || !/^[a-f0-9]{64}$/.test(String(manifest.bundleId ?? ""))) {
+if (
+  manifest.schemaVersion !== 2 ||
+  manifest.appVersion !== VERSION ||
+  manifest.playwright !== "1.62.0" ||
+  !Array.isArray(manifest.files) ||
+  manifest.files.length === 0 ||
+  !/^[a-f0-9]{64}$/.test(String(manifest.bundleId ?? ""))
+) {
   throw new Error(`Unexpected runtime manifest: ${JSON.stringify(manifest)}`);
 }
 if (typeof manifest.launcher !== "string" || typeof manifest.entrypoint !== "string") {
@@ -44,7 +43,12 @@ const entrypoint = join(runtimeRoot, manifest.entrypoint);
 const runtimeCommand = [runtimeExecutable, entrypoint];
 const cliBundle = readFileSync(join(runtimeRoot, "app", "cli.js"), "utf8");
 const launcherText = readFileSync(launcher, "utf8");
-for (const forbidden of [sourceRoot, dirname(sourceBundle), "/private/tmp/codex-chatgpt-web-verify", "/tmp/codex-chatgpt-web-verify"]) {
+for (const forbidden of [
+  sourceRoot,
+  dirname(sourceBundle),
+  "/private/tmp/codex-chatgpt-web-verify",
+  "/tmp/codex-chatgpt-web-verify",
+]) {
   if (cliBundle.includes(forbidden) || launcherText.includes(forbidden)) {
     throw new Error(`Runtime artifact embeds an ephemeral build path: ${forbidden}`);
   }
@@ -98,31 +102,41 @@ try {
     await Bun.sleep(50);
   }
   if (!health?.ok) throw new Error("relocated daemon did not become healthy");
-  const payload = await health.json() as Record<string, unknown>;
+  const payload = (await health.json()) as Record<string, unknown>;
   if (payload.service !== "codex-chatgpt-web" || payload.mode !== "browser-only") {
     throw new Error(`unexpected health payload: ${JSON.stringify(payload)}`);
   }
   const loadedIdentity = payload.runtime_identity as Record<string, unknown> | undefined;
   const manifestFiles = manifest.files as Array<{ path: string; sha256: string }>;
-  const expectedCliHash = manifestFiles.find(file => file.path === "app/cli.js")?.sha256;
-  if (!loadedIdentity
-    || loadedIdentity.buildCommit !== manifest.buildCommit
-    || loadedIdentity.artifactSha256 !== expectedCliHash
-    || loadedIdentity.pid !== child.pid
-    || loadedIdentity.protocolVersion !== 2
-    || typeof loadedIdentity.generation !== "string") {
-    throw new Error(`relocated daemon loaded identity does not match its runtime manifest: ${JSON.stringify(loadedIdentity)}`);
+  const expectedCliHash = manifestFiles.find((file) => file.path === "app/cli.js")?.sha256;
+  if (
+    !loadedIdentity ||
+    loadedIdentity.buildCommit !== manifest.buildCommit ||
+    loadedIdentity.artifactSha256 !== expectedCliHash ||
+    loadedIdentity.pid !== child.pid ||
+    loadedIdentity.protocolVersion !== 2 ||
+    typeof loadedIdentity.generation !== "string"
+  ) {
+    throw new Error(
+      `relocated daemon loaded identity does not match its runtime manifest: ${JSON.stringify(loadedIdentity)}`,
+    );
   }
 
   const unauthenticatedModels = await fetch(`http://127.0.0.1:${port}/v1/models`);
-  const unauthenticatedModelsBody = await unauthenticatedModels.json() as { error?: { message?: string } };
-  if (unauthenticatedModels.status !== 502
-    || !unauthenticatedModelsBody.error?.message?.includes("incoming Bearer authorization")) {
-    throw new Error(`native model passthrough did not fail closed without Codex auth: ${JSON.stringify(unauthenticatedModelsBody)}`);
+  const unauthenticatedModelsBody = (await unauthenticatedModels.json()) as { error?: { message?: string } };
+  if (
+    unauthenticatedModels.status !== 502 ||
+    !unauthenticatedModelsBody.error?.message?.includes("incoming Bearer authorization")
+  ) {
+    throw new Error(
+      `native model passthrough did not fail closed without Codex auth: ${JSON.stringify(unauthenticatedModelsBody)}`,
+    );
   }
   const websocketNegotiation = await fetch(`http://127.0.0.1:${port}/v1/responses`);
   if (websocketNegotiation.status !== 426) {
-    throw new Error(`Responses WebSocket negotiation did not select Codex HTTP/SSE fallback: HTTP ${websocketNegotiation.status}`);
+    throw new Error(
+      `Responses WebSocket negotiation did not select Codex HTTP/SSE fallback: HTTP ${websocketNegotiation.status}`,
+    );
   }
   const invalid = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
     method: "POST",
@@ -135,15 +149,20 @@ try {
     method: "POST",
     headers: { authorization: "Bearer wrong-release-smoke-token" },
   });
-  if (unauthorizedDrain.status !== 401) throw new Error(`lifecycle control accepted an invalid token: HTTP ${unauthorizedDrain.status}`);
+  if (unauthorizedDrain.status !== 401)
+    throw new Error(`lifecycle control accepted an invalid token: HTTP ${unauthorizedDrain.status}`);
 
   const drain = await fetch(`http://127.0.0.1:${port}/admin/drain`, {
     method: "POST",
     headers: { authorization: `Bearer ${config.controlToken}` },
   });
-  const drainPayload = await drain.json() as Record<string, unknown>;
-  if (!drain.ok || drainPayload.accepting_turns !== false
-    || drainPayload.active_http_turns !== 0 || drainPayload.active_browser_turns !== 0) {
+  const drainPayload = (await drain.json()) as Record<string, unknown>;
+  if (
+    !drain.ok ||
+    drainPayload.accepting_turns !== false ||
+    drainPayload.active_http_turns !== 0 ||
+    drainPayload.active_browser_turns !== 0
+  ) {
     throw new Error(`daemon did not acknowledge an idle authenticated drain: ${JSON.stringify(drainPayload)}`);
   }
   const rejectedWhileDraining = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
@@ -158,7 +177,7 @@ try {
     method: "POST",
     headers: { authorization: `Bearer ${config.controlToken}` },
   });
-  const resumePayload = await resume.json() as Record<string, unknown>;
+  const resumePayload = (await resume.json()) as Record<string, unknown>;
   if (!resume.ok || resumePayload.accepting_turns !== true) {
     throw new Error(`daemon did not resume after the drain smoke: ${JSON.stringify(resumePayload)}`);
   }
@@ -179,7 +198,9 @@ try {
   if (!shutdown.ok) throw new Error(`relocated daemon refused graceful shutdown: HTTP ${shutdown.status}`);
   await Promise.race([
     child.exited,
-    Bun.sleep(10_000).then(() => { throw new Error("relocated daemon did not exit after graceful shutdown"); }),
+    Bun.sleep(10_000).then(() => {
+      throw new Error("relocated daemon did not exit after graceful shutdown");
+    }),
   ]);
   stoppedGracefully = true;
   process.stdout.write("RELOCATABLE_RUNTIME_SMOKE_OK\n");

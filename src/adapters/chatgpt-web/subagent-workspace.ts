@@ -1,8 +1,18 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import { getConfigDir } from "../../config";
-import type { SubagentStructuredResult, SubagentResultStatus } from "./subagent-protocol";
 import { pruneCodexSessions } from "./session-store-pruner";
+import type { SubagentResultStatus, SubagentStructuredResult } from "./subagent-protocol";
 
 export interface SubagentWorkspaceInfo {
   subagentId: string;
@@ -52,11 +62,7 @@ export function resolveSubagentScratchDir(workspaceRoot?: string, subagentId = "
   return scratchDir;
 }
 
-export function writeSubagentResult(
-  workspaceRoot: string,
-  subagentId: string,
-  result: SubagentStructuredResult,
-): void {
+export function writeSubagentResult(workspaceRoot: string, subagentId: string, result: SubagentStructuredResult): void {
   const workspaceDir = resolveSubagentWorkspace(workspaceRoot, subagentId);
   const resultPath = join(workspaceDir, "result.json");
   const tmpPath = `${resultPath}.tmp.${process.pid}.${Date.now()}`;
@@ -97,7 +103,7 @@ export function listSubagentWorkspaces(workspaceRoot?: string): string[] {
 
   try {
     const entries = readdirSync(baseDir);
-    return entries.filter(entry => {
+    return entries.filter((entry) => {
       try {
         const fullPath = join(baseDir, entry);
         return statSync(fullPath).isDirectory();
@@ -168,10 +174,7 @@ export const DEFAULT_SUBAGENT_WORKSPACE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; //
  * - Enforces FIFO retention of completed subagents, retaining at most maxWorkspaces.
  * - Protects active or blocked subagents from premature deletion.
  */
-export function gcSubagentWorkspaces(
-  workspaceRoot: string,
-  policy: SubagentGcPolicy = {},
-): SubagentGcReport {
+export function gcSubagentWorkspaces(workspaceRoot: string, policy: SubagentGcPolicy = {}): SubagentGcReport {
   const maxWorkspaces = policy.maxWorkspaces ?? DEFAULT_MAX_SUBAGENT_WORKSPACES;
   const retainScratch = policy.retainScratchForStatuses ?? ["blocked"];
 

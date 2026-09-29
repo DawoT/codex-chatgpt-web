@@ -15,8 +15,8 @@ export async function assertPortAvailable(host: string, port: number): Promise<v
   await new Promise<void>((resolveAvailable, rejectAvailable) => {
     const server = createServer();
     server.unref();
-    server.once("error", error => rejectAvailable(new Error(`Cannot bind ${host}:${port}: ${error.message}`)));
-    server.listen(port, host, () => server.close(error => error ? rejectAvailable(error) : resolveAvailable()));
+    server.once("error", (error) => rejectAvailable(new Error(`Cannot bind ${host}:${port}: ${error.message}`)));
+    server.listen(port, host, () => server.close((error) => (error ? rejectAvailable(error) : resolveAvailable())));
   });
 }
 
@@ -24,11 +24,13 @@ export function setupProxyIsReady(
   health: Record<string, unknown>,
   config: Pick<AppConfig, "mode" | "releaseVersion">,
 ): boolean {
-  return health.service === "codex-chatgpt-web"
-    && health.status === "ok"
-    && health.mode === config.mode
-    && health.version === config.releaseVersion
-    && health.accepting_turns === true;
+  return (
+    health.service === "codex-chatgpt-web" &&
+    health.status === "ok" &&
+    health.mode === config.mode &&
+    health.version === config.releaseVersion &&
+    health.accepting_turns === true
+  );
 }
 
 export async function waitForProxy(config: AppConfig, timeoutMs = 10_000): Promise<void> {
@@ -42,7 +44,7 @@ export async function waitForProxy(config: AppConfig, timeoutMs = 10_000): Promi
         signal: controller.signal,
       });
       if (response.ok) {
-        const body = await response.json() as Record<string, unknown>;
+        const body = (await response.json()) as Record<string, unknown>;
         if (setupProxyIsReady(body, config)) return;
         lastError = `unexpected health payload: ${JSON.stringify(body)}`;
       } else {
@@ -53,7 +55,7 @@ export async function waitForProxy(config: AppConfig, timeoutMs = 10_000): Promi
     } finally {
       clearTimeout(requestTimeout);
     }
-    await new Promise(resolveWait => setTimeout(resolveWait, 250));
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
   throw new Error(`Responses proxy did not become ready: ${lastError}`);
 }
@@ -66,15 +68,13 @@ export function baseConfig(
   const config = existing ? structuredClone(existing) : defaultConfig(options.mode);
   config.mode = options.mode;
   if (options.browserInteractionMode) config.browserInteractionMode = options.browserInteractionMode;
-  Object.assign(config, resolveInteractionConnectorIdentities(
-    config.browserInteractionMode,
-    profile,
-  ));
+  Object.assign(config, resolveInteractionConnectorIdentities(config.browserInteractionMode, profile));
   if (options.subagentProtocol) config.subagentProtocol = options.subagentProtocol;
   config.releaseVersion = VERSION;
   config.runtimeCommand = currentRuntimeCommand();
   if (options.port !== undefined) {
-    if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535) throw new Error("--port must be an integer from 1 to 65535");
+    if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65_535)
+      throw new Error("--port must be an integer from 1 to 65535");
     config.port = options.port;
   }
   if (options.chromeExecutablePath) config.chromeExecutablePath = options.chromeExecutablePath;
@@ -130,7 +130,9 @@ export function baseConfig(
   }
   if (options.acknowledgedUnofficial) config.acknowledgedUnofficialAt = new Date().toISOString();
   if (!config.acknowledgedUnofficialAt) {
-    throw new Error("Setup requires explicit acknowledgement that this is unofficial browser automation. Pass --acknowledge-unofficial.");
+    throw new Error(
+      "Setup requires explicit acknowledgement that this is unofficial browser automation. Pass --acknowledge-unofficial.",
+    );
   }
   return config;
 }
@@ -152,7 +154,9 @@ export async function inspectLauncherCapabilities(
   });
   return {
     solAvailable: detectCapabilities ? inspected.solAvailable === true : existing!.solAvailable,
-    extraHighAvailable: detectCapabilities ? inspected.extraHighAvailable === true : existing!.extraHighAvailable === true,
+    extraHighAvailable: detectCapabilities
+      ? inspected.extraHighAvailable === true
+      : existing!.extraHighAvailable === true,
     proAvailable: detectCapabilities ? inspected.proAvailable === true : existing!.proAvailable,
   };
 }

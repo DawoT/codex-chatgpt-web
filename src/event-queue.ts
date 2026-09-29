@@ -34,7 +34,7 @@ export class AsyncEventQueue<T> implements AsyncIterable<T> {
         const value = this.buffered.shift();
         if (value !== undefined) return Promise.resolve({ value, done: false });
         if (this.closed) return Promise.resolve({ value: undefined, done: true });
-        return new Promise(resolve => this.waiters.push(resolve));
+        return new Promise((resolve) => this.waiters.push(resolve));
       },
       return: () => {
         this.close();

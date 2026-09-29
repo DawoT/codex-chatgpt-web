@@ -1,4 +1,4 @@
-import languages from "../electron/languages.json";
+import type languages from "../electron/languages.json";
 import type { LimitsSnapshot } from "./limits-types";
 
 export type Language = keyof typeof languages;
@@ -172,10 +172,7 @@ export interface LauncherApi {
     credentialsRequired: boolean;
     targetMode: BrowserInteractionMode;
   }>;
-  setPreference(
-    key: "keepRunningOnClose" | "showBrowserDuringTurns",
-    value: boolean,
-  ): Promise<LauncherState>;
+  setPreference(key: "keepRunningOnClose" | "showBrowserDuringTurns", value: boolean): Promise<LauncherState>;
   setSidebarState(state: { open: boolean; width: number }): Promise<LauncherState>;
   logs(limit?: number): Promise<LogRecord[]>;
   exportLogs(): Promise<string | null>;

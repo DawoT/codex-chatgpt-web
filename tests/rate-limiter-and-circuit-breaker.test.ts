@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { CircuitBreaker } from "../src/adapters/chatgpt-web/circuit-breaker";
+import { SlidingWindowRateLimiter } from "../src/adapters/chatgpt-web/rate-limiter";
+import { runtimeMetrics } from "../src/adapters/chatgpt-web/runtime-metrics";
 import { defaultConfig } from "../src/config";
 import { startServer } from "../src/server";
-import { runtimeMetrics } from "../src/adapters/chatgpt-web/runtime-metrics";
-import { SlidingWindowRateLimiter } from "../src/adapters/chatgpt-web/rate-limiter";
-import { CircuitBreaker } from "../src/adapters/chatgpt-web/circuit-breaker";
 
 /**
  * Sprint AG: Rate Limiting & Circuit Breaker
@@ -278,14 +278,15 @@ describe("Sprint AG: Rate Limiting & Circuit Breaker", () => {
       config.rateLimitRpm = 2;
       const server = startServer(config);
       try {
-        const makeRequest = () => fetch(`http://127.0.0.1:${server.port}/v1/responses`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "authorization": `Bearer test-api-key-for-rate-limit-test`,
-          },
-          body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
-        });
+        const makeRequest = () =>
+          fetch(`http://127.0.0.1:${server.port}/v1/responses`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer test-api-key-for-rate-limit-test`,
+            },
+            body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
+          });
 
         // First 2 requests may pass or fail for upstream reasons (draining/no session),
         // but the 3rd must be rate-limited → 429
@@ -336,7 +337,7 @@ describe("Loopback Host header guard", () => {
     const server = startServer(config);
     try {
       const res = await fetch(`http://127.0.0.1:${server.port}/healthz`, {
-        headers: { "host": "evil.example" },
+        headers: { host: "evil.example" },
       });
       expect(res.status).toBe(403);
       const body = await res.json();
@@ -369,11 +370,12 @@ describe("Loopback Host header guard", () => {
     config.rateLimitRpm = 2;
     const server = startServer(config);
     try {
-      const makeRequest = (auth: string) => fetch(`http://127.0.0.1:${server.port}/v1/responses`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "authorization": auth },
-        body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
-      });
+      const makeRequest = (auth: string) =>
+        fetch(`http://127.0.0.1:${server.port}/v1/responses`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: auth },
+          body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
+        });
       await makeRequest("Bearer key-a"); // 1st from 127.0.0.1
       await makeRequest("Bearer key-b"); // 2nd from 127.0.0.1 — rotated key must NOT reset the window
       const r3 = await makeRequest("Bearer key-c"); // 3rd — still limited

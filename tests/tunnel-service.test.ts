@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig } from "../src/config";
+import { existingFullSetupCredentials, meaningfulRuntimeChange, tunnelWorkerRuntimeChanged } from "../src/setup";
 import { createTunnelConfig, mcpCommand } from "../src/tunnel";
 import { tunnelServiceDefinition } from "../src/tunnel-service";
-import { existingFullSetupCredentials, meaningfulRuntimeChange, tunnelWorkerRuntimeChanged } from "../src/setup";
 
 const roots: string[] = [];
 
@@ -151,9 +151,9 @@ describe("tunnel launchd ownership", () => {
 
     const command = mcpCommand(config, "win32");
     expect(command).toBe(
-      `"${runtime.replaceAll("\\", "\\\\")}" `
-      + `"${join(root, "Program Files", "app", "cli.js").replaceAll("\\", "\\\\")}" `
-      + '"mcp" "--contract" "native" "--broker-socket" "\\\\\\\\.\\\\pipe\\\\codex-chatgpt-web-test"',
+      `"${runtime.replaceAll("\\", "\\\\")}" ` +
+        `"${join(root, "Program Files", "app", "cli.js").replaceAll("\\", "\\\\")}" ` +
+        '"mcp" "--contract" "native" "--broker-socket" "\\\\\\\\.\\\\pipe\\\\codex-chatgpt-web-test"',
     );
     expect(command).not.toContain("cmd.exe");
     expect(existsSync(join(root, "bin", "mcp-launcher.cmd"))).toBe(false);
@@ -170,7 +170,6 @@ describe("tunnel launchd ownership", () => {
     config.browserInteractionMode = "manual";
     expect(parsePinnedTunnelCommand(mcpCommand(config, "win32"))).toContain("safe");
   });
-
 });
 
 describe("meaningfulRuntimeChange fingerprint", () => {

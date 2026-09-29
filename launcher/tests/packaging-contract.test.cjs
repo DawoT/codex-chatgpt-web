@@ -27,12 +27,12 @@ test("the full verification gate audits launcher dependencies", () => {
 
 test("launcher publishes native packages for all supported desktop operating systems", () => {
   assert.equal(manifest.build.appId, "dev.codexwebgpt.launcher");
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder's artifactName DSL, not a template
   assert.equal(manifest.build.artifactName, "codex-web-gpt-${version}-${os}-${arch}.${ext}");
   assert.deepEqual(manifest.build.mac.target, ["dmg", "zip"]);
-  assert.deepEqual(
-    manifest.build.mac.signIgnore,
-    ["[/\\\\]Contents[/\\\\]Resources[/\\\\]runtime[/\\\\]runtime[/\\\\]bun$"],
-  );
+  assert.deepEqual(manifest.build.mac.signIgnore, [
+    "[/\\\\]Contents[/\\\\]Resources[/\\\\]runtime[/\\\\]runtime[/\\\\]bun$",
+  ]);
   assert.deepEqual(manifest.build.win.target, ["nsis"]);
   assert.equal(manifest.build.win.icon, "assets/icon.ico");
   assert.deepEqual(manifest.build.linux.target, ["AppImage"]);
@@ -77,8 +77,8 @@ test("release installers resolve checksummed native launcher assets", () => {
   assert.match(shellInstaller, /exec %s %s "\$@"/);
   assert.doesNotMatch(shellInstaller, /APPIMAGE_EXTRACT_AND_RUN=.*1/);
   assert.ok(
-    shellInstaller.indexOf('chmod 0755 "$TEMP_DIR/$ASSET"')
-      < shellInstaller.indexOf('"$TEMP_DIR/$ASSET" --appimage-extract'),
+    shellInstaller.indexOf('chmod 0755 "$TEMP_DIR/$ASSET"') <
+      shellInstaller.indexOf('"$TEMP_DIR/$ASSET" --appimage-extract'),
     "the downloaded AppImage must be executable before it is inspected",
   );
   assert.match(windowsInstaller, /codex-web-gpt-\$Version-win-\$Arch\.exe/);
@@ -126,12 +126,15 @@ test("Linux installer selects native assets and rejects unsupported architecture
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "codex-linux-installer-"));
   const bin = path.join(scratch, "bin");
   fs.mkdirSync(bin);
-  const script = (name, body) => fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nset -eu\n${body}\n`, { mode: 0o755 });
+  const script = (name, body) =>
+    fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nset -eu\n${body}\n`, { mode: 0o755 });
   script("uname", 'case "$1" in -s) echo Linux ;; -m) echo "$TEST_MACHINE" ;; esac');
   script("pgrep", "exit 1");
   script("nohup", 'printf started > "$TEST_ROOT/started"');
   script("update-desktop-database", "exit 0");
-  script("curl", `
+  script(
+    "curl",
+    `
 while [ "$#" -gt 0 ]; do
   case "$1" in https:*) url="$1" ;; -o) shift; output="$1" ;; esac
   shift
@@ -140,7 +143,8 @@ printf '%s\\n' "$url" >> "$TEST_ROOT/downloads"
 case "$url" in
   */checksums.txt) cp "$TEST_ROOT/checksums.txt" "$output" ;;
   *) cp "$TEST_ROOT/fixture.AppImage" "$output" ;;
-esac`);
+esac`,
+  );
   const appImage = Buffer.from(`#!/bin/sh
 set -eu
 test "$1" = --appimage-extract
@@ -150,12 +154,19 @@ printf icon > squashfs-root/usr/share/icons/hicolor/512x512/apps/test.png
 printf '#!/bin/sh\\nexit 0\\n' > squashfs-root/resources/app.asar.unpacked/assets/linux-appimage-runner.sh
 `);
   // Use Node's real SHA-256 implementation on macOS as well as Linux.
-  fs.writeFileSync(path.join(bin, "sha256sum"), `#!${process.execPath}\nconst fs = require('node:fs'); const c = require('node:crypto'); console.log(c.createHash('sha256').update(fs.readFileSync(process.argv[2])).digest('hex') + '  ' + process.argv[2]);\n`, { mode: 0o755 });
+  fs.writeFileSync(
+    path.join(bin, "sha256sum"),
+    `#!${process.execPath}\nconst fs = require('node:fs'); const c = require('node:crypto'); console.log(c.createHash('sha256').update(fs.readFileSync(process.argv[2])).digest('hex') + '  ' + process.argv[2]);\n`,
+    { mode: 0o755 },
+  );
   try {
     for (const [machine, arch, valid] of [
-      ["x86_64", "x64", true], ["amd64", "x64", true],
-      ["aarch64", "arm64", true], ["arm64", "arm64", true],
-      ["aarch64", "arm64", false], ["armv7l", null, true],
+      ["x86_64", "x64", true],
+      ["amd64", "x64", true],
+      ["aarch64", "arm64", true],
+      ["arm64", "arm64", true],
+      ["aarch64", "arm64", false],
+      ["armv7l", null, true],
     ]) {
       const root = path.join(scratch, `${machine}-${valid}`);
       fs.mkdirSync(root);
@@ -164,12 +175,18 @@ printf '#!/bin/sh\\nexit 0\\n' > squashfs-root/resources/app.asar.unpacked/asset
       const checksum = valid ? createHash("sha256").update(appImage).digest("hex") : "0".repeat(64);
       fs.writeFileSync(path.join(root, "checksums.txt"), `${checksum}  ${asset}\n`);
       const result = spawnSync("/bin/sh", [path.join(repositoryRoot, "scripts", "install-launcher.sh")], {
-        encoding: "utf8", timeout: 10_000,
+        encoding: "utf8",
+        timeout: 10_000,
         env: {
-          ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-          TEST_MACHINE: machine, TEST_ROOT: root, CODEX_WEB_GPT_VERSION: "1.2.3",
-          CODEX_WEB_GPT_LIB_DIR: path.join(root, "lib"), CODEX_WEB_GPT_BIN_DIR: path.join(root, "installed-bin"),
-          CODEX_CHATGPT_WEB_HOME: path.join(root, "core"), XDG_DATA_HOME: path.join(root, "data"),
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+          TEST_MACHINE: machine,
+          TEST_ROOT: root,
+          CODEX_WEB_GPT_VERSION: "1.2.3",
+          CODEX_WEB_GPT_LIB_DIR: path.join(root, "lib"),
+          CODEX_WEB_GPT_BIN_DIR: path.join(root, "installed-bin"),
+          CODEX_CHATGPT_WEB_HOME: path.join(root, "core"),
+          XDG_DATA_HOME: path.join(root, "data"),
         },
       });
       if (!arch) {
@@ -177,7 +194,10 @@ printf '#!/bin/sh\\nexit 0\\n' > squashfs-root/resources/app.asar.unpacked/asset
         assert.match(result.stderr, /Unsupported Linux architecture/);
         assert.equal(fs.existsSync(path.join(root, "downloads")), false);
       } else {
-        assert.match(fs.readFileSync(path.join(root, "downloads"), "utf8"), new RegExp(`${asset.replaceAll(".", "\\.")}$`, "m"));
+        assert.match(
+          fs.readFileSync(path.join(root, "downloads"), "utf8"),
+          new RegExp(`${asset.replaceAll(".", "\\.")}$`, "m"),
+        );
         if (valid) {
           assert.equal(result.status, 0, result.stderr);
           assert.deepEqual(fs.readFileSync(path.join(root, "lib", "1.2.3", "Codex Web GPT.AppImage")), appImage);
@@ -214,7 +234,10 @@ test("CI packages and smoke-launches on macOS, Windows, and Linux", () => {
   assert.match(release, /prepare-linux-appimage-tools\.cjs/);
   assert.match(release, /archlinux:base/);
   assert.match(release, /runner: ubuntu-24\.04-arm\s+runtime_asset: codex-chatgpt-web-linux-arm64\.tar\.gz/);
-  assert.match(release, /Verify Linux AppImage ABI on current Arch\s+if: runner\.os == 'Linux' && runner\.arch == 'X64'/);
+  assert.match(
+    release,
+    /Verify Linux AppImage ABI on current Arch\s+if: runner\.os == 'Linux' && runner\.arch == 'X64'/,
+  );
   assert.match(release, /prepare-windows-baseline-bun\.ps1 -Version 1\.4\.0/);
   assert.match(release, /codesign --verify --deep --strict --verbose=2/);
   assert.match(release, /Codex Web GPT\.app/);
@@ -236,23 +259,28 @@ test("Linux AppImage fallback uses one owned extraction and removes it on exit",
   const marker = path.join(root, "launched");
   const runner = path.join(launcherRoot, "assets", "linux-appimage-runner.sh");
   fs.mkdirSync(runtime);
-  fs.writeFileSync(appRunSource, [
-    "#!/bin/sh",
-    `printf '%s|%s' \"$APPIMAGE\" \"$1\" > ${JSON.stringify(marker)}`,
-    "",
-  ].join("\n"), { mode: 0o755 });
-  fs.writeFileSync(appImage, [
-    "#!/bin/sh",
-    "if [ \"$1\" != \"--appimage-extract\" ]; then exit 99; fi",
-    "mkdir -p squashfs-root",
-    "cp \"$FAKE_APPRUN_SOURCE\" squashfs-root/AppRun",
-    "chmod 0755 squashfs-root/AppRun",
-    "",
-  ].join("\n"), { mode: 0o755 });
+  fs.writeFileSync(
+    appRunSource,
+    ["#!/bin/sh", `printf '%s|%s' "$APPIMAGE" "$1" > ${JSON.stringify(marker)}`, ""].join("\n"),
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    appImage,
+    [
+      "#!/bin/sh",
+      'if [ "$1" != "--appimage-extract" ]; then exit 99; fi',
+      "mkdir -p squashfs-root",
+      'cp "$FAKE_APPRUN_SOURCE" squashfs-root/AppRun',
+      "chmod 0755 squashfs-root/AppRun",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
   const fallbackRoot = path.join(runtime, `codex-web-gpt-appimage-${process.getuid?.() ?? 0}`);
   const stale = path.join(fallbackRoot, "run.stale");
   const active = path.join(fallbackRoot, "run.active");
-  const ownerStart = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8")
+  const ownerStart = fs
+    .readFileSync(`/proc/${process.pid}/stat`, "utf8")
     .replace(/^[^)]*\) /, "")
     .split(/\s+/)[19];
   fs.mkdirSync(stale, { recursive: true });
@@ -282,10 +310,7 @@ test("Linux packaging stages native libnotify in an owned AppImage toolset befor
   const source = fs.readFileSync(path.join(launcherRoot, "scripts", "prepare-linux-appimage-tools.cjs"), "utf8");
   const prepare = fs.readFileSync(path.join(repositoryRoot, "scripts", "prepare-linux-libnotify.sh"), "utf8");
   const smoke = fs.readFileSync(path.join(launcherRoot, "scripts", "smoke-linux-appimage-symbols.sh"), "utf8");
-  const license = fs.readFileSync(
-    path.join(repositoryRoot, "LICENSES", "libnotify-0.8.7-LGPL-2.1.md"),
-    "utf8",
-  );
+  const license = fs.readFileSync(path.join(repositoryRoot, "LICENSES", "libnotify-0.8.7-LGPL-2.1.md"), "utf8");
   for (const contract of [source, prepare, smoke]) {
     assert.match(contract, /notify_notification_get_activation_app_launch_context/);
   }
@@ -303,13 +328,20 @@ test("Linux packaging stages native libnotify in an owned AppImage toolset befor
   const module = { exports: {} };
   let symbols = "00000100 T notify_notification_get_activation_app_launch_context\n";
   vm.runInNewContext(source, {
-    module, Buffer, process,
-    require: (name) => name === "node:child_process"
-      ? { spawnSync: () => ({ status: 0, stdout: symbols, stderr: "" }) } : scriptRequire(name),
+    module,
+    Buffer,
+    process,
+    require: (name) =>
+      name === "node:child_process"
+        ? { spawnSync: () => ({ status: 0, stdout: symbols, stderr: "" }) }
+        : scriptRequire(name),
   });
   const { replaceToolsetLibnotify, requireLibnotifySymbol } = module.exports;
   try {
-    for (const [arch, machine] of [["x64", 62], ["arm64", 183]]) {
+    for (const [arch, machine] of [
+      ["x64", 62],
+      ["arm64", 183],
+    ]) {
       const library = path.join(scratch, `${arch}.so`);
       const bytes = Buffer.alloc(64);
       Buffer.from("7f454c460201", "hex").copy(bytes);
@@ -338,12 +370,16 @@ test("Linux packaging stages native libnotify in an owned AppImage toolset befor
           `--config.linux.extraFiles.from=${staged}`,
           "--config.linux.extraFiles.to=usr/lib/libnotify.so.4",
         ]).parse();
-        await scriptRequire("app-builder-lib/out/util/config/config.js").validateConfiguration(parsed.config, { isEnabled: false });
+        await scriptRequire("app-builder-lib/out/util/config/config.js").validateConfiguration(parsed.config, {
+          isEnabled: false,
+        });
         const { getFileMatchers, copyFiles } = scriptRequire("app-builder-lib/out/fileMatcher.js");
         const appDir = path.join(scratch, "app");
         const matchers = getFileMatchers(parsed.config, "extraFiles", appDir, {
-          macroExpander: value => value, customBuildOptions: parsed.config.linux,
-          defaultSrc: scratch, globalOutDir: appDir,
+          macroExpander: (value) => value,
+          customBuildOptions: parsed.config.linux,
+          defaultSrc: scratch,
+          globalOutDir: appDir,
         });
         await copyFiles(matchers);
         assert.deepEqual(fs.readFileSync(path.join(appDir, "usr", "lib", "libnotify.so.4")), bytes);
@@ -373,10 +409,7 @@ test("release does not publish demo or screenshot assets", () => {
 
 test("Windows packages embed the checksummed Bun baseline runtime for CPUs without AVX2", () => {
   const builder = fs.readFileSync(path.join(repositoryRoot, "scripts", "build-runtime-bundle.ts"), "utf8");
-  const baseline = fs.readFileSync(
-    path.join(repositoryRoot, "scripts", "prepare-windows-baseline-bun.ps1"),
-    "utf8",
-  );
+  const baseline = fs.readFileSync(path.join(repositoryRoot, "scripts", "prepare-windows-baseline-bun.ps1"), "utf8");
   assert.match(builder, /CODEX_CHATGPT_WEB_EMBEDDED_BUN/);
   assert.match(builder, /Embedded Bun must be/);
   assert.match(baseline, /bun-windows-x64-baseline\.zip/);

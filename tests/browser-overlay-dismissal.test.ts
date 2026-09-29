@@ -29,9 +29,7 @@ function createMockDialog(options: MockDialogOptions) {
       visible = false;
       options.onDismiss?.();
     },
-    ...(options.buttonLabel !== undefined
-      ? { allInnerTexts: async () => [options.buttonLabel] }
-      : {}),
+    ...(options.buttonLabel !== undefined ? { allInnerTexts: async () => [options.buttonLabel] } : {}),
   };
 
   const emptyLoc = {
@@ -77,11 +75,11 @@ function createMockDialog(options: MockDialogOptions) {
 function createMockPage(getDialogs: () => any[]): Page {
   return {
     locator: (selector: string) => {
-      if (selector.includes("role=\"dialog\"") || selector.includes("aria-modal")) {
+      if (selector.includes('role="dialog"') || selector.includes("aria-modal")) {
         return {
           filter: () => ({
-            all: async () => getDialogs().filter(d => d.isVisible()),
-            count: async () => getDialogs().filter(d => d.isVisible()).length,
+            all: async () => getDialogs().filter((d) => d.isVisible()),
+            count: async () => getDialogs().filter((d) => d.isVisible()).length,
           }),
         };
       }
@@ -110,15 +108,43 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
   test("dismiss button regex matches all supported multi-lingual actions", () => {
     const supported = [
       // English
-      "Dismiss", "Continue", "Close", "Got it", "Entendido", "Not now", "Maybe later", "Done", "Cancel", "No thanks",
+      "Dismiss",
+      "Continue",
+      "Close",
+      "Got it",
+      "Entendido",
+      "Not now",
+      "Maybe later",
+      "Done",
+      "Cancel",
+      "No thanks",
       // Spanish
-      "Continuar", "Cerrar", "Aceptar", "Ahora no", "Más tarde", "Hecho", "Cancelar", "No, gracias", "Rechazar", "Seguir desconectado",
+      "Continuar",
+      "Cerrar",
+      "Aceptar",
+      "Ahora no",
+      "Más tarde",
+      "Hecho",
+      "Cancelar",
+      "No, gracias",
+      "Rechazar",
+      "Seguir desconectado",
       // Chinese
-      "知道了", "了解", "关闭", "取消", "稍后",
+      "知道了",
+      "了解",
+      "关闭",
+      "取消",
+      "稍后",
       // Japanese
-      "閉じる", "後で", "キャンセル",
+      "閉じる",
+      "後で",
+      "キャンセル",
       // Korean
-      "확인", "계속", "닫기", "나중에", "취소",
+      "확인",
+      "계속",
+      "닫기",
+      "나중에",
+      "취소",
     ];
 
     for (const text of supported) {
@@ -127,9 +153,7 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
       expect(CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX.test(text.toUpperCase())).toBeTrue();
     }
 
-    const unsupported = [
-      "Delete account", "Upgrade to Pro", "Submit query", "Send message", "Approve tool call",
-    ];
+    const unsupported = ["Delete account", "Upgrade to Pro", "Submit query", "Send message", "Approve tool call"];
     for (const text of unsupported) {
       expect(CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX.test(text)).toBeFalse();
     }
@@ -146,7 +170,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Welcome to Canvas! Explore features now.",
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -161,7 +187,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Survey: How was your experience?",
       hasAriaClose: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -176,7 +204,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Notice banner without actions",
       isEscapeDismissable: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -191,7 +221,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Too many requests in 1 hour. You are making requests too quickly.",
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -206,7 +238,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Your session has expired. Please log in again.",
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -222,7 +256,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
       text: "Codex wants to run bash tool-approval",
       isToolApproval: true,
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -237,12 +273,16 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const d1 = createMockDialog({
       text: "Cookie consent banner. Accept all",
       hasRoleButton: true,
-      onDismiss: () => { step += 1; },
+      onDismiss: () => {
+        step += 1;
+      },
     });
     const d2 = createMockDialog({
       text: "What's new in GPT-5. Got it",
       hasRoleButton: true,
-      onDismiss: () => { step += 1; },
+      onDismiss: () => {
+        step += 1;
+      },
     });
 
     const page = createMockPage(() => {
@@ -266,7 +306,7 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const page = createMockPage(() => [stubbornDialog]);
     const count = await dismissAllChatGptOverlays(page, {
       maxPasses: 2,
-      captureDiagnostic: async name => {
+      captureDiagnostic: async (name) => {
         if (name === "overlay-unresolved") diagnosticCaptured = true;
       },
     });
@@ -280,7 +320,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Delete conversation? This action cannot be undone.",
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -288,7 +330,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
 
     expect(count).toBe(0);
     expect(dismissed).toBeFalse();
-    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Delete conversation? This action cannot be undone.")).toBeTrue();
+    expect(
+      CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Delete conversation? This action cannot be undone."),
+    ).toBeTrue();
   });
 
   test("does NOT force-click Confirmar on a Spanish destructive dialog", async () => {
@@ -296,7 +340,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "¿Eliminar chat? Esta acción no se puede deshacer.",
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -312,7 +358,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
       text: "Manage your storage and retention preferences.",
       hasRoleButton: true,
       buttonLabel: "Eliminar",
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -328,7 +376,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
       text: "Codex wants to run bash tool-approval. Confirm to allow.",
       isToolApproval: true,
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -342,7 +392,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     expect(CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX.test("Confirmar")).toBeTrue();
     expect(CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX.test("Confirm")).toBeFalse();
     expect(CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX.test("Confirmar")).toBeFalse();
-    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Codex wants to run bash tool-approval. Confirm to allow.")).toBeFalse();
+    expect(
+      CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Codex wants to run bash tool-approval. Confirm to allow."),
+    ).toBeFalse();
   });
 
   test("refuses a recognized onboarding dialog when its container matches destructive patterns", async () => {
@@ -350,7 +402,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
     const dialog = createMockDialog({
       text: "Temporary Chat: Not in history. ¿Eliminar la conversación?",
       hasRoleButton: true,
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);
@@ -358,7 +412,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
 
     expect(count).toBe(0);
     expect(dismissed).toBeFalse();
-    expect(CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Temporary Chat: Not in history. ¿Eliminar la conversación?")).toBeTrue();
+    expect(
+      CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX.test("Temporary Chat: Not in history. ¿Eliminar la conversación?"),
+    ).toBeTrue();
   });
 
   test("still dismisses benign dialogs that only offer a confirm-shaped acknowledgement", async () => {
@@ -367,7 +423,9 @@ describe("Sprint J: Universal DOM Guarding & i18n Modal Dismissal", () => {
       text: "What's new in GPT-5. Got it",
       hasRoleButton: true,
       buttonLabel: "Got it",
-      onDismiss: () => { dismissed = true; },
+      onDismiss: () => {
+        dismissed = true;
+      },
     });
 
     const page = createMockPage(() => [dialog]);

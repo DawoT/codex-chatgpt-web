@@ -1,11 +1,7 @@
 import { readJsonRequestBody } from "./http-body";
-import {
-  BRIDGE_COMPACTION_PREFIX,
-  SUMMARY_PREFIX,
-  decodeCompactionSummary,
-} from "./responses/compaction";
-import { BRIDGE_REASONING_PREFIX } from "./responses/reasoning-envelope";
 import { fetchNativeCodex } from "./native-network";
+import { BRIDGE_COMPACTION_PREFIX, decodeCompactionSummary, SUMMARY_PREFIX } from "./responses/compaction";
+import { BRIDGE_REASONING_PREFIX } from "./responses/reasoning-envelope";
 
 const CODEX_BACKEND = "https://chatgpt.com/backend-api/codex";
 const FIRST_PARTY_CODEX_ORIGINATORS = new Set([
@@ -35,8 +31,7 @@ type JsonObject = Record<string, unknown>;
 type BridgeCompactionItem = JsonObject & { type: "compaction"; encrypted_content: string };
 
 function firstPartyCodexOriginator(value: string): boolean {
-  return FIRST_PARTY_CODEX_ORIGINATORS.has(value)
-    || /^Codex [A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/.test(value);
+  return FIRST_PARTY_CODEX_ORIGINATORS.has(value) || /^Codex [A-Za-z0-9][A-Za-z0-9._ -]{0,63}$/.test(value);
 }
 
 /**
@@ -51,8 +46,9 @@ export function codexClientVersionFromUserAgent(userAgent: string | null): strin
   if (separator < 1) return undefined;
   const originator = userAgent.slice(0, separator);
   if (!firstPartyCodexOriginator(originator)) return undefined;
-  const version = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/
-    .exec(userAgent.slice(separator + 1));
+  const version = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/.exec(
+    userAgent.slice(separator + 1),
+  );
   return version ? `${version[1]}.${version[2]}.${version[3]}` : undefined;
 }
 
@@ -68,17 +64,21 @@ function isBridgeReasoningItem(value: unknown): value is JsonObject {
   if (!isObject(value) || value.type !== "reasoning") return false;
   const encrypted = value.encrypted_content;
   if (typeof encrypted === "string" && encrypted.startsWith(BRIDGE_REASONING_PREFIX)) return true;
-  return typeof value.id === "string"
-    && /^rs_[0-9a-f]{32}$/i.test(value.id)
-    && (encrypted === undefined || encrypted === null)
-    && (Array.isArray(value.summary) || Array.isArray(value.content));
+  return (
+    typeof value.id === "string" &&
+    /^rs_[0-9a-f]{32}$/i.test(value.id) &&
+    (encrypted === undefined || encrypted === null) &&
+    (Array.isArray(value.summary) || Array.isArray(value.content))
+  );
 }
 
 function isBridgeCompactionItem(value: unknown): value is BridgeCompactionItem {
-  return isObject(value)
-    && value.type === "compaction"
-    && typeof value.encrypted_content === "string"
-    && value.encrypted_content.startsWith(BRIDGE_COMPACTION_PREFIX);
+  return (
+    isObject(value) &&
+    value.type === "compaction" &&
+    typeof value.encrypted_content === "string" &&
+    value.encrypted_content.startsWith(BRIDGE_COMPACTION_PREFIX)
+  );
 }
 
 /**
@@ -90,29 +90,32 @@ function isBridgeCompactionItem(value: unknown): value is BridgeCompactionItem {
  * that the history crossed providers, send the complete item content without provider-local ids.
  */
 export function scrubBridgeArtifactsForNative(value: unknown): { value: unknown; changed: boolean } {
-  if (!isObject(value)
-    || !Array.isArray(value.input)
-    || !value.input.some(item => isBridgeReasoningItem(item) || isBridgeCompactionItem(item))) {
+  if (
+    !isObject(value) ||
+    !Array.isArray(value.input) ||
+    !value.input.some((item) => isBridgeReasoningItem(item) || isBridgeCompactionItem(item))
+  ) {
     return { value, changed: false };
   }
 
-  const input = value.input.flatMap(item => {
+  const input = value.input.flatMap((item) => {
     if (!isObject(item)) return [item];
     const clean = { ...item };
     delete clean.id;
     if (isBridgeCompactionItem(clean)) {
       const summary = decodeCompactionSummary(clean.encrypted_content);
       if (summary === null) throw new Error("Invalid ChatGPT Web compaction checkpoint");
-      return [{
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: `${SUMMARY_PREFIX}\n\n${summary}` }],
-      }];
+      return [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: `${SUMMARY_PREFIX}\n\n${summary}` }],
+        },
+      ];
     }
     if (clean.type !== "reasoning") return [clean];
 
-    if (typeof clean.encrypted_content === "string"
-      && clean.encrypted_content.startsWith(BRIDGE_REASONING_PREFIX)) {
+    if (typeof clean.encrypted_content === "string" && clean.encrypted_content.startsWith(BRIDGE_REASONING_PREFIX)) {
       delete clean.encrypted_content;
     } else if (clean.encrypted_content === null) {
       delete clean.encrypted_content;
@@ -261,26 +264,28 @@ export async function forwardNativeCodexRequest(
   });
   const upstream = await fetchUpstream(upstreamRequest);
   if (compactionRequest && !upstream.ok) {
-    console.warn(`[codex-chatgpt-web] native_compaction_upstream_failed ${JSON.stringify({
-      endpoint, model, status: upstream.status,
-      requestId: nativeDiagnosticId(upstream.headers.get("x-request-id")),
-      cfRay: nativeDiagnosticId(upstream.headers.get("cf-ray")),
-    })}`);
+    console.warn(
+      `[codex-chatgpt-web] native_compaction_upstream_failed ${JSON.stringify({
+        endpoint,
+        model,
+        status: upstream.status,
+        requestId: nativeDiagnosticId(upstream.headers.get("x-request-id")),
+        cfRay: nativeDiagnosticId(upstream.headers.get("cf-ray")),
+      })}`,
+    );
   }
   const responseHeaders = endToEndHeaders(upstream.headers);
   // fetch exposes decompressed image JSON; retaining gzip/br would make Codex decode it twice.
   if (imageRequest) responseHeaders.delete("content-encoding");
-  const isEventStream = (upstream.headers.get("content-type") ?? "")
-    .toLowerCase()
-    .includes("text/event-stream");
+  const isEventStream = (upstream.headers.get("content-type") ?? "").toLowerCase().includes("text/event-stream");
   return new Response(
     upstream.body
-      ? withUncleanCloseTolerance(upstream.body, isEventStream, bytes => {
-        console.warn(
-          `[codex-chatgpt-web] native_upstream_unclean_close endpoint=${endpoint} bytes=${bytes}`
-          + " (turn had already completed; closing the client stream normally)",
-        );
-      })
+      ? withUncleanCloseTolerance(upstream.body, isEventStream, (bytes) => {
+          console.warn(
+            `[codex-chatgpt-web] native_upstream_unclean_close endpoint=${endpoint} bytes=${bytes}` +
+              " (turn had already completed; closing the client stream normally)",
+          );
+        })
       : upstream.body,
     {
       status: upstream.status,

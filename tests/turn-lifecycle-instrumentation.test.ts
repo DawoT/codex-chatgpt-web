@@ -1,21 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { defaultConfig } from "../src/config";
-import { startServer } from "../src/server";
-import { runtimeMetrics } from "../src/adapters/chatgpt-web/runtime-metrics";
-import { spoolToolOutput } from "../src/adapters/chatgpt-web/tool-spooler";
-import { SessionStoreJanitor } from "../src/adapters/chatgpt-web/session-store-pruner";
-import type { SessionJanitorOptions } from "../src/adapters/chatgpt-web/session-store-pruner";
 import { dispatchAlertWebhook } from "../src/adapters/chatgpt-web/alert-webhook";
 import type { RuntimeAlert } from "../src/adapters/chatgpt-web/runtime-metrics";
+import { runtimeMetrics } from "../src/adapters/chatgpt-web/runtime-metrics";
+import type { SessionJanitorOptions } from "../src/adapters/chatgpt-web/session-store-pruner";
+import { SessionStoreJanitor } from "../src/adapters/chatgpt-web/session-store-pruner";
+import { spoolToolOutput } from "../src/adapters/chatgpt-web/tool-spooler";
+import { defaultConfig } from "../src/config";
+import { startServer } from "../src/server";
 
 /**
  * Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook
  *
  * Verifies:
  * 1. runtimeMetrics.spooler_bytes_written increments when spoolToolOutput writes to disk
- * 2. runtimeMetrics.spooler_files_written increments when spoolToolOutput writes to disk  
+ * 2. runtimeMetrics.spooler_files_written increments when spoolToolOutput writes to disk
  * 3. runtimeMetrics.janitor_files_pruned increments when SessionStoreJanitor.runNow() prunes files
  * 4. runtimeMetrics.janitor_bytes_reclaimed increments when SessionStoreJanitor.runNow() reclaims bytes
  * 5. runtimeMetrics.janitor_runs_total increments on each runNow() call (success or error)
@@ -27,7 +27,7 @@ import type { RuntimeAlert } from "../src/adapters/chatgpt-web/runtime-metrics";
  */
 
 describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () => {
-  const testDir = join(process.cwd(), ".agents", "scratch", "test-af-" + Date.now());
+  const testDir = join(process.cwd(), ".agents", "scratch", `test-af-${Date.now()}`);
 
   beforeEach(() => {
     mkdirSync(testDir, { recursive: true });
@@ -120,7 +120,7 @@ describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () =>
       for (let i = 0; i < 3; i++) {
         const meta = { session_id: `s${i}`, source: "subagent:thread_spawn", timestamp: past };
         const line = JSON.stringify({ timestamp: past, ordinal: 0, type: "session_meta", payload: meta });
-        const content = line + "\n" + "x".repeat(1000);
+        const content = `${line}\n${"x".repeat(1000)}`;
         writeFileSync(join(testDir, `session_${i}.jsonl`), content, "utf8");
         const { utimesSync } = require("node:fs");
         const oldTime = new Date(Date.now() - 10 * 86_400_000);
@@ -133,7 +133,7 @@ describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () =>
         runOnStart: false,
         dryRun: false,
         maxAgeMs: 5 * 86_400_000, // 5 days TTL → 10 day old files get pruned
-        protectRecentMs: 0,        // no grace period in test
+        protectRecentMs: 0, // no grace period in test
         intervalMs: 99_999,
         targetSources: ["subagent:thread_spawn"],
       });
@@ -186,7 +186,7 @@ describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () =>
         port: 17882,
         hostname: "127.0.0.1",
         fetch(req) {
-          return req.json().then(body => {
+          return req.json().then((body) => {
             receivedBody = body;
             return Response.json({ ok: true });
           });
@@ -194,12 +194,14 @@ describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () =>
       });
 
       try {
-        const alerts: RuntimeAlert[] = [{
-          alert_id: "janitor_consecutive_errors",
-          severity: "warning",
-          message: "Janitor failed 2 consecutive runs",
-          detected_at: new Date().toISOString(),
-        }];
+        const alerts: RuntimeAlert[] = [
+          {
+            alert_id: "janitor_consecutive_errors",
+            severity: "warning",
+            message: "Janitor failed 2 consecutive runs",
+            detected_at: new Date().toISOString(),
+          },
+        ];
 
         await dispatchAlertWebhook("http://127.0.0.1:17882/webhook", alerts, {
           daemonPid: 12345,
@@ -207,15 +209,15 @@ describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () =>
         });
 
         // Give async dispatch time to complete
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 100));
 
         expect(receivedBody).toBeTruthy();
         const body = receivedBody as Record<string, unknown>;
-        expect(body["alerts"]).toBeDefined();
-        expect(Array.isArray(body["alerts"])).toBe(true);
-        expect((body["alerts"] as RuntimeAlert[]).length).toBe(1);
-        expect(body["daemon_pid"]).toBe(12345);
-        expect(body["version"]).toBe("6.0.0");
+        expect(body.alerts).toBeDefined();
+        expect(Array.isArray(body.alerts)).toBe(true);
+        expect((body.alerts as RuntimeAlert[]).length).toBe(1);
+        expect(body.daemon_pid).toBe(12345);
+        expect(body.version).toBe("6.0.0");
       } finally {
         await webhookServer.stop(true);
       }
@@ -247,7 +249,7 @@ describe("Sprint AF: Turn Lifecycle Instrumentation & Auto-Alert Webhook", () =>
           daemonPid: 1,
           version: "6.0.0",
         });
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 100));
         expect(called).toBe(false);
       } finally {
         await webhookServer.stop(true);

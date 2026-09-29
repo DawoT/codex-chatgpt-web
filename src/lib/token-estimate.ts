@@ -26,12 +26,12 @@ export function estimateTokens(text: string, modelId?: string): number {
 
   const encoding = chatGptTokenizer();
   let count = 0;
-  for (let start = 0; start < text.length;) {
+  for (let start = 0; start < text.length; ) {
     let end = Math.min(start + TOKENIZER_CHUNK_CHARS, text.length);
     if (end < text.length) {
       const previous = text.charCodeAt(end - 1);
       const next = text.charCodeAt(end);
-      if (previous >= 0xD800 && previous <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) {
+      if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
         end -= 1;
       }
     }

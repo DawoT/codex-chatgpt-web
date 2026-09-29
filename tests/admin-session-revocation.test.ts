@@ -3,16 +3,16 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig } from "../src/config";
 import {
   SESSION_ACTOR_PROTOCOL_VERSION,
   SessionActorJournal,
   SessionActorManager,
   SessionResultStore,
 } from "../src/adapters/chatgpt-web/session-actor";
-import { handleAdminRoute, type AdminRouteContext } from "../src/server/admin-routes";
+import { ChatGptTextFeed, ChatGptTraceFeed, chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
+import { defaultConfig } from "../src/config";
+import { type AdminRouteContext, handleAdminRoute } from "../src/server/admin-routes";
 import { HttpTurnCounter } from "../src/server/http-turn-counter";
-import { chatGptTurnSessions, ChatGptTextFeed, ChatGptTraceFeed } from "../src/adapters/chatgpt-web/turn-execution";
 
 function nativeSessionId(threadId: string): string {
   const owner = createHash("sha256")
@@ -244,15 +244,10 @@ test("admin cancel-turns preserves a completed idle actor while revoking pending
   const journal = new SessionActorJournal(join(root, "actors", "events.sqlite"));
   try {
     const manager = new SessionActorManager(journal, new SessionResultStore(join(root, "actors", "results")));
-    await manager.runBrowserTurn(
-      "namespace/idle",
-      "idle-turn",
-      "browser:idle",
-      async onAccepted => {
-        await onAccepted();
-        return "completed";
-      },
-    );
+    await manager.runBrowserTurn("namespace/idle", "idle-turn", "browser:idle", async (onAccepted) => {
+      await onAccepted();
+      return "completed";
+    });
     await manager.beginTurn("namespace/active", "active-turn");
     await manager.actor("namespace/active").dispatch({
       protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,

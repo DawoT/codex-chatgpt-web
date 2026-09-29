@@ -6,11 +6,7 @@ import type { extractChatGptTurnEnvironment } from "../environment";
 import type { ChatGptWebCapabilities } from "../model";
 import { compileChatGptWebPrompt } from "../prompt";
 import type { TurnBrokerOwner } from "../turn-broker";
-import type {
-  ChatGptTextFeed,
-  ChatGptTraceFeed,
-  ChatGptTurnRuntime,
-} from "../turn-execution";
+import type { ChatGptTextFeed, ChatGptTraceFeed, ChatGptTurnRuntime } from "../turn-execution";
 import { ChatGptExternalTurnProgress } from "../turn-progress";
 import { cancellableBrowserTurn, deferred } from "./cancellation";
 import { safeManualAdapterError, safeManualTerminalError } from "./manual-control";
@@ -86,23 +82,21 @@ export function createManualTurnRuntime(ctx: ManualTurnRuntimeContext): ChatGptT
       activeToken = await broker.registerSafe(environment, surfaceNonce, undefined, traceId);
       observeCapabilityRetirement(activeToken, externalProgress);
       if (typeof broker.waitForClaim === "function") {
-        void broker.waitForClaim(activeToken, browserAbort.signal).then(() => {
-          externalProgress.recordClaim();
-        }).catch(() => {});
+        void broker
+          .waitForClaim(activeToken, browserAbort.signal)
+          .then(() => {
+            externalProgress.recordClaim();
+          })
+          .catch(() => {});
       }
-      const compiled = compileChatGptWebPrompt(
-        checkpointInput.parsed,
-        turnCapabilities,
-        activeToken,
-        { manualControl: true },
-      );
+      const compiled = compileChatGptWebPrompt(checkpointInput.parsed, turnCapabilities, activeToken, {
+        manualControl: true,
+      });
       const resumeCompiled = resumeInput
-        ? compileChatGptWebPrompt(
-          resumeInput,
-          turnCapabilities,
-          activeToken,
-          { manualControl: true, continuation: true },
-        )
+        ? compileChatGptWebPrompt(resumeInput, turnCapabilities, activeToken, {
+            manualControl: true,
+            continuation: true,
+          })
         : undefined;
       for (const candidate of [compiled, resumeCompiled]) {
         if (!candidate) continue;
@@ -136,36 +130,28 @@ export function createManualTurnRuntime(ctx: ManualTurnRuntimeContext): ChatGptT
       });
       await broker.confirmSafeTurnSent(activeToken, surfaceNonce);
       submission.phase = "accepted";
-      if (!parsed._compactionRequest) trace.push({
-        kind: "commentary",
-        text: "> **Waiting for ChatGPT**\n>\n> The prompt is marked `Sent`. Waiting for `Codex Zero Risk` to bind this turn through the selected ChatGPT connector.",
-      });
+      if (!parsed._compactionRequest)
+        trace.push({
+          kind: "commentary",
+          text: "> **Waiting for ChatGPT**\n>\n> The prompt is marked `Sent`. Waiting for `Codex Zero Risk` to bind this turn through the selected ChatGPT connector.",
+        });
       const terminalAbort = new AbortController();
       const abortTerminal = () => terminalAbort.abort();
       browserAbort.signal.addEventListener("abort", abortTerminal, { once: true });
-      const terminalFailure = zeroRiskManualControl.waitTerminal(
-        retainedLauncherDescriptor,
-        owner,
-        { abortSignal: terminalAbort.signal },
-      ).then(observed => Promise.reject(safeManualTerminalError(observed.status)))
-        .catch(error => terminalAbort.signal.aborted
-          ? new Promise<never>(() => {})
-          : Promise.reject(error));
+      const terminalFailure = zeroRiskManualControl
+        .waitTerminal(retainedLauncherDescriptor, owner, { abortSignal: terminalAbort.signal })
+        .then((observed) => Promise.reject(safeManualTerminalError(observed.status)))
+        .catch((error) => (terminalAbort.signal.aborted ? new Promise<never>(() => {}) : Promise.reject(error)));
       let answer: string;
       try {
-        await Promise.race([
-          broker.waitForSafeStart(activeToken, browserAbort.signal),
-          terminalFailure,
-        ]);
+        await Promise.race([broker.waitForSafeStart(activeToken, browserAbort.signal), terminalFailure]);
         await zeroRiskManualControl.markStarted(retainedLauncherDescriptor, owner);
-        if (!parsed._compactionRequest) trace.push({
-          kind: "commentary",
-          text: "> **Zero Risk connected**\n>\n> `Codex Zero Risk` is connected. ChatGPT is now working through the native Codex harness; progress remains visible in the launcher.",
-        });
-        answer = await Promise.race([
-          broker.waitForSafeCompletion(activeToken, browserAbort.signal),
-          terminalFailure,
-        ]);
+        if (!parsed._compactionRequest)
+          trace.push({
+            kind: "commentary",
+            text: "> **Zero Risk connected**\n>\n> `Codex Zero Risk` is connected. ChatGPT is now working through the native Codex harness; progress remains visible in the launcher.",
+          });
+        answer = await Promise.race([broker.waitForSafeCompletion(activeToken, browserAbort.signal), terminalFailure]);
       } finally {
         terminalAbort.abort();
         browserAbort.signal.removeEventListener("abort", abortTerminal);
@@ -195,7 +181,7 @@ export function createManualTurnRuntime(ctx: ManualTurnRuntimeContext): ChatGptT
   };
 
   const browserTurn = cancellableBrowserTurn(trackBrowserOwner(runManual()), browserAbort);
-  void browserTurn.browser.catch(error => {
+  void browserTurn.browser.catch((error) => {
     if (tokenSettled) return;
     tokenSettled = true;
     token.reject(error instanceof Error ? error : new Error(String(error)));
@@ -220,8 +206,10 @@ export function createManualTurnRuntime(ctx: ManualTurnRuntimeContext): ChatGptT
     cancel: (reason?: Error) => {
       browserTurn.cancel(reason);
       if (activeToken) {
-        void Promise.resolve(broker.revoke(activeToken, reason)).catch(error => {
-          console.error(`[chatgpt-web] failed to revoke cancelled Zero Risk request: ${error instanceof Error ? error.message : String(error)}`);
+        void Promise.resolve(broker.revoke(activeToken, reason)).catch((error) => {
+          console.error(
+            `[chatgpt-web] failed to revoke cancelled Zero Risk request: ${error instanceof Error ? error.message : String(error)}`,
+          );
         });
       }
     },

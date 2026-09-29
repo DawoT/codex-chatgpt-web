@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BackgroundTaskManager } from "../src/adapters/chatgpt-web/background-task-manager";
@@ -27,7 +27,7 @@ class MeasuredManager extends BackgroundTaskManager {
 async function pollingBaseline(manager: MeasuredManager, ids: string[], waitMs: number) {
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    const running = ids.filter(id => manager.getTask(id)?.status === "running");
+    const running = ids.filter((id) => manager.getTask(id)?.status === "running");
     if (!running.length) break;
     await manager.pollTask(running[0]!, Math.min(5000, Math.max(0, deadline - Date.now())), 30);
   }
@@ -78,11 +78,18 @@ for (let repetition = 0; repetition < 3; repetition++) {
     }
   }
 }
-console.log(JSON.stringify({
-  sourceSha256: sourceHash.digest("hex"),
-  generatedAt: new Date().toISOString(),
-  runtime: process.version,
-  platform: process.platform,
-  description: "One real 8-second task, 5.2-second wait. Baseline reproduces the former polling algorithm against the current manager. Counts successful log-tail reads, not disk-cache misses. Cancellation samples exercise the current manager in both modes. No model calls or throughput claim.",
-  samples,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      sourceSha256: sourceHash.digest("hex"),
+      generatedAt: new Date().toISOString(),
+      runtime: process.version,
+      platform: process.platform,
+      description:
+        "One real 8-second task, 5.2-second wait. Baseline reproduces the former polling algorithm against the current manager. Counts successful log-tail reads, not disk-cache misses. Cancellation samples exercise the current manager in both modes. No model calls or throughput claim.",
+      samples,
+    },
+    null,
+    2,
+  ),
+);

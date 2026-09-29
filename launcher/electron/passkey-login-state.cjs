@@ -25,17 +25,23 @@ function allowedCookieDomain(domain) {
   } catch {
     return null;
   }
-  if (parsed.hostname !== hostname
-    || parsed.host !== hostname
-    || parsed.username
-    || parsed.password
-    || parsed.pathname !== "/"
-    || parsed.search
-    || parsed.hash) return null;
-  if (hostname !== "chatgpt.com"
-    && !hostname.endsWith(".chatgpt.com")
-    && hostname !== "openai.com"
-    && !hostname.endsWith(".openai.com")) return null;
+  if (
+    parsed.hostname !== hostname ||
+    parsed.host !== hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  )
+    return null;
+  if (
+    hostname !== "chatgpt.com" &&
+    !hostname.endsWith(".chatgpt.com") &&
+    hostname !== "openai.com" &&
+    !hostname.endsWith(".openai.com")
+  )
+    return null;
   return { hostname, includeDomain };
 }
 

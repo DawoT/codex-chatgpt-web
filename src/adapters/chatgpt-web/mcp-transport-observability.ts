@@ -6,11 +6,13 @@ export function emitMcpTransportDiagnostic(
   event: McpTransportEvent,
   record: (entry: Record<string, unknown>) => void,
 ): void {
-  console.error(`[chatgpt-web-mcp] transport_event ${JSON.stringify({
-    schemaVersion: 1,
-    event,
-    runtime: runtimeIdentity,
-  })}`);
+  console.error(
+    `[chatgpt-web-mcp] transport_event ${JSON.stringify({
+      schemaVersion: 1,
+      event,
+      runtime: runtimeIdentity,
+    })}`,
+  );
   record({ event, tool: "mcp_transport", call: 0 });
 }
 
@@ -28,7 +30,7 @@ export function attachMcpTransportDiagnostics(
     emitMcpTransportDiagnostic("transport_closed", record);
     previousClose?.();
   };
-  transport.onerror = error => {
+  transport.onerror = (error) => {
     emitMcpTransportDiagnostic("transport_error", record);
     previousError?.(error);
   };

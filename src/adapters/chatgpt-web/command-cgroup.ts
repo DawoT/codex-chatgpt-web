@@ -22,9 +22,9 @@ export function createCommandCgroup(): CommandCgroup | undefined {
   try {
     const current = readFileSync("/proc/self/cgroup", "utf8")
       .split("\n")
-      .find(line => line.startsWith("0::"))
+      .find((line) => line.startsWith("0::"))
       ?.slice(3);
-    if (!current || !current.startsWith("/") || current.includes("..")) return undefined;
+    if (!current?.startsWith("/") || current.includes("..")) return undefined;
     const parent = join("/sys/fs/cgroup", current);
     path = join(parent, `codex-command-${randomBytes(12).toString("hex")}`);
     mkdirSync(path, { mode: 0o700 });
@@ -35,7 +35,9 @@ export function createCommandCgroup(): CommandCgroup | undefined {
     accessSync(join(path, "cgroup.procs"), constants.W_OK);
   } catch {
     if (path) {
-      try { rmdirSync(path); } catch {}
+      try {
+        rmdirSync(path);
+      } catch {}
     }
     return undefined;
   }

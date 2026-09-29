@@ -1,6 +1,6 @@
-import { stripUtf8Bom } from "../config";
-import { MANAGED_COMMENT, MANAGED_ROUTE_COMMENT } from "../codex-integration-shared";
 import type { CodexIntegrationJournal } from "../codex-integration-shared";
+import { MANAGED_COMMENT, MANAGED_ROUTE_COMMENT } from "../codex-integration-shared";
+import { stripUtf8Bom } from "../config";
 
 export function stripTomlComment(value: string): string {
   let quote: "'" | '"' | undefined;
@@ -89,7 +89,7 @@ export function renderDocument(document: CodexConfigDocument): string {
 }
 
 export function dominantLineEnding(document: CodexConfigDocument): string {
-  return document.endings.find(ending => ending.length > 0) ?? "\n";
+  return document.endings.find((ending) => ending.length > 0) ?? "\n";
 }
 
 export function insertDocumentLine(document: CodexConfigDocument, index: number, line: string): void {

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildLazySkillsIndex,
   parseSkillFrontmatter,
+  type SkillMetadata,
   scanSkillsDirectory,
   transformSkillsInstructionsBlock,
-  type SkillMetadata,
 } from "../src/adapters/chatgpt-web/lazy-skills";
 
 describe("Sprint V: Lazy Loading de Skills (.agents/skills/ & index catalog)", () => {
@@ -53,7 +53,7 @@ No frontmatter here, just instructions.
 name: tdd-methodology
 description: Test-Driven Development Red-Green-Refactor
 ---
-Detailed guide...`
+Detailed guide...`,
       );
 
       // Skill 2: without frontmatter
@@ -67,12 +67,12 @@ Detailed guide...`
       const skills = scanSkillsDirectory(root);
       expect(skills.length).toBe(2);
 
-      const tddSkill = skills.find(s => s.name === "tdd-methodology");
+      const tddSkill = skills.find((s) => s.name === "tdd-methodology");
       expect(tddSkill).toBeDefined();
       expect(tddSkill?.description).toContain("Test-Driven Development");
       expect(tddSkill?.location).toBe(join(skill1Dir, "SKILL.md"));
 
-      const gitSkill = skills.find(s => s.name === "git-workflow");
+      const gitSkill = skills.find((s) => s.name === "git-workflow");
       expect(gitSkill).toBeDefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -97,7 +97,9 @@ Detailed guide...`
     expect(table).toContain("## Available Skills (Load on Demand)");
     expect(table).toContain("| Skill Name | Purpose | Location |");
     expect(table).toContain("| tdd | Test-Driven Development methodology | .agents/skills/tdd/SKILL.md |");
-    expect(table).toContain("| cloudflare | Cloudflare Workers & Pages deployment | .agents/skills/cloudflare/SKILL.md |");
+    expect(table).toContain(
+      "| cloudflare | Cloudflare Workers & Pages deployment | .agents/skills/cloudflare/SKILL.md |",
+    );
     expect(table).toContain("codex_read_file");
   });
 
@@ -185,12 +187,16 @@ ${massiveInstructions}
       },
     } as any;
 
-    const compiled = compileChatGptWebPrompt(request, {
-      localToolsEnabled: true,
-      solAvailable: true,
-      extraHighAvailable: true,
-      proAvailable: true,
-    }, "turn_token_test_123456789012345678");
+    const compiled = compileChatGptWebPrompt(
+      request,
+      {
+        localToolsEnabled: true,
+        solAvailable: true,
+        extraHighAvailable: true,
+        proAvailable: true,
+      },
+      "turn_token_test_123456789012345678",
+    );
 
     // The prompt should NOT contain the massive instructions
     expect(compiled.text).not.toContain(massiveInstructions);
@@ -232,13 +238,19 @@ A skill is a set of local instructions to follow that is stored in a \`SKILL.md\
 </skills_instructions>`;
 
     // General query with "landing" does NOT auto-expand, keeping context clean
-    const generalTransformed = transformSkillsInstructionsBlock(markdownSkills, "crea una landing de test de programacion");
+    const generalTransformed = transformSkillsInstructionsBlock(
+      markdownSkills,
+      "crea una landing de test de programacion",
+    );
     expect(generalTransformed).not.toContain("Active Skill: frontend-design");
     expect(generalTransformed).toContain("| frontend-design |");
     expect(generalTransformed).toContain("| cloudflare |");
 
     // Explicit request with $frontend-design DOES expand
-    const explicitTransformed = transformSkillsInstructionsBlock(markdownSkills, "crea una landing usando $frontend-design");
+    const explicitTransformed = transformSkillsInstructionsBlock(
+      markdownSkills,
+      "crea una landing usando $frontend-design",
+    );
     expect(explicitTransformed).toContain("Active Skill: frontend-design");
     expect(explicitTransformed).toContain("/home/deuz/.agents/skills/frontend-design/SKILL.md");
     expect(explicitTransformed).toContain("| cloudflare |");
@@ -256,8 +268,12 @@ A skill is a set of local instructions to follow that is stored in a \`SKILL.md\
 
     const transformed = transformSkillsInstructionsBlock(tableSkills, "check code");
     expect(transformed).toContain("Available Skills (Load on Demand)");
-    expect(transformed).toContain("| agents-sdk | Build AI agents on Cloudflare Workers | /home/user/.agents/skills/agents-sdk/SKILL.md |");
-    expect(transformed).toContain("| playwright-cli | Automate browser interactions | /home/user/.agents/skills/playwright-cli/SKILL.md |");
+    expect(transformed).toContain(
+      "| agents-sdk | Build AI agents on Cloudflare Workers | /home/user/.agents/skills/agents-sdk/SKILL.md |",
+    );
+    expect(transformed).toContain(
+      "| playwright-cli | Automate browser interactions | /home/user/.agents/skills/playwright-cli/SKILL.md |",
+    );
   });
 
   test("transformSkillsInstructionsBlock omits redundant skills table on continuation turns unless requested", () => {
@@ -271,15 +287,17 @@ A skill is a set of local instructions to follow that is stored in a \`SKILL.md\
 </skills_instructions>`;
 
     // On continuation without explicit skill request, omit the 70+ skill table
-    const continuationOmitted = transformSkillsInstructionsBlock(tableSkills, "continue with next task", { isContinuation: true });
+    const continuationOmitted = transformSkillsInstructionsBlock(tableSkills, "continue with next task", {
+      isContinuation: true,
+    });
     expect(continuationOmitted).toContain("Skills catalog established in turn 1.");
     expect(continuationOmitted).not.toContain("playwright-cli");
     expect(continuationOmitted).not.toContain("agents-sdk");
 
     // On continuation WITH explicit skill request ($tdd), expands the requested skill
-    const continuationWithRequest = transformSkillsInstructionsBlock(tableSkills, "apply $tdd to this suite", { isContinuation: true });
+    const continuationWithRequest = transformSkillsInstructionsBlock(tableSkills, "apply $tdd to this suite", {
+      isContinuation: true,
+    });
     expect(continuationWithRequest).toContain("tdd");
   });
 });
-
-

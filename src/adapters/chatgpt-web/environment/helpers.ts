@@ -4,12 +4,15 @@ import { MissingTrustedCodexEnvironmentError } from "./types";
 
 export function contentText(content: string | CodexContentPart[]): string {
   if (typeof content === "string") return content;
-  return content.filter(part => part.type === "text").map(part => part.text).join("\n");
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
 }
 
 export function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -23,8 +26,11 @@ export function clientTurnMetadataFromBody(value: unknown): Record<string, unkno
   const metadata = record(body?.client_metadata);
   const raw = metadata?.["x-codex-turn-metadata"];
   if (typeof raw === "string") {
-    try { return record(JSON.parse(raw)); }
-    catch { return undefined; }
+    try {
+      return record(JSON.parse(raw));
+    } catch {
+      return undefined;
+    }
   }
   return record(raw);
 }
@@ -42,7 +48,7 @@ export function rawMessageText(value: Record<string, unknown>): string {
   if (typeof value.content === "string") return value.content;
   if (!Array.isArray(value.content)) return "";
   return value.content
-    .map(part => record(part)?.text)
+    .map((part) => record(part)?.text)
     .filter((text): text is string => typeof text === "string")
     .join("\n");
 }
@@ -52,7 +58,7 @@ export function decodeXmlText(value: string): string {
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&amp;", "&")
-    .replaceAll("&quot;", "\"")
+    .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'");
 }
 
@@ -62,11 +68,11 @@ export function matchesPath(root: string, path: string): boolean {
 }
 
 export function uniqueAbsolutePaths(values: string[], field: string): string[] {
-  const decoded = values.map(value => decodeXmlText(value.trim()));
+  const decoded = values.map((value) => decodeXmlText(value.trim()));
   if (decoded.length === 0) throw new MissingTrustedCodexEnvironmentError(field);
-  if (decoded.some(path => !isAbsolute(path))) throw new Error(`ChatGPT web ${field} must contain absolute paths`);
+  if (decoded.some((path) => !isAbsolute(path))) throw new Error(`ChatGPT web ${field} must contain absolute paths`);
   const unique = new Map<string, string>();
-  for (const path of decoded.map(value => resolve(value))) {
+  for (const path of decoded.map((value) => resolve(value))) {
     if (!unique.has(pathIdentity(path))) unique.set(pathIdentity(path), path);
   }
   return [...unique.values()];
@@ -87,6 +93,7 @@ export function isTurnAbortedNotice(value: Record<string, unknown>): boolean {
 }
 
 export function isEnvironmentRequest(metadata: Record<string, unknown>, parsed: CodexParsedRequest): boolean {
-  return metadata.request_kind === "turn"
-    || (parsed._compactionRequest === true && metadata.request_kind === "compaction");
+  return (
+    metadata.request_kind === "turn" || (parsed._compactionRequest === true && metadata.request_kind === "compaction")
+  );
 }

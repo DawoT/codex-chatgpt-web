@@ -1,12 +1,6 @@
 import type { NativeImageEndpoint } from "../native-passthrough";
 
-export type HttpTrackedEndpoint =
-  | "models"
-  | "responses"
-  | "compact"
-  | "search"
-  | "unspecified"
-  | NativeImageEndpoint;
+export type HttpTrackedEndpoint = "models" | "responses" | "compact" | "search" | "unspecified" | NativeImageEndpoint;
 
 export interface NativeCodexTurnIdentity {
   threadId: string;

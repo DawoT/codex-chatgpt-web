@@ -8,7 +8,7 @@ export async function waitForTaskRecords(
 ): Promise<void> {
   signal?.throwIfAborted();
   if (!Number.isFinite(waitMs) || waitMs < 0) throw new Error("Invalid task wait duration");
-  if (waitMs === 0 || records.every(record => record.closed)) return;
+  if (waitMs === 0 || records.every((record) => record.closed)) return;
   await new Promise<void>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout>;
     const cleanup = () => {
@@ -25,7 +25,7 @@ export async function waitForTaskRecords(
       reject(signal?.reason);
     };
     const onCompletion = () => {
-      if (records.every(record => record.closed)) finish();
+      if (records.every((record) => record.closed)) finish();
     };
     timer = setTimeout(finish, Math.min(waitMs, 90_000));
     for (const record of records) {

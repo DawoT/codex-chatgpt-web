@@ -56,8 +56,16 @@ test("a completed browser draft and repair with repeated validation failures cou
     event("incident", "repair_started", { route: "fallback", attempt: 2, outcome: "pending" }),
     event("incident", "received", { route: "fallback", attempt: 2 }),
     event("incident", "validated", { route: "fallback", attempt: 2, outcome: "rejected" }),
-    event("incident", "failed", { route: "fallback", outcome: "rejected", reasonCode: "context_checkpoint_validation_failed" }),
-    event("incident", "failed", { route: "unknown", outcome: "rejected", reasonCode: "context_checkpoint_validation_failed" }),
+    event("incident", "failed", {
+      route: "fallback",
+      outcome: "rejected",
+      reasonCode: "context_checkpoint_validation_failed",
+    }),
+    event("incident", "failed", {
+      route: "unknown",
+      outcome: "rejected",
+      reasonCode: "context_checkpoint_validation_failed",
+    }),
   ]);
   expect(report).toMatchObject({
     traces: 1,

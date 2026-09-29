@@ -5,17 +5,10 @@ import type {
   NativeCodexTurnIdentity,
 } from "./types";
 
-export type {
-  HttpStreamFailureEvidence,
-  HttpStreamFailureReporter,
-  HttpTrackedEndpoint,
-  NativeCodexTurnIdentity,
-};
+export type { HttpStreamFailureEvidence, HttpStreamFailureReporter, HttpTrackedEndpoint, NativeCodexTurnIdentity };
 
 function safeStreamErrorField(value: unknown, fallback: string): string {
-  return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
-    ? value
-    : fallback;
+  return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : fallback;
 }
 
 export function streamFailureEvidence(
@@ -27,9 +20,7 @@ export function streamFailureEvidence(
   chunks: number,
   bytes: number,
 ): HttpStreamFailureEvidence {
-  const candidate = error !== null && typeof error === "object"
-    ? error as { name?: unknown; code?: unknown }
-    : {};
+  const candidate = error !== null && typeof error === "object" ? (error as { name?: unknown; code?: unknown }) : {};
   return {
     httpTurnId,
     endpoint,
@@ -42,14 +33,11 @@ export function streamFailureEvidence(
   };
 }
 
-export const reportHttpStreamFailure: HttpStreamFailureReporter = evidence => {
+export const reportHttpStreamFailure: HttpStreamFailureReporter = (evidence) => {
   console.warn(`[codex-chatgpt-web] http_stream_failed ${JSON.stringify(evidence)}`);
 };
 
-export function emitHttpStreamFailure(
-  reporter: HttpStreamFailureReporter,
-  evidence: HttpStreamFailureEvidence,
-): void {
+export function emitHttpStreamFailure(reporter: HttpStreamFailureReporter, evidence: HttpStreamFailureEvidence): void {
   try {
     reporter(evidence);
   } catch {
@@ -59,12 +47,15 @@ export function emitHttpStreamFailure(
 }
 
 export class HttpTurnCounter {
-  private readonly active = new Map<number, {
-    abort: AbortController;
-    done: Promise<void>;
-    finish: () => void;
-    identity?: NativeCodexTurnIdentity;
-  }>();
+  private readonly active = new Map<
+    number,
+    {
+      abort: AbortController;
+      done: Promise<void>;
+      finish: () => void;
+      identity?: NativeCodexTurnIdentity;
+    }
+  >();
   private readonly interrupted = new Map<string, unknown>();
   private nextId = 1;
 
@@ -94,7 +85,7 @@ export class HttpTurnCounter {
     for (const turn of turns) {
       if (!turn.abort.signal.aborted) turn.abort.abort(reason);
     }
-    await Promise.all(turns.map(turn => turn.done));
+    await Promise.all(turns.map((turn) => turn.done));
     return turns.length;
   }
 
@@ -112,23 +103,20 @@ export class HttpTurnCounter {
     reason: unknown = new DOMException("Codex turn interrupted", "AbortError"),
   ): { cancelled: number; settlement: Promise<void> } {
     this.rememberInterrupted(identity, reason);
-    const turns = [...this.active.values()].filter(turn => (
-      turn.identity?.threadId === identity.threadId && turn.identity.turnId === identity.turnId
-    ));
+    const turns = [...this.active.values()].filter(
+      (turn) => turn.identity?.threadId === identity.threadId && turn.identity.turnId === identity.turnId,
+    );
     for (const turn of turns) {
       if (!turn.abort.signal.aborted) turn.abort.abort(reason);
     }
     return {
       cancelled: turns.length,
-      settlement: Promise.all(turns.map(turn => turn.done)).then(() => undefined),
+      settlement: Promise.all(turns.map((turn) => turn.done)).then(() => undefined),
     };
   }
 
   async track(
-    run: (
-      signal: AbortSignal,
-      bindIdentity: (identity: NativeCodexTurnIdentity) => void,
-    ) => Promise<Response>,
+    run: (signal: AbortSignal, bindIdentity: (identity: NativeCodexTurnIdentity) => void) => Promise<Response>,
     clientSignal?: AbortSignal,
     platform: NodeJS.Platform = process.platform,
     endpoint: HttpTrackedEndpoint = "unspecified",
@@ -136,7 +124,9 @@ export class HttpTurnCounter {
     const id = this.nextId++;
     const abort = new AbortController();
     let finish!: () => void;
-    const done = new Promise<void>(resolve => { finish = resolve; });
+    const done = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     const tracked: {
       abort: AbortController;
       done: Promise<void>;
@@ -163,12 +153,14 @@ export class HttpTurnCounter {
     else clientSignal?.addEventListener("abort", clientAbortListener, { once: true });
 
     try {
-      const response = await run(abort.signal, identity => {
+      const response = await run(abort.signal, (identity) => {
         if (!identity.threadId.trim() || !identity.turnId.trim()) {
           throw new Error("Native Codex turn identity must contain a threadId and turnId");
         }
-        if (tracked.identity
-          && (tracked.identity.threadId !== identity.threadId || tracked.identity.turnId !== identity.turnId)) {
+        if (
+          tracked.identity &&
+          (tracked.identity.threadId !== identity.threadId || tracked.identity.turnId !== identity.turnId)
+        ) {
           throw new Error("An HTTP request cannot change its native Codex turn identity");
         }
         tracked.identity = identity;
@@ -194,7 +186,10 @@ export class HttpTurnCounter {
         let chunks = 0;
         let bytes = 0;
         streamAbortListener = () => {
-          void reader.cancel(abort.signal.reason).catch(() => {}).finally(release);
+          void reader
+            .cancel(abort.signal.reason)
+            .catch(() => {})
+            .finally(release);
         };
         abort.signal.addEventListener("abort", streamAbortListener, { once: true });
         const body = new ReadableStream<Uint8Array>({
@@ -211,15 +206,10 @@ export class HttpTurnCounter {
               controller.enqueue(chunk.value);
             } catch (error) {
               if (!abort.signal.aborted) {
-                emitHttpStreamFailure(reportStreamFailure, streamFailureEvidence(
-                  error,
-                  id,
-                  endpoint,
-                  "client",
-                  platform,
-                  chunks,
-                  bytes,
-                ));
+                emitHttpStreamFailure(
+                  reportStreamFailure,
+                  streamFailureEvidence(error, id, endpoint, "client", platform, chunks, bytes),
+                );
               }
               release();
               controller.error(error);
@@ -249,10 +239,9 @@ export class HttpTurnCounter {
       let chunks = 0;
       let bytes = 0;
       streamAbortListener = () => {
-        void Promise.allSettled([
-          reader.cancel(abort.signal.reason),
-          clientBody.cancel(abort.signal.reason),
-        ]).finally(release);
+        void Promise.allSettled([reader.cancel(abort.signal.reason), clientBody.cancel(abort.signal.reason)]).finally(
+          release,
+        );
       };
       abort.signal.addEventListener("abort", streamAbortListener, { once: true });
       void (async () => {
@@ -266,15 +255,10 @@ export class HttpTurnCounter {
           }
         } catch (error) {
           if (!abort.signal.aborted) {
-            emitHttpStreamFailure(this.reportStreamFailure, streamFailureEvidence(
-              error,
-              id,
-              endpoint,
-              "windows_lifecycle",
-              platform,
-              chunks,
-              bytes,
-            ));
+            emitHttpStreamFailure(
+              this.reportStreamFailure,
+              streamFailureEvidence(error, id, endpoint, "windows_lifecycle", platform, chunks, bytes),
+            );
           }
           // Stream failure is delivered to the client branch; lifecycle cleanup stays best-effort.
         } finally {

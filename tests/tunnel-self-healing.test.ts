@@ -4,9 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig, TunnelConfig } from "../src/config";
 import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
-import { TunnelSupervisor, defaultHealthUrlProbe } from "../src/tunnel-supervisor";
-import type { TunnelRuntimeStatus } from "../src/tunnel";
 import { startServer } from "../src/server";
+import { defaultHealthUrlProbe, TunnelSupervisor } from "../src/tunnel-supervisor";
 
 function createMockTunnelConfig(): TunnelConfig {
   return {
@@ -211,11 +210,7 @@ describe("Sprint I: Tunnel Supervisor & Self-Healing", () => {
     });
 
     // Fire 3 simultaneous recover calls
-    const [r1, r2, r3] = await Promise.all([
-      supervisor.recover(),
-      supervisor.recover(),
-      supervisor.recover(),
-    ]);
+    const [r1, r2, r3] = await Promise.all([supervisor.recover(), supervisor.recover(), supervisor.recover()]);
 
     expect(r1).toBe(true);
     expect(r2).toBe(true);
@@ -268,7 +263,7 @@ describe("Sprint I: Tunnel Supervisor & Self-Healing", () => {
       const response = await fetch(`http://127.0.0.1:${server.port}/healthz`);
       expect(response.status).toBe(200);
 
-      const body = await response.json() as Record<string, unknown>;
+      const body = (await response.json()) as Record<string, unknown>;
       expect(body.status).toBe("ok");
       expect(body.tunnel_auto_restarts).toBe(0);
       expect(body.last_tunnel_auto_restart_at).toBeNull();
@@ -315,7 +310,7 @@ describe("Sprint I: Tunnel Supervisor & Self-Healing", () => {
         },
       });
       expect(authResponse.status).toBe(200);
-      const resBody = await authResponse.json() as Record<string, unknown>;
+      const resBody = (await authResponse.json()) as Record<string, unknown>;
       expect(resBody.status).toBe("ok");
       expect(resBody.recovered).toBe(true);
       expect(forcedRestartCount).toBe(1);
@@ -342,7 +337,10 @@ command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_stat
 `;
             return new Response(metrics502, { status: 200 });
           }
-          return new Response('command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_status="200"} 73\n', { status: 200 });
+          return new Response(
+            'command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_status="200"} 73\n',
+            { status: 200 },
+          );
         }
         return new Response("not found", { status: 404 });
       },

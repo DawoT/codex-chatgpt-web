@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveCheckpointsDirectory } from "../src/adapters/chatgpt-web/autonomous-compaction";
 import { listSubagentWorkspaces, resolveSubagentWorkspace } from "../src/adapters/chatgpt-web/subagent-workspace";
-import { defaultWorkspaceState, readWorkspaceState, resolveWorkspaceStatePath, serializeWorkspaceState } from "../src/adapters/chatgpt-web/workspace-state";
+import {
+  defaultWorkspaceState,
+  readWorkspaceState,
+  resolveWorkspaceStatePath,
+  serializeWorkspaceState,
+} from "../src/adapters/chatgpt-web/workspace-state";
 
 test("legacy persistence paths and readers consistently honor the configured bridge home", () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-legacy-home-"));
@@ -13,7 +18,10 @@ test("legacy persistence paths and readers consistently honor the configured bri
   try {
     const stateDir = join(root, "workspaces", "default");
     mkdirSync(stateDir, { recursive: true });
-    writeFileSync(join(stateDir, "STATE.md"), serializeWorkspaceState({ ...defaultWorkspaceState(), goal: "isolated fixture" }));
+    writeFileSync(
+      join(stateDir, "STATE.md"),
+      serializeWorkspaceState({ ...defaultWorkspaceState(), goal: "isolated fixture" }),
+    );
     mkdirSync(join(root, "subagents", "isolated-agent"), { recursive: true });
     expect(readWorkspaceState()?.goal === "isolated fixture").toBeTrue();
     expect(listSubagentWorkspaces()).toEqual(["isolated-agent"]);

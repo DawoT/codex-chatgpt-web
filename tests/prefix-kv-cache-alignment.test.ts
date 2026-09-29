@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import type { CodexParsedRequest } from "../src/types";
 
 const capabilities = {
@@ -131,7 +131,7 @@ describe("Sprint K: Server-Side Prefix KV Cache Alignment", () => {
     // 4. The first user message
     expect(commonPrefix).toContain("Act as the model backend for the Codex task");
     expect(commonPrefix).toContain("<codex_context_json>");
-    expect(commonPrefix).toContain("\"version\":3");
+    expect(commonPrefix).toContain('"version":3');
     expect(commonPrefix).toContain("You are an AI programming assistant operating within Codex");
     expect(commonPrefix).toContain("Initial user request: analyze the repository architecture");
 

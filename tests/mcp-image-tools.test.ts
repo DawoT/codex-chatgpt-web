@@ -1,15 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { registerImageTools } from "../src/adapters/chatgpt-web/mcp/image-tools";
-import { BRIDGE_TOOL_NAMES } from "../src/adapters/chatgpt-web/mcp/tool-visibility";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerImageTools } from "../src/adapters/chatgpt-web/mcp/image-tools";
+import { BRIDGE_TOOL_NAMES } from "../src/adapters/chatgpt-web/mcp/tool-visibility";
 
 describe("MCP Image Tools", () => {
-  const samplePngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const samplePngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   const samplePngBuffer = Buffer.from(samplePngBase64, "base64");
 
   test("registers codex_image_generate in MCP server and BRIDGE_TOOL_NAMES", async () => {
@@ -27,7 +28,7 @@ describe("MCP Image Tools", () => {
     await client.connect(clientTransport);
 
     const listed = await client.listTools();
-    const imageTool = listed.tools.find(t => t.name === "codex_image_generate");
+    const imageTool = listed.tools.find((t) => t.name === "codex_image_generate");
 
     expect(imageTool).toBeDefined();
     expect(imageTool!.description).toContain("Generate an image");
@@ -82,7 +83,7 @@ describe("MCP Image Tools", () => {
     expect(existsSync(outPath)).toBe(true);
     expect(readFileSync(outPath)).toEqual(samplePngBuffer);
 
-    const textContent = (result.content as Array<{ type: string; text?: string }>).find(c => c.type === "text");
+    const textContent = (result.content as Array<{ type: string; text?: string }>).find((c) => c.type === "text");
     expect(textContent?.text).toContain(outPath);
 
     await client.close();

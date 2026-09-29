@@ -7,45 +7,84 @@ test("disconnect cancels pending browser initialization and destroys only its ow
   const { EventEmitter } = require("node:events");
   for (const stalledAt of ["load", "mark"]) {
     let ready;
-    const stalled = new Promise(resolve => { ready = resolve; });
+    const stalled = new Promise((resolve) => {
+      ready = resolve;
+    });
     let settled;
-    const finished = new Promise(resolve => { settled = resolve; });
+    const finished = new Promise((resolve) => {
+      settled = resolve;
+    });
     let pendingTab;
     let marks = 0;
     let closes = 0;
     const unrelated = { id: "unrelated", traceId: "other", status: "running", interactionMode: "automatic" };
     const host = Object.assign(Object.create(BrowserHost.prototype), {
-      turnTabs: new Map([[unrelated.id, unrelated]]), userCancelledTurnOwners: new Map(), closedTurnOwners: new Map(),
-      getBrowserInteractionMode: () => "automatic", logger: { info() {}, error() {} },
+      turnTabs: new Map([[unrelated.id, unrelated]]),
+      userCancelledTurnOwners: new Map(),
+      closedTurnOwners: new Map(),
+      getBrowserInteractionMode: () => "automatic",
+      logger: { info() {}, error() {} },
       window: { contentView: { removeChildView() {} } },
-      syncPowerSaveBlocker() {}, syncViewVisibility() {}, writeDescriptor() {}, snapshot: () => ({}),
+      syncPowerSaveBlocker() {},
+      syncViewVisibility() {},
+      writeDescriptor() {},
+      snapshot: () => ({}),
       async createTurnTab(traceId, helperPid, _conversation, _connector, signal) {
         let destroyed = false;
         let url = "about:blank";
         const contents = Object.assign(new EventEmitter(), {
-          isDestroyed: () => destroyed, getURL: () => url, stop() {}, insertCSS: async () => {},
-          loadURL: async target => {
-            if (stalledAt === "load") { ready(); await new Promise(() => {}); }
+          isDestroyed: () => destroyed,
+          getURL: () => url,
+          stop() {},
+          insertCSS: async () => {},
+          loadURL: async (target) => {
+            if (stalledAt === "load") {
+              ready();
+              await new Promise(() => {});
+            }
             url = target;
           },
-          executeJavaScript: async () => { marks++; ready(); await new Promise(() => {}); },
-          close: () => { closes++; destroyed = true; contents.emit("destroyed"); },
+          executeJavaScript: async () => {
+            marks++;
+            ready();
+            await new Promise(() => {});
+          },
+          close: () => {
+            closes++;
+            destroyed = true;
+            contents.emit("destroyed");
+          },
         });
-        pendingTab = { id: `pending-${stalledAt}`, traceId, helperPid, surfaceId: "a".repeat(32),
-          status: "running", interactionMode: "automatic", initializingSurface: true, view: { webContents: contents } };
+        pendingTab = {
+          id: `pending-${stalledAt}`,
+          traceId,
+          helperPid,
+          surfaceId: "a".repeat(32),
+          status: "running",
+          interactionMode: "automatic",
+          initializingSurface: true,
+          view: { webContents: contents },
+        };
         this.turnTabs.set(pendingTab.id, pendingTab);
-        try { await this.initializeTurnTab(pendingTab, signal); return pendingTab; }
-        finally { settled(); }
+        try {
+          await this.initializeTurnTab(pendingTab, signal);
+          return pendingTab;
+        } finally {
+          settled();
+        }
       },
     });
     const server = await new BrowserControlServer({
-      logger: { info() {}, warn() {}, error() {} }, getPreferences: () => ({}), getBrowserHost: () => host,
+      logger: { info() {}, warn() {}, error() {} },
+      getPreferences: () => ({}),
+      getBrowserHost: () => host,
     }).start();
     const { endpoint, token } = server.descriptor();
     const controller = new AbortController();
     try {
       const response = fetch(`${endpoint}/v1/turn/start`, {
-        method: "POST", signal: controller.signal,
+        method: "POST",
+        signal: controller.signal,
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ traceId: "pending-start", helperPid: process.pid }),
       });
@@ -59,7 +98,10 @@ test("disconnect cancels pending browser initialization and destroys only its ow
       assert.equal(pendingTab.initializingSurface, true);
       assert.equal(pendingTab.view.webContents.listenerCount("destroyed"), 0);
       assert.deepEqual([...host.turnTabs.values()], [unrelated]);
-    } finally { controller.abort(); await server.close(); }
+    } finally {
+      controller.abort();
+      await server.close();
+    }
   }
 });
 
@@ -82,13 +124,17 @@ test("Limits receipts require the active automatic owner and survive reconnect w
   };
   const server = await new BrowserControlServer({
     logger: { info() {}, warn() {}, error() {} },
-    getBrowserHost: () => host, getPreferences: () => ({}), limits,
+    getBrowserHost: () => host,
+    getPreferences: () => ({}),
+    limits,
   }).start();
   const { endpoint, token } = server.descriptor();
-  const send = (body, auth = token, route = "usage") => fetch(`${endpoint}/v1/turn/${route}`, {
-    method: "POST", headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const send = (body, auth = token, route = "usage") =>
+    fetch(`${endpoint}/v1/turn/${route}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${auth}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
   const owner = { traceId: "limits-turn", helperPid: process.pid };
   const body = { ...owner, receipt: { id: "one-accepted-send", accountKey, model: "gpt-6-pro", at: Date.now() } };
   try {
@@ -99,7 +145,7 @@ test("Limits receipts require the active automatic owner and survive reconnect w
     assert.equal((await (await send(body)).json()).recorded, true);
     assert.equal((await (await send(body)).json()).recorded, false);
     const restored = new LimitsController(file, { getInteractionMode: () => mode });
-    assert.equal(restored.snapshot().windows.find(window => window.model === "gpt-6-pro").used, 1);
+    assert.equal(restored.snapshot().windows.find((window) => window.model === "gpt-6-pro").used, 1);
     mode = "manual";
     assert.equal((await send({ ...body, receipt: { ...body.receipt, id: "manual-send" } })).status, 400);
     assert.equal(limits.snapshot().disabledReason, "zero-risk");
@@ -114,29 +160,48 @@ test("native proxy resolution requires owner auth, restricts targets, and works 
   const resolved = [];
   const server = await new BrowserControlServer({
     logger: { info() {}, warn() {}, error() {} },
-    getBrowserHost: () => { throw new Error("proxy resolution must not inspect browser contents"); },
-    getPreferences: () => { throw new Error("proxy resolution must not depend on integration mode"); },
-    resolveProxy: async url => { resolved.push(url); return "PROXY 127.0.0.1:7897"; },
+    getBrowserHost: () => {
+      throw new Error("proxy resolution must not inspect browser contents");
+    },
+    getPreferences: () => {
+      throw new Error("proxy resolution must not depend on integration mode");
+    },
+    resolveProxy: async (url) => {
+      resolved.push(url);
+      return "PROXY 127.0.0.1:7897";
+    },
   }).start();
   const { endpoint, token } = server.descriptor();
-  const send = (url, authorization = `Bearer ${token}`) => fetch(`${endpoint}/v1/network/resolve-proxy`, {
-    method: "POST", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify({ url }),
-  });
+  const send = (url, authorization = `Bearer ${token}`) =>
+    fetch(`${endpoint}/v1/network/resolve-proxy`, {
+      method: "POST",
+      headers: { authorization, "content-type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
   try {
     const url = "https://chatgpt.com/backend-api/codex/models?client_version=0.153.4";
     assert.equal((await send(url, "Bearer wrong")).status, 401);
-    for (const target of ["http://chatgpt.com/backend-api/codex/models", "https://example.com/", "https://secret@chatgpt.com/backend-api/codex/models", "https://chatgpt.com/backend-api/me"]) {
+    for (const target of [
+      "http://chatgpt.com/backend-api/codex/models",
+      "https://example.com/",
+      "https://secret@chatgpt.com/backend-api/codex/models",
+      "https://chatgpt.com/backend-api/me",
+    ]) {
       assert.equal((await send(target)).status, 400);
     }
     const response = await send(url);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { proxy: "PROXY 127.0.0.1:7897" });
     assert.deepEqual(resolved, [url]);
-    server.resolveProxy = async () => { throw new Error("private PAC address"); };
+    server.resolveProxy = async () => {
+      throw new Error("private PAC address");
+    };
     const failure = await send(url);
     assert.equal(failure.status, 400);
     assert.deepEqual(await failure.json(), { error: "System proxy resolution failed" });
-  } finally { await server.close(); }
+  } finally {
+    await server.close();
+  }
 });
 
 test("browser control server authenticates and owns turn visibility", async () => {
@@ -248,20 +313,18 @@ test("browser control server authenticates and owns turn visibility", async () =
     assert.ok(acquisitionSignal instanceof AbortSignal);
     assert.equal(acquisitionSignal.aborted, false);
     assert.deepEqual(calls, [
-      [
-        "start",
-        "abcdef123456",
-        true,
-        process.pid,
-        "a".repeat(64),
-        "Codex Native2",
-        true,
-      ],
+      ["start", "abcdef123456", true, process.pid, "a".repeat(64), "Codex Native2", true],
       ["heartbeat", "abcdef123456", process.pid, true],
       ["end", "abcdef123456", process.pid, "completed", true, undefined, true, true, true],
     ]);
-    assert.equal(logs.some(([, event]) => event === "browser.turn_started"), true);
-    assert.equal(logs.some(([, event]) => event === "browser.turn_ended"), true);
+    assert.equal(
+      logs.some(([, event]) => event === "browser.turn_started"),
+      true,
+    );
+    assert.equal(
+      logs.some(([, event]) => event === "browser.turn_ended"),
+      true,
+    );
   } finally {
     await server.close();
   }
@@ -270,8 +333,12 @@ test("browser control server authenticates and owns turn visibility", async () =
 test("browser control server withholds a new turn lease until its browser surface is ready", async () => {
   let releaseSurface;
   let reportBegin;
-  const surfaceReady = new Promise((resolve) => { releaseSurface = resolve; });
-  const beginCalled = new Promise((resolve) => { reportBegin = resolve; });
+  const surfaceReady = new Promise((resolve) => {
+    releaseSurface = resolve;
+  });
+  const beginCalled = new Promise((resolve) => {
+    reportBegin = resolve;
+  });
   const server = await new BrowserControlServer({
     logger: { info() {}, warn() {}, error() {} },
     getBrowserHost: () => ({
@@ -356,20 +423,26 @@ test("manual control keeps start idempotency separate from long Sent observation
     getPreferences: () => ({ browserInteractionMode: "manual" }),
   }).start();
   const descriptor = server.descriptor();
-  const post = (path, body) => fetch(`${descriptor.endpoint}${path}`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${descriptor.token}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const post = (path, body) =>
+    fetch(`${descriptor.endpoint}${path}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${descriptor.token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
   const owner = { traceId: "manual123456", helperPid: process.pid };
   try {
-    assert.equal((await post("/v1/manual/start", {
-      ...owner,
-      prompt,
-      resumePrompt: "incremental prompt",
-      conversationKey: "c".repeat(64),
-      compaction: true,
-    })).status, 200);
+    assert.equal(
+      (
+        await post("/v1/manual/start", {
+          ...owner,
+          prompt,
+          resumePrompt: "incremental prompt",
+          conversationKey: "c".repeat(64),
+          compaction: true,
+        })
+      ).status,
+      200,
+    );
     assert.equal((await post("/v1/manual/wait-sent", owner)).status, 200);
     assert.equal((await post("/v1/manual/wait-terminal", owner)).status, 200);
     assert.equal((await post("/v1/manual/started", owner)).status, 200);
@@ -380,7 +453,10 @@ test("manual control keeps start idempotency separate from long Sent observation
     assert.equal(calls[0][6], true);
     assert.equal(calls[1][0], "wait");
     assert.equal(calls[2][0], "wait-terminal");
-    assert.equal(logs.some(([, detail]) => JSON.stringify(detail).includes(prompt)), false);
+    assert.equal(
+      logs.some(([, detail]) => JSON.stringify(detail).includes(prompt)),
+      false,
+    );
   } finally {
     await server.close();
   }
@@ -396,7 +472,9 @@ test("manual start has one explicit bounded body allowance and automatic turns s
         started += 1;
         return { tabId: "manual-tab", reused: false, deadlineAt: null, state: "awaiting-user" };
       },
-      beginTurn() { throw new Error("must not start automatic turn"); },
+      beginTurn() {
+        throw new Error("must not start automatic turn");
+      },
     }),
     getPreferences: () => ({ browserInteractionMode: "manual" }),
   }).start();
@@ -406,7 +484,11 @@ test("manual start has one explicit bounded body allowance and automatic turns s
     const tooLarge = await fetch(`${descriptor.endpoint}/v1/manual/start`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ traceId: "manual123456", helperPid: process.pid, prompt: "x".repeat((3 * 1024 * 1024) + 1) }),
+      body: JSON.stringify({
+        traceId: "manual123456",
+        helperPid: process.pid,
+        prompt: "x".repeat(3 * 1024 * 1024 + 1),
+      }),
     });
     assert.equal(tooLarge.status, 400);
     assert.equal(started, 0);
@@ -476,7 +558,9 @@ test("manual-to-automatic transaction exposes capability inspection and preserve
       removed.push(tab.id);
       this.turnTabs.delete(tab.id);
     },
-    markOwnedSurface: async () => { ownershipMarks += 1; },
+    markOwnedSurface: async () => {
+      ownershipMarks += 1;
+    },
     writeDescriptor: () => {},
     snapshot: () => ({ activeTabId: "home" }),
   });
@@ -486,11 +570,12 @@ test("manual-to-automatic transaction exposes capability inspection and preserve
     getPreferences: () => ({ browserInteractionMode: "manual" }),
   }).start();
   const descriptor = server.descriptor();
-  const inspect = () => fetch(`${descriptor.endpoint}/v1/session/inspect`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${descriptor.token}`, "content-type": "application/json" },
-    body: JSON.stringify({ detectCapabilities: true }),
-  });
+  const inspect = () =>
+    fetch(`${descriptor.endpoint}/v1/session/inspect`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${descriptor.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ detectCapabilities: true }),
+    });
   try {
     await assert.rejects(
       host.withInteractionModeChange("automatic", async () => {
@@ -505,7 +590,7 @@ test("manual-to-automatic transaction exposes capability inspection and preserve
     assert.deepEqual([...host.turnTabs.keys()], [retained.id]);
     assert.deepEqual(removed, []);
 
-    const result = await host.withInteractionModeChange("automatic", async commit => {
+    const result = await host.withInteractionModeChange("automatic", async (commit) => {
       const response = await inspect();
       assert.equal(response.status, 200);
       await commit();
@@ -575,7 +660,10 @@ test("browser control server releases only ready tabs for an authenticated conve
     conversationKey: "b".repeat(64),
   };
   const host = {
-    turnTabs: new Map([[ready.id, ready], [running.id, running]]),
+    turnTabs: new Map([
+      [ready.id, ready],
+      [running.id, running],
+    ]),
     logger: { info: (event, detail) => releaseEvents.push([event, detail]) },
     removeTurnTab(tab, abortRunning) {
       assert.equal(abortRunning, false);
@@ -609,12 +697,17 @@ test("browser control server releases only ready tabs for an authenticated conve
     assert.deepEqual(await response.json(), { ok: true, released: 1 });
     assert.deepEqual(removed, ["ready-tab"]);
     assert.deepEqual([...host.turnTabs.keys()], ["running-tab"]);
-    assert.deepEqual(releaseEvents, [["browser.tab_released", {
-      tabId: "ready-tab",
-      traceId: "ready-trace",
-      status: "ready",
-      reason: "retained_conversation_superseded",
-    }]]);
+    assert.deepEqual(releaseEvents, [
+      [
+        "browser.tab_released",
+        {
+          tabId: "ready-tab",
+          traceId: "ready-trace",
+          status: "ready",
+          reason: "retained_conversation_superseded",
+        },
+      ],
+    ]);
   } finally {
     await server.close();
   }
@@ -627,14 +720,15 @@ test("browser control server rejects malformed retained-conversation contracts",
     getPreferences: () => ({}),
   }).start();
   const descriptor = server.descriptor();
-  const post = (body) => fetch(`${descriptor.endpoint}/v1/turn/start`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${descriptor.token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ traceId: "abcdef123456", helperPid: process.pid, ...body }),
-  });
+  const post = (body) =>
+    fetch(`${descriptor.endpoint}/v1/turn/start`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${descriptor.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ traceId: "abcdef123456", helperPid: process.pid, ...body }),
+    });
   try {
     assert.equal((await post({ conversationKey: "ABC" })).status, 400);
     assert.equal((await post({ requireRetainedConversation: true })).status, 400);

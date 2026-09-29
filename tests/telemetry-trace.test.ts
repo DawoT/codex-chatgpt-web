@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, stat, readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { TelemetryTraceSink, type TelemetryTraceRecord } from "../src/adapters/chatgpt-web/telemetry-trace";
+import { join } from "node:path";
+import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
 
 describe("TelemetryTraceSink", () => {
   let logDir: string;
@@ -17,7 +17,13 @@ describe("TelemetryTraceSink", () => {
 
   it("does not leak nested credentials or arbitrary error text", async () => {
     const sink = new TelemetryTraceSink(logDir);
-    await sink.record({ traceId: "private", kind: "command", terminalState: "failed", error: "Authorization: Bearer private-value", metadata: { details: { password: "nested-value" } } });
+    await sink.record({
+      traceId: "private",
+      kind: "command",
+      terminalState: "failed",
+      error: "Authorization: Bearer private-value",
+      metadata: { details: { password: "nested-value" } },
+    });
     const raw = await readFile(join(logDir, "telemetry.jsonl"), "utf8");
     expect(raw).not.toContain("private-value");
     expect(raw).not.toContain("nested-value");
@@ -25,7 +31,11 @@ describe("TelemetryTraceSink", () => {
 
   it("coordinates independent sink instances through rotations", async () => {
     const sinks = Array.from({ length: 20 }, () => new TelemetryTraceSink(logDir, { maxFileBytes: 400, maxFiles: 30 }));
-    await Promise.all(sinks.map((sink, index) => sink.record({ traceId: `parallel-${index}`, kind: "turn", terminalState: "completed" })));
+    await Promise.all(
+      sinks.map((sink, index) =>
+        sink.record({ traceId: `parallel-${index}`, kind: "turn", terminalState: "completed" }),
+      ),
+    );
     expect(await sinks[0].query({ limit: 30 })).toHaveLength(20);
     for (const name of await readdir(logDir)) {
       expect((await stat(join(logDir, name))).size).toBeLessThanOrEqual(400);
@@ -35,7 +45,7 @@ describe("TelemetryTraceSink", () => {
   it("refuses symlink archives rather than reading external records", async () => {
     const fs = await import("node:fs/promises");
     const target = join(logDir, "private.jsonl");
-    await fs.writeFile(target, JSON.stringify({ version: 1, traceId: "foreign-private-record" }) + "\n");
+    await fs.writeFile(target, `${JSON.stringify({ version: 1, traceId: "foreign-private-record" })}\n`);
     await fs.symlink(target, join(logDir, "telemetry.jsonl.1"));
     await expect(new TelemetryTraceSink(logDir).query()).rejects.toThrow();
   });
@@ -120,7 +130,7 @@ describe("TelemetryTraceSink", () => {
     }
 
     const files = await readdir(logDir);
-    const traceFiles = files.filter(f => f.startsWith("telemetry.jsonl"));
+    const traceFiles = files.filter((f) => f.startsWith("telemetry.jsonl"));
     // Must not exceed maxFiles
     expect(traceFiles.length).toBeLessThanOrEqual(3);
     expect(traceFiles).toContain("telemetry.jsonl");

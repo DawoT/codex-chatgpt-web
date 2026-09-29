@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SharedCommandAdmission } from "../src/adapters/chatgpt-web/shared-command-admission";
@@ -26,12 +26,12 @@ test("separate database connections grant waiting sessions in FIFO order", async
   const third = new SharedCommandAdmission(1, 2, 2000, configHome);
   const releaseFirst = await first.acquire();
   const order: string[] = [];
-  const next = second.acquire().then(release => {
+  const next = second.acquire().then((release) => {
     order.push("second");
     release();
   });
   await Bun.sleep(40);
-  const last = third.acquire().then(release => {
+  const last = third.acquire().then((release) => {
     order.push("third");
     release();
   });
@@ -48,7 +48,7 @@ test("aborted waiting session loses its ticket and cannot consume the next slot"
   const second = new SharedCommandAdmission(1, 1, 1000, configHome);
   const release = await first.acquire();
   const controller = new AbortController();
-  const waiting = second.acquire(controller.signal).catch(error => error);
+  const waiting = second.acquire(controller.signal).catch((error) => error);
   await Bun.sleep(40);
   controller.abort(new Error("cancelled"));
   expect((await waiting).message).toBe("cancelled");
@@ -102,10 +102,7 @@ test("recovery refuses an owner from an unverified PID namespace", async () => {
   const id = admission.status().active[0]!.id;
   const database = new Database(join(configHome, "runtime", "chat-first-admission.sqlite"));
   try {
-    database.run("UPDATE command_admission SET owner_identity = ? WHERE id = ?", [
-      "linux|foreign-boot|pid:[1]|1",
-      id,
-    ]);
+    database.run("UPDATE command_admission SET owner_identity = ? WHERE id = ?", ["linux|foreign-boot|pid:[1]|1", id]);
     expect(admission.status().active[0]?.ownerState).toBe("unknown");
     expect(() => admission.recoverStale(id, true)).toThrow("unverified");
   } finally {
@@ -119,8 +116,7 @@ test("admission refuses a symlinked runtime directory", () => {
   const target = join(configHome, "target");
   mkdirSync(target);
   symlinkSync(target, join(configHome, "runtime"));
-  expect(() => new SharedCommandAdmission(1, 1, 1000, configHome))
-    .toThrow("private runtime directory");
+  expect(() => new SharedCommandAdmission(1, 1, 1000, configHome)).toThrow("private runtime directory");
 });
 
 test("unknown older owner identity requires separate offline acknowledgement", () => {
@@ -129,10 +125,10 @@ test("unknown older owner identity requires separate offline acknowledgement", (
   const admission = new SharedCommandAdmission(1, 1, 1000, configHome);
   const database = new Database(join(configHome, "runtime", "chat-first-admission.sqlite"));
   try {
-    database.run(
-      "INSERT INTO command_admission (state, owner_pid, owner_identity) VALUES ('active', ?, ?)",
-      [999_999_999, "linux|previous-boot|pid:[1]|1"],
-    );
+    database.run("INSERT INTO command_admission (state, owner_pid, owner_identity) VALUES ('active', ?, ?)", [
+      999_999_999,
+      "linux|previous-boot|pid:[1]|1",
+    ]);
     const lease = admission.status().active[0]!;
     expect(lease.ownerState).toBe("unknown");
     expect(() => admission.recoverStale(lease.id, true)).toThrow("unverified");

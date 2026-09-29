@@ -1,10 +1,7 @@
 /** Only native session waits are shortened; shell execution deadlines are not yields.
  * This pure function is also embedded in the native JavaScript gateway.
  */
-export function boundedSessionArguments(
-  name: string,
-  args: Record<string, unknown>,
-): Record<string, unknown> {
+export function boundedSessionArguments(name: string, args: Record<string, unknown>): Record<string, unknown> {
   if (name !== "exec_command" && name !== "write_stdin") {
     return args;
   }

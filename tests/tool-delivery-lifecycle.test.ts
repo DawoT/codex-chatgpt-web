@@ -1,19 +1,19 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultBrokerEndpoint } from "../src/config";
+import { McpTelemetry } from "../src/adapters/chatgpt-web/mcp-telemetry";
+import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
+import { ToolDeliveryLifecycle } from "../src/adapters/chatgpt-web/tool-delivery-lifecycle";
 import {
+  type BrokerToolResult,
   callTurnBroker,
   RemoteTurnBroker,
   TurnBroker,
-  type BrokerToolResult,
 } from "../src/adapters/chatgpt-web/turn-broker";
-import { ToolDeliveryLifecycle } from "../src/adapters/chatgpt-web/tool-delivery-lifecycle";
 import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
-import { McpTelemetry } from "../src/adapters/chatgpt-web/mcp-telemetry";
-import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
+import { defaultBrokerEndpoint } from "../src/config";
 
 test("tool delivery lifecycle enforces causal phase ordering", () => {
   const lifecycle = new ToolDeliveryLifecycle();
@@ -24,12 +24,7 @@ test("tool delivery lifecycle enforces causal phase ordering", () => {
   lifecycle.mark("host_started");
   lifecycle.mark("result_received");
 
-  expect(lifecycle.phases()).toEqual([
-    "browser_observed",
-    "codex_emitted",
-    "host_started",
-    "result_received",
-  ]);
+  expect(lifecycle.phases()).toEqual(["browser_observed", "codex_emitted", "host_started", "result_received"]);
 });
 
 test("replayed owner observations do not duplicate lifecycle phases", () => {
@@ -58,13 +53,17 @@ test("broker keeps one call ID across replay and rejects a result after revocati
   try {
     const token = await broker.register(environment, 30_000, "delivery-lifecycle-test");
     const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, { method: "claim", token });
-    const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
-      method: "invoke",
-      bindingId: claimed.bindingId,
-      wireName: "exec_command",
-      freeform: false,
-      arguments: { cmd: "pwd" },
-    }, 30_000);
+    const invocation = callTurnBroker<BrokerToolResult>(
+      socketPath,
+      {
+        method: "invoke",
+        bindingId: claimed.bindingId,
+        wireName: "exec_command",
+        freeform: false,
+        arguments: { cmd: "pwd" },
+      },
+      30_000,
+    );
     const [request] = await owner.nextToolBatch(token);
     expect(request).toBeDefined();
     await owner.recordToolLifecyclePhase(token, request!.callId, "browser_observed", "browser_acknowledged");
@@ -72,12 +71,14 @@ test("broker keeps one call ID across replay and rejects a result after revocati
     expect(replayed!.callId).toBe(request!.callId);
     await owner.recordToolLifecyclePhase(token, request!.callId, "browser_observed", "replayed_boundary");
     await owner.recordToolLifecyclePhase(token, request!.callId, "codex_emitted", "adapter_emitted");
-    await expect(callTurnBroker(socketPath, {
-      method: "owner_tool_phase",
-      token,
-      callId: request!.callId,
-      lifecyclePhase: "host_started",
-    })).rejects.toThrow("may only record");
+    await expect(
+      callTurnBroker(socketPath, {
+        method: "owner_tool_phase",
+        token,
+        callId: request!.callId,
+        lifecyclePhase: "host_started",
+      }),
+    ).rejects.toThrow("may only record");
     const result: BrokerToolResult = { content: [{ type: "text", text: "ok" }] };
     await owner.completeTool(token, request!.callId, result);
     expect(await invocation).toEqual(result);
@@ -103,13 +104,17 @@ test("a detached tool observer does not receive a replay or revoke its pending c
   try {
     const token = await broker.register(environment, 30_000, "detached-observer-test");
     const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, { method: "claim", token });
-    const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
-      method: "invoke",
-      bindingId: claimed.bindingId,
-      wireName: "exec_command",
-      freeform: false,
-      arguments: { cmd: "pwd" },
-    }, 30_000);
+    const invocation = callTurnBroker<BrokerToolResult>(
+      socketPath,
+      {
+        method: "invoke",
+        bindingId: claimed.bindingId,
+        wireName: "exec_command",
+        freeform: false,
+        arguments: { cmd: "pwd" },
+      },
+      30_000,
+    );
     const [request] = await broker.nextToolBatch(token);
     expect(request).toBeDefined();
     const detached = new AbortController();
@@ -132,13 +137,7 @@ test("lifecycle telemetry keeps each phase on the same trace and call ID", async
   const callId = "call_delivery0123456789";
   try {
     const telemetry = new McpTelemetry(root);
-    for (const event of [
-      "broker_claimed",
-      "browser_observed",
-      "codex_emitted",
-      "host_started",
-      "result_received",
-    ]) {
+    for (const event of ["broker_claimed", "browser_observed", "codex_emitted", "host_started", "result_received"]) {
       telemetry.write({ trace_id: traceId, broker_call_id: callId, event, evidence: "test_observation" });
     }
     const sink = new TelemetryTraceSink(root);
@@ -148,18 +147,16 @@ test("lifecycle telemetry keeps each phase on the same trace and call ID", async
       records = await sink.query({ traceId });
     }
     expect(records).toHaveLength(5);
-    expect(new Set(records.map(record => record.metadata?.event))).toEqual(new Set([
-      "broker_claimed",
-      "browser_observed",
-      "codex_emitted",
-      "host_started",
-      "result_received",
-    ]));
-    expect(records.every(record => record.brokerCallId === callId)).toBe(true);
-    expect(records.every(record => record.metadata?.scope === "broker_tool_lifecycle")).toBe(true);
-    expect(records.every(record => record.metadata?.process_generation === records[0]?.metadata?.process_generation)).toBe(true);
-    expect(records.every(record => record.metadata?.protocol_version === 2)).toBe(true);
-    expect(records.every(record => typeof record.metadata?.artifact_sha256 === "string")).toBe(true);
+    expect(new Set(records.map((record) => record.metadata?.event))).toEqual(
+      new Set(["broker_claimed", "browser_observed", "codex_emitted", "host_started", "result_received"]),
+    );
+    expect(records.every((record) => record.brokerCallId === callId)).toBe(true);
+    expect(records.every((record) => record.metadata?.scope === "broker_tool_lifecycle")).toBe(true);
+    expect(
+      records.every((record) => record.metadata?.process_generation === records[0]?.metadata?.process_generation),
+    ).toBe(true);
+    expect(records.every((record) => record.metadata?.protocol_version === 2)).toBe(true);
+    expect(records.every((record) => typeof record.metadata?.artifact_sha256 === "string")).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -179,13 +176,17 @@ test("a stalled browser boundary times out and revokes the pending MCP call", as
   try {
     const token = await broker.register(environment, 30_000, "stalled-boundary-test");
     const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, { method: "claim", token });
-    const invocation = callTurnBroker<BrokerToolResult>(socketPath, {
-      method: "invoke",
-      bindingId: claimed.bindingId,
-      wireName: "exec_command",
-      freeform: false,
-      arguments: { cmd: "pwd" },
-    }, 30_000);
+    const invocation = callTurnBroker<BrokerToolResult>(
+      socketPath,
+      {
+        method: "invoke",
+        bindingId: claimed.bindingId,
+        wireName: "exec_command",
+        freeform: false,
+        arguments: { cmd: "pwd" },
+      },
+      30_000,
+    );
     const invocationOutcome = invocation.then(
       () => "completed",
       () => "revoked",
@@ -194,13 +195,13 @@ test("a stalled browser boundary times out and revokes the pending MCP call", as
     const progress = new ChatGptExternalTurnProgress();
     const revision = progress.recordToolBatch(1);
     const started = performance.now();
-    await expect(progress.waitForToolBatchObservation(revision, undefined, 20, undefined, 30))
-      .rejects.toMatchObject({ code: "chatgpt_tool_boundary_observation_timeout" });
+    await expect(progress.waitForToolBatchObservation(revision, undefined, 20, undefined, 30)).rejects.toMatchObject({
+      code: "chatgpt_tool_boundary_observation_timeout",
+    });
     expect(performance.now() - started).toBeLessThan(1_000);
     broker.revoke(token);
     expect(await invocationOutcome).toBe("revoked");
-    expect(() => broker.completeTool(token, request!.callId, { content: [] }))
-      .toThrow("invalid or expired");
+    expect(() => broker.completeTool(token, request!.callId, { content: [] })).toThrow("invalid or expired");
   } finally {
     await broker.close();
     rmSync(root, { recursive: true, force: true });

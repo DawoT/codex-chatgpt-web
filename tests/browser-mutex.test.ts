@@ -23,12 +23,12 @@ describe("InteractiveBrowserTurnMutex", () => {
     const lock1 = await mutex.acquire("turn-1");
     order.push("acquired-1");
 
-    const p2 = mutex.acquire("turn-2").then(lock => {
+    const p2 = mutex.acquire("turn-2").then((lock) => {
       order.push("acquired-2");
       return lock;
     });
 
-    const p3 = mutex.acquire("turn-3").then(lock => {
+    const p3 = mutex.acquire("turn-3").then((lock) => {
       order.push("acquired-3");
       return lock;
     });
@@ -73,10 +73,7 @@ describe("InteractiveBrowserTurnMutex", () => {
       }
     }
 
-    expect(grants).toEqual([
-      "A1", "B1", "A2", "B2", "A3", "B3",
-      "A4", "B4", "A5", "B5", "A6", "B6",
-    ]);
+    expect(grants).toEqual(["A1", "B1", "A2", "B2", "A3", "B3", "A4", "B4", "A5", "B5", "A6", "B6"]);
     expect(mutex.isLocked()).toBeFalse();
   });
 

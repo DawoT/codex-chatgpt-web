@@ -1,15 +1,14 @@
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { basename, dirname, join, posix, resolve, win32 } from "node:path";
-import { getStaticTOMLValue, parseTOML, type AST } from "toml-eslint-parser";
+import { type AST, getStaticTOMLValue, parseTOML } from "toml-eslint-parser";
+import type { InstalledCodexInterruptHook } from "./codex-integration-shared";
 import type { AppConfig } from "./config";
 import { getConfigDir } from "./config";
-import type { InstalledCodexInterruptHook } from "./codex-integration-shared";
 
 export const MANAGED_INTERRUPT_HOOK_START =
   "# Managed by codex-chatgpt-web: release the exact Responses request when its Codex turn is interrupted.";
-export const MANAGED_INTERRUPT_HOOK_END =
-  "# End codex-chatgpt-web interrupt lifecycle hook.";
+export const MANAGED_INTERRUPT_HOOK_END = "# End codex-chatgpt-web interrupt lifecycle hook.";
 
 function canonicalJson(value: unknown): unknown {
   if (value instanceof Date) return value.toISOString();
@@ -26,12 +25,14 @@ function canonicalJson(value: unknown): unknown {
 export function codexInterruptHookHash(command: string): string {
   const identity = canonicalJson({
     event_name: "interrupt",
-    hooks: [{
-      type: "command",
-      command,
-      timeout: 3,
-      async: false,
-    }],
+    hooks: [
+      {
+        type: "command",
+        command,
+        timeout: 3,
+        async: false,
+      },
+    ],
   });
   return `sha256:${createHash("sha256").update(JSON.stringify(identity)).digest("hex")}`;
 }
@@ -118,13 +119,14 @@ export function installCodexInterruptHookCommand(
     "",
     trustSection,
   ].join(ending);
-  const leading = text.length === 0
-    ? ""
-    : text.endsWith(`${ending}${ending}`)
+  const leading =
+    text.length === 0
       ? ""
-      : text.endsWith(ending)
-        ? ending
-        : `${ending}${ending}`;
+      : text.endsWith(`${ending}${ending}`)
+        ? ""
+        : text.endsWith(ending)
+          ? ending
+          : `${ending}${ending}`;
   const trailing = text.length > 0 && text.endsWith(ending) ? ending : "";
   const fragment = `${leading}${core}${trailing}`;
   const ast = parseTOML(text.replace(/\r(?!\n)/g, "\n"), { tomlVersion: "1.0" });
@@ -133,8 +135,11 @@ export function installCodexInterruptHookCommand(
   if (inline) {
     const end = inline.range[1] - 1;
     const last = inline.elements.at(-1);
-    const comma = last && !ast.tokens.some(token => token.value === "," && token.range[0] >= last.range[1] && token.range[1] <= end)
-      ? "," : "";
+    const comma =
+      last &&
+      !ast.tokens.some((token) => token.value === "," && token.range[0] >= last.range[1] && token.range[1] <= end)
+        ? ","
+        : "";
     const item = `${comma} { hooks = [{ type = "command", command = ${JSON.stringify(command)}, timeout = 3 }] } `;
     installedText = text.slice(0, end) + item + text.slice(end) + leading + trustSection + trailing;
   }
@@ -160,9 +165,9 @@ function inlineInterruptArray(ast: AST.TOMLProgram): AST.TOMLArray | undefined {
   };
   for (const node of ast.body[0].body) {
     if (node.type === "TOMLTable") {
-      if (node.resolvedKey.some(part => typeof part !== "string")) continue;
+      if (node.resolvedKey.some((part) => typeof part !== "string")) continue;
       for (const entry of node.body) {
-        const found = visit(entry.value, [...node.resolvedKey as string[], ...getStaticTOMLValue(entry.key)]);
+        const found = visit(entry.value, [...(node.resolvedKey as string[]), ...getStaticTOMLValue(entry.key)]);
         if (found) return found;
       }
     } else {
@@ -205,11 +210,15 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
   let journalAst: AST.TOMLProgram;
   const expectedGroup = { hooks: [{ type: "command", command: installed.command, timeout: 3 }] };
   const expectedState = { trusted_hash: installed.trustedHash };
-  const equal = (left: unknown, right: unknown) => JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+  const equal = (left: unknown, right: unknown) =>
+    JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
   try {
     const journal = parseHookDocument(installed.fragment);
-    if (!equal(journal.hooks?.Interrupt, [expectedGroup])
-      || !equal(journal.hooks?.state, { [installed.stateKey]: expectedState })) throw changed();
+    if (
+      !equal(journal.hooks?.Interrupt, [expectedGroup]) ||
+      !equal(journal.hooks?.state, { [installed.stateKey]: expectedState })
+    )
+      throw changed();
     document = parseHookDocument(text);
     // Normalize bare CR without moving offsets; the parser retains every source range and comment.
     ast = parseTOML(text.replace(/\r(?!\n)/g, "\n"), { tomlVersion: "1.0" });
@@ -219,7 +228,7 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
   }
   const groups = document.hooks?.Interrupt;
   if (!Array.isArray(groups) || !equal(groups[installed.groupIndex], expectedGroup)) {
-    if (Array.isArray(groups) && groups.some(group => equal(group, expectedGroup))) {
+    if (Array.isArray(groups) && groups.some((group) => equal(group, expectedGroup))) {
       throw new Error("Codex interrupt lifecycle hook order changed after setup; refusing to overwrite it");
     }
     throw changed();
@@ -230,7 +239,7 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
   // A native config edit may discard comments. Authority comes from the exact journal, command,
   // group index and trust hash; a marker inside a value or duplicate marker is never authority.
   for (const marker of [MANAGED_INTERRUPT_HOOK_START, MANAGED_INTERRUPT_HOOK_END]) {
-    const comments = ast.comments.filter(comment => text.slice(...comment.range) === marker);
+    const comments = ast.comments.filter((comment) => text.slice(...comment.range) === marker);
     if (comments.length > 1 || text.split(marker).length - 1 !== comments.length) {
       throw new Error("Codex interrupt lifecycle hook markers changed after setup; refusing to overwrite them");
     }
@@ -251,8 +260,14 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
   let groupLocated = false;
   let stateLocated = false;
   const owned = (path: (string | number)[]) => {
-    if (startsWith(path, groupPath)) { groupLocated = true; return true; }
-    if (startsWith(path, statePath)) { stateLocated = true; return true; }
+    if (startsWith(path, groupPath)) {
+      groupLocated = true;
+      return true;
+    }
+    if (startsWith(path, statePath)) {
+      stateLocated = true;
+      return true;
+    }
     return false;
   };
   const removeNode = (node: AST.TOMLNode, siblings?: AST.TOMLNode[]) => {
@@ -260,9 +275,15 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
     if (node.type === "TOMLTable") {
       const path = [...node.resolvedKey];
       if (startsWith(path, groupPath)) path[2] = 0;
-      const original = journalAst.body[0].body.find(item => item.type === "TOMLTable" && equal(item.resolvedKey, path));
+      const original = journalAst.body[0].body.find(
+        (item) => item.type === "TOMLTable" && equal(item.resolvedKey, path),
+      );
       if (original) {
-        const count = installed.fragment.slice(original.range[1]).match(/^(?:\r\n|\n|\r)*/)?.[0].match(/\r\n|\n|\r/g)?.length ?? 0;
+        const count =
+          installed.fragment
+            .slice(original.range[1])
+            .match(/^(?:\r\n|\n|\r)*/)?.[0]
+            .match(/\r\n|\n|\r/g)?.length ?? 0;
         end += new RegExp(`^(?:\\r\\n|\\n|\\r){0,${count}}`).exec(text.slice(end))?.[0].length ?? 0;
       }
     }
@@ -271,7 +292,7 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
     const index = siblings.indexOf(node);
     const left = index > 0 ? siblings[index - 1]!.range[1] : node.range[1];
     const right = index > 0 ? node.range[0] : siblings[index + 1]!.range[0];
-    const comma = ast.tokens.find(token => token.value === "," && token.range[0] >= left && token.range[1] <= right);
+    const comma = ast.tokens.find((token) => token.value === "," && token.range[0] >= left && token.range[1] <= right);
     if (!comma) throw changed();
     ranges.push({ start: comma.range[0], end: comma.range[1] });
   };
@@ -289,7 +310,11 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
   const visitEntry = (entry: AST.TOMLKeyValue, prefix: (string | number)[], siblings?: AST.TOMLNode[]) => {
     const path = [...prefix, ...getStaticTOMLValue(entry.key)];
     if (owned(path)) removeNode(entry, siblings);
-    else if (equal(path, ["hooks", "Interrupt"]) && entry.value.type === "TOMLArray" && entry.value.elements.length === 1) {
+    else if (
+      equal(path, ["hooks", "Interrupt"]) &&
+      entry.value.type === "TOMLArray" &&
+      entry.value.elements.length === 1
+    ) {
       if (!owned([...path, 0])) throw changed();
       removeNode(entry, siblings);
     } else visitValue(entry.value, path);
@@ -310,7 +335,8 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
       const lineStart = Math.max(text.lastIndexOf("\n", range.start - 1), text.lastIndexOf("\r", range.start - 1)) + 1;
       if (/^[ \t]*$/.test(text.slice(lineStart, range.start))) range.start = lineStart;
       const tail = /[\r\n]/.test(text[range.end - 1] ?? "")
-        ? null : /^[ \t]*(?:\r\n|\n|\r|$)/.exec(text.slice(range.end));
+        ? null
+        : /^[ \t]*(?:\r\n|\n|\r|$)/.exec(text.slice(range.end));
       if (tail) range.end += tail[0].length;
     }
   }
@@ -325,9 +351,16 @@ function locateCodexInterruptHook(text: string, installed: InstalledCodexInterru
   expectedRestored.hooks!.Interrupt!.splice(installed.groupIndex, 1);
   delete expectedRestored.hooks!.state![installed.stateKey];
   try {
-    if (!equal(withoutEmptyHookContainers(parseHookDocument(removeRanges(text, merged))),
-      withoutEmptyHookContainers(expectedRestored))) throw changed();
-  } catch { throw changed(); }
+    if (
+      !equal(
+        withoutEmptyHookContainers(parseHookDocument(removeRanges(text, merged))),
+        withoutEmptyHookContainers(expectedRestored),
+      )
+    )
+      throw changed();
+  } catch {
+    throw changed();
+  }
   return merged;
 }
 
@@ -350,8 +383,11 @@ export function restoreCodexInterruptHook(
     if (hooks === undefined) return text;
     if (hooks && typeof hooks === "object" && !Array.isArray(hooks) && !Object.hasOwn(hooks, "Interrupt")) {
       const state = (hooks as Record<string, unknown>).state;
-      if (state === undefined || (state && typeof state === "object" && !Array.isArray(state)
-        && !Object.hasOwn(state, installed.stateKey))) return text;
+      if (
+        state === undefined ||
+        (state && typeof state === "object" && !Array.isArray(state) && !Object.hasOwn(state, installed.stateKey))
+      )
+        return text;
     }
   }
   const owned = locateCodexInterruptHook(text, installed).sort((left, right) => right.start - left.start);

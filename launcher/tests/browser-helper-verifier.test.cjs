@@ -9,7 +9,9 @@ test("launcher verification delegates exact connector selection to the browser h
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-browser-helper-verify-"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const script = path.join(root, "helper.cjs");
-  fs.writeFileSync(script, `
+  fs.writeFileSync(
+    script,
+    `
     const input = require("node:readline").createInterface({ input: process.stdin });
     const send = value => process.stdout.write(JSON.stringify(value) + "\\n");
     send({ type: "ready" });
@@ -21,7 +23,8 @@ test("launcher verification delegates exact connector selection to the browser h
       if (message.config.browserHostDescriptorPath !== "/runtime/launcher-browser.json") process.exit(3);
       send({ type: "result", id: message.id, text: message.config.appName });
     });
-  `);
+  `,
+  );
 
   const result = await verifyConnectorWithBrowserHelper({
     helper: { executable: process.execPath, script },
@@ -37,7 +40,9 @@ test("launcher verification consumes a helper input EOF after the result", async
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-browser-helper-eof-"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const script = path.join(root, "helper.cjs");
-  fs.writeFileSync(script, `
+  fs.writeFileSync(
+    script,
+    `
     const input = require("node:readline").createInterface({ input: process.stdin });
     const send = value => process.stdout.write(JSON.stringify(value) + "\\n");
     send({ type: "ready" });
@@ -48,7 +53,8 @@ test("launcher verification consumes a helper input EOF after the result", async
       process.stdin.destroy();
       setTimeout(() => process.exit(0), 100);
     });
-  `);
+  `,
+  );
 
   const result = await verifyConnectorWithBrowserHelper({
     helper: { executable: process.execPath, script },
@@ -64,7 +70,9 @@ test("launcher verification preserves the helper error class and correlation id"
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-browser-helper-error-"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const script = path.join(root, "helper.cjs");
-  fs.writeFileSync(script, `
+  fs.writeFileSync(
+    script,
+    `
     const input = require("node:readline").createInterface({ input: process.stdin });
     const send = value => process.stdout.write(JSON.stringify(value) + "\\n");
     send({ type: "ready" });
@@ -79,7 +87,8 @@ test("launcher verification preserves the helper error class and correlation id"
         message: "connector proof cleanup failed",
       });
     });
-  `);
+  `,
+  );
 
   await assert.rejects(
     verifyConnectorWithBrowserHelper({

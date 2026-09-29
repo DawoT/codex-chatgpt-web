@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
-import { ChatGptBrowserWorker, type BrowserTurn } from "../src/adapters/chatgpt-web/browser-worker";
+import { type BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import { createChatGptStructuredOutputValidator } from "../src/adapters/chatgpt-web/output-validation";
@@ -10,15 +10,21 @@ import type { AdapterEvent, CodexProviderConfig } from "../src/types";
 
 const capabilities = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
 const turnToken = "turn_12345678901234567890123456789012";
-const parse = (text: unknown) => parseRequest({
-  model: CHATGPT_WEB_MODEL_ID,
-  stream: true,
-  input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Return it." }] }],
-  text,
-});
+const parse = (text: unknown) =>
+  parseRequest({
+    model: CHATGPT_WEB_MODEL_ID,
+    stream: true,
+    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Return it." }] }],
+    text,
+  });
 
 test("verbosity and JSON-schema controls survive parser-to-prompt transport", () => {
-  const schema = { type: "object", properties: { answer: { type: "string" } }, required: ["answer"], additionalProperties: false };
+  const schema = {
+    type: "object",
+    properties: { answer: { type: "string" } },
+    required: ["answer"],
+    additionalProperties: false,
+  };
   const parsed = parse({ verbosity: "high", format: { type: "json_schema", name: "result", strict: true, schema } });
   expect(parsed.options.verbosity).toBe("high");
   expect(parsed.options.outputFormat).toEqual({ type: "json_schema", name: "result", strict: true, schema });
@@ -46,7 +52,8 @@ test("strict JSON validation accepts only the exact full schema-conforming answe
     '```json\n{"ok":true,"count":2}\n```',
     '{"ok":"yes","count":2}',
     '{"ok":true,"count":2,"extra":1}',
-  ]) expect(() => validate(invalid)).toThrow(ChatGptWebAdapterError);
+  ])
+    expect(() => validate(invalid)).toThrow(ChatGptWebAdapterError);
 });
 
 test("non-strict JSON schema does not install a local output validator", () => {
@@ -55,16 +62,23 @@ test("non-strict JSON schema does not install a local output validator", () => {
 });
 
 test("invalid strict schema fails before browser execution and compaction ignores response controls", () => {
-  expect(() => createChatGptStructuredOutputValidator({
-    type: "json_schema", name: "bad", strict: true, schema: { type: "not-a-json-schema-type" },
-  })).toThrow(ChatGptWebAdapterError);
-  const parsed = parse({ verbosity: "low", format: { type: "json_schema", name: "x", strict: true, schema: { type: "string" } } });
+  expect(() =>
+    createChatGptStructuredOutputValidator({
+      type: "json_schema",
+      name: "bad",
+      strict: true,
+      schema: { type: "not-a-json-schema-type" },
+    }),
+  ).toThrow(ChatGptWebAdapterError);
+  const parsed = parse({
+    verbosity: "low",
+    format: { type: "json_schema", name: "x", strict: true, schema: { type: "string" } },
+  });
   parsed._compactionRequest = true;
   const compiled = compileChatGptWebPrompt(parsed, { ...capabilities, localToolsEnabled: false });
   expect(compiled.text).not.toContain("response verbosity");
   expect(compiled.text).not.toContain("JSON-schema final answer");
 });
-
 
 async function runStrictAdapterAnswer(answer: string): Promise<AdapterEvent[]> {
   const nonce = `${Date.now()}-${Math.random()}`;
@@ -99,12 +113,12 @@ async function runStrictAdapterAnswer(answer: string): Promise<AdapterEvent[]> {
   raw.client_metadata = {
     "x-codex-turn-metadata": JSON.stringify({ thread_id: threadId, turn_id: turnId }),
   };
-  const currentUser = raw.input.find(item => item.type === "message" && item.role === "user");
+  const currentUser = raw.input.find((item) => item.type === "message" && item.role === "user");
   if (!currentUser) throw new Error("structured-output fixture has no user message");
   currentUser.internal_chat_message_metadata_passthrough = { turn_id: turnId };
 
   const events: AdapterEvent[] = [];
-  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async (turn) => {
     const prepared = await turn.prepare();
     expect(prepared.text).toContain('strict JSON-schema final answer named "adapter_payload"');
     const cut = Math.max(1, Math.floor(answer.length / 2));
@@ -113,10 +127,8 @@ async function runStrictAdapterAnswer(answer: string): Promise<AdapterEvent[]> {
     return answer;
   };
   try {
-    await createChatGptWebAdapter(provider).runTurn!(
-      request,
-      { headers: new Headers() },
-      event => events.push(event),
+    await createChatGptWebAdapter(provider).runTurn!(request, { headers: new Headers() }, (event) =>
+      events.push(event),
     );
     return events;
   } finally {
@@ -126,7 +138,7 @@ async function runStrictAdapterAnswer(answer: string): Promise<AdapterEvent[]> {
 
 test("adapter withholds invalid strict JSON instead of streaming apparent success", async () => {
   const events = await runStrictAdapterAnswer('{"ok":"not-boolean"}');
-  expect(events.filter(event => event.type === "text_delta" && event.phase === "final_answer")).toEqual([]);
+  expect(events.filter((event) => event.type === "text_delta" && event.phase === "final_answer")).toEqual([]);
   expect(events.at(-1)).toMatchObject({
     type: "error",
     code: "structured_output_validation_failed",
@@ -137,7 +149,8 @@ test("adapter withholds invalid strict JSON instead of streaming apparent succes
 test("adapter emits one validated strict JSON final answer only after completion", async () => {
   const answer = '{"ok":true}';
   const events = await runStrictAdapterAnswer(answer);
-  expect(events.filter(event => event.type === "text_delta" && event.phase === "final_answer"))
-    .toEqual([{ type: "text_delta", text: answer, phase: "final_answer" }]);
+  expect(events.filter((event) => event.type === "text_delta" && event.phase === "final_answer")).toEqual([
+    { type: "text_delta", text: answer, phase: "final_answer" },
+  ]);
   expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
 });

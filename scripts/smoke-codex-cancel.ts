@@ -1,7 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { bridgeToResponsesSSE } from "../src/bridge";
 import { defaultConfig } from "../src/config";
 import { augmentNativeModelCatalog } from "../src/model-catalog";
@@ -55,48 +55,57 @@ const server = Bun.serve({
         headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
       });
     }
-    return Response.json({
-      error: {
-        type: "client_closed_request",
-        code: "client_cancelled",
-        message: "The ChatGPT browser tab was closed, so the Codex turn was cancelled.",
+    return Response.json(
+      {
+        error: {
+          type: "client_closed_request",
+          code: "client_cancelled",
+          message: "The ChatGPT browser tab was closed, so the Codex turn was cancelled.",
+        },
       },
-    }, { status: 400 });
+      { status: 400 },
+    );
   },
 });
 
-writeFileSync(join(codexHome, "config.toml"), [
-  'model = "chatgpt-web/high"',
-  'model_provider = "cancel-smoke"',
-  `model_catalog_json = ${JSON.stringify(join(root, "models.json"))}`,
-  "",
-  "[model_providers.cancel-smoke]",
-  'name = "Local cancellation smoke"',
-  `base_url = "http://127.0.0.1:${server.port}/v1"`,
-  'env_key = "OPENAI_API_KEY"',
-  'wire_api = "responses"',
-  "supports_websockets = false",
-  "",
-].join("\n"));
+writeFileSync(
+  join(codexHome, "config.toml"),
+  [
+    'model = "chatgpt-web/high"',
+    'model_provider = "cancel-smoke"',
+    `model_catalog_json = ${JSON.stringify(join(root, "models.json"))}`,
+    "",
+    "[model_providers.cancel-smoke]",
+    'name = "Local cancellation smoke"',
+    `base_url = "http://127.0.0.1:${server.port}/v1"`,
+    'env_key = "OPENAI_API_KEY"',
+    'wire_api = "responses"',
+    "supports_websockets = false",
+    "",
+  ].join("\n"),
+);
 
 try {
   const startedAt = Date.now();
-  const child = Bun.spawn([
-    codex,
-    "exec",
-    "--skip-git-repo-check",
-    "--json",
-    "--dangerously-bypass-approvals-and-sandbox",
-    "--model",
-    "chatgpt-web/high",
-    "Wait for the provider cancellation contract.",
-  ], {
-    cwd: root,
-    env: { ...process.env, CODEX_HOME: codexHome, OPENAI_API_KEY: "local-cancel-smoke" },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const child = Bun.spawn(
+    [
+      codex,
+      "exec",
+      "--skip-git-repo-check",
+      "--json",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--model",
+      "chatgpt-web/high",
+      "Wait for the provider cancellation contract.",
+    ],
+    {
+      cwd: root,
+      env: { ...process.env, CODEX_HOME: codexHome, OPENAI_API_KEY: "local-cancel-smoke" },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const timeout = setTimeout(() => child.kill(), 15_000);
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,
@@ -107,9 +116,12 @@ try {
 
   if (exitCode === 0) throw new Error(`Codex reported cancellation as success:\n${stdout}`);
   if (responseRequests !== 2) {
-    throw new Error(`Codex made ${responseRequests} Responses requests; expected one streamed failure and one terminal replay`);
+    throw new Error(
+      `Codex made ${responseRequests} Responses requests; expected one streamed failure and one terminal replay`,
+    );
   }
-  if (Date.now() - startedAt >= 15_000) throw new Error("Codex cancellation did not terminate within the smoke deadline");
+  if (Date.now() - startedAt >= 15_000)
+    throw new Error("Codex cancellation did not terminate within the smoke deadline");
   if (!`${stdout}\n${stderr}`.includes("client_cancelled")) {
     throw new Error(`Codex did not surface the terminal cancellation body:\n${stdout}\n${stderr}`);
   }

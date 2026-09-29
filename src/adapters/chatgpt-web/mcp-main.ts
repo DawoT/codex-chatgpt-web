@@ -1,5 +1,5 @@
 import { defaultBrokerEndpoint, loadConfig, resolveBrokerEndpoint } from "../../config";
-import { runChatGptMcpServer, type ChatGptMcpContract } from "./mcp-server";
+import { type ChatGptMcpContract, runChatGptMcpServer } from "./mcp-server";
 
 function option(args: string[], name: string, fallback: string): string {
   const index = args.indexOf(name);

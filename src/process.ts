@@ -1,4 +1,4 @@
-import { spawnSync, type SpawnSyncOptions } from "node:child_process";
+import { type SpawnSyncOptions, spawnSync } from "node:child_process";
 
 export interface CommandResult {
   status: number;
@@ -6,10 +6,7 @@ export interface CommandResult {
   stderr: string;
 }
 
-export function processRunning(
-  pid: unknown,
-  probe: (pid: number, signal: 0) => void = process.kill,
-): boolean {
+export function processRunning(pid: unknown, probe: (pid: number, signal: 0) => void = process.kill): boolean {
   if (!Number.isInteger(pid) || (pid as number) < 1) return false;
   try {
     probe(pid as number, 0);
@@ -30,8 +27,8 @@ export function runCommand(command: string, args: string[], options: SpawnSyncOp
   if (result.error) throw result.error;
   return {
     status: result.status ?? 1,
-    stdout: typeof result.stdout === "string" ? result.stdout : result.stdout?.toString("utf8") ?? "",
-    stderr: typeof result.stderr === "string" ? result.stderr : result.stderr?.toString("utf8") ?? "",
+    stdout: typeof result.stdout === "string" ? result.stdout : (result.stdout?.toString("utf8") ?? ""),
+    stderr: typeof result.stderr === "string" ? result.stderr : (result.stderr?.toString("utf8") ?? ""),
   };
 }
 

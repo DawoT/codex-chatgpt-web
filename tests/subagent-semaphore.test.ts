@@ -8,7 +8,7 @@ import {
 import { isChatGptSubagentTurn } from "../src/adapters/chatgpt-web/environment";
 import type { CodexParsedRequest } from "../src/types";
 
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 describe("Sprint D: Browser Tab Pool & Subagent Semaphore", () => {
   describe("SubagentConcurrencyGovernor", () => {
@@ -45,7 +45,7 @@ describe("Sprint D: Browser Tab Pool & Subagent Semaphore", () => {
 
       let p3Resolved = false;
       let p3Release: (() => void) | undefined;
-      const p3 = governor.acquire().then(rel => {
+      const _p3 = governor.acquire().then((rel) => {
         p3Resolved = true;
         p3Release = rel;
         return rel;
@@ -96,7 +96,7 @@ describe("Sprint D: Browser Tab Pool & Subagent Semaphore", () => {
 
       const abort = new AbortController();
       let abortedError: any;
-      const p3 = governor.acquire(abort.signal).catch(err => {
+      const p3 = governor.acquire(abort.signal).catch((err) => {
         abortedError = err;
       });
 
@@ -122,7 +122,7 @@ describe("Sprint D: Browser Tab Pool & Subagent Semaphore", () => {
       const release1 = await governor.acquire();
 
       let timeoutError: any;
-      const p2 = governor.acquire().catch(err => {
+      const p2 = governor.acquire().catch((err) => {
         timeoutError = err;
       });
 
@@ -146,8 +146,12 @@ describe("Sprint D: Browser Tab Pool & Subagent Semaphore", () => {
 
       let err1: any;
       let err2: any;
-      const p2 = governor.acquire().catch(err => { err1 = err; });
-      const p3 = governor.acquire().catch(err => { err2 = err; });
+      const p2 = governor.acquire().catch((err) => {
+        err1 = err;
+      });
+      const p3 = governor.acquire().catch((err) => {
+        err2 = err;
+      });
 
       expect(governor.queued).toBe(2);
 

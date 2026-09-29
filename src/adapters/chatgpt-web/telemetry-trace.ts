@@ -1,5 +1,5 @@
-import { open, mkdir, stat, rename, rm, readdir, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
+import { mkdir, open, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface TelemetryTraceRecord {
@@ -62,8 +62,13 @@ export class TelemetryTraceSink {
     this.directory = directory;
     this.maxFileBytes = options?.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
     this.maxFiles = options?.maxFiles ?? DEFAULT_MAX_FILES;
-    if (!Number.isSafeInteger(this.maxFileBytes) || this.maxFileBytes < 128
-      || !Number.isSafeInteger(this.maxFiles) || this.maxFiles < 1 || this.maxFiles > 100) {
+    if (
+      !Number.isSafeInteger(this.maxFileBytes) ||
+      this.maxFileBytes < 128 ||
+      !Number.isSafeInteger(this.maxFiles) ||
+      this.maxFiles < 1 ||
+      this.maxFiles > 100
+    ) {
       throw new RangeError("Telemetry requires maxFileBytes >= 128 and maxFiles between 1 and 100");
     }
   }
@@ -77,8 +82,9 @@ export class TelemetryTraceSink {
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        if (performance.now() >= deadline) throw new Error("Telemetry writer lock unavailable; verify crashed writer before manual recovery");
-        await new Promise(resolve => setTimeout(resolve, 10));
+        if (performance.now() >= deadline)
+          throw new Error("Telemetry writer lock unavailable; verify crashed writer before manual recovery");
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
     }
     try {
@@ -139,7 +145,11 @@ export class TelemetryTraceSink {
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       await this.withWriterLock(async () => {
         await this.rotateIfNeeded(activePath, incomingBytes);
-        const handle = await open(activePath, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
+        const handle = await open(
+          activePath,
+          constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+          0o600,
+        );
         try {
           if (!(await handle.stat()).isFile()) throw new Error("Telemetry destination must be a regular file");
           await handle.writeFile(line, "utf8");
@@ -162,13 +172,18 @@ export class TelemetryTraceSink {
   }): Promise<TelemetryTraceRecord[]> {
     await this.writeMutex;
     const limit = options?.limit ?? 50;
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new RangeError("Telemetry query limit must be between 1 and 1000");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000)
+      throw new RangeError("Telemetry query limit must be between 1 and 1000");
     const records: TelemetryTraceRecord[] = [];
 
     // Find all telemetry files in order
     const files = await readdir(this.directory).catch(() => []);
     const traceFiles = files
-      .filter(f => f === "telemetry.jsonl" || /^telemetry\.jsonl\.[1-9][0-9]*$/.test(f) && Number(f.split(".").at(-1)) < this.maxFiles)
+      .filter(
+        (f) =>
+          f === "telemetry.jsonl" ||
+          (/^telemetry\.jsonl\.[1-9][0-9]*$/.test(f) && Number(f.split(".").at(-1)) < this.maxFiles),
+      )
       .sort((a, b) => {
         if (a === "telemetry.jsonl") return -1;
         if (b === "telemetry.jsonl") return 1;
@@ -179,7 +194,10 @@ export class TelemetryTraceSink {
 
     for (const f of traceFiles) {
       if (records.length >= limit) break;
-      const handle = await open(join(this.directory, f), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => {
+      const handle = await open(
+        join(this.directory, f),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      ).catch((error) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         throw error;
       });
@@ -187,7 +205,8 @@ export class TelemetryTraceSink {
       let content: string;
       try {
         const info = await handle.stat();
-        if (!info.isFile() || info.size > this.maxFileBytes) throw new Error("Telemetry archive exceeds its budget or is not a regular file");
+        if (!info.isFile() || info.size > this.maxFileBytes)
+          throw new Error("Telemetry archive exceeds its budget or is not a regular file");
         content = await handle.readFile("utf8");
       } finally {
         await handle.close();

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BackgroundTaskManager } from "../src/adapters/chatgpt-web/background-task-manager";
@@ -11,13 +11,14 @@ delegatedCgroup?.release();
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "task-lifecycle-"));
   const manager = new BackgroundTaskManager();
-  const start = (cmd: string, extra = {}) => manager.startTask({
-    cmd,
-    cwd: root,
-    roots: [root],
-    writableRoots: [root],
-    ...extra,
-  });
+  const start = (cmd: string, extra = {}) =>
+    manager.startTask({
+      cmd,
+      cwd: root,
+      roots: [root],
+      writableRoots: [root],
+      ...extra,
+    });
   return { root, manager, start };
 }
 
@@ -82,7 +83,10 @@ test("cancelled task polling releases its wait immediately without killing the t
     const pending = manager.pollTask(task.id, 30_000, 10, { signal: controller.signal });
     controller.abort(new Error("test cancellation"));
     const outcome = await Promise.race([
-      pending.then(() => "resolved", error => error.message),
+      pending.then(
+        () => "resolved",
+        (error) => error.message,
+      ),
       Bun.sleep(250).then(() => "late"),
     ]);
     expect(outcome).toBe("test cancellation");
@@ -133,36 +137,41 @@ test("evicting old completed tasks removes their owned logs instead of orphaning
   }
 });
 
-test.skipIf(process.platform === "win32")("killing a task stops descendants that ignore graceful termination", async () => {
-  const { root, manager, start } = fixture();
-  const { existsSync } = await import("node:fs");
-  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-  const code = [
-    'const fs = require("node:fs");',
-    'process.on("SIGTERM", () => {});',
-    'fs.writeFileSync("ready", "yes");',
-    'setTimeout(() => { fs.writeFileSync("survived", "yes"); process.exit(0); }, 2000);',
-  ].join("\n");
-  const task = start(`${quote(process.execPath)} -e ${quote(code)} & wait`);
-  try {
-    const deadline = Date.now() + 2000;
-    while (!existsSync(join(root, "ready")) && Date.now() < deadline) await Bun.sleep(10);
-    expect(existsSync(join(root, "ready"))).toBe(true);
-    expect(manager.killTask(task.id)).toBe(true);
-    await manager.pollTask(task.id, 3000);
-    await Bun.sleep(2100);
-    expect(existsSync(join(root, "survived"))).toBe(false);
-    expect(manager.getTask(task.id)?.status).toBe("killed");
-  } finally {
-    manager.killTask(task.id);
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+test.skipIf(process.platform === "win32")(
+  "killing a task stops descendants that ignore graceful termination",
+  async () => {
+    const { root, manager, start } = fixture();
+    const { existsSync } = await import("node:fs");
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    const code = [
+      'const fs = require("node:fs");',
+      'process.on("SIGTERM", () => {});',
+      'fs.writeFileSync("ready", "yes");',
+      'setTimeout(() => { fs.writeFileSync("survived", "yes"); process.exit(0); }, 2000);',
+    ].join("\n");
+    const task = start(`${quote(process.execPath)} -e ${quote(code)} & wait`);
+    try {
+      const deadline = Date.now() + 2000;
+      while (!existsSync(join(root, "ready")) && Date.now() < deadline) await Bun.sleep(10);
+      expect(existsSync(join(root, "ready"))).toBe(true);
+      expect(manager.killTask(task.id)).toBe(true);
+      await manager.pollTask(task.id, 3000);
+      await Bun.sleep(2100);
+      expect(existsSync(join(root, "survived"))).toBe(false);
+      expect(manager.getTask(task.id)?.status).toBe("killed");
+    } finally {
+      manager.killTask(task.id);
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test.skipIf(!delegatedCgroup)("killing a task stops a descendant that starts a new session", async () => {
   const { root, manager, start } = fixture();
   const { existsSync } = await import("node:fs");
-  const task = start("setsid bash -c 'sleep 1; printf escaped > marker' </dev/null >/dev/null 2>&1 & printf ready > ready; sleep 10");
+  const task = start(
+    "setsid bash -c 'sleep 1; printf escaped > marker' </dev/null >/dev/null 2>&1 & printf ready > ready; sleep 10",
+  );
   try {
     const deadline = Date.now() + 2000;
     while (!existsSync(join(root, "ready")) && Date.now() < deadline) await Bun.sleep(10);
@@ -201,7 +210,7 @@ test("a single log line larger than the tail budget still returns its last fragm
   try {
     const task = start("echo initial");
     await manager.pollTask(task.id, 2000);
-    writeFileSync(task.fullLogPath, "x".repeat(200_000) + "final-fragment");
+    writeFileSync(task.fullLogPath, `${"x".repeat(200_000)}final-fragment`);
     const tail = manager.getTaskLog(task.id, 10)?.logTail;
     expect(tail).toEndWith("final-fragment");
     expect(Buffer.byteLength(tail!)).toBeLessThanOrEqual(128 * 1024);

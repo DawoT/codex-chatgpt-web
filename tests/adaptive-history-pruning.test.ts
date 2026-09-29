@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyMicroCompactionBoundary,
   DEFAULT_MICRO_COMPACTION_TOKEN_CEILING,
   DEFAULT_RETAINED_COMPLETED_TOOL_RESULTS,
-  HISTORICAL_TOOL_OUTPUT_PRUNE_THRESHOLD_CHARS,
-  applyMicroCompactionBoundary,
   deduplicateEnvironmentContexts,
+  HISTORICAL_TOOL_OUTPUT_PRUNE_THRESHOLD_CHARS,
   hasParalysisClaim,
   pruneHistoricalToolOutputs,
   sanitizeHistoricalParalysisClaims,
@@ -43,10 +43,7 @@ function toolResultMsg(toolName: string, content: string, isError = false, ts = 
 }
 
 function envContextMsg(extra = "", ts = 1): CodexMessage {
-  return userMsg(
-    `<environment_context>cwd: /workspace sandbox: workspaceWrite${extra}</environment_context>`,
-    ts,
-  );
+  return userMsg(`<environment_context>cwd: /workspace sandbox: workspaceWrite${extra}</environment_context>`, ts);
 }
 
 // ---------------------------------------------------------------------------
@@ -62,11 +59,7 @@ describe("Sprint E: Adaptive History Pruning", () => {
     });
 
     test("preserves messages when there are no completed tool results", () => {
-      const messages: CodexMessage[] = [
-        userMsg("do something", 1),
-        assistantMsg("ok", 2),
-        userMsg("do more", 3),
-      ];
+      const messages: CodexMessage[] = [userMsg("do something", 1), assistantMsg("ok", 2), userMsg("do more", 3)];
       const result = pruneHistoricalToolOutputs(messages);
       expect(result).toEqual(messages);
     });
@@ -178,7 +171,7 @@ describe("Sprint E: Adaptive History Pruning", () => {
         maxHistoricalCharThreshold: 250,
       });
       // All tool outputs are small, none should be pruned
-      for (const [idx, msg] of result.entries()) {
+      for (const [_idx, msg] of result.entries()) {
         if (msg.role === "toolResult") {
           expect((msg as { content: string }).content).toBe(smallOutput);
         }
@@ -192,11 +185,7 @@ describe("Sprint E: Adaptive History Pruning", () => {
 
   describe("deduplicateEnvironmentContexts", () => {
     test("preserves messages with no environment context", () => {
-      const messages: CodexMessage[] = [
-        userMsg("task 1"),
-        assistantMsg("done"),
-        userMsg("task 2"),
-      ];
+      const messages: CodexMessage[] = [userMsg("task 1"), assistantMsg("done"), userMsg("task 2")];
       const result = deduplicateEnvironmentContexts(messages);
       expect(result).toEqual(messages);
     });
@@ -283,7 +272,7 @@ describe("Sprint E: Adaptive History Pruning", () => {
     });
 
     test("condenses older assistant messages when ceiling exceeded", () => {
-      const bigAssistantText = "The complete analysis is: " + "detail ".repeat(3_000);
+      const bigAssistantText = `The complete analysis is: ${"detail ".repeat(3_000)}`;
       const messages: CodexMessage[] = [
         userMsg("task 1", 1),
         assistantMsg(bigAssistantText, 2),
@@ -317,7 +306,7 @@ describe("Sprint E: Adaptive History Pruning", () => {
     });
 
     test("preserves the current instruction (latest user message) intact", () => {
-      const bigText = "very long historic prompt " + "x".repeat(3_000);
+      const bigText = `very long historic prompt ${"x".repeat(3_000)}`;
       const currentInstruction = "now do the critical current task";
       const messages: CodexMessage[] = [
         userMsg(bigText, 1),
@@ -341,16 +330,17 @@ describe("Sprint E: Adaptive History Pruning", () => {
   describe("withAdaptiveHistoryPruning pipeline", () => {
     test("pipeline produces output with fewer total characters than input for heavy history", () => {
       const bigOutput = "command output ".repeat(500);
-      const bigEnv = "<environment_context>cwd: /workspace roots: /workspace sandbox: workspaceWrite</environment_context>";
+      const bigEnv =
+        "<environment_context>cwd: /workspace roots: /workspace sandbox: workspaceWrite</environment_context>";
       const messages: CodexMessage[] = [
         { role: "user", content: bigEnv, timestamp: 1 },
         userMsg("task 1", 2),
         toolResultMsg("codex_exec", bigOutput, false, 3),
-        assistantMsg("done 1 " + "details ".repeat(200), 4),
+        assistantMsg(`done 1 ${"details ".repeat(200)}`, 4),
         { role: "user", content: bigEnv, timestamp: 5 },
         userMsg("task 2", 6),
         toolResultMsg("codex_exec", bigOutput, false, 7),
-        assistantMsg("done 2 " + "details ".repeat(200), 8),
+        assistantMsg(`done 2 ${"details ".repeat(200)}`, 8),
         { role: "user", content: bigEnv, timestamp: 9 },
         userMsg("task 3", 10),
         toolResultMsg("codex_exec", bigOutput, false, 11),
@@ -359,11 +349,14 @@ describe("Sprint E: Adaptive History Pruning", () => {
       ];
 
       const totalInputChars = messages.reduce((sum, msg) => {
-        const c = msg.role === "toolResult" || msg.role === "user" || msg.role === "developer"
-          ? (typeof msg.content === "string" ? msg.content : "")
-          : msg.role === "assistant"
-            ? msg.content.map(p => p.type === "text" ? p.text : "").join("")
-            : "";
+        const c =
+          msg.role === "toolResult" || msg.role === "user" || msg.role === "developer"
+            ? typeof msg.content === "string"
+              ? msg.content
+              : ""
+            : msg.role === "assistant"
+              ? msg.content.map((p) => (p.type === "text" ? p.text : "")).join("")
+              : "";
         return sum + c.length;
       }, 0);
 
@@ -374,11 +367,14 @@ describe("Sprint E: Adaptive History Pruning", () => {
       });
 
       const totalOutputChars = result.reduce((sum, msg) => {
-        const c = msg.role === "toolResult" || msg.role === "user" || msg.role === "developer"
-          ? (typeof msg.content === "string" ? msg.content : "")
-          : msg.role === "assistant"
-            ? msg.content.map(p => p.type === "text" ? p.text : "").join("")
-            : "";
+        const c =
+          msg.role === "toolResult" || msg.role === "user" || msg.role === "developer"
+            ? typeof msg.content === "string"
+              ? msg.content
+              : ""
+            : msg.role === "assistant"
+              ? msg.content.map((p) => (p.type === "text" ? p.text : "")).join("")
+              : "";
         return sum + c.length;
       }, 0);
 
@@ -424,19 +420,35 @@ describe("Sprint E: Adaptive History Pruning", () => {
 
   describe("sanitizeHistoricalParalysisClaims", () => {
     test("detects known paralysis claim patterns in Spanish and English", () => {
-      expect(hasParalysisClaim("la sesión local de Codex sigue terminada: incluso `pwd` falla antes de ejecutar.")).toBe(true);
-      expect(hasParalysisClaim("El entorno local quedó inaccesible durante esta continuación: la sesión de ejecución terminó")).toBe(true);
+      expect(
+        hasParalysisClaim("la sesión local de Codex sigue terminada: incluso `pwd` falla antes de ejecutar."),
+      ).toBe(true);
+      expect(
+        hasParalysisClaim(
+          "El entorno local quedó inaccesible durante esta continuación: la sesión de ejecución terminó",
+        ),
+      ).toBe(true);
       expect(hasParalysisClaim("la sesión local de ejecución terminó antes de poder acceder al workspace")).toBe(true);
-      expect(hasParalysisClaim("operaciones nativas mínimas (`pwd`, lectura de archivo) fallan con Codex Native claim failed and its broker activity could not be retired")).toBe(true);
+      expect(
+        hasParalysisClaim(
+          "operaciones nativas mínimas (`pwd`, lectura de archivo) fallan con Codex Native claim failed and its broker activity could not be retired",
+        ),
+      ).toBe(true);
       expect(hasParalysisClaim("El broker volvió a fallar antes de ejecutar la primera operación")).toBe(true);
       expect(hasParalysisClaim("local Codex session is terminated")).toBe(true);
       expect(hasParalysisClaim("even `pwd` fails before executing")).toBe(true);
       expect(hasParalysisClaim("local environment became inaccessible")).toBe(true);
-      expect(hasParalysisClaim("el conector Codex Native devolvió explícitamente `Session terminated` tanto al intentar ejecutar en el workspace como al consultar su inventario de herramientas.")).toBe(true);
+      expect(
+        hasParalysisClaim(
+          "el conector Codex Native devolvió explícitamente `Session terminated` tanto al intentar ejecutar en el workspace como al consultar su inventario de herramientas.",
+        ),
+      ).toBe(true);
       expect(hasParalysisClaim("Session terminated")).toBe(true);
 
       // Normal technical statements should NOT match
-      expect(hasParalysisClaim("En astro.config.mjs debemos agregar astro/content/runtime a optimizeDeps.")).toBe(false);
+      expect(hasParalysisClaim("En astro.config.mjs debemos agregar astro/content/runtime a optimizeDeps.")).toBe(
+        false,
+      );
       expect(hasParalysisClaim("Build complete with 0 errors, 0 warnings.")).toBe(false);
       expect(hasParalysisClaim("Ran pnpm dev successfully on port 4321.")).toBe(false);
     });
@@ -487,14 +499,19 @@ No hice cambios adicionales al repositorio en este turno. El último estado conf
       expect(hasParalysisClaim(sanitized)).toBe(false);
       expect(sanitized).not.toContain("Session terminated");
       expect(sanitized).not.toContain("conector Codex Native devolvió");
-      expect(sanitized).toContain("El último estado confirmado sigue siendo el cierre de 7.5B en el commit `31d7a00c997456afebc460816b5286b2236e2517`");
+      expect(sanitized).toContain(
+        "El último estado confirmado sigue siendo el cierre de 7.5B en el commit `31d7a00c997456afebc460816b5286b2236e2517`",
+      );
       expect(sanitized).toContain("continuar 7.5C item-level, luego G03/G04.");
     });
 
     test("replaces entirely paralyzed assistant response with neutral omitted notice", () => {
-      const pureExcuse = "El entorno local quedó inaccesible durante esta continuación: la sesión de ejecución terminó antes de poder volver a leer el skill o inspeccionar/modificar el workspace, así que no hice cambios adicionales sin verificación.";
+      const pureExcuse =
+        "El entorno local quedó inaccesible durante esta continuación: la sesión de ejecución terminó antes de poder volver a leer el skill o inspeccionar/modificar el workspace, así que no hice cambios adicionales sin verificación.";
       const sanitized = sanitizeParalysisProse(pureExcuse);
-      expect(sanitized).toBe("[Historical assistant response omitted: prior turn ended without local workspace mutations.]");
+      expect(sanitized).toBe(
+        "[Historical assistant response omitted: prior turn ended without local workspace mutations.]",
+      );
       expect(hasParalysisClaim(sanitized)).toBe(false);
     });
 
@@ -525,7 +542,10 @@ No hice cambios adicionales al repositorio en este turno. El último estado conf
         userMsg("como lo solucionarías", 1),
         assistantMsg("Yo lo resolvería agregando astro/content/runtime a optimizeDeps.", 2),
         userMsg("solucionalo", 3),
-        assistantMsg("No pude aplicar la corrección porque la sesión local de Codex sigue terminada: incluso `pwd` falla antes de ejecutar.\n\nEl cambio es en astro.config.mjs.", 4),
+        assistantMsg(
+          "No pude aplicar la corrección porque la sesión local de Codex sigue terminada: incluso `pwd` falla antes de ejecutar.\n\nEl cambio es en astro.config.mjs.",
+          4,
+        ),
         userMsg("intenta de nuevo", 5),
       ];
 
@@ -537,4 +557,3 @@ No hice cambios adicionales al repositorio en este turno. El último estado conf
     });
   });
 });
-

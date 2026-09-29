@@ -1,12 +1,12 @@
-import type { AppConfig } from "./config";
-import type { CodexModelContextOverride } from "./codex-integration";
 import {
   availableChatGptWebModelRoutes,
-  chatGptWebRouteEfforts,
   CHATGPT_WEB_MODEL_PREFIX,
-  resolveChatGptWebContextLimits,
   type ChatGptWebModelRoute,
+  chatGptWebRouteEfforts,
+  resolveChatGptWebContextLimits,
 } from "./chatgpt-web-models";
+import type { CodexModelContextOverride } from "./codex-integration";
+import type { AppConfig } from "./config";
 
 type JsonObject = Record<string, unknown>;
 
@@ -25,9 +25,11 @@ function slug(value: unknown): string | undefined {
 
 function reasoningLevel(template: JsonObject, effort: string, description: string): JsonObject {
   const levels = Array.isArray(template.supported_reasoning_levels)
-    ? template.supported_reasoning_levels.filter(level => level && typeof level === "object" && !Array.isArray(level)) as JsonObject[]
+    ? (template.supported_reasoning_levels.filter(
+        (level) => level && typeof level === "object" && !Array.isArray(level),
+      ) as JsonObject[])
     : [];
-  const source = levels.find(level => level.effort === effort);
+  const source = levels.find((level) => level.effort === effort);
   return { ...(source ? structuredClone(source) : {}), effort, description };
 }
 
@@ -52,9 +54,12 @@ function routedModelPriority(
     // priority order. The first Web route should follow the fourth eligible native model.
     return nativePriorityFloor;
   }
-  if (priority === undefined
-    || config.subagentProtocol !== "compatibility-v1"
-    || !["chatgpt-web/light", "chatgpt-web/gpt-5.6-sol-instant"].includes(route.slug)) return priority;
+  if (
+    priority === undefined ||
+    config.subagentProtocol !== "compatibility-v1" ||
+    !["chatgpt-web/light", "chatgpt-web/gpt-5.6-sol-instant"].includes(route.slug)
+  )
+    return priority;
   if (priority === Number.MAX_SAFE_INTEGER) {
     throw new Error("Native Codex model template priority cannot reserve the Compatibility V1 roster");
   }
@@ -78,7 +83,7 @@ function nativeTemplateCandidate(value: unknown, requireTools: boolean): value i
 
 function selectNativeTemplate(models: unknown[], config: AppConfig): JsonObject {
   const requireTools = config.mode === "full";
-  const candidates = models.filter(model => nativeTemplateCandidate(model, requireTools)) as JsonObject[];
+  const candidates = models.filter((model) => nativeTemplateCandidate(model, requireTools)) as JsonObject[];
   const template = candidates[0];
   if (template) return template;
   throw new Error(
@@ -139,18 +144,25 @@ export function buildChatGptWebModel(
     // In native mode the routed row follows the official template's protocol surface. Web-origin
     // V2 collaboration calls carry the protocol's explicit plaintext marker; Compatibility V1
     // instead pins the entire catalog and Codex feature override to V1.
-    ...(multiAgentVersion === undefined
-      ? {}
-      : { multi_agent_version: multiAgentVersion }),
+    ...(multiAgentVersion === undefined ? {} : { multi_agent_version: multiAgentVersion }),
     // Code mode collapses the outer registry into an exec gateway; routed models need the regular
     // Responses tool surface so MCP namespaces, deferred tool_search, and custom tools reach us.
     tool_mode: null,
     upgrade: null,
     default_reasoning_level: route.codexEffort,
-    supported_reasoning_levels: efforts.map(effort => reasoningLevel(template, effort,
-      efforts.length === 1 ? route.displayName
-        : route.backendModel === "gpt-5.6-luna" ? effort === "low" ? "Ordinary Luna" : "Think"
-          : `${route.displayName} — ${effort === "xhigh" ? "Extra High" : effort}`)),
+    supported_reasoning_levels: efforts.map((effort) =>
+      reasoningLevel(
+        template,
+        effort,
+        efforts.length === 1
+          ? route.displayName
+          : route.backendModel === "gpt-5.6-luna"
+            ? effort === "low"
+              ? "Ordinary Luna"
+              : "Think"
+            : `${route.displayName} — ${effort === "xhigh" ? "Extra High" : effort}`,
+      ),
+    ),
     context_window: limits.contextWindow,
     max_context_window: limits.contextWindow,
     effective_context_window_percent: limits.effectiveContextWindowPercent,
@@ -178,7 +190,7 @@ export function augmentNativeModelCatalog(
     throw new Error("Native Codex models response is missing a models array");
   }
   const nativeModels = structuredClone(
-    catalog.models.filter(model => !slug(model)?.startsWith(CHATGPT_WEB_MODEL_PREFIX)),
+    catalog.models.filter((model) => !slug(model)?.startsWith(CHATGPT_WEB_MODEL_PREFIX)),
   );
   if (config.subagentProtocol === "compatibility-v1") {
     for (const candidate of nativeModels) {
@@ -190,18 +202,18 @@ export function augmentNativeModelCatalog(
   const template = selectNativeTemplate(nativeModels, config);
   // Codex 0.158 advertises only five spawn-agent model overrides, sorted by priority.
   // Reserve its four leading native rows before appending routed Web rows to the catalog.
-  const nativePriorities = config.subagentProtocol === "native"
-    ? nativeModels
-      .filter(candidate => candidate && typeof candidate === "object" && !Array.isArray(candidate))
-      .filter(candidate => candidate.visibility === "list" && candidate.multi_agent_version !== "disabled")
-      .map(candidate => modelPriority(candidate))
-      .filter((priority): priority is number => priority !== undefined)
-      .toSorted((left, right) => left - right)
-    : [];
+  const nativePriorities =
+    config.subagentProtocol === "native"
+      ? nativeModels
+          .filter((candidate) => candidate && typeof candidate === "object" && !Array.isArray(candidate))
+          .filter((candidate) => candidate.visibility === "list" && candidate.multi_agent_version !== "disabled")
+          .map((candidate) => modelPriority(candidate))
+          .filter((priority): priority is number => priority !== undefined)
+          .toSorted((left, right) => left - right)
+      : [];
   const fourthNativePriority = nativePriorities[3];
-  const nativePriorityFloor = fourthNativePriority === undefined
-    ? undefined
-    : Math.min(Number.MAX_SAFE_INTEGER, fourthNativePriority + 1);
+  const nativePriorityFloor =
+    fourthNativePriority === undefined ? undefined : Math.min(Number.MAX_SAFE_INTEGER, fourthNativePriority + 1);
   if (contextOverride) {
     // model_context_window is a single top-level Codex setting, not a per-model one. Apply its
     // advertised maximum to every native row so switching native models cannot silently clamp the
@@ -211,8 +223,11 @@ export function augmentNativeModelCatalog(
       if (!modelSlug) continue;
       const model = object(candidate, `native ${modelSlug} model`);
       const current = model.max_context_window;
-      if (current !== undefined && current !== null
-        && (typeof current !== "number" || !Number.isSafeInteger(current) || current <= 0)) {
+      if (
+        current !== undefined &&
+        current !== null &&
+        (typeof current !== "number" || !Number.isSafeInteger(current) || current <= 0)
+      ) {
         throw new Error(`Native ${modelSlug} max_context_window must be a positive integer`);
       }
       if (current === undefined || current === null || current < contextOverride.contextWindow) {
@@ -220,8 +235,9 @@ export function augmentNativeModelCatalog(
       }
     }
   }
-  const webModels = availableChatGptWebModelRoutes(config, true)
-    .map(route => buildChatGptWebModel(template, route, config, nativePriorityFloor));
+  const webModels = availableChatGptWebModelRoutes(config, true).map((route) =>
+    buildChatGptWebModel(template, route, config, nativePriorityFloor),
+  );
   return {
     ...structuredClone(catalog),
     models: [...nativeModels, ...webModels],

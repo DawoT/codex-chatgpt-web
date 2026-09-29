@@ -2,8 +2,8 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 import {
   inspectCompactionStateFormat,
-  PERMISSIVE_OPENING_TAG,
   PERMISSIVE_CLOSING_TAG,
+  PERMISSIVE_OPENING_TAG,
 } from "../../responses/compaction";
 
 const turndown = new TurndownService({
@@ -19,16 +19,16 @@ const turndown = new TurndownService({
 turndown.use(gfm);
 turndown.remove(["button", "script", "style"]);
 turndown.addRule("removeImages", {
-  filter: node => ["IMG", "PICTURE", "SOURCE"].includes(node.nodeName),
+  filter: (node) => ["IMG", "PICTURE", "SOURCE"].includes(node.nodeName),
   replacement: () => "",
 });
 turndown.addRule("removeSvg", {
-  filter: node => node.nodeName === "SVG",
+  filter: (node) => node.nodeName === "SVG",
   replacement: () => "",
 });
 turndown.addRule("preserveCodexPlanBlockTags", {
   filter: "p",
-  replacement: content => {
+  replacement: (content) => {
     // Codex recognizes these standalone control lines verbatim. Restore only paragraph text:
     // a post-conversion replacement would also rewrite literal escapes in fenced code.
     const paragraph = content.replace(/^([ \t]*)<(\/?)proposed\\_plan>([ \t]*)$/gm, "$1<$2proposed_plan>$3");
@@ -36,11 +36,11 @@ turndown.addRule("preserveCodexPlanBlockTags", {
   },
 });
 turndown.addRule("preserveCompactionStateElement", {
-  filter: node => node.nodeName.toLowerCase() === "compaction_state",
-  replacement: content => `\n\n<compaction_state>\n${content.trim()}\n</compaction_state>\n\n`,
+  filter: (node) => node.nodeName.toLowerCase() === "compaction_state",
+  replacement: (content) => `\n\n<compaction_state>\n${content.trim()}\n</compaction_state>\n\n`,
 });
 turndown.addRule("linkInlineFilePaths", {
-  filter: node => inlineFilePath(node) !== undefined,
+  filter: (node) => inlineFilePath(node) !== undefined,
   replacement: (_content, node) => {
     const path = node.textContent!;
     const target = path.replaceAll("\\", "/");
@@ -58,9 +58,7 @@ turndown.addRule("compactListItem", {
       const index = Array.prototype.indexOf.call(parent.children, node) as number;
       prefix = `${start + index}. `;
     }
-    const normalized = content
-      .replace(/^\n+|\n+$/g, "")
-      .replace(/\n/g, `\n${" ".repeat(prefix.length)}`);
+    const normalized = content.replace(/^\n+|\n+$/g, "").replace(/\n/g, `\n${" ".repeat(prefix.length)}`);
     return `${prefix}${normalized}${node.nextSibling ? "\n" : ""}`;
   },
 });
@@ -106,46 +104,49 @@ function obsidianWikiLink(value: string): string | undefined {
 
 function linkObsidianWikiLinks(markdown: string): string {
   let fence: { marker: "`" | "~"; length: number } | undefined;
-  return markdown.split("\n").map(line => {
-    const fenceRun = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
-    if (fence) {
-      const closingRun = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/)?.[1];
-      if (closingRun?.[0] === fence.marker && closingRun.length >= fence.length) fence = undefined;
-      return line;
-    }
-    if (fenceRun) {
-      fence = { marker: fenceRun[0] as "`" | "~", length: fenceRun.length };
-      return line;
-    }
-
-    let result = "";
-    let inlineCodeTicks = 0;
-    for (let index = 0; index < line.length;) {
-      if (line[index] === "`") {
-        let end = index + 1;
-        while (line[end] === "`") end += 1;
-        const ticks = end - index;
-        inlineCodeTicks = inlineCodeTicks === 0 ? ticks : ticks === inlineCodeTicks ? 0 : inlineCodeTicks;
-        result += line.slice(index, end);
-        index = end;
-        continue;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      const fenceRun = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+      if (fence) {
+        const closingRun = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/)?.[1];
+        if (closingRun?.[0] === fence.marker && closingRun.length >= fence.length) fence = undefined;
+        return line;
       }
-      if (inlineCodeTicks === 0 && line.startsWith("[[", index) && line[index - 1] !== "!") {
-        const end = line.indexOf("]]", index + 2);
-        if (end >= 0) {
-          const linked = obsidianWikiLink(line.slice(index + 2, end));
-          if (linked) {
-            result += linked;
-            index = end + 2;
-            continue;
+      if (fenceRun) {
+        fence = { marker: fenceRun[0] as "`" | "~", length: fenceRun.length };
+        return line;
+      }
+
+      let result = "";
+      let inlineCodeTicks = 0;
+      for (let index = 0; index < line.length; ) {
+        if (line[index] === "`") {
+          let end = index + 1;
+          while (line[end] === "`") end += 1;
+          const ticks = end - index;
+          inlineCodeTicks = inlineCodeTicks === 0 ? ticks : ticks === inlineCodeTicks ? 0 : inlineCodeTicks;
+          result += line.slice(index, end);
+          index = end;
+          continue;
+        }
+        if (inlineCodeTicks === 0 && line.startsWith("[[", index) && line[index - 1] !== "!") {
+          const end = line.indexOf("]]", index + 2);
+          if (end >= 0) {
+            const linked = obsidianWikiLink(line.slice(index + 2, end));
+            if (linked) {
+              result += linked;
+              index = end + 2;
+              continue;
+            }
           }
         }
+        result += line[index];
+        index += 1;
       }
-      result += line[index];
-      index += 1;
-    }
-    return result;
-  }).join("\n");
+      return result;
+    })
+    .join("\n");
 }
 
 interface CompactionMarkdownState {
@@ -158,40 +159,43 @@ function restoreCompactionMarkdown(
   state: CompactionMarkdownState,
   compactionCheckpoint = false,
 ): string {
-  return markdown.split("\n").map(line => {
-    if (state.fence) {
-      if (new RegExp(`^ {0,3}${state.fence[0]}{${state.fence.length},}[ \\t]*$`).test(line)) {
-        state.fence = undefined;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (state.fence) {
+        if (new RegExp(`^ {0,3}${state.fence[0]}{${state.fence.length},}[ \\t]*$`).test(line)) {
+          state.fence = undefined;
+        }
+        return line;
       }
-      return line;
-    }
-    const openingFence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (openingFence) {
-      state.fence = openingFence[1];
-      return line;
-    }
-    if (compactionCheckpoint && /^`<\/?compaction(?:_|\\_)state>`$/.test(line.trim())) {
-      line = line.trim().slice(1, -1);
-    }
-    const openingMatch = PERMISSIVE_OPENING_TAG.exec(line);
-    const closingMatch = PERMISSIVE_CLOSING_TAG.exec(line);
+      const openingFence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (openingFence) {
+        state.fence = openingFence[1];
+        return line;
+      }
+      if (compactionCheckpoint && /^`<\/?compaction(?:_|\\_)state>`$/.test(line.trim())) {
+        line = line.trim().slice(1, -1);
+      }
+      const openingMatch = PERMISSIVE_OPENING_TAG.exec(line);
+      const closingMatch = PERMISSIVE_CLOSING_TAG.exec(line);
 
-    if (openingMatch) {
-      state.inCompactionState = true;
-      line = line.replace(openingMatch[0], "<compaction_state>");
-    }
-    if (closingMatch) {
-      state.inCompactionState = false;
-      line = line.replace(closingMatch[0], "</compaction_state>");
-    }
-    if (state.inCompactionState) {
-      return line.replace(/\\([\\`*_{}\[\]()#+\-.!>|])/g, "$1");
-    }
-    return line.replace(
-      /^( {0,4}(?:[-*]\s+|\*{1,2}|#{1,4}\s*)?)((?:modified|active|closure|verified|decisions|blockers|pending|next|original)[a-z_\\-]+:)/i,
-      (_, prefix, header) => prefix + header.replace(/\\_/g, "_"),
-    );
-  }).join("\n");
+      if (openingMatch) {
+        state.inCompactionState = true;
+        line = line.replace(openingMatch[0], "<compaction_state>");
+      }
+      if (closingMatch) {
+        state.inCompactionState = false;
+        line = line.replace(closingMatch[0], "</compaction_state>");
+      }
+      if (state.inCompactionState) {
+        return line.replace(/\\([\\`*_{}[\]()#+\-.!>|])/g, "$1");
+      }
+      return line.replace(
+        /^( {0,4}(?:[-*]\s+|\*{1,2}|#{1,4}\s*)?)((?:modified|active|closure|verified|decisions|blockers|pending|next|original)[a-z_\\-]+:)/i,
+        (_, prefix, header) => prefix + header.replace(/\\_/g, "_"),
+      );
+    })
+    .join("\n");
 }
 
 function htmlToMarkdownRaw(html: string): string {
@@ -256,15 +260,18 @@ interface CommittedChatGptMarkdownSegment {
 }
 
 export class ChatGptMarkdownConsistencyError extends Error {
-  constructor(message: string, readonly diagnostic?: {
-    reason: "text_changed" | "link_target_changed" | "block_order_changed" | "source_range_overlap";
-    observedStart?: number;
-    observedEnd?: number;
-    committedStart?: number;
-    committedEnd?: number;
-    observedTextChars: number;
-    committedTextChars: number;
-  }) {
+  constructor(
+    message: string,
+    readonly diagnostic?: {
+      reason: "text_changed" | "link_target_changed" | "block_order_changed" | "source_range_overlap";
+      observedStart?: number;
+      observedEnd?: number;
+      committedStart?: number;
+      committedEnd?: number;
+      observedTextChars: number;
+      committedTextChars: number;
+    },
+  ) {
     super(message);
     this.name = "ChatGptMarkdownConsistencyError";
   }
@@ -303,7 +310,7 @@ export class ChatGptMarkdownBuffer {
   private readonly compactionCheckpoint: boolean;
 
   constructor(
-    private readonly transform: (markdown: string) => string = markdown => markdown,
+    private readonly transform: (markdown: string) => string = (markdown) => markdown,
     stabilityOption: number | ChatGptMarkdownBufferOptions = 750,
   ) {
     if (typeof stabilityOption === "number") {
@@ -331,15 +338,15 @@ export class ChatGptMarkdownBuffer {
 
   private stabilityForCandidate(candidate: ChatGptMarkdownCandidate): number {
     if (!this.adaptive) return this.defaultStabilityMs;
-    const isToolOrCode = candidate.tag === "PRE"
-      || candidate.tag === "CODE"
-      || (typeof candidate.text === "string" && (
-        candidate.text.startsWith("```")
-        || candidate.text.includes("codex_")
-        || candidate.text.includes("tool_call")
-        || candidate.text.includes("<subagent_result>")
-      ))
-      || (typeof candidate.html === "string" && candidate.html.includes("<pre"));
+    const isToolOrCode =
+      candidate.tag === "PRE" ||
+      candidate.tag === "CODE" ||
+      (typeof candidate.text === "string" &&
+        (candidate.text.startsWith("```") ||
+          candidate.text.includes("codex_") ||
+          candidate.text.includes("tool_call") ||
+          candidate.text.includes("<subagent_result>"))) ||
+      (typeof candidate.html === "string" && candidate.html.includes("<pre"));
     return isToolOrCode ? this.toolStabilityMs : this.proseStabilityMs;
   }
 
@@ -350,29 +357,30 @@ export class ChatGptMarkdownBuffer {
       return "";
     }
     this.consistencyError = undefined;
-    this.latest = reconciled.map(segment => ({ ...segment }));
+    this.latest = reconciled.map((segment) => ({ ...segment }));
 
     const visibleCandidates = new Set<string>();
     for (const segment of reconciled) {
       const candidateId = this.candidateId(segment);
       visibleCandidates.add(candidateId);
       const previous = this.candidates.get(candidateId);
-      const unchanged = previous
-        && previous.key === segment.key
-        && previous.tag === segment.tag
-        && previous.html === segment.html
-        && previous.text === segment.text
-        && previous.group === segment.group
-        && previous.sourceStart === segment.sourceStart
-        && previous.sourceEnd === segment.sourceEnd;
+      const unchanged =
+        previous &&
+        previous.key === segment.key &&
+        previous.tag === segment.tag &&
+        previous.html === segment.html &&
+        previous.text === segment.text &&
+        previous.group === segment.group &&
+        previous.sourceStart === segment.sourceStart &&
+        previous.sourceEnd === segment.sourceEnd;
       this.candidates.set(candidateId, {
         ...segment,
         changedAt: unchanged ? previous.changedAt : now,
-        ...(segment.streamable ? {
-          streamableAt: unchanged && previous.streamableAt !== undefined
-            ? previous.streamableAt
-            : now,
-        } : {}),
+        ...(segment.streamable
+          ? {
+              streamableAt: unchanged && previous.streamableAt !== undefined ? previous.streamableAt : now,
+            }
+          : {}),
       });
     }
     for (const candidateId of this.candidates.keys()) {
@@ -413,15 +421,11 @@ export class ChatGptMarkdownBuffer {
     return this.consistencyError === undefined;
   }
 
-  private reconcile(
-    segments: ChatGptMarkdownSegment[],
-  ): ChatGptMarkdownSegment[] | ChatGptMarkdownConsistencyError {
+  private reconcile(segments: ChatGptMarkdownSegment[]): ChatGptMarkdownSegment[] | ChatGptMarkdownConsistencyError {
     if (this.committed.length === 0 || segments.length === 0) return segments;
 
     const pending: ChatGptMarkdownSegment[] = [];
-    const lastRangedCommitted = this.committed
-      .filter(segment => segment.sourceEnd !== undefined)
-      .at(-1);
+    const lastRangedCommitted = this.committed.filter((segment) => segment.sourceEnd !== undefined).at(-1);
     const lastCommittedEnd = lastRangedCommitted?.sourceEnd;
     let highestCommittedIndex = -1;
     let sawPending = false;
@@ -430,9 +434,7 @@ export class ChatGptMarkdownBuffer {
     for (const segment of segments) {
       if (segment.sourceStart !== undefined) {
         if (previousSourceStart !== undefined && segment.sourceStart <= previousSourceStart) {
-          return new ChatGptMarkdownConsistencyError(
-            "ChatGPT final DOM exposed non-monotonic source ranges",
-          );
+          return new ChatGptMarkdownConsistencyError("ChatGPT final DOM exposed non-monotonic source ranges");
         }
         previousSourceStart = segment.sourceStart;
       }
@@ -478,11 +480,11 @@ export class ChatGptMarkdownBuffer {
   }
 
   private committedIndex(segment: ChatGptMarkdownSegment): number | undefined {
-    const exact = this.committed.findIndex(committed => (
+    const exact = this.committed.findIndex((committed) =>
       segment.sourceStart !== undefined && committed.sourceStart !== undefined
         ? segment.sourceStart === committed.sourceStart && segment.tag === committed.tag
-        : segment.key === committed.key
-    ));
+        : segment.key === committed.key,
+    );
     if (exact >= 0) return exact;
 
     if (segment.sourceStart !== undefined) return undefined;
@@ -494,17 +496,17 @@ export class ChatGptMarkdownBuffer {
   }
 
   private matchesLatestPending(segment: ChatGptMarkdownSegment): boolean {
-    const exact = this.latest.filter(candidate => (
+    const exact = this.latest.filter((candidate) =>
       segment.sourceStart !== undefined && candidate.sourceStart !== undefined
         ? segment.sourceStart === candidate.sourceStart && segment.tag === candidate.tag
-        : segment.key === candidate.key
-    ));
+        : segment.key === candidate.key,
+    );
     if (exact.length === 1) return true;
     if (segment.sourceStart !== undefined) return false;
     if (!segment.tag) return false;
-    return this.latest.filter(candidate => (
-      candidate.tag === segment.tag && candidate.text === segment.text
-    )).length === 1;
+    return (
+      this.latest.filter((candidate) => candidate.tag === segment.tag && candidate.text === segment.text).length === 1
+    );
   }
 
   private candidateId(segment: ChatGptMarkdownSegment): string {
@@ -544,14 +546,18 @@ export class ChatGptMarkdownBuffer {
   }
 
   private commit(segment: ChatGptMarkdownSegment): string {
-    const block = this.transform(restoreCompactionMarkdown(
-      htmlToMarkdownRaw(segment.html),
-      this.compactionMarkdownState,
-      this.compactionCheckpoint,
-    ));
+    const block = this.transform(
+      restoreCompactionMarkdown(
+        htmlToMarkdownRaw(segment.html),
+        this.compactionMarkdownState,
+        this.compactionCheckpoint,
+      ),
+    );
     if (!block) return "";
     const separator = this.markdown
-      ? segment.group !== undefined && segment.group === this.lastGroup ? "\n" : "\n\n"
+      ? segment.group !== undefined && segment.group === this.lastGroup
+        ? "\n"
+        : "\n\n"
       : "";
     const delta = `${separator}${block}`;
     this.markdown += delta;

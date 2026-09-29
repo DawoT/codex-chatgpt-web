@@ -1,0 +1,82 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": {
+    "includes": [
+      "src/**",
+      "tests/**",
+      "scripts/**",
+      "launcher/src/**",
+      "launcher/tests/**",
+      "launcher/electron/**",
+      "launcher/scripts/**"
+    ],
+    "ignoreUnknown": true
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "style": {
+        "noNonNullAssertion": "off",
+        "noDescendingSpecificity": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noConsole": "off",
+        "noAssignInExpressions": "warn",
+        "useIterableCallbackReturn": "warn",
+        "noControlCharactersInRegex": "warn",
+        "noImplicitAnyLet": "warn"
+      },
+      "correctness": {
+        "noNodejsModules": "off",
+        "noUnsafeFinally": "warn",
+        "noConstantCondition": "warn"
+      },
+      "a11y": {
+        "useButtonType": "warn",
+        "useSemanticElements": "warn",
+        "noStaticElementInteractions": "warn",
+        "useFocusableInteractive": "warn",
+        "useHeadingContent": "warn",
+        "noLabelWithoutControl": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useAriaPropsSupportedByRole": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["launcher/electron/**", "launcher/tests/**", "launcher/scripts/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noParameterAssign": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["launcher/src/**/*.css"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDescendingSpecificity": "off"
+          }
+        }
+      }
+    }
+  ]
+}

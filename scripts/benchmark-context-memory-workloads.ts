@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
-import { handleReadFile } from "../src/adapters/chatgpt-web/fast-path/file-ops";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { handleExecCommand } from "../src/adapters/chatgpt-web/fast-path/exec";
+import { handleReadFile } from "../src/adapters/chatgpt-web/fast-path/file-ops";
+import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
 
 // Gentle shell components path
 const GENTLE_SHELL_ROOT = join(process.cwd(), "..", "gentle-shell");
@@ -49,7 +49,7 @@ async function runBenchmark() {
     await writeFile(
       join(agentsDir, "STATE.md"),
       "# MISSION OBJECTIVE\nDeliver verifiable context and memory layers with zero dependency bloat.\n- Rule 1: Control layer is never truncated.\n- Rule 2: Memory is strictly project-isolated.",
-      "utf8"
+      "utf8",
     );
 
     await writeFile(
@@ -59,7 +59,7 @@ async function runBenchmark() {
         version: "1.0.0",
         scripts: { build: "echo building", test: "echo testing", lint: "echo linting" },
       }),
-      "utf8"
+      "utf8",
     );
 
     await writeFile(
@@ -71,7 +71,7 @@ export class AuthManager {
   authenticate(user: string): SessionToken { return { token: "tok_" + user, expiresAt: Date.now() + 3600 }; }
 }
 export function verifySession(tok: SessionToken): boolean { return tok.expiresAt > Date.now(); }`,
-      "utf8"
+      "utf8",
     );
 
     await writeFile(
@@ -82,7 +82,7 @@ export function handleRequest(user: string) {
   const session = auth.authenticate(user);
   return verifySession(session);
 }`,
-      "utf8"
+      "utf8",
     );
 
     execFileSync("git", ["init", "-b", "main"], { cwd: testWorkspace });
@@ -91,7 +91,10 @@ export function handleRequest(user: string) {
     execFileSync("git", ["add", "."], { cwd: testWorkspace });
     execFileSync("git", ["commit", "-m", "Initial commit for benchmark"], { cwd: testWorkspace });
 
-    const initialCommitSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: testWorkspace, encoding: "utf8" }).trim();
+    const initialCommitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: testWorkspace,
+      encoding: "utf8",
+    }).trim();
 
     // Dynamically import gentle-shell components
     const { ProjectMemory } = await import(join(GENTLE_SHELL_ROOT, "lib/codex-web/project-memory.ts"));
@@ -119,7 +122,7 @@ export function handleRequest(user: string) {
         passed,
         durationMs,
         tokensBaseline: 350, // reading whole auth.ts
-        tokensOptimized: 45,  // exact signature query
+        tokensOptimized: 45, // exact signature query
         savingsRatio: (350 - 45) / 350,
         gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Discovered interface SessionToken in ${durationMs.toFixed(2)}ms`,
@@ -242,7 +245,7 @@ export function handleRequest(user: string) {
       await writeFile(
         join(testWorkspace, "app.ts"),
         `import { handleRequest } from "./server"; export function run() { return handleRequest("alice"); }`,
-        "utf8"
+        "utf8",
       );
       await factsService.sync();
       const start = performance.now();
@@ -307,7 +310,10 @@ export function handleRequest(user: string) {
     {
       execFileSync("git", ["add", "."], { cwd: testWorkspace });
       execFileSync("git", ["commit", "-m", "Add app.ts"], { cwd: testWorkspace });
-      const secondCommitSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: testWorkspace, encoding: "utf8" }).trim();
+      const secondCommitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: testWorkspace,
+        encoding: "utf8",
+      }).trim();
 
       const { analyzeFactsImpact } = await import(join(GENTLE_SHELL_ROOT, "lib/facts/facts-impact.ts"));
       const { indexFactsCommit } = await import(join(GENTLE_SHELL_ROOT, "lib/facts/facts-commit.ts"));
@@ -385,7 +391,8 @@ export function handleRequest(user: string) {
         writableRoots: [testWorkspace],
       });
       const durationMs = performance.now() - start;
-      const passed = Boolean(res.structuredContent.stderr) && (res.structuredContent.stderr as string).includes("Stack trace");
+      const passed =
+        Boolean(res.structuredContent.stderr) && (res.structuredContent.stderr as string).includes("Stack trace");
       results.push({
         id: 13,
         category: "Diagnóstico de Errores",
@@ -470,8 +477,8 @@ export function handleRequest(user: string) {
         systemPrompt: "System assistant prompt.",
         sessionId: "benchmark-session",
         messages: [
-          { role: "user", content: "Historical task: " + largePayload },
-          { role: "assistant", content: "Historical reply: " + largePayload },
+          { role: "user", content: `Historical task: ${largePayload}` },
+          { role: "assistant", content: `Historical reply: ${largePayload}` },
           { role: "user", content: "Current active goal: verify security" },
         ],
       });
@@ -490,7 +497,9 @@ export function handleRequest(user: string) {
         gateChecks: { zeroLossControl: null, zeroCrossProject: null, zeroMutationReplay: null },
         details: `Compacted from ~62k tokens to ${ctxResult.budget.estimated_input_tokens} tokens in ${durationMs.toFixed(2)}ms`,
       });
-      console.log(`[CHECK] Escenario 16: Automated compaction (${durationMs.toFixed(2)}ms, tokens: ${ctxResult.budget.estimated_input_tokens})`);
+      console.log(
+        `[CHECK] Escenario 16: Automated compaction (${durationMs.toFixed(2)}ms, tokens: ${ctxResult.budget.estimated_input_tokens})`,
+      );
     }
 
     // 17. Control layer (STATE.md) preserved 100% intact across compactions
@@ -499,14 +508,13 @@ export function handleRequest(user: string) {
       const ctxResult = await contextBuilder.buildContext({
         systemPrompt: "System assistant prompt.",
         sessionId: "benchmark-session",
-        messages: [
-          { role: "user", content: "Active prompt" },
-        ],
+        messages: [{ role: "user", content: "Active prompt" }],
       });
       const durationMs = performance.now() - start;
       const systemMsg = String(ctxResult.messages[0].content);
-      const passed = systemMsg.includes("Rule 1: Control layer is never truncated") &&
-                     systemMsg.includes("Rule 2: Memory is strictly project-isolated");
+      const passed =
+        systemMsg.includes("Rule 1: Control layer is never truncated") &&
+        systemMsg.includes("Rule 2: Memory is strictly project-isolated");
       results.push({
         id: 17,
         category: "Sesiones Largas y Compacción",
@@ -524,7 +532,7 @@ export function handleRequest(user: string) {
       const start = performance.now();
       const readRes = await projectMemory.read(checkpointRefId, 0, 1000);
       const durationMs = performance.now() - start;
-      const passed = Boolean(readRes && readRes.digest_verified && readRes.reference.id === checkpointRefId);
+      const passed = Boolean(readRes?.digest_verified && readRes.reference.id === checkpointRefId);
       results.push({
         id: 18,
         category: "Sesiones Largas y Compacción",
@@ -603,7 +611,11 @@ export function handleRequest(user: string) {
     // 22. Git blob SHA cache invalidation on file edit
     {
       const start = performance.now();
-      await writeFile(join(testWorkspace, "divergence.ts"), "export const flag = false; export const updated = 123;", "utf8");
+      await writeFile(
+        join(testWorkspace, "divergence.ts"),
+        "export const flag = false; export const updated = 123;",
+        "utf8",
+      );
       await factsService.sync();
       const durationMs = performance.now() - start;
       const symbols = factsService.querySymbols({ name: "updated" });
@@ -782,8 +794,8 @@ export function handleRequest(user: string) {
         writableRoots: [testWorkspace],
       });
       const durationMs = performance.now() - start;
-      const passed = res.structuredContent.stdout_truncated === true &&
-                     (res.structuredContent.omitted_bytes as number) > 500_000;
+      const passed =
+        res.structuredContent.stdout_truncated === true && (res.structuredContent.omitted_bytes as number) > 500_000;
       results.push({
         id: 28,
         category: "Resiliencia e Interrupciones",
@@ -808,8 +820,7 @@ export function handleRequest(user: string) {
         max_bytes: 128 * 1024,
       });
       const durationMs = performance.now() - start;
-      const passed = res.structuredContent.truncated === true &&
-                     res.structuredContent.read_bytes === 128 * 1024;
+      const passed = res.structuredContent.truncated === true && res.structuredContent.read_bytes === 128 * 1024;
       results.push({
         id: 29,
         category: "Resiliencia e Interrupciones",
@@ -860,21 +871,32 @@ export function handleRequest(user: string) {
     const tokenWorkloads = results.filter((r) => r.tokensBaseline && r.tokensOptimized);
     const totalBaselineTokens = tokenWorkloads.reduce((acc, r) => acc + (r.tokensBaseline ?? 0), 0);
     const totalOptimizedTokens = tokenWorkloads.reduce((acc, r) => acc + (r.tokensOptimized ?? 0), 0);
-    const netTokenReductionPct = totalBaselineTokens > 0
-      ? (((totalBaselineTokens - totalOptimizedTokens) / totalBaselineTokens) * 100).toFixed(1)
-      : "0";
+    const netTokenReductionPct =
+      totalBaselineTokens > 0
+        ? (((totalBaselineTokens - totalOptimizedTokens) / totalBaselineTokens) * 100).toFixed(1)
+        : "0";
     const gate4Passed = null;
 
     console.log("\n================================================================================");
     console.log("                      EXPLORATORY REPORT — QUALITY GATES NOT EVALUATED          ");
     console.log("================================================================================");
     console.log(`Total Escenarios Evaluados: ${results.length}/30`);
-    console.log(`Escenarios Exitosos:        ${totalPassed}/30 (${((totalPassed / results.length) * 100).toFixed(1)}% observed scenario pass rate)`);
+    console.log(
+      `Escenarios Exitosos:        ${totalPassed}/30 (${((totalPassed / results.length) * 100).toFixed(1)}% observed scenario pass rate)`,
+    );
     console.log(`\n--- Verificación de Gates ---`);
-    console.log(`Gate 1 (Zero-Loss Control Layer):       ${gate1Passed ? "CUMPLIDO (0% directivas perdidas)" : "NO EVALUADO"}`);
-    console.log(`Gate 2 (Zero Cross-Project Leakage):     ${gate2Passed ? "CUMPLIDO (0 cruces detectados)" : "NO EVALUADO"}`);
-    console.log(`Gate 3 (Zero Replay on Transport Drop):  ${gate3Passed ? "CUMPLIDO (0 mutaciones re-ejecutadas)" : "NO EVALUADO"}`);
-    console.log(`Gate 4 (Net Token Reduction):            ${gate4Passed ? `CUMPLIDO (${netTokenReductionPct}% reducción en exploración)` : "NO EVALUADO"}`);
+    console.log(
+      `Gate 1 (Zero-Loss Control Layer):       ${gate1Passed ? "CUMPLIDO (0% directivas perdidas)" : "NO EVALUADO"}`,
+    );
+    console.log(
+      `Gate 2 (Zero Cross-Project Leakage):     ${gate2Passed ? "CUMPLIDO (0 cruces detectados)" : "NO EVALUADO"}`,
+    );
+    console.log(
+      `Gate 3 (Zero Replay on Transport Drop):  ${gate3Passed ? "CUMPLIDO (0 mutaciones re-ejecutadas)" : "NO EVALUADO"}`,
+    );
+    console.log(
+      `Gate 4 (Net Token Reduction):            ${gate4Passed ? `CUMPLIDO (${netTokenReductionPct}% reducción en exploración)` : "NO EVALUADO"}`,
+    );
 
     const report = {
       benchmarkVersion: "1.1.0-audit",
@@ -909,7 +931,6 @@ export function handleRequest(user: string) {
     console.log(`Artifact integrity SHA-256 (not proof of quality): ${report.evidenceDigest}`);
     if (totalPassed !== results.length || results.length !== 30) process.exitCode = 1;
     console.log("================================================================================\n");
-
   } finally {
     await rm(testWorkspace, { recursive: true, force: true });
   }

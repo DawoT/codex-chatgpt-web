@@ -20,7 +20,7 @@ export const DEV_CHAT_MODELS = [
   "chatgpt-web/pro",
 ] as const;
 
-export type DevChatModel = typeof DEV_CHAT_MODELS[number];
+export type DevChatModel = (typeof DEV_CHAT_MODELS)[number];
 
 const usageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
@@ -138,7 +138,8 @@ export class DevChatStore {
     try {
       const stat = statSync(path);
       if (!stat.isFile()) throw new Error(`DEV chat state is not a regular file: ${path}`);
-      if (stat.size > MAX_CHAT_FILE_BYTES) throw new Error(`DEV chat state exceeds ${MAX_CHAT_FILE_BYTES} bytes: ${path}`);
+      if (stat.size > MAX_CHAT_FILE_BYTES)
+        throw new Error(`DEV chat state exceeds ${MAX_CHAT_FILE_BYTES} bytes: ${path}`);
       return parseState(JSON.parse(readFileSync(path, "utf8")), path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -171,10 +172,10 @@ export class DevChatStore {
   list(): DevChatSummary[] {
     try {
       return readdirSync(this.root, { withFileTypes: true })
-        .filter(entry => entry.isFile() && entry.name.endsWith(".json"))
-        .map(entry => this.load(entry.name.slice(0, -5)))
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map((entry) => this.load(entry.name.slice(0, -5)))
         .filter((state): state is DevChatState => state !== undefined)
-        .map(state => ({
+        .map((state) => ({
           name: state.name,
           model: state.model,
           turns: state.turns,
@@ -221,21 +222,30 @@ export function createDevContextFiller(targetTokens: number): { text: string; to
 const COHERENT_PAYLOAD_SEGMENTS = [
   {
     title: "Architecture and data ownership",
-    focus: "how the fictional Northstar archive migration assigns ownership, preserves provenance, and moves records between bounded services",
+    focus:
+      "how the fictional Northstar archive migration assigns ownership, preserves provenance, and moves records between bounded services",
   },
   {
     title: "Operations and incident chronology",
-    focus: "how the same migration records incidents, recovery decisions, observable evidence, and follow-up work without losing chronology",
+    focus:
+      "how the same migration records incidents, recovery decisions, observable evidence, and follow-up work without losing chronology",
   },
   {
     title: "Verification and release readiness",
-    focus: "how the migration proves correctness, identifies unresolved risks, and decides whether a release candidate is ready",
+    focus:
+      "how the migration proves correctness, identifies unresolved risks, and decides whether a release candidate is ready",
   },
 ] as const;
 
 const COHERENT_MODULES = [
-  "catalog intake", "identity ledger", "document normalizer", "provenance index",
-  "search projection", "retention scheduler", "audit exporter", "recovery coordinator",
+  "catalog intake",
+  "identity ledger",
+  "document normalizer",
+  "provenance index",
+  "search projection",
+  "retention scheduler",
+  "audit exporter",
+  "recovery coordinator",
 ] as const;
 const COHERENT_REGIONS = ["North Annex", "River Depot", "Central Library", "West Archive"] as const;
 const COHERENT_STATES = ["proposed", "implemented", "verified", "held for review"] as const;

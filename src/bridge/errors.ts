@@ -1,5 +1,5 @@
+import { adapterFailureFromMessage, type CodexErrorPayload, classifyError } from "../lib/errors";
 import type { AdapterEvent } from "../types";
-import { adapterFailureFromMessage, classifyError, type CodexErrorPayload } from "../lib/errors";
 
 export { adapterFailureFromMessage } from "../lib/errors";
 
@@ -7,7 +7,10 @@ export function responseError(status: number, type: string, message: string): Co
   return classifyError(status, type, message);
 }
 
-export function adapterFailureFromEvent(event: Extract<AdapterEvent, { type: "error" }>): { httpStatus: number; error: CodexErrorPayload } {
+export function adapterFailureFromEvent(event: Extract<AdapterEvent, { type: "error" }>): {
+  httpStatus: number;
+  error: CodexErrorPayload;
+} {
   if (event.status === undefined && event.errorType === undefined && event.code === undefined) {
     return adapterFailureFromMessage(event.message);
   }

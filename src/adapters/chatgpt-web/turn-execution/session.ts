@@ -20,12 +20,15 @@ export class ChatGptTurnSession {
   private attachedConversationKey: string | undefined;
   private tail: Promise<void> = Promise.resolve();
   private capabilityRetirementScheduled = false;
-  private readonly rounds = new Map<string, {
-    events: AdapterEvent[];
-    reasoning: string[];
-    completed: boolean;
-    failure?: Error;
-  }>();
+  private readonly rounds = new Map<
+    string,
+    {
+      events: AdapterEvent[];
+      reasoning: string[];
+      completed: boolean;
+      failure?: Error;
+    }
+  >();
 
   constructor(
     readonly runtime: ChatGptTurnRuntime,
@@ -37,34 +40,47 @@ export class ChatGptTurnSession {
   ) {
     this.attachedConversationKey = runtime.conversationKey;
     this.physicalSettlement = runtime.physicalSettlement.then(
-      () => { this.settledPhysical = true; },
-      error => {
+      () => {
+        this.settledPhysical = true;
+      },
+      (error) => {
         this.settledPhysical = true;
         throw error;
       },
     );
     this.browserOutcome = runtime.browser
-      .then(answer => ({ type: "final", answer }) as ChatGptBrowserOutcome)
-      .catch(error => ({ type: "error", error: error instanceof Error ? error : new Error(String(error)) }) as ChatGptBrowserOutcome)
-      .then(outcome => {
-      this.settledBrowserOutcome = outcome;
-      const error = outcome.type === "error" && outcome.error instanceof ChatGptWebAdapterError
-        ? outcome.error : undefined;
-      console.info(`[chatgpt-web] browser_settled ${JSON.stringify({
-        traceId: this.traceId,
-        outcome: outcome.type,
-        compaction: runtime.usageInput?._compactionRequest === true,
-        ...(!runtime.usageInput?._compactionRequest ? { submission: runtime.submission?.phase ?? "unknown" } : {}),
-        ...(error ? { code: error.code, retryable: error.retryable } : {}),
-      })}`);
-      return outcome;
-    });
+      .then((answer) => ({ type: "final", answer }) as ChatGptBrowserOutcome)
+      .catch(
+        (error) =>
+          ({
+            type: "error",
+            error: error instanceof Error ? error : new Error(String(error)),
+          }) as ChatGptBrowserOutcome,
+      )
+      .then((outcome) => {
+        this.settledBrowserOutcome = outcome;
+        const error =
+          outcome.type === "error" && outcome.error instanceof ChatGptWebAdapterError ? outcome.error : undefined;
+        console.info(
+          `[chatgpt-web] browser_settled ${JSON.stringify({
+            traceId: this.traceId,
+            outcome: outcome.type,
+            compaction: runtime.usageInput?._compactionRequest === true,
+            ...(!runtime.usageInput?._compactionRequest ? { submission: runtime.submission?.phase ?? "unknown" } : {}),
+            ...(error ? { code: error.code, retryable: error.retryable } : {}),
+          })}`,
+        );
+        return outcome;
+      });
   }
 
   runExclusive<T>(task: () => Promise<T>): Promise<T> {
     this.touch();
     const run = this.tail.then(task);
-    this.tail = run.then(() => undefined, () => undefined);
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
     this.scheduleCapabilityRetirement();
     return run;
   }
@@ -105,7 +121,8 @@ export class ChatGptTurnSession {
   }
 
   setOutstanding(requests: BrokerToolRequest[], reasoning: string[] = [], prelude: AdapterEvent[] = []): void {
-    if (this.outstandingById.size > 0) throw new Error("cannot emit a new ChatGPT tool batch while the previous batch is unresolved");
+    if (this.outstandingById.size > 0)
+      throw new Error("cannot emit a new ChatGPT tool batch while the previous batch is unresolved");
     for (const request of requests) {
       if (this.deliveredResultIds.has(request.callId) || this.outstandingById.has(request.callId)) {
         throw new Error(`duplicate ChatGPT bridge tool call id: ${request.callId}`);
@@ -121,7 +138,8 @@ export class ChatGptTurnSession {
   }
 
   markResultDelivered(callId: string): void {
-    if (!this.outstandingById.delete(callId)) throw new Error(`ChatGPT bridge tool result does not match an outstanding call: ${callId}`);
+    if (!this.outstandingById.delete(callId))
+      throw new Error(`ChatGPT bridge tool result does not match an outstanding call: ${callId}`);
     this.deliveredResultIds.add(callId);
     if (this.outstandingById.size === 0) {
       this.outstandingReasoning = [];
@@ -198,7 +216,7 @@ export class ChatGptTurnSession {
   }
 
   roundHasTerminalEvent(key: string): boolean {
-    return this.rounds.get(key)?.events.some(event => event.type === "done" || event.type === "error") === true;
+    return this.rounds.get(key)?.events.some((event) => event.type === "done" || event.type === "error") === true;
   }
 
   cancel(reason?: Error): void {
@@ -215,7 +233,7 @@ export class ChatGptTurnSession {
     void this.physicalSettlement
       .then(() => this.tail)
       .then(() => this.runtime.retireCapability!())
-      .catch(error => {
+      .catch((error) => {
         console.error(
           `[chatgpt-web] failed to retire settled turn capability: ${error instanceof Error ? error.message : String(error)}`,
         );

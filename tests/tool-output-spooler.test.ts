@@ -3,13 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
   DEFAULT_HEAD_LINES,
-  DEFAULT_TAIL_LINES,
-  spoolToolOutput,
-  sanitizeToolOutputWithSpooler,
+  DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
   resolveProjectScratchDirectory,
-  type ToolSpoolerOptions,
+  sanitizeToolOutputWithSpooler,
+  spoolToolOutput,
 } from "../src/adapters/chatgpt-web/tool-spooler";
 
 describe("Sprint T: MCP Tool Output Offloading & Spooling (.agents/scratch/)", () => {
@@ -152,11 +150,7 @@ describe("Sprint T: MCP Tool Output Offloading & Spooling (.agents/scratch/)", (
       const oversizedText = "Data line\n".repeat(500);
       const imagePart = { type: "image", data: "base64encodedimage" };
 
-      const content = [
-        { type: "text", text: normalText },
-        { type: "text", text: oversizedText },
-        imagePart,
-      ];
+      const content = [{ type: "text", text: normalText }, { type: "text", text: oversizedText }, imagePart];
 
       const sanitized = sanitizeToolOutputWithSpooler(content, {
         workspaceRoot: tempWorkspace,

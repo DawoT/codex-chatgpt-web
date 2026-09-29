@@ -10,32 +10,36 @@ const launcherManifest = JSON.parse(fs.readFileSync(path.join(root, "package.jso
 const executable = "node";
 const electronBuilderCli = require.resolve("electron-builder/out/cli/cli.js", { paths: [root] });
 const requested = process.argv[2];
-const target = requested || (process.platform === "darwin" ? "--mac"
-  : process.platform === "win32" ? "--win"
-    : process.platform === "linux" ? "--linux"
-      : null);
+const target =
+  requested ||
+  (process.platform === "darwin"
+    ? "--mac"
+    : process.platform === "win32"
+      ? "--win"
+      : process.platform === "linux"
+        ? "--linux"
+        : null);
 if (!["--mac", "--win", "--linux"].includes(target)) {
   throw new Error(`Unsupported packaging target: ${requested || process.platform}`);
 }
-const nativeTarget = process.platform === "darwin" ? "--mac"
-  : process.platform === "win32" ? "--win"
-    : process.platform === "linux" ? "--linux"
-      : null;
+const nativeTarget =
+  process.platform === "darwin"
+    ? "--mac"
+    : process.platform === "win32"
+      ? "--win"
+      : process.platform === "linux"
+        ? "--linux"
+        : null;
 if (target !== nativeTarget) {
   throw new Error(
-    `Cross-packaging ${target} from ${process.platform}/${process.arch} is disabled because the launcher embeds a native Bun runtime. `
-    + "Build each target on its matching operating system.",
+    `Cross-packaging ${target} from ${process.platform}/${process.arch} is disabled because the launcher embeds a native Bun runtime. ` +
+      "Build each target on its matching operating system.",
   );
 }
 
 const env = { ...process.env };
 if (!env.CSC_LINK && !env.CSC_NAME) env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
-const builderArgs = [
-  electronBuilderCli,
-  target,
-  "--publish",
-  "never",
-];
+const builderArgs = [electronBuilderCli, target, "--publish", "never"];
 if (target === "--mac" && !env.CSC_LINK && !env.CSC_NAME) {
   builderArgs.push("--config.mac.identity=-");
 }
@@ -80,8 +84,7 @@ function runChecked(command, args) {
 }
 
 function verifySignedMacArchive() {
-  const archives = fs.readdirSync(staging)
-    .filter(name => /-mac-(?:arm64|x64)\.zip$/.test(name));
+  const archives = fs.readdirSync(staging).filter((name) => /-mac-(?:arm64|x64)\.zip$/.test(name));
   if (archives.length !== 1) {
     throw new Error(`Expected exactly one macOS ZIP for verification; found ${archives.join(", ") || "none"}`);
   }
@@ -101,10 +104,7 @@ function verifySignedMacArchive() {
 }
 
 try {
-  const result = spawnSync(executable, [
-    ...builderArgs,
-    `--config.directories.output=${staging}`,
-  ], {
+  const result = spawnSync(executable, [...builderArgs, `--config.directories.output=${staging}`], {
     cwd: root,
     env,
     stdio: "inherit",
@@ -120,13 +120,15 @@ try {
       fs.rmSync(path.join(artifactsDirectory, entry.name), { force: true });
     }
   }
-  const artifacts = fs.readdirSync(staging, { withFileTypes: true })
+  const artifacts = fs
+    .readdirSync(staging, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.(?:AppImage|dmg|exe|zip|blockmap)$/i.test(entry.name));
   if (!artifacts.some((entry) => /\.(?:AppImage|dmg|exe|zip)$/i.test(entry.name))) {
     throw new Error(`electron-builder produced no distributable artifact in ${staging}`);
   }
   for (const artifact of artifacts) {
-    const publicName = artifact.name.replace(/-linux-x86_64(?=\.)/, "-linux-x64")
+    const publicName = artifact.name
+      .replace(/-linux-x86_64(?=\.)/, "-linux-x64")
       .replace(/-linux-aarch64(?=\.)/, "-linux-arm64");
     fs.copyFileSync(path.join(staging, artifact.name), path.join(artifactsDirectory, publicName));
   }

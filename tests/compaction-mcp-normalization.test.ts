@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
-import { canonicalizeCompactionHandoff } from "../src/adapters/chatgpt-web/compaction-handoff";
 import { validateCompactionQuality } from "../src/adapters/chatgpt-web/autonomous-compaction";
+import { boundedCompactionRepairObservations } from "../src/adapters/chatgpt-web/compaction-evidence";
+import { canonicalizeCompactionHandoff } from "../src/adapters/chatgpt-web/compaction-handoff";
+import {
+  buildCompactionFallbackRepairPrompt,
+  checkpointRepairPromptFits,
+} from "../src/adapters/chatgpt-web/compaction-repair";
 import { structuredCompactionHandoffInstruction } from "../src/adapters/chatgpt-web/native-compaction-control";
 import { extractStructuredCompactionHandoff } from "../src/responses/compaction";
-import { boundedCompactionRepairObservations } from "../src/adapters/chatgpt-web/compaction-evidence";
-import { buildCompactionFallbackRepairPrompt, checkpointRepairPromptFits } from "../src/adapters/chatgpt-web/compaction-repair";
 import type { CodexParsedRequest } from "../src/types";
 
 test("a freeform MCP handoff becomes a conservative versioned checkpoint", () => {
@@ -20,12 +23,14 @@ test("a freeform MCP handoff becomes a conservative versioned checkpoint", () =>
       ],
     },
     _rawBody: {
-      input: [{
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "Also preserve the failed charge diagnostic." }],
-        internal_chat_message_metadata_passthrough: { turn_id: "turn_source" },
-      }],
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Also preserve the failed charge diagnostic." }],
+          internal_chat_message_metadata_passthrough: { turn_id: "turn_source" },
+        },
+      ],
       client_metadata: {
         "x-codex-turn-metadata": JSON.stringify({
           thread_id: "thread_mcp_compaction",
@@ -34,14 +39,15 @@ test("a freeform MCP handoff becomes a conservative versioned checkpoint", () =>
       },
     },
   };
-  const summary = "The payment retry bug remains open. The failed charge diagnostic must be preserved. No successful test run was observed. Next, inspect the retry path and reproduce the failure.";
+  const summary =
+    "The payment retry bug remains open. The failed charge diagnostic must be preserved. No successful test run was observed. Next, inspect the retry path and reproduce the failure.";
 
   const canonical = canonicalizeCompactionHandoff(request, summary);
   const state = extractStructuredCompactionHandoff(canonical).state;
 
   expect(state?.version).toBe(2);
-  expect(state?.requirements?.map(item => item.status)).toEqual(["pending", "pending"]);
-  expect(state?.requirements?.map(item => item.source)).toEqual([
+  expect(state?.requirements?.map((item) => item.status)).toEqual(["pending", "pending"]);
+  expect(state?.requirements?.map((item) => item.source)).toEqual([
     "Fix the payment retry bug.",
     "Also preserve the failed charge diagnostic.",
   ]);
@@ -57,12 +63,14 @@ test("ordinary prose headings do not block freeform checkpoint normalization", (
     _compactionRequest: true,
     context: { messages: [{ role: "user", content: "Fix retry logic", timestamp: 1 }] },
     _rawBody: {
-      input: [{
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "Fix retry logic" }],
-        internal_chat_message_metadata_passthrough: { turn_id: "turn_source" },
-      }],
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Fix retry logic" }],
+          internal_chat_message_metadata_passthrough: { turn_id: "turn_source" },
+        },
+      ],
       client_metadata: {
         "x-codex-turn-metadata": JSON.stringify({ thread_id: "thread_freeform", turn_id: "turn_compact" }),
       },
@@ -92,33 +100,51 @@ test("fallback repair bounds the rejected draft and the complete physical prompt
   expect(prompt!.length).toBeLessThanOrEqual(45_000);
   expect(prompt).toContain("Keep the failed charge diagnostic.");
   expect(prompt).toContain("[draft excerpt truncated]");
-  expect(buildCompactionFallbackRepairPrompt({
-    issues: [],
-    originalRequest: "A".repeat(46_000),
-    latestRequest: "Latest instruction",
-    otherUserRequests: [],
-    priorState: null,
-    observations: [],
-    rejectedDraft: "short draft",
-  })).toBeUndefined();
+  expect(
+    buildCompactionFallbackRepairPrompt({
+      issues: [],
+      originalRequest: "A".repeat(46_000),
+      latestRequest: "Latest instruction",
+      otherUserRequests: [],
+      priorState: null,
+      observations: [],
+      rejectedDraft: "short draft",
+    }),
+  ).toBeUndefined();
 });
 
 test("retained repair rejects a prompt above the physical handoff boundary", () => {
-  expect(checkpointRepairPromptFits(
-    "x".repeat(45_001),
-    "gpt-5.6-sol",
-    "low",
-    { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
-  )).toBe(false);
+  expect(
+    checkpointRepairPromptFits("x".repeat(45_001), "gpt-5.6-sol", "low", {
+      localToolsEnabled: true,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+    }),
+  ).toBe(false);
 });
 
 test("repair observations count serialized commands as well as excerpts", () => {
   const selected = boundedCompactionRepairObservations([
-    { ref: "obs_a", toolCallId: "a", toolName: "exec_command", status: "succeeded", command: "x".repeat(12_000), excerpt: "ok" },
-    { ref: "obs_b", toolCallId: "b", toolName: "exec_command", status: "succeeded", command: "bun test", excerpt: "1 pass" },
+    {
+      ref: "obs_a",
+      toolCallId: "a",
+      toolName: "exec_command",
+      status: "succeeded",
+      command: "x".repeat(12_000),
+      excerpt: "ok",
+    },
+    {
+      ref: "obs_b",
+      toolCallId: "b",
+      toolName: "exec_command",
+      status: "succeeded",
+      command: "bun test",
+      excerpt: "1 pass",
+    },
   ]);
 
-  expect(selected.map(item => item.ref)).toEqual(["obs_b"]);
+  expect(selected.map((item) => item.ref)).toEqual(["obs_b"]);
   const unicode = boundedCompactionRepairObservations([
     { ref: "obs_unicode", toolCallId: "c", toolName: "exec_command", status: "succeeded", excerpt: "😀".repeat(3_000) },
   ]);

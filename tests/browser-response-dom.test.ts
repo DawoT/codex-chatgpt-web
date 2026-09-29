@@ -2,9 +2,13 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import type { Locator } from "playwright-core";
-import { ChatGptBrowserWorker, ChatGptCompletionTracker, CHATGPT_COMPLETION_SETTLE_MS } from "../src/adapters/chatgpt-web/browser-worker";
-import { ChatGptMarkdownBuffer, type ChatGptMarkdownSegment } from "../src/adapters/chatgpt-web/markdown";
 import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
+import {
+  CHATGPT_COMPLETION_SETTLE_MS,
+  ChatGptBrowserWorker,
+  ChatGptCompletionTracker,
+} from "../src/adapters/chatgpt-web/browser-worker";
+import { ChatGptMarkdownBuffer, type ChatGptMarkdownSegment } from "../src/adapters/chatgpt-web/markdown";
 import { parseCompactionState } from "../src/responses/compaction";
 
 const smokeHtml = readFileSync(new URL("./fixtures/chatgpt-dil-smoke.html", import.meta.url), "utf8");
@@ -26,30 +30,52 @@ async function snapshot(html: string): Promise<Snapshot> {
   const innerText = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "innerText");
   const append = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "append");
   Object.defineProperty(window.HTMLElement.prototype, "innerText", {
-    configurable: true, get() { return this.textContent; },
+    configurable: true,
+    get() {
+      return this.textContent;
+    },
   });
   Object.defineProperty(window.HTMLElement.prototype, "append", {
-    configurable: true, value(this: HTMLElement, ...nodes: Node[]) { nodes.forEach(node => this.appendChild(node)); },
+    configurable: true,
+    value(this: HTMLElement, ...nodes: Node[]) {
+      nodes.forEach((node) => this.appendChild(node));
+    },
   });
-  const collections = [window.document.querySelectorAll("div"), window.document.body.children].map(Object.getPrototypeOf);
-  const iterators = collections.map(prototype => Object.getOwnPropertyDescriptor(prototype, Symbol.iterator));
-  for (const prototype of collections) Object.defineProperty(prototype, Symbol.iterator, {
-    configurable: true, value: Array.prototype[Symbol.iterator],
-  });
+  const collections = [window.document.querySelectorAll("div"), window.document.body.children].map(
+    Object.getPrototypeOf,
+  );
+  const iterators = collections.map((prototype) => Object.getOwnPropertyDescriptor(prototype, Symbol.iterator));
+  for (const prototype of collections)
+    Object.defineProperty(prototype, Symbol.iterator, {
+      configurable: true,
+      value: Array.prototype[Symbol.iterator],
+    });
   try {
     const context = createContext({
-      document: window.document, HTMLElement: window.HTMLElement, Element: window.Element,
-      Node: window.Node, NodeFilter: window.NodeFilter, performance: { timeOrigin: 1 },
+      document: window.document,
+      HTMLElement: window.HTMLElement,
+      Element: window.Element,
+      Node: window.Node,
+      NodeFilter: window.NodeFilter,
+      performance: { timeOrigin: 1 },
       getComputedStyle: (element: HTMLElement) => ({
-        display: element.style.display || "block", visibility: "visible", opacity: "1",
+        display: element.style.display || "block",
+        visibility: "visible",
+        opacity: "1",
       }),
-      MutationObserver: class { observe() {} },
+      MutationObserver: class {
+        observe() {}
+      },
     });
     const errors: unknown[] = [];
     const locator = {
       evaluate: async (callback: Function, options: unknown) => {
-        try { return runInContext(`(${callback.toString()})`, context)(window.document.getElementById("turn"), options); }
-        catch (error) { errors.push(error); throw error; }
+        try {
+          return runInContext(`(${callback.toString()})`, context)(window.document.getElementById("turn"), options);
+        } catch (error) {
+          errors.push(error);
+          throw error;
+        }
       },
       page: () => ({ isClosed: () => false, evaluate: async () => html.length }),
     } as unknown as Locator;
@@ -76,8 +102,9 @@ async function snapshot(html: string): Promise<Snapshot> {
 }
 
 test("keeps an unfinished hyperlink buffered and detects changed destinations after delivery", async () => {
-  const page = (href: string) => `<section id="turn"><div class="markdown"><p data-start="0" data-end="99"><strong><a${href}>Open report</a></strong>.</p><p data-start="100" data-end="115">Next paragraph.</p></div></section>`;
-  const buffer = new ChatGptMarkdownBuffer(markdown => markdown, 0);
+  const page = (href: string) =>
+    `<section id="turn"><div class="markdown"><p data-start="0" data-end="99"><strong><a${href}>Open report</a></strong>.</p><p data-start="100" data-end="115">Next paragraph.</p></div></section>`;
+  const buffer = new ChatGptMarkdownBuffer((markdown) => markdown, 0);
   const pending = await snapshot(page(""));
   expect(buffer.observe(pending.markdownSegments, 0)).toBe("");
   const linked = await snapshot(page(' href="https://example.com/report#details"'));
@@ -115,34 +142,38 @@ test("captured DIL smoke response reaches Markdown delivery and stable completio
 });
 
 test("DOM checkpoint markers split across inline spans remain parseable", async () => {
-  const response = await snapshot([
-    '<section id="turn"><div class="markdown">',
-    '<p><span>&lt;compaction</span><span>_state&gt;</span></p>',
-    '<p>version: 2</p>',
-    '<p>original_request_ref: user turn 1</p>',
-    '<p>active_hypothesis: Finish the task.</p>',
-    '<p>requirements:</p>',
-    '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
-    '<p>&lt;/compaction_state&gt;</p>',
-    '</div><button data-testid="copy-turn-action-button"></button></section>',
-  ].join(""));
+  const response = await snapshot(
+    [
+      '<section id="turn"><div class="markdown">',
+      "<p><span>&lt;compaction</span><span>_state&gt;</span></p>",
+      "<p>version: 2</p>",
+      "<p>original_request_ref: user turn 1</p>",
+      "<p>active_hypothesis: Finish the task.</p>",
+      "<p>requirements:</p>",
+      '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
+      "<p>&lt;/compaction_state&gt;</p>",
+      '</div><button data-testid="copy-turn-action-button"></button></section>',
+    ].join(""),
+  );
   const buffer = new ChatGptMarkdownBuffer(undefined, 0);
   buffer.observe(response.markdownSegments, 0);
   expect(parseCompactionState(buffer.finish().markdown)?.requirements?.[0]?.id).toBe("REQ-1");
 });
 
 test("a compaction-only inline-code marker is accepted without rewriting ordinary code", async () => {
-  const response = await snapshot([
-    '<section id="turn"><div class="markdown">',
-    '<p><code>&lt;compaction_state&gt;</code></p>',
-    '<p>version: 2</p>',
-    '<p>original_request_ref: user turn 1</p>',
-    '<p>active_hypothesis: Finish the task.</p>',
-    '<p>requirements:</p>',
-    '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
-    '<p><code>&lt;/compaction_state&gt;</code></p>',
-    '</div><button data-testid="copy-turn-action-button"></button></section>',
-  ].join(""));
+  const response = await snapshot(
+    [
+      '<section id="turn"><div class="markdown">',
+      "<p><code>&lt;compaction_state&gt;</code></p>",
+      "<p>version: 2</p>",
+      "<p>original_request_ref: user turn 1</p>",
+      "<p>active_hypothesis: Finish the task.</p>",
+      "<p>requirements:</p>",
+      '<ul><li>{"id":"REQ-1","status":"pending","source":"user turn 1"}</li></ul>',
+      "<p><code>&lt;/compaction_state&gt;</code></p>",
+      '</div><button data-testid="copy-turn-action-button"></button></section>',
+    ].join(""),
+  );
   const ordinary = new ChatGptMarkdownBuffer(undefined, 0);
   ordinary.observe(response.markdownSegments, 0);
   expect(parseCompactionState(ordinary.finish().markdown)).toBeNull();
@@ -172,11 +203,17 @@ test("captured power UI excludes the user footer during streaming and completes 
   expect(markdown).toEndWith("STREAM\\_END\\_927");
   const translated = await snapshot(powerCompleteHtml.replaceAll('aria-label="Copy"', 'aria-label="복사"'));
   expect(translated.completionActionVisible).toBeTrue();
-  const noAssistant = await snapshot(powerCompleteHtml.replaceAll('data-conversation-role="assistant"', 'data-conversation-role="user"'));
+  const noAssistant = await snapshot(
+    powerCompleteHtml.replaceAll('data-conversation-role="assistant"', 'data-conversation-role="user"'),
+  );
   expect(noAssistant.visibleText).toBe("");
   expect(noAssistant.completionActionVisible).toBeFalse();
-  const userMarkdown = await snapshot(powerCompleteHtml.replace('data-user-message-bubble="true">',
-    'data-user-message-bubble="true"><div class="markdown">USER CONTENT</div>'));
+  const userMarkdown = await snapshot(
+    powerCompleteHtml.replace(
+      'data-user-message-bubble="true">',
+      'data-user-message-bubble="true"><div class="markdown">USER CONTENT</div>',
+    ),
+  );
   expect(userMarkdown.visibleText).toBe(complete.visibleText);
 });
 
@@ -192,7 +229,9 @@ test("DIL response extraction preserves ownership, commentary and completion bou
     expect(response.visibleText).toBe("");
     expect(response.completionActionVisible).toBeFalse();
   }
-  const noCopy = await snapshot(smokeHtml.replace('data-testid="copy-turn-action-button"', 'data-testid="other-action"'));
+  const noCopy = await snapshot(
+    smokeHtml.replace('data-testid="copy-turn-action-button"', 'data-testid="other-action"'),
+  );
   expect(noCopy.visibleText).toBe("CODEX WEB GPT READY");
   expect(noCopy.completionActionVisible).toBeFalse();
 });

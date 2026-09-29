@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { getConfigDir } from "../src/config";
+import { join } from "node:path";
+import type { SubagentStructuredResult } from "../src/adapters/chatgpt-web/subagent-protocol";
 import {
   cleanupSubagentWorkspace,
   listSubagentWorkspaces,
@@ -10,10 +10,9 @@ import {
   resolveSubagentScratchDir,
   resolveSubagentWorkspace,
   writeSubagentResult,
-  type SubagentWorkspaceInfo,
 } from "../src/adapters/chatgpt-web/subagent-workspace";
 import { spoolToolOutput } from "../src/adapters/chatgpt-web/tool-spooler";
-import type { SubagentStructuredResult } from "../src/adapters/chatgpt-web/subagent-protocol";
+import { getConfigDir } from "../src/config";
 
 describe("Sprint W: Subagentes Aislados con Workspace Local (.agents/subagents/<id>/)", () => {
   function makeTempWorkspace(): string {

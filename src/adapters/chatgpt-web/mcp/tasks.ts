@@ -1,7 +1,13 @@
 import type { BackgroundTaskManager } from "../background-task-manager";
 import { summarizeTask } from "../task-summaries";
 
-export async function waitOnTasks(manager: BackgroundTaskManager, taskIds: string[], waitMs: number, lines = 30, options: { ownerId?: string; signal?: AbortSignal } = {}): Promise<{
+export async function waitOnTasks(
+  manager: BackgroundTaskManager,
+  taskIds: string[],
+  waitMs: number,
+  lines = 30,
+  options: { ownerId?: string; signal?: AbortSignal } = {},
+): Promise<{
   tasks: Array<{
     task_id: string;
     status: string;
@@ -13,7 +19,7 @@ export async function waitOnTasks(manager: BackgroundTaskManager, taskIds: strin
 }> {
   await manager.waitForTasks(taskIds, waitMs, options);
 
-  const results = taskIds.map(id => {
+  const results = taskIds.map((id) => {
     const task = manager.getTask(id, options.ownerId);
     if (!task) {
       return {
@@ -35,6 +41,6 @@ export async function waitOnTasks(manager: BackgroundTaskManager, taskIds: strin
     };
   });
 
-  const pending = results.filter(r => r.status === "running" || r.status === "terminating").length;
+  const pending = results.filter((r) => r.status === "running" || r.status === "terminating").length;
   return { tasks: results, pending };
 }

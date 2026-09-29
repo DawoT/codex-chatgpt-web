@@ -2,21 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 import {
   CHATGPT_WEB_MAX_READ_FILE_BYTES,
+  dispatchFastPathTool,
+  type FastPathToolResult,
   GLOBAL_SKILL_READ_ROOTS,
   handleGrep,
   handleListDir,
   handleReadFile,
-  resolveSafeWorkspacePath,
   RG_FAILURE_CACHE_TTL_MS,
+  type RgExecution,
   resetRgPathCache,
   resolveRgPath,
-  dispatchFastPathTool,
-  type FastPathToolResult,
-  type RgExecution,
+  resolveSafeWorkspacePath,
 } from "../src/adapters/chatgpt-web/fast-path-handlers";
-import { FastPathWorkspaceCache } from "../src/adapters/chatgpt-web/fast-path-cache";
 
 function payload(res: FastPathToolResult): Record<string, any> {
   return res.structuredContent as Record<string, any>;
@@ -31,10 +31,16 @@ test("fast-path dispatch forwards byte continuation without changing line semant
   try {
     writeFileSync(join(cwd, "sample.txt"), "ab😀cd");
     const context = { cwd, roots: [cwd] };
-    const page = payload(await dispatchFastPathTool("codex_read_file", { path: "sample.txt", offset_bytes: 2, max_bytes: 4 }, context));
+    const page = payload(
+      await dispatchFastPathTool("codex_read_file", { path: "sample.txt", offset_bytes: 2, max_bytes: 4 }, context),
+    );
     expect(page.content).toBe("😀");
     expect(page.next_offset_bytes).toBe(6);
-    const invalid = await dispatchFastPathTool("codex_read_file", { path: "sample.txt", offset: 1, max_bytes: 4 }, context);
+    const invalid = await dispatchFastPathTool(
+      "codex_read_file",
+      { path: "sample.txt", offset: 1, max_bytes: 4 },
+      context,
+    );
     expect(invalid.isError).toBe(true);
     const lines = payload(await dispatchFastPathTool("codex_read_file", { path: "sample.txt" }, context));
     expect(lines.content).toBe("ab😀cd");
@@ -172,7 +178,10 @@ describe("handleReadFile", () => {
     const root = mkdtempSync(join(tmpdir(), "cgw-read-edge-"));
     try {
       mkdirSync(join(root, "folder"));
-      writeFileSync(join(root, "sample.bin"), Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64]));
+      writeFileSync(
+        join(root, "sample.bin"),
+        Buffer.from([0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64]),
+      );
 
       const dirResult = handleReadFile({ path: "folder", cwd: root, roots: [root] });
       expect(dirResult.isError).toBe(true);
@@ -210,7 +219,7 @@ describe("handleReadFile", () => {
   });
 
   test("allows reading files from global skill directories outside workspace roots", () => {
-    const existingSkillRoot = GLOBAL_SKILL_READ_ROOTS.find(r => existsSync(r));
+    const existingSkillRoot = GLOBAL_SKILL_READ_ROOTS.find((r) => existsSync(r));
     if (!existingSkillRoot) return;
 
     // Create a temporary workspace root that has NO access to skill roots
@@ -260,7 +269,7 @@ describe("handleListDir", () => {
       // directories were listed first (directories sort before files), e.txt would be missing.
       const res = handleListDir({ path: ".", depth: 1, limit: 6, cwd: root, roots: [root] });
       const out = payload(res);
-      const names = (out.entries as Array<{ name: string }>).map(entry => entry.name);
+      const names = (out.entries as Array<{ name: string }>).map((entry) => entry.name);
       expect(names).not.toContain(".git");
       expect(names).not.toContain("node_modules");
       expect(names).not.toContain("dist");
@@ -282,10 +291,10 @@ describe("handleListDir", () => {
       writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/main");
 
       const res = handleListDir({ path: ".", depth: 3, limit: 100, cwd: root, roots: [root] });
-      const paths = (payload(res).entries as Array<{ path: string }>).map(entry => entry.path);
+      const paths = (payload(res).entries as Array<{ path: string }>).map((entry) => entry.path);
       expect(paths).toContain(join("src", "nested"));
       expect(paths).toContain(join("src", "nested", "deep.ts"));
-      expect(paths.some(entryPath => entryPath.startsWith(".git"))).toBe(false);
+      expect(paths.some((entryPath) => entryPath.startsWith(".git"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -394,10 +403,11 @@ describe("handleGrep", () => {
   });
 
   test("correctly parses Windows drive-letter paths with line numbers", () => {
-    const runRg = () => rgExecution({
-      status: 0,
-      stdout: "C:\\projects\\app\\src\\index.ts:42:const needle = 1;",
-    });
+    const runRg = () =>
+      rgExecution({
+        status: 0,
+        stdout: "C:\\projects\\app\\src\\index.ts:42:const needle = 1;",
+      });
     const res = handleGrep({ query: "needle", cwd: root, roots: [root], runRg });
     expect(res.isError).toBeUndefined();
     const out = payload(res);
@@ -449,7 +459,9 @@ describe("handleGrep", () => {
   });
 
   test("rejects search targets outside the sandbox", () => {
-    expect(() => handleGrep({ query: "needle", path: "../outside", cwd: root, roots: [root] })).toThrow("outside allowed sandbox roots");
+    expect(() => handleGrep({ query: "needle", path: "../outside", cwd: root, roots: [root] })).toThrow(
+      "outside allowed sandbox roots",
+    );
   });
 
   test("rejects empty or whitespace query in handleGrep", () => {

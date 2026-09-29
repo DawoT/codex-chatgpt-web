@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { PromptContractCache } from "../src/adapters/chatgpt-web/prompt-cache";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
+import { PromptContractCache } from "../src/adapters/chatgpt-web/prompt-cache";
 import type { CodexParsedRequest } from "../src/types";
 
 const capabilities = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
@@ -26,7 +26,7 @@ test("cached prompt keeps each request's schema name and strictness", () => {
 test("continuation preserves requested output schema", () => {
   const compiled = compileChatGptWebPrompt(request("continued", true), capabilities, token, { continuation: true });
   expect(compiled.text).toContain('strict JSON-schema final answer named "continued"');
-  expect(compiled.text).toContain('<codex_output_schema_json>');
+  expect(compiled.text).toContain("<codex_output_schema_json>");
 });
 
 test("updating an existing cache entry preserves other entries", () => {

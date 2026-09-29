@@ -8,9 +8,5 @@ export interface IncomingMeta {
 
 export interface ProviderAdapter {
   name: string;
-  runTurn(
-    parsed: CodexParsedRequest,
-    incoming: IncomingMeta,
-    emit: (event: AdapterEvent) => void,
-  ): Promise<void>;
+  runTurn(parsed: CodexParsedRequest, incoming: IncomingMeta, emit: (event: AdapterEvent) => void): Promise<void>;
 }

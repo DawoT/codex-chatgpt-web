@@ -2,15 +2,17 @@ import * as z from "zod/v4";
 
 const inputTextSchema = z.object({ type: z.literal("input_text"), text: z.string() });
 const plainTextSchema = z.object({ type: z.literal("text"), text: z.string() });
-const inputImageBlockSchema = z.object({
-  type: z.literal("input_image"),
-  // codex-rs ImageDetail: auto|low|high|original (view_image --detail original).
-  detail: z.enum(["auto", "low", "high", "original"]).optional(),
-  image_url: z.string().optional(),
-  file_id: z.string().optional(),
-}).refine(v => typeof v.image_url === "string" || typeof v.file_id === "string", {
-  message: "input_image requires at least one of image_url or file_id",
-});
+const inputImageBlockSchema = z
+  .object({
+    type: z.literal("input_image"),
+    // codex-rs ImageDetail: auto|low|high|original (view_image --detail original).
+    detail: z.enum(["auto", "low", "high", "original"]).optional(),
+    image_url: z.string().optional(),
+    file_id: z.string().optional(),
+  })
+  .refine((v) => typeof v.image_url === "string" || typeof v.file_id === "string", {
+    message: "input_image requires at least one of image_url or file_id",
+  });
 const inputFileBlockSchema = z.object({
   type: z.literal("input_file"),
   file_id: z.string().optional(),
@@ -24,19 +26,30 @@ const reasoningTextSchema = z.object({ type: z.literal("reasoning_text"), text: 
 // codex-rs FunctionCallOutputContentItem (protocol/src/models.rs): input_text | input_image | encrypted_content.
 const encryptedContentBlockSchema = z.object({ type: z.literal("encrypted_content"), encrypted_content: z.string() });
 
-const inputContentBlockSchema = z.union([inputTextSchema, plainTextSchema, inputImageBlockSchema, inputFileBlockSchema]);
+const inputContentBlockSchema = z.union([
+  inputTextSchema,
+  plainTextSchema,
+  inputImageBlockSchema,
+  inputFileBlockSchema,
+]);
 const outputContentBlockSchema = z.union([outputTextSchema, plainTextSchema, outputRefusalSchema]);
 // Codex tool outputs can contain both input-shaped and output-shaped content blocks.
 const toolOutputContentBlockSchema = z.union([
-  outputTextSchema, plainTextSchema, outputRefusalSchema,
-  inputTextSchema, inputImageBlockSchema, encryptedContentBlockSchema,
+  outputTextSchema,
+  plainTextSchema,
+  outputRefusalSchema,
+  inputTextSchema,
+  inputImageBlockSchema,
+  encryptedContentBlockSchema,
 ]);
 const toolOutputSchema = z.union([z.string(), z.array(toolOutputContentBlockSchema)]);
 
 const userMessageItemSchema = z.object({
-  internal_chat_message_metadata_passthrough: z.object({
-    content_item_kinds: z.array(z.string()).optional(),
-  }).optional(),
+  internal_chat_message_metadata_passthrough: z
+    .object({
+      content_item_kinds: z.array(z.string()).optional(),
+    })
+    .optional(),
   type: z.literal("message").optional(),
   role: z.union([z.literal("user"), z.literal("developer")]),
   content: z.union([z.string(), z.array(inputContentBlockSchema)]).optional(),
@@ -52,18 +65,17 @@ const assistantMessageItemSchema = z.object({
   content: z.union([z.string(), z.array(outputContentBlockSchema)]).optional(),
   phase: z.enum(["commentary", "final_answer"]).optional(),
 });
-const agentMessageItemSchema = z.object({
-  type: z.literal("agent_message"),
-  author: z.string().optional(),
-  recipient: z.string().optional(),
-  // MultiAgent V1 sends normal input content. V2 may send only encrypted_content; accept that
-  // shape so the HTTP boundary can reject it before constructing a browser adapter instead of
-  // silently manufacturing an empty task or starting a retryable SSE stream.
-  content: z.union([
-    z.string(),
-    z.array(z.union([inputContentBlockSchema, encryptedContentBlockSchema])),
-  ]).optional(),
-}).loose();
+const agentMessageItemSchema = z
+  .object({
+    type: z.literal("agent_message"),
+    author: z.string().optional(),
+    recipient: z.string().optional(),
+    // MultiAgent V1 sends normal input content. V2 may send only encrypted_content; accept that
+    // shape so the HTTP boundary can reject it before constructing a browser adapter instead of
+    // silently manufacturing an empty task or starting a retryable SSE stream.
+    content: z.union([z.string(), z.array(z.union([inputContentBlockSchema, encryptedContentBlockSchema]))]).optional(),
+  })
+  .loose();
 const reasoningItemSchema = z.object({
   type: z.literal("reasoning"),
   id: z.string().optional(),
@@ -111,10 +123,7 @@ export const knownInputItemSchema = z.union([
   customToolCallOutputItemSchema,
 ]);
 
-export const inputItemSchema = z.union([
-  knownInputItemSchema,
-  z.object({ type: z.string() }).loose(),
-]);
+export const inputItemSchema = z.union([knownInputItemSchema, z.object({ type: z.string() }).loose()]);
 
 export const toolSchema = z.object({
   type: z.literal("function"),
@@ -127,8 +136,12 @@ export const toolSchema = z.object({
 const builtinToolSchema = z.object({ type: z.string() }).loose();
 
 const hostedToolType = z.enum([
-  "web_search_preview", "file_search", "computer_use_preview",
-  "code_interpreter", "image_generation", "mcp",
+  "web_search_preview",
+  "file_search",
+  "computer_use_preview",
+  "code_interpreter",
+  "image_generation",
+  "mcp",
 ]);
 
 const allowedToolEntrySchema = z.object({ type: z.string(), name: z.string().optional() });
@@ -140,7 +153,11 @@ export const toolChoiceSchema = z.union([
   z.object({ type: z.literal("function"), name: z.string().min(1) }),
   z.object({ type: z.literal("custom"), name: z.string().min(1) }),
   z.object({ type: hostedToolType }),
-  z.object({ type: z.literal("allowed_tools"), mode: z.enum(["auto", "required"]), tools: z.array(allowedToolEntrySchema) }),
+  z.object({
+    type: z.literal("allowed_tools"),
+    mode: z.enum(["auto", "required"]),
+    tools: z.array(allowedToolEntrySchema),
+  }),
 ]);
 
 export const reasoningConfigSchema = z.object({

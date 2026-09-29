@@ -1,13 +1,11 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ProviderAdapter } from "../adapters/base";
-import { closeChatGptBrowserWorkers } from "../adapters/chatgpt-web/browser-worker";
 import { createChatGptWebAdapter } from "../adapters/chatgpt-web";
-import { estimateChatGptWebInputTokens } from "../adapters/chatgpt-web/usage";
+import { closeChatGptBrowserWorkers } from "../adapters/chatgpt-web/browser-worker";
+import { CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET } from "../adapters/chatgpt-web/input-tokens";
 import { RemoteTurnBroker, type TurnBrokerOwner } from "../adapters/chatgpt-web/turn-broker";
-import {
-  CHATGPT_LUNA_BROWSER_INPUT_TOKEN_BUDGET,
-} from "../adapters/chatgpt-web/input-tokens";
+import { estimateChatGptWebInputTokens } from "../adapters/chatgpt-web/usage";
 import {
   CHATGPT_WEB_LUNA_BACKEND_MODEL,
   requireChatGptWebModelRoute,
@@ -16,7 +14,7 @@ import {
 import type { AppConfig } from "../config";
 import { parseRequest } from "../responses/parser";
 import { compactRequest, responseRequest, routeChatGptWebRequest } from "../server";
-import { namespacedToolName, type AdapterEvent, type CodexProviderConfig } from "../types";
+import { type AdapterEvent, type CodexProviderConfig, namespacedToolName } from "../types";
 import {
   createDevCoherentContextPayload,
   createDevContextFiller,
@@ -97,7 +95,9 @@ export const DEV_CHAT_BROWSER_ONLY_INSTRUCTIONS = [
 
 const ANY_ARGUMENTS = { type: "object", additionalProperties: true } as const;
 const simulatedFunction = (name: string, description: string) => ({
-  type: "function", name, parameters: ANY_ARGUMENTS,
+  type: "function",
+  name,
+  parameters: ANY_ARGUMENTS,
   description: `DEV simulator: ${description}. Arguments are recorded and no side effect occurs.`,
 });
 
@@ -105,7 +105,8 @@ const DEV_LARGE_CONTEXT_TOOL = "mcp__dev_simulator__large_context_payload";
 const largeContextPayloadTool = {
   type: "function",
   name: DEV_LARGE_CONTEXT_TOOL,
-  description: "Return a deterministic, coherent, inert project dossier segment for context-retention and compaction tests.",
+  description:
+    "Return a deterministic, coherent, inert project dossier segment for context-retention and compaction tests.",
   parameters: {
     type: "object",
     properties: {
@@ -125,7 +126,8 @@ export const DEV_CHAT_TOOLS: readonly Record<string, unknown>[] = [
   simulatedFunction("request_user_input", "native user input"),
   largeContextPayloadTool,
   {
-    type: "namespace", name: "mcp__dev_simulator",
+    type: "namespace",
+    name: "mcp__dev_simulator",
     description: "Synthetic deferred MCP tools for inventory and generic dispatch tests.",
     tools: [simulatedFunction("echo", "structured MCP echo")],
   },
@@ -215,7 +217,8 @@ function responseError(response: ResponsesEnvelope): string {
     return suffix ? `${response.error.message} (${suffix})` : response.error.message;
   }
   if (response.incomplete_details?.message) return response.incomplete_details.message;
-  if (response.incomplete_details?.reason) return `Responses turn was incomplete: ${response.incomplete_details.reason}`;
+  if (response.incomplete_details?.reason)
+    return `Responses turn was incomplete: ${response.incomplete_details.reason}`;
   return `Responses turn ended with status ${String(response.status ?? "unknown")}`;
 }
 
@@ -235,8 +238,11 @@ function toolCalls(output: unknown[]): DevToolCall[] {
     if (item.type === "function_call" && typeof item.name === "string") {
       let input: unknown = {};
       if (typeof item.arguments === "string" && item.arguments.trim()) {
-        try { input = JSON.parse(item.arguments); }
-        catch { input = item.arguments; }
+        try {
+          input = JSON.parse(item.arguments);
+        } catch {
+          input = item.arguments;
+        }
       }
       calls.push({
         kind: "function",
@@ -257,13 +263,10 @@ function simulatedReceipt(state: DevChatState, turnId: string, call: DevToolCall
       throw new Error("DEV large context payload requires a JSON object");
     }
     const input = call.input as Record<string, unknown>;
-    if (Object.keys(input).some(key => key !== "segment" && key !== "target_tokens")) {
+    if (Object.keys(input).some((key) => key !== "segment" && key !== "target_tokens")) {
       throw new Error("DEV large context payload received an unexpected argument");
     }
-    const payload = createDevCoherentContextPayload(
-      Number(input.segment),
-      Number(input.target_tokens),
-    );
+    const payload = createDevCoherentContextPayload(Number(input.segment), Number(input.target_tokens));
     return {
       type: "codex_dev_coherent_context_payload",
       simulated: true,
@@ -309,7 +312,7 @@ function toolOutput(call: DevToolCall, receipt: Record<string, unknown>): Record
 }
 
 function historyOutput(output: unknown[], turnId: string): unknown[] {
-  return output.map(value => {
+  return output.map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) return value;
     const item = value as Record<string, unknown>;
     const metadata = item.internal_chat_message_metadata_passthrough;
@@ -375,7 +378,9 @@ export function prepareWorkingTreeBrowserHelper(): string | undefined {
     stderr: "pipe",
   });
   if (build.exitCode !== 0) {
-    throw new Error(`Could not build the working-tree browser helper: ${build.stderr.toString().trim() || build.stdout.toString().trim()}`);
+    throw new Error(
+      `Could not build the working-tree browser helper: ${build.stderr.toString().trim() || build.stdout.toString().trim()}`,
+    );
   }
   return output;
 }
@@ -390,23 +395,25 @@ export function createLauncherDevAdapter(
 ): { broker: TurnBrokerOwner; adapterFactory: AdapterFactory } {
   const broker = options.broker ?? new RemoteTurnBroker(config.brokerSocketPath);
   const browserHelperScriptPath = options.browserHelperScriptPath ?? prepareWorkingTreeBrowserHelper();
-  const adapterFactory: AdapterFactory = provider => createChatGptWebAdapter({
-    ...provider,
-    chatgptWeb: {
-      ...provider.chatgptWeb,
-      ...(browserHelperScriptPath ? { browserHelperScriptPath } : {}),
-      browserDiagnosticsPath: join(runtimeStateRoot, "diagnostics", "browser-turns"),
-      threadEnvironmentStatePath: join(runtimeStateRoot, "thread-environments.json"),
-      lunaCheckpointStatePath: join(runtimeStateRoot, "luna-checkpoints.json"),
-      turnTimeoutMs: 60 * 60_000,
-      experimentalSkillAttachments: config.experimentalSkillAttachments,
-      experimentalFreshConversationPerTurn: config.experimentalFreshConversationPerTurn,
-      useSavedChats: config.useSavedChats,
-      ...(config.experimentalBiggerContext
-        ? { experimentalBiggerContext: true }
-        : {}),
-    },
-  }, { broker });
+  const adapterFactory: AdapterFactory = (provider) =>
+    createChatGptWebAdapter(
+      {
+        ...provider,
+        chatgptWeb: {
+          ...provider.chatgptWeb,
+          ...(browserHelperScriptPath ? { browserHelperScriptPath } : {}),
+          browserDiagnosticsPath: join(runtimeStateRoot, "diagnostics", "browser-turns"),
+          threadEnvironmentStatePath: join(runtimeStateRoot, "thread-environments.json"),
+          lunaCheckpointStatePath: join(runtimeStateRoot, "luna-checkpoints.json"),
+          turnTimeoutMs: 60 * 60_000,
+          experimentalSkillAttachments: config.experimentalSkillAttachments,
+          experimentalFreshConversationPerTurn: config.experimentalFreshConversationPerTurn,
+          useSavedChats: config.useSavedChats,
+          ...(config.experimentalBiggerContext ? { experimentalBiggerContext: true } : {}),
+        },
+      },
+      { broker },
+    );
   return { broker, adapterFactory };
 }
 
@@ -425,7 +432,9 @@ export class DevChatDriver {
     this.assertBiggerContextModel(model);
     const opened = this.store.loadOrCreate(name, model, this.cwd);
     if (resolve(opened.state.cwd) !== resolve(this.cwd)) {
-      throw new Error(`DEV chat ${JSON.stringify(name)} belongs to ${opened.state.cwd}; use another name for ${this.cwd}`);
+      throw new Error(
+        `DEV chat ${JSON.stringify(name)} belongs to ${opened.state.cwd}; use another name for ${this.cwd}`,
+      );
     }
     if (!opened.created && requestedModel && opened.state.model !== requestedModel) {
       opened.state.model = requestedModel;
@@ -469,10 +478,7 @@ export class DevChatDriver {
     return { ...this.statusForInput(state, probeTurnId, input), inputItems: state.input.length };
   }
 
-  async compact(
-    state: DevChatState,
-    emit: (event: DevChatEvent) => void = () => {},
-  ): Promise<DevContextStatus> {
+  async compact(state: DevChatState, emit: (event: DevChatEvent) => void = () => {}): Promise<DevContextStatus> {
     if (state.input.length === 0) throw new Error("DEV chat has no history to compact");
     const output = await this.compactInput(state, state.input, "manual", emit);
     state.input = output;
@@ -504,8 +510,8 @@ export class DevChatDriver {
     }
     if (this.shouldAutoCompact(state, context)) {
       throw new Error(
-        `DEV turn still requires ${context.inputTokens.toLocaleString("en-US")} tokens after compaction; `
-        + `the selected mode compacts at ${context.autoCompactTokenLimit.toLocaleString("en-US")}`,
+        `DEV turn still requires ${context.inputTokens.toLocaleString("en-US")} tokens after compaction; ` +
+          `the selected mode compacts at ${context.autoCompactTokenLimit.toLocaleString("en-US")}`,
       );
     }
 
@@ -514,15 +520,20 @@ export class DevChatDriver {
     let finalText = "";
     for (let round = 0; round < 64; round += 1) {
       const body = requestBody(state, this.cwd, turnId, workingInput, false, this.config.mode === "full");
-      const response = await responseRequest(new Request("http://codex-web-gpt.dev/v1/responses", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }), this.config, this.adapterFactory, {
-        rememberState: false,
-        onAdapterEvent: event => observeAdapterEvent(event, emit),
-      });
-      const envelope = await response.json() as ResponsesEnvelope;
+      const response = await responseRequest(
+        new Request("http://codex-web-gpt.dev/v1/responses", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        this.config,
+        this.adapterFactory,
+        {
+          rememberState: false,
+          onAdapterEvent: (event) => observeAdapterEvent(event, emit),
+        },
+      );
+      const envelope = (await response.json()) as ResponsesEnvelope;
       if (!Array.isArray(envelope.output)) throw new Error("DEV Responses handler returned no output array");
       if (envelope.status !== "completed") throw new Error(responseError(envelope));
       const output = historyOutput(envelope.output!, turnId);
@@ -586,14 +597,7 @@ export class DevChatDriver {
   }
 
   private statusForInput(state: DevChatState, turnId: string, input: unknown[]): DevContextStatus {
-    const parsed = parseRequest(requestBody(
-      state,
-      this.cwd,
-      turnId,
-      input,
-      false,
-      this.config.mode === "full",
-    ));
+    const parsed = parseRequest(requestBody(state, this.cwd, turnId, input, false, this.config.mode === "full"));
     const route = routeChatGptWebRequest(parsed, this.config);
     const inputTokens = estimateChatGptWebInputTokens(parsed, {
       localToolsEnabled: this.config.mode === "full",
@@ -624,32 +628,38 @@ export class DevChatDriver {
     emit: (event: DevChatEvent) => void,
   ): Promise<unknown[]> {
     if (isLunaDevChatModel(state.model)) {
-      throw new Error("ChatGPT Web Luna uses its production rolling checkpoint and does not support a separate compact command");
+      throw new Error(
+        "ChatGPT Web Luna uses its production rolling checkpoint and does not support a separate compact command",
+      );
     }
     const compactTurnId = id("dev_compact_turn");
     emit({ type: "compaction_start", reason, inputItems: input.length });
-    const response = await compactRequest(new Request("http://codex-web-gpt.dev/v1/responses/compact", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-codex-turn-metadata": turnMetadata(state.threadId, compactTurnId, this.cwd),
-      },
-      body: JSON.stringify({
-        model: state.model,
-        input,
-        instructions: DEV_CHAT_SYSTEM_INSTRUCTIONS,
-        store: false,
+    const response = await compactRequest(
+      new Request("http://codex-web-gpt.dev/v1/responses/compact", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-codex-turn-metadata": turnMetadata(state.threadId, compactTurnId, this.cwd),
+        },
+        body: JSON.stringify({
+          model: state.model,
+          input,
+          instructions: DEV_CHAT_SYSTEM_INSTRUCTIONS,
+          store: false,
+        }),
       }),
-    }), this.config, this.adapterFactory);
+      this.config,
+      this.adapterFactory,
+    );
     if (!response.ok) {
       let message = `DEV compaction failed with HTTP ${response.status}`;
       try {
-        const body = await response.json() as { error?: { message?: unknown } };
+        const body = (await response.json()) as { error?: { message?: unknown } };
         if (typeof body.error?.message === "string") message = body.error.message;
       } catch {}
       throw new Error(message);
     }
-    const body = await response.json() as { output?: unknown };
+    const body = (await response.json()) as { output?: unknown };
     if (!Array.isArray(body.output) || body.output.length === 0) {
       throw new Error("DEV compaction returned no replacement history");
     }

@@ -1,15 +1,6 @@
-export type ToolDeliveryPhase =
-  | "browser_observed"
-  | "codex_emitted"
-  | "host_started"
-  | "result_received";
+export type ToolDeliveryPhase = "browser_observed" | "codex_emitted" | "host_started" | "result_received";
 
-const ORDER: readonly ToolDeliveryPhase[] = [
-  "browser_observed",
-  "codex_emitted",
-  "host_started",
-  "result_received",
-];
+const ORDER: readonly ToolDeliveryPhase[] = ["browser_observed", "codex_emitted", "host_started", "result_received"];
 
 export class ToolDeliveryLifecycle {
   private readonly observed: ToolDeliveryPhase[] = [];

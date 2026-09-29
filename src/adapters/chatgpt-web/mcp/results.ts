@@ -1,15 +1,15 @@
 import type { ChatGptTurnEnvironment } from "../environment";
-import type { BrokerToolResult } from "../turn-broker";
 import type { FastPathToolResult } from "../fast-path-handlers";
 import {
   DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
   sanitizeToolOutputWithSpooler,
   type ToolSpoolerOptions,
 } from "../tool-spooler";
+import type { BrokerToolResult } from "../turn-broker";
 import { CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS } from "./instructions";
-import type { McpContentPart, McpCallResult } from "./types";
+import type { McpCallResult, McpContentPart } from "./types";
 
-export type { McpContentPart, McpCallResult };
+export type { McpCallResult, McpContentPart };
 
 const MAX_MCP_RESULT_BYTES = 1024 * 1024;
 
@@ -21,19 +21,15 @@ export function chatGptMcpInvocationTimeout(
   // A host wait hint cannot extend the transport deadline. Long jobs must yield
   // through host sessions; cancellation here does not prove a command stopped.
   const baseTimeout = CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS;
-  const remaining = environment.expiresAt === undefined
-    ? baseTimeout
-    : Math.max(1, environment.expiresAt - now);
-  const requested = requestedTimeoutMs !== undefined
-    && Number.isSafeInteger(requestedTimeoutMs) && requestedTimeoutMs >= 1
-    ? requestedTimeoutMs : baseTimeout;
+  const remaining = environment.expiresAt === undefined ? baseTimeout : Math.max(1, environment.expiresAt - now);
+  const requested =
+    requestedTimeoutMs !== undefined && Number.isSafeInteger(requestedTimeoutMs) && requestedTimeoutMs >= 1
+      ? requestedTimeoutMs
+      : baseTimeout;
   return Math.min(baseTimeout, remaining, requested);
 }
 
-export function sanitizeToolOutputContent(
-  content: unknown[],
-  options: ToolSpoolerOptions = {},
-): unknown[] {
+export function sanitizeToolOutputContent(content: unknown[], options: ToolSpoolerOptions = {}): unknown[] {
   return sanitizeToolOutputWithSpooler(content, options);
 }
 
@@ -41,18 +37,27 @@ export function asMcpResult(
   value: BrokerToolResult | FastPathToolResult,
   options: ToolSpoolerOptions = {},
 ): McpCallResult {
-  const page = value.structuredContent !== null && typeof value.structuredContent === "object"
-    ? value.structuredContent as Record<string, unknown>
-    : undefined;
-  const bytePage = options.toolName === "codex_read_file" && page
-    && Number.isSafeInteger(page.read_bytes) && Number(page.read_bytes) >= 0 && Number(page.read_bytes) <= 131072
-    && Number.isSafeInteger(page.offset_bytes) && Number(page.offset_bytes) >= 0
-    && typeof page.content === "string" && Buffer.byteLength(page.content, "utf8") <= 131072;
+  const page =
+    value.structuredContent !== null && typeof value.structuredContent === "object"
+      ? (value.structuredContent as Record<string, unknown>)
+      : undefined;
+  const bytePage =
+    options.toolName === "codex_read_file" &&
+    page &&
+    Number.isSafeInteger(page.read_bytes) &&
+    Number(page.read_bytes) >= 0 &&
+    Number(page.read_bytes) <= 131072 &&
+    Number.isSafeInteger(page.offset_bytes) &&
+    Number(page.offset_bytes) >= 0 &&
+    typeof page.content === "string" &&
+    Buffer.byteLength(page.content, "utf8") <= 131072;
   // A bounded byte page is already selected at the producer. Truncating its
   // visible JSON would skip evidence while still advancing the continuation.
-  const sanitizedContent = (bytePage ? value.content : sanitizeToolOutputContent(value.content, options)) as McpContentPart[];
+  const sanitizedContent = (
+    bytePage ? value.content : sanitizeToolOutputContent(value.content, options)
+  ) as McpContentPart[];
   const spooledPart = Array.isArray(sanitizedContent)
-    ? sanitizedContent.find(p => p && typeof p === "object" && typeof p.offloadedPath === "string")
+    ? sanitizedContent.find((p) => p && typeof p === "object" && typeof p.offloadedPath === "string")
     : undefined;
 
   let structuredContent = value.structuredContent;
@@ -61,8 +66,9 @@ export function asMcpResult(
       ...structuredContent,
       spooled: true,
       offloadedPath: spooledPart.offloadedPath,
-      ...(typeof (structuredContent as { content?: unknown }).content === "string"
-      && ((structuredContent as { content: string }).content.length > (options.maxChars ?? DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS))
+      ...(typeof (structuredContent as { content?: unknown }).content === "string" &&
+      (structuredContent as { content: string }).content.length >
+        (options.maxChars ?? DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS)
         ? { content: spooledPart.text }
         : {}),
     };
@@ -89,16 +95,19 @@ export function enforceMcpResultBudget(response: McpCallResult): McpCallResult {
   if (bytes > MAX_MCP_RESULT_BYTES) {
     return {
       isError: true,
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          code: "mcp_result_too_large",
-          bytes,
-          limit_bytes: MAX_MCP_RESULT_BYTES,
-          retryable: false,
-          message: "The tool returned a result larger than the MCP delivery budget. Effects may already have occurred. Do not repeat mutations; use narrower read queries or supported pagination to retrieve evidence.",
-        }),
-      }],
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            code: "mcp_result_too_large",
+            bytes,
+            limit_bytes: MAX_MCP_RESULT_BYTES,
+            retryable: false,
+            message:
+              "The tool returned a result larger than the MCP delivery budget. Effects may already have occurred. Do not repeat mutations; use narrower read queries or supported pagination to retrieve evidence.",
+          }),
+        },
+      ],
     };
   }
   return response;

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { RuntimeAlert, RuntimeMetricsSnapshot } from "../src/adapters/chatgpt-web/runtime-metrics";
+import { runtimeMetrics } from "../src/adapters/chatgpt-web/runtime-metrics";
 import { defaultConfig } from "../src/config";
 import { startServer } from "../src/server";
-import { runtimeMetrics } from "../src/adapters/chatgpt-web/runtime-metrics";
-import type { RuntimeMetricsSnapshot, StructuredLogEntry, RuntimeAlert } from "../src/adapters/chatgpt-web/runtime-metrics";
 
 /**
  * Sprint AE: Observability Dashboard & Runtime Metrics Endpoint
@@ -251,15 +251,15 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
         sessionBytes: 2_000_000_000,
       });
 
-      expect(status["status"]).toBe("ok");
-      expect((status["daemon"] as Record<string, unknown>)["pid"]).toBe(12345);
-      expect((status["daemon"] as Record<string, unknown>)["mode"]).toBe("full");
-      expect((status["daemon"] as Record<string, unknown>)["uptime_seconds"]).toBe(60);
-      expect(status["alerts"]).toHaveLength(0);
-      expect((status["metrics"] as RuntimeMetricsSnapshot)["turns_total"]).toBe(1);
-      expect((status["session_store"] as Record<string, unknown>)["files"]).toBe(356);
-      expect(status["janitor"]).toBeTruthy();
-      expect(status["recent_errors"]).toBeDefined();
+      expect(status.status).toBe("ok");
+      expect((status.daemon as Record<string, unknown>).pid).toBe(12345);
+      expect((status.daemon as Record<string, unknown>).mode).toBe("full");
+      expect((status.daemon as Record<string, unknown>).uptime_seconds).toBe(60);
+      expect(status.alerts).toHaveLength(0);
+      expect((status.metrics as RuntimeMetricsSnapshot).turns_total).toBe(1);
+      expect((status.session_store as Record<string, unknown>).files).toBe(356);
+      expect(status.janitor).toBeTruthy();
+      expect(status.recent_errors).toBeDefined();
     });
 
     test("returns warning status when janitor has consecutive errors >= threshold", () => {
@@ -273,9 +273,9 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
         uptimeMs: 1000,
       });
 
-      expect(status["status"]).toBe("warning");
-      expect((status["alerts"] as RuntimeAlert[]).length).toBeGreaterThanOrEqual(1);
-      expect((status["alerts"] as RuntimeAlert[])[0]!.alert_id).toBe("janitor_consecutive_errors");
+      expect(status.status).toBe("warning");
+      expect((status.alerts as RuntimeAlert[]).length).toBeGreaterThanOrEqual(1);
+      expect((status.alerts as RuntimeAlert[])[0]!.alert_id).toBe("janitor_consecutive_errors");
     });
   });
 
@@ -325,13 +325,13 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
           headers: { authorization: `Bearer ${config.controlToken}` },
         });
         expect(auth.status).toBe(200);
-        const body = await auth.json() as Record<string, unknown>;
-        expect(body["status"]).toMatch(/^(ok|warning|degraded)$/);
-        expect(body["daemon"]).toBeDefined();
-        expect(body["metrics"]).toBeDefined();
-        expect(body["alerts"]).toBeDefined();
-        expect(body["session_store"]).toBeDefined();
-        expect(body["recent_errors"]).toBeDefined();
+        const body = (await auth.json()) as Record<string, unknown>;
+        expect(body.status).toMatch(/^(ok|warning|degraded)$/);
+        expect(body.daemon).toBeDefined();
+        expect(body.metrics).toBeDefined();
+        expect(body.alerts).toBeDefined();
+        expect(body.session_store).toBeDefined();
+        expect(body.recent_errors).toBeDefined();
       } finally {
         await server.stop(true);
       }
@@ -350,10 +350,10 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
       try {
         const res = await fetch(`http://${config.host}:${config.port}/healthz`);
         expect(res.status).toBe(200);
-        const body = await res.json() as Record<string, unknown>;
+        const body = (await res.json()) as Record<string, unknown>;
         // alerts should be present (empty array when nominal)
-        expect(Array.isArray(body["alerts"])).toBe(true);
-        expect(body["alerts"]).toHaveLength(0);
+        expect(Array.isArray(body.alerts)).toBe(true);
+        expect(body.alerts).toHaveLength(0);
       } finally {
         await server.stop(true);
       }
@@ -365,15 +365,15 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
         port: 17886,
         hostname: "127.0.0.1",
         fetch(req) {
-          return req.json().then(body => {
+          return req.json().then((body) => {
             receivedBody = body;
             return Response.json({ ok: true });
           });
         },
       });
 
-      const oldWebhook = process.env["CODEX_ALERT_WEBHOOK_URL"];
-      process.env["CODEX_ALERT_WEBHOOK_URL"] = "http://127.0.0.1:17886/webhook";
+      const oldWebhook = process.env.CODEX_ALERT_WEBHOOK_URL;
+      process.env.CODEX_ALERT_WEBHOOK_URL = "http://127.0.0.1:17886/webhook";
 
       const config = defaultConfig("browser-only");
       config.port = 17887;
@@ -387,12 +387,12 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
         const res = await fetch(`http://${config.host}:${config.port}/healthz`);
         expect(res.status).toBe(200);
 
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 200));
 
         expect(receivedBody).toBeTruthy();
       } finally {
-        if (oldWebhook !== undefined) process.env["CODEX_ALERT_WEBHOOK_URL"] = oldWebhook;
-        else delete process.env["CODEX_ALERT_WEBHOOK_URL"];
+        if (oldWebhook !== undefined) process.env.CODEX_ALERT_WEBHOOK_URL = oldWebhook;
+        else delete process.env.CODEX_ALERT_WEBHOOK_URL;
         runtimeMetrics.recordJanitorRun({ filesPruned: 0, bytesReclaimed: 0, error: false });
         await server.stop(true);
         await webhookServer.stop(true);
@@ -400,4 +400,3 @@ describe("Sprint AE: Observability Dashboard & Runtime Metrics Endpoint", () => 
     });
   });
 });
-

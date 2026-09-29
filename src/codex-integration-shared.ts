@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { AppConfig, SubagentProtocol } from "./config";
 import { atomicWriteFile, expandUserPath, getConfigDir } from "./config";
 
@@ -274,7 +274,9 @@ export function sha256(value: string | Uint8Array): string {
 export function snapshotFile(path: string, options?: { followSymlink?: boolean }): FileSnapshot {
   if (options?.followSymlink) {
     let stat;
-    try { stat = lstatSync(path); } catch (error) {
+    try {
+      stat = lstatSync(path);
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     if (stat?.isSymbolicLink()) {
@@ -282,12 +284,15 @@ export function snapshotFile(path: string, options?: { followSymlink?: boolean }
       const target = realpathSync(path);
       const targetStat = lstatSync(target);
       if (!targetStat.isFile()) throw new Error(`Codex config symlink target is not a regular file: ${path}`);
-      return { path, exists: true, data: readFileSync(target), symlink: { link, target, mode: targetStat.mode & 0o777 } };
+      return {
+        path,
+        exists: true,
+        data: readFileSync(target),
+        symlink: { link, target, mode: targetStat.mode & 0o777 },
+      };
     }
   }
-  return existsSync(path)
-    ? { path, exists: true, data: readFileSync(path) }
-    : { path, exists: false };
+  return existsSync(path) ? { path, exists: true, data: readFileSync(path) } : { path, exists: false };
 }
 
 /** Write the snapshotted config target, never replace its symbolic link or follow a new target. */
@@ -297,9 +302,11 @@ export function writeFileSnapshot(snapshot: FileSnapshot, data: string | Uint8Ar
     atomicWriteFile(snapshot.path, data);
     return;
   }
-  if (!lstatSync(snapshot.path).isSymbolicLink()
-    || readlinkSync(snapshot.path) !== symlink.link
-    || realpathSync(snapshot.path) !== symlink.target) {
+  if (
+    !lstatSync(snapshot.path).isSymbolicLink() ||
+    readlinkSync(snapshot.path) !== symlink.link ||
+    realpathSync(snapshot.path) !== symlink.target
+  ) {
     throw new Error(`Codex config symlink changed during the operation: ${snapshot.path}`);
   }
   atomicWriteFile(symlink.target, data, { mode: symlink.mode, protectDirectory: false });
@@ -318,10 +325,15 @@ export function writeFilesWithCompensation(
   writes: Array<{ path: string; data: string | Uint8Array; followSymlink?: boolean }>,
   removals: string[] = [],
 ): void {
-  const paths = [...new Set([...writes.map(write => write.path), ...removals])];
-  const snapshots = new Map(paths.map(path => [path, snapshotFile(path, {
-    followSymlink: writes.some(write => write.path === path && write.followSymlink === true),
-  })]));
+  const paths = [...new Set([...writes.map((write) => write.path), ...removals])];
+  const snapshots = new Map(
+    paths.map((path) => [
+      path,
+      snapshotFile(path, {
+        followSymlink: writes.some((write) => write.path === path && write.followSymlink === true),
+      }),
+    ]),
+  );
   try {
     for (const write of writes) writeFileSnapshot(snapshots.get(write.path)!, write.data);
     for (const removal of removals) rmSync(removal, { force: true });
@@ -331,7 +343,9 @@ export function writeFilesWithCompensation(
       try {
         restoreFileSnapshot(snapshot);
       } catch (rollbackError) {
-        rollbackFailures.push(`${snapshot.path}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+        rollbackFailures.push(
+          `${snapshot.path}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
       }
     }
     const primary = error instanceof Error ? error.message : String(error);
@@ -355,9 +369,12 @@ export function writeIntegrationState(
   const data = serializeJournal(journal);
   // The recovery copy records intent and the primary copy records commit. If the process stops
   // between those writes, the physical config unambiguously selects the completed state.
-  writeFilesWithCompensation([
-    { path: getCodexJournalRecoveryPath(), data },
-    ...(configWrite ? [{ ...configWrite, followSymlink: true }] : []),
-    { path: getCodexJournalPath(), data },
-  ], removals);
+  writeFilesWithCompensation(
+    [
+      { path: getCodexJournalRecoveryPath(), data },
+      ...(configWrite ? [{ ...configWrite, followSymlink: true }] : []),
+      { path: getCodexJournalPath(), data },
+    ],
+    removals,
+  );
 }

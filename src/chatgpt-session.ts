@@ -25,8 +25,10 @@ export const CHATGPT_EFFORT_MENU_SELECTOR = [
   '[role="menu"]:has([data-model-picker-power-slider])',
 ].join(", ");
 export const CHATGPT_EFFORT_ITEM_SELECTOR = '[role="menuitemradio"]';
-export const CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR = '[data-model-reasoning-effort-slider], [data-model-picker-power-slider]';
-export const CHATGPT_EFFORT_SLIDER_SELECTOR = '[data-model-reasoning-effort-slider] [role="slider"], [data-model-picker-power-slider] [role="slider"]';
+export const CHATGPT_EFFORT_SLIDER_CONTAINER_SELECTOR =
+  "[data-model-reasoning-effort-slider], [data-model-picker-power-slider]";
+export const CHATGPT_EFFORT_SLIDER_SELECTOR =
+  '[data-model-reasoning-effort-slider] [role="slider"], [data-model-picker-power-slider] [role="slider"]';
 export const CHATGPT_EFFORT_SLIDER_MAX_OPTIONS = 5;
 /** Resolve only inside the verified composer's form; multiple submitters are an error. */
 export const CHATGPT_SEND_BUTTON_SELECTOR = '[data-testid="send-button"], button[type="submit"]';
@@ -41,7 +43,7 @@ export const CHATGPT_STOP_BUTTON_SELECTOR = [
 // this control to FOLLOW the last assistant answer, excluding the user's earlier footer.
 export const CHATGPT_COMPLETION_ACTION_SELECTOR = [
   'button[data-testid="copy-turn-action-button"]',
-  '[data-turn-key] .turn-action-controls button',
+  "[data-turn-key] .turn-action-controls button",
   'button[aria-label*="Copy" i]',
   'button[aria-label*="Copiar" i]',
 ].join(", ");
@@ -55,7 +57,7 @@ export const CHATGPT_USER_TURN_SELECTOR = [
   '[data-testid^="conversation-turn-"][data-turn="user"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"][data-message-author-role="user"]:not([data-turn-key] *)',
   '[data-testid^="conversation-turn-"]:has([data-message-author-role="user"]):not([data-turn-key] *)',
-  '[data-turn-key]:has([data-user-message-bubble])',
+  "[data-turn-key]:has([data-user-message-bubble])",
 ].join(", ");
 
 /** The new renderer groups both roles under the user's stable turn key. */
@@ -94,7 +96,8 @@ export async function chatGptEffortMenuForControl(page: Page, control: Locator):
   const menuId = await control.getAttribute("aria-controls").catch(() => null);
   if (menuId) return page.locator(effortMenuSelectorForId(menuId));
   const controlId = await control.getAttribute("id").catch(() => null);
-  if (controlId) return page.locator(`[role="menu"][aria-labelledby~=${JSON.stringify(controlId)}]`).filter({ visible: true });
+  if (controlId)
+    return page.locator(`[role="menu"][aria-labelledby~=${JSON.stringify(controlId)}]`).filter({ visible: true });
   return page.locator(CHATGPT_EFFORT_MENU_SELECTOR).filter({ visible: true });
 }
 
@@ -109,7 +112,7 @@ async function visibleEffortSurface(
   if (expanded === "false" || state === "closed") return undefined;
   const menu = await chatGptEffortMenuForControl(page, control);
   const surface = chatGptEffortSlider(page);
-  if (await menu.isVisible().catch(() => false) || await surface.sliderContainer.isVisible().catch(() => false)) {
+  if ((await menu.isVisible().catch(() => false)) || (await surface.sliderContainer.isVisible().catch(() => false))) {
     return { menu, ...surface };
   }
   return undefined;
@@ -125,7 +128,7 @@ async function waitForEffortSurface(
     const surface = await visibleEffortSurface(page, control);
     if (surface) return surface;
     if (Date.now() >= deadline) return undefined;
-    await new Promise(resolveSleep => setTimeout(resolveSleep, 50));
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 50));
   } while (true);
 }
 
@@ -194,27 +197,30 @@ export async function readChatGptEffortSnapshot(
   do {
     // Read the range, selection and locks in one DOM revision. Separate Playwright
     // reads can straddle hydration and combine a five-step range with four ticks.
-    const snapshot = await sliderContainer.evaluate(container => {
+    const snapshot = await sliderContainer.evaluate((container) => {
       const sliders = container.querySelectorAll('[role="slider"]');
       const slider = sliders.length === 1 ? sliders[0] : undefined;
-      const power = container.hasAttribute("data-model-picker-power-slider")
-        && Boolean(container.querySelector('[data-orientation="horizontal"][aria-disabled="false"]'));
+      const power =
+        container.hasAttribute("data-model-picker-power-slider") &&
+        Boolean(container.querySelector('[data-orientation="horizontal"][aria-disabled="false"]'));
       return {
         min: slider?.getAttribute("aria-valuemin") ?? null,
         max: slider?.getAttribute("aria-valuemax") ?? null,
         value: slider?.getAttribute("aria-valuenow") ?? null,
-        locks: Array.from(container.querySelectorAll("[data-selected]"), tick =>
-          tick.getAttribute("data-locked") ?? (power ? "false" : null)),
+        locks: Array.from(
+          container.querySelectorAll("[data-selected]"),
+          (tick) => tick.getAttribute("data-locked") ?? (power ? "false" : null),
+        ),
       };
     });
     const state = parseChatGptEffortSliderState(snapshot.min, snapshot.max, snapshot.value);
     if (!state) throw new Error("ChatGPT effort slider exposed an invalid ARIA range");
-    if (snapshot.locks.some(lock => lock !== "true" && lock !== "false")) break;
+    if (snapshot.locks.some((lock) => lock !== "true" && lock !== "false")) break;
     if (snapshot.locks.length === state.max - state.min + 1) {
-      return { ...state, available: snapshot.locks.map(lock => lock === "false") };
+      return { ...state, available: snapshot.locks.map((lock) => lock === "false") };
     }
     if (Date.now() >= deadline) break;
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   } while (true);
   throw new Error("ChatGPT effort availability could not be verified from its slider ticks");
 }
@@ -222,7 +228,7 @@ export async function readChatGptEffortSnapshot(
 /** @deprecated Kept for backwards compatibility with tests and callers */
 export async function readChatGptEffortAvailability(
   sliderContainer: Locator,
-  state: ChatGptEffortSliderState,
+  _state: ChatGptEffortSliderState,
 ): Promise<boolean[]> {
   const snapshot = await readChatGptEffortSnapshot(sliderContainer);
   return snapshot.available;
@@ -231,16 +237,20 @@ export async function readChatGptEffortAvailability(
 async function anyVisible(locator: Locator): Promise<boolean> {
   const count = await locator.count();
   for (let index = 0; index < count; index += 1) {
-    if (await locator.nth(index).isVisible().catch(() => false)) return true;
+    if (
+      await locator
+        .nth(index)
+        .isVisible()
+        .catch(() => false)
+    )
+      return true;
   }
   return false;
 }
 
 export async function assertAuthenticatedChatGptPage(page: Page): Promise<void> {
-  const composer = page.locator(
-    CHATGPT_COMPOSER_SELECTOR,
-  );
-  if (!await anyVisible(composer)) {
+  const composer = page.locator(CHATGPT_COMPOSER_SELECTOR);
+  if (!(await anyVisible(composer))) {
     throw new Error("ChatGPT authentication could not be verified: no visible composer is present");
   }
 }
@@ -252,9 +262,14 @@ export async function assertTemporaryChatPage(page: Page): Promise<void> {
 export async function assertNewChatPage(page: Page, useSavedChats = false): Promise<void> {
   const url = new URL(page.url());
   const expected = new URL(chatGptNewChatUrl(useSavedChats));
-  if (url.origin !== expected.origin || url.pathname !== expected.pathname
-    || (url.searchParams.get("temporary-chat") === "true") === useSavedChats) {
-    throw new Error(`ChatGPT left the requested new ${useSavedChats ? "saved" : "Temporary"} Chat surface (${page.url()})`);
+  if (
+    url.origin !== expected.origin ||
+    url.pathname !== expected.pathname ||
+    (url.searchParams.get("temporary-chat") === "true") === useSavedChats
+  ) {
+    throw new Error(
+      `ChatGPT left the requested new ${useSavedChats ? "saved" : "Temporary"} Chat surface (${page.url()})`,
+    );
   }
 }
 
@@ -276,12 +291,18 @@ export async function detectChatGptAccountCapabilities(
       presenceObservations += 1;
       absenceSince = undefined;
       if (presenceObservations >= 2) break;
-      await new Promise(resolveSleep => setTimeout(resolveSleep, 100));
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
       continue;
     }
     presenceObservations = 0;
-    const composerReady = await composers.count().then(count => count === 1).catch(() => false);
-    const formReady = await composerForm.count().then(count => count === 1).catch(() => false);
+    const composerReady = await composers
+      .count()
+      .then((count) => count === 1)
+      .catch(() => false);
+    const formReady = await composerForm
+      .count()
+      .then((count) => count === 1)
+      .catch(() => false);
     const documentReady = await page.evaluate(() => document.readyState === "complete").catch(() => false);
     if (composerReady && formReady && documentReady) {
       absenceSince ??= Date.now();
@@ -296,7 +317,7 @@ export async function detectChatGptAccountCapabilities(
       }
       throw new Error("ChatGPT account capability probe did not reach a stable composer state");
     }
-    await new Promise(resolveSleep => setTimeout(resolveSleep, 100));
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
   }
   const menu = page.locator(CHATGPT_EFFORT_MENU_SELECTOR).last();
   const menuVisible = await menu.isVisible().catch(() => false);

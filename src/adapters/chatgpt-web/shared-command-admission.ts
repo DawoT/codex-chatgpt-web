@@ -24,7 +24,10 @@ function linuxProcessStart(pid: number): string | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const endOfName = stat.lastIndexOf(")");
-    const fields = stat.slice(endOfName + 2).trim().split(/\s+/);
+    const fields = stat
+      .slice(endOfName + 2)
+      .trim()
+      .split(/\s+/);
     if (endOfName < 0 || !/^\d+$/.test(fields[19] ?? "")) {
       throw new Error("Cannot read Linux process start identity");
     }
@@ -57,14 +60,20 @@ export class SharedCommandAdmission {
     private readonly waitMs = WAIT_MS,
     configHome = getConfigDir(),
   ) {
-    if (!Number.isSafeInteger(capacity) || capacity < 1
-      || !Number.isSafeInteger(maxQueued) || maxQueued < 0
-      || !Number.isSafeInteger(waitMs) || waitMs < 1) {
+    if (
+      !Number.isSafeInteger(capacity) ||
+      capacity < 1 ||
+      !Number.isSafeInteger(maxQueued) ||
+      maxQueued < 0 ||
+      !Number.isSafeInteger(waitMs) ||
+      waitMs < 1
+    ) {
       throw new RangeError("Invalid shared command admission limits");
     }
-    this.ownerIdentity = process.platform === "linux"
-      ? `${linuxBootAndNamespace()}|${linuxProcessStart(process.pid) ?? "unavailable"}`
-      : `pid|${process.pid}`;
+    this.ownerIdentity =
+      process.platform === "linux"
+        ? `${linuxBootAndNamespace()}|${linuxProcessStart(process.pid) ?? "unavailable"}`
+        : `pid|${process.pid}`;
     if (this.ownerIdentity.endsWith("|unavailable")) {
       throw new Error("Cannot establish owner process identity for command admission");
     }
@@ -72,10 +81,11 @@ export class SharedCommandAdmission {
     const runtime = join(home, "runtime");
     mkdirSync(runtime, { recursive: true, mode: 0o700 });
     const metadata = lstatSync(runtime);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()
-      || (process.platform !== "win32" && (
-        metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0
-      ))) {
+    if (
+      !metadata.isDirectory() ||
+      metadata.isSymbolicLink() ||
+      (process.platform !== "win32" && (metadata.uid !== process.getuid?.() || (metadata.mode & 0o077) !== 0))
+    ) {
       throw new Error("Shared command admission requires a private runtime directory");
     }
     const path = join(runtime, "chat-first-admission.sqlite");
@@ -86,8 +96,11 @@ export class SharedCommandAdmission {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     if (existing) {
-      if (!existing.isFile() || existing.isSymbolicLink()
-        || (process.platform !== "win32" && existing.uid !== process.getuid?.())) {
+      if (
+        !existing.isFile() ||
+        existing.isSymbolicLink() ||
+        (process.platform !== "win32" && existing.uid !== process.getuid?.())
+      ) {
         throw new Error("Shared command admission requires an owned regular database file");
       }
     }
@@ -104,10 +117,8 @@ export class SharedCommandAdmission {
       )
     `);
     this.transaction(() => {
-      const columns = this.database.query<{ name: string }, []>(
-        "PRAGMA table_info(command_admission)",
-      ).all();
-      if (!columns.some(column => column.name === "owner_identity")) {
+      const columns = this.database.query<{ name: string }, []>("PRAGMA table_info(command_admission)").all();
+      if (!columns.some((column) => column.name === "owner_identity")) {
         this.database.run("ALTER TABLE command_admission ADD COLUMN owner_identity TEXT");
       }
     });
@@ -131,27 +142,23 @@ export class SharedCommandAdmission {
       while (true) {
         signal?.throwIfAborted();
         const outcome = this.transaction(() => {
-          this.database.run(
-            "DELETE FROM command_admission WHERE state = 'waiting' AND expires_at <= ?",
-            [Date.now()],
-          );
+          this.database.run("DELETE FROM command_admission WHERE state = 'waiting' AND expires_at <= ?", [Date.now()]);
           this.assertCapacity();
           const active = this.count("active");
-          const oldest = this.database.query<Row, []>(
-            "SELECT id FROM command_admission WHERE state = 'waiting' ORDER BY id LIMIT 1",
-          ).get();
+          const oldest = this.database
+            .query<Row, []>("SELECT id FROM command_admission WHERE state = 'waiting' ORDER BY id LIMIT 1")
+            .get();
           if (ticket !== undefined) {
             const ownsTurn = oldest?.id === ticket;
             if (ownsTurn && active < this.capacity) {
-              this.database.run(
-                "UPDATE command_admission SET state = 'active', expires_at = NULL WHERE id = ?",
-                [ticket],
-              );
+              this.database.run("UPDATE command_admission SET state = 'active', expires_at = NULL WHERE id = ?", [
+                ticket,
+              ]);
               return { active: ticket };
             }
-            const exists = this.database.query<Row, [number]>(
-              "SELECT id FROM command_admission WHERE id = ? AND state = 'waiting'",
-            ).get(ticket);
+            const exists = this.database
+              .query<Row, [number]>("SELECT id FROM command_admission WHERE id = ? AND state = 'waiting'")
+              .get(ticket);
             if (!exists) throw new Error("Command admission timed out; no command was started.");
             return {};
           }
@@ -195,29 +202,30 @@ export class SharedCommandAdmission {
       }
     } catch (error) {
       if (ticket !== undefined) {
-        this.database.run(
-          "DELETE FROM command_admission WHERE id = ? AND state = 'waiting'",
-          [ticket],
-        );
+        this.database.run("DELETE FROM command_admission WHERE id = ? AND state = 'waiting'", [ticket]);
       }
       throw error;
     }
   }
 
   status(): CommandAdmissionStatus {
-    const active = this.database.query<ActiveRow, []>(
-      "SELECT id, owner_pid AS ownerPid, owner_identity AS ownerIdentity FROM command_admission WHERE state = 'active' ORDER BY id",
-    ).all().map(row => {
-      const ownerState = this.ownerState(row);
-      return {
-        id: row.id,
-        ownerPid: row.ownerPid,
-        ownerState,
-      };
-    });
-    const capacity = this.database.query<{ capacity: number }, []>(
-      "SELECT capacity FROM command_admission_limit WHERE singleton = 1",
-    ).get()?.capacity ?? this.capacity;
+    const active = this.database
+      .query<ActiveRow, []>(
+        "SELECT id, owner_pid AS ownerPid, owner_identity AS ownerIdentity FROM command_admission WHERE state = 'active' ORDER BY id",
+      )
+      .all()
+      .map((row) => {
+        const ownerState = this.ownerState(row);
+        return {
+          id: row.id,
+          ownerPid: row.ownerPid,
+          ownerState,
+        };
+      });
+    const capacity =
+      this.database
+        .query<{ capacity: number }, []>("SELECT capacity FROM command_admission_limit WHERE singleton = 1")
+        .get()?.capacity ?? this.capacity;
     return { capacity, active, waiting: this.count("waiting") };
   }
 
@@ -227,13 +235,17 @@ export class SharedCommandAdmission {
       throw new Error("Recovery requires an exact lease ID and --ack-descendants-settled");
     }
     this.transaction(() => {
-      const row = this.database.query<ActiveRow, [number]>(
-        "SELECT id, owner_pid AS ownerPid, owner_identity AS ownerIdentity FROM command_admission WHERE id = ? AND state = 'active'",
-      ).get(id);
+      const row = this.database
+        .query<ActiveRow, [number]>(
+          "SELECT id, owner_pid AS ownerPid, owner_identity AS ownerIdentity FROM command_admission WHERE id = ? AND state = 'active'",
+        )
+        .get(id);
       if (!row) throw new Error(`Active command lease ${id} was not found`);
       const state = this.ownerState(row);
       if (state === "alive" || (state === "unknown" && !ownerOffline)) {
-        throw new Error(`Cannot recover command lease ${id}: owner process ${row.ownerPid} is ${state === "alive" ? "still alive" : "unverified"}`);
+        throw new Error(
+          `Cannot recover command lease ${id}: owner process ${row.ownerPid} is ${state === "alive" ? "still alive" : "unverified"}`,
+        );
       }
       this.database.run("DELETE FROM command_admission WHERE id = ? AND state = 'active'", [id]);
     });
@@ -263,14 +275,13 @@ export class SharedCommandAdmission {
   }
 
   private assertCapacity(): void {
-    const current = this.database.query<{ capacity: number }, []>(
-      "SELECT capacity FROM command_admission_limit WHERE singleton = 1",
-    ).get();
+    const current = this.database
+      .query<{ capacity: number }, []>("SELECT capacity FROM command_admission_limit WHERE singleton = 1")
+      .get();
     if (!current || this.count("active") + this.count("waiting") === 0) {
-      this.database.run(
-        "INSERT OR REPLACE INTO command_admission_limit (singleton, capacity) VALUES (1, ?)",
-        [this.capacity],
-      );
+      this.database.run("INSERT OR REPLACE INTO command_admission_limit (singleton, capacity) VALUES (1, ?)", [
+        this.capacity,
+      ]);
     } else if (current.capacity !== this.capacity) {
       throw new Error(
         `Command admission config mismatch (active capacity=${current.capacity}, requested=${this.capacity}); no command was started.`,
@@ -279,9 +290,9 @@ export class SharedCommandAdmission {
   }
 
   private count(state: "active" | "waiting"): number {
-    return this.database.query<CountRow, [string]>(
-      "SELECT COUNT(*) AS count FROM command_admission WHERE state = ?",
-    ).get(state)!.count;
+    return this.database
+      .query<CountRow, [string]>("SELECT COUNT(*) AS count FROM command_admission WHERE state = ?")
+      .get(state)!.count;
   }
 
   private transaction<T>(operation: () => T): T {

@@ -1,8 +1,16 @@
-import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { relative } from "node:path";
-import { GLOBAL_SKILL_READ_ROOTS, type FastPathToolResult, type RgExecution, type RgExecutor, type RgResolverDeps, RG_FAILURE_CACHE_TTL_MS, result } from "./types";
 import { resolveSafeWorkspacePath } from "./sandbox";
+import {
+  type FastPathToolResult,
+  GLOBAL_SKILL_READ_ROOTS,
+  RG_FAILURE_CACHE_TTL_MS,
+  type RgExecution,
+  type RgExecutor,
+  type RgResolverDeps,
+  result,
+} from "./types";
 
 const RG_FALLBACK_PATHS = ["/usr/bin/rg", "/usr/local/bin/rg", "/opt/homebrew/bin/rg"];
 const RG_TIMEOUT_MS = 15_000;
@@ -31,7 +39,7 @@ export function resolveRgPath(deps: RgResolverDeps = {}): string | null {
   }
   const which = deps.which ?? ((name: string) => (typeof Bun !== "undefined" ? Bun.which(name) : null));
   const exists = deps.exists ?? existsSync;
-  const found = which("rg") ?? RG_FALLBACK_PATHS.find(candidate => exists(candidate)) ?? null;
+  const found = which("rg") ?? RG_FALLBACK_PATHS.find((candidate) => exists(candidate)) ?? null;
   cachedRgPath = found;
   if (found === null) {
     cachedRgFailedAtMs = now;
@@ -74,14 +82,15 @@ export function handleGrep(options: {
   const locateRg = options.resolveRgPath ?? resolveRgPath;
   const rgPath = locateRg();
   if (!rgPath) {
-    return result({
-      error: "ripgrep (rg) is not installed or not on PATH. Install it (e.g. 'apt install ripgrep' or 'brew install ripgrep') to use codex_grep.",
-    }, true);
+    return result(
+      {
+        error:
+          "ripgrep (rg) is not installed or not on PATH. Install it (e.g. 'apt install ripgrep' or 'brew install ripgrep') to use codex_grep.",
+      },
+      true,
+    );
   }
-  const allowedRoots = [
-    ...options.roots,
-    ...GLOBAL_SKILL_READ_ROOTS.filter(dir => existsSync(dir)),
-  ];
+  const allowedRoots = [...options.roots, ...GLOBAL_SKILL_READ_ROOTS.filter((dir) => existsSync(dir))];
   const resolved = resolveSafeWorkspacePath(path, options.cwd, allowedRoots);
   if (!existsSync(resolved)) {
     return result({ error: `Search target does not exist: ${path}` }, true);
@@ -90,11 +99,15 @@ export function handleGrep(options: {
   const args: string[] = [
     "--line-number",
     "--color=never",
-    "--max-count", String(max_results),
+    "--max-count",
+    String(max_results),
     "--hidden",
-    "--glob", "!**/.git/**",
-    "--glob", "!**/node_modules/**",
-    "--glob", "!**/dist/**",
+    "--glob",
+    "!**/.git/**",
+    "--glob",
+    "!**/node_modules/**",
+    "--glob",
+    "!**/dist/**",
   ];
   if (!case_sensitive) args.push("-i");
   if (file_pattern) {
@@ -112,7 +125,10 @@ export function handleGrep(options: {
   // Exit 1 only means "no matches". Any other nonzero status (invalid pattern, unreadable target,
   // timeout) is a real failure and must surface its stderr instead of masquerading as 0 matches.
   if (rg.status !== 0 && rg.status !== 1) {
-    return result({ error: `rg search failed (exit ${rg.status}): ${(rg.stderr || "unknown error").trim().slice(0, 500)}` }, true);
+    return result(
+      { error: `rg search failed (exit ${rg.status}): ${(rg.stderr || "unknown error").trim().slice(0, 500)}` },
+      true,
+    );
   }
 
   const lines = rg.status === 0 ? rg.stdout.trim().split("\n").filter(Boolean) : [];
@@ -128,7 +144,7 @@ export function handleGrep(options: {
     const matchedText = line.slice(secondColon + 1);
     matches.push({
       file: relative(options.cwd, filePath) || filePath,
-      line: isNaN(lineNum) ? 0 : lineNum,
+      line: Number.isNaN(lineNum) ? 0 : lineNum,
       text: matchedText.length > 200 ? `${matchedText.slice(0, 200)}...` : matchedText,
     });
   }

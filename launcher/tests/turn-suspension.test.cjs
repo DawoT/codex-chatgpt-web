@@ -24,8 +24,11 @@ test("ordinary sweep cadence and busy-loop jitter are not a suspension", () => {
 test("a suspension re-baselines running leases and restores an unfinished bootstrap budget", () => {
   const running = { status: "running", traceId: "aaa", bootstrapReady: true, lastHeartbeatAt: 5 };
   const booting = {
-    status: "running", traceId: "bbb", bootstrapReady: false,
-    lastHeartbeatAt: 5, bootstrapDeadlineAt: 10,
+    status: "running",
+    traceId: "bbb",
+    bootstrapReady: false,
+    lastHeartbeatAt: 5,
+    bootstrapDeadlineAt: 10,
   };
   const retained = { status: "ready", traceId: "ccc", lastHeartbeatAt: 5 };
 
@@ -48,14 +51,18 @@ test("the first sweep after a suspension refreshes stale leases instead of reapi
   const reaped = [];
   const warnings = [];
   const tab = {
-    id: "t1", traceId: "trace-1", helperPid: 42, status: "running",
-    bootstrapReady: true, lastHeartbeatAt: 1_000,
+    id: "t1",
+    traceId: "trace-1",
+    helperPid: 42,
+    status: "running",
+    bootstrapReady: true,
+    lastHeartbeatAt: 1_000,
   };
   const host = {
     lastTurnSweepAt: 1_000,
     turnTabs: new Map([["t1", tab]]),
     logger: { warn: (event, detail) => warnings.push({ event, detail }), info: () => {} },
-    removeTurnTab: t => reaped.push(t.traceId),
+    removeTurnTab: (t) => reaped.push(t.traceId),
     refreshTurnLeases: BrowserHost.prototype.refreshTurnLeases,
   };
 
@@ -74,14 +81,18 @@ test("the first sweep after a suspension refreshes stale leases instead of reapi
 test("a helper that is genuinely gone is still reaped on the ordinary cadence", () => {
   const reaped = [];
   const tab = {
-    id: "t1", traceId: "trace-1", helperPid: 42, status: "running",
-    bootstrapReady: true, lastHeartbeatAt: 1_000,
+    id: "t1",
+    traceId: "trace-1",
+    helperPid: 42,
+    status: "running",
+    bootstrapReady: true,
+    lastHeartbeatAt: 1_000,
   };
   const host = {
     lastTurnSweepAt: 56_000,
     turnTabs: new Map([["t1", tab]]),
     logger: { warn: () => {}, info: () => {} },
-    removeTurnTab: t => reaped.push(t.traceId),
+    removeTurnTab: (t) => reaped.push(t.traceId),
     refreshTurnLeases: BrowserHost.prototype.refreshTurnLeases,
   };
 

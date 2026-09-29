@@ -31,9 +31,9 @@ function requireCurrentRuntimeConnectorName(value) {
   const configured = validateConnectorName(value);
   if (isLegacyConnectorName(configured)) {
     throw new Error(
-      `The local runtime still targets legacy ChatGPT connector ${JSON.stringify(configured)}. Reconnect the harness`
-      + ` so it targets ${JSON.stringify(CURRENT_CONNECTOR_NAME)}, then create that connector as a new ChatGPT plugin;`
-      + ` do not rename or refresh the legacy connector.`,
+      `The local runtime still targets legacy ChatGPT connector ${JSON.stringify(configured)}. Reconnect the harness` +
+        ` so it targets ${JSON.stringify(CURRENT_CONNECTOR_NAME)}, then create that connector as a new ChatGPT plugin;` +
+        ` do not rename or refresh the legacy connector.`,
     );
   }
   return configured;

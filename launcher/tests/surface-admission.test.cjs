@@ -38,10 +38,7 @@ test("four ordinary surfaces leave the fifth for compaction and release wakes qu
 });
 
 test("aborting a queued admission does not consume the next released surface", async () => {
-  const occupants = new Map(Array.from({ length: 4 }, (_, index) => [
-    `ordinary-${index}`,
-    "ordinary",
-  ]));
+  const occupants = new Map(Array.from({ length: 4 }, (_, index) => [`ordinary-${index}`, "ordinary"]));
   const admission = new SurfaceAdmission(() => [...occupants.values()]);
   const controller = new AbortController();
   const cancelled = admission.acquire("ordinary", controller.signal);
@@ -50,7 +47,7 @@ test("aborting a queued admission does not consume the next released surface", a
 
   const reason = new Error("client disconnected");
   controller.abort(reason);
-  await assert.rejects(cancelled, error => error === reason);
+  await assert.rejects(cancelled, (error) => error === reason);
   assert.equal(admission.queuedCount, 1);
   occupants.delete("ordinary-0");
   admission.surfaceReleased();
@@ -60,10 +57,7 @@ test("aborting a queued admission does not consume the next released surface", a
 });
 
 test("an uncommitted grant holds capacity until released", async () => {
-  const occupants = new Map(Array.from({ length: 3 }, (_, index) => [
-    `ordinary-${index}`,
-    "ordinary",
-  ]));
+  const occupants = new Map(Array.from({ length: 3 }, (_, index) => [`ordinary-${index}`, "ordinary"]));
   const admission = new SurfaceAdmission(() => [...occupants.values()]);
   const grant = await admission.acquire("ordinary");
   const waiting = admission.acquire("ordinary");
@@ -75,10 +69,7 @@ test("an uncommitted grant holds capacity until released", async () => {
 });
 
 test("synchronous manual admission cannot bypass queued ordinary work or use the reserved slot", async () => {
-  const occupants = new Map(Array.from({ length: 3 }, (_, index) => [
-    `ordinary-${index}`,
-    "ordinary",
-  ]));
+  const occupants = new Map(Array.from({ length: 3 }, (_, index) => [`ordinary-${index}`, "ordinary"]));
   const admission = new SurfaceAdmission(() => [...occupants.values()]);
   const grant = await admission.acquire("ordinary");
   const queued = admission.acquire("ordinary");

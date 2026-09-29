@@ -30,9 +30,9 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
   const browserHost = configured.browserHost ?? "managed-chrome";
   const browserHostDescriptorPath = configured.browserHostDescriptorPath?.trim();
   const browserHelperScriptPath = configured.browserHelperScriptPath?.trim();
-  const browserDiagnosticsPath = resolve(expandUserPath(
-    configured.browserDiagnosticsPath?.trim() || join(getConfigDir(), "diagnostics", "browser-turns"),
-  ));
+  const browserDiagnosticsPath = resolve(
+    expandUserPath(configured.browserDiagnosticsPath?.trim() || join(getConfigDir(), "diagnostics", "browser-turns")),
+  );
   const turnTimeoutMs = configured.turnTimeoutMs;
   if (browserHost === "launcher" && !browserHostDescriptorPath) {
     throw new Error("Launcher browser host requires chatgptWeb.browserHostDescriptorPath");
@@ -46,8 +46,7 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
   if (resolvedBrowserHelperScriptPath && !existsSync(resolvedBrowserHelperScriptPath)) {
     throw new Error(`Explicit browser helper script does not exist: ${resolvedBrowserHelperScriptPath}`);
   }
-  if (turnTimeoutMs !== undefined
-    && (!Number.isFinite(turnTimeoutMs) || turnTimeoutMs <= 0)) {
+  if (turnTimeoutMs !== undefined && (!Number.isFinite(turnTimeoutMs) || turnTimeoutMs <= 0)) {
     throw new Error("ChatGPT Web turnTimeoutMs must be a positive finite number");
   }
   if (isLegacyChatGptConnectorName(appName)) {
@@ -56,10 +55,14 @@ export function resolveBrowserConfig(provider: CodexProviderConfig): ResolvedBro
   return {
     appName,
     browserHost,
-    ...(browserHostDescriptorPath ? { browserHostDescriptorPath: resolve(expandUserPath(browserHostDescriptorPath)) } : {}),
+    ...(browserHostDescriptorPath
+      ? { browserHostDescriptorPath: resolve(expandUserPath(browserHostDescriptorPath)) }
+      : {}),
     ...(resolvedBrowserHelperScriptPath ? { browserHelperScriptPath: resolvedBrowserHelperScriptPath } : {}),
     browserDiagnosticsPath,
-    storageStatePath: resolve(expandUserPath(configured.storageStatePath?.trim() || join(getConfigDir(), "browser", "storage-state.json"))),
+    storageStatePath: resolve(
+      expandUserPath(configured.storageStatePath?.trim() || join(getConfigDir(), "browser", "storage-state.json")),
+    ),
     chromeExecutablePath: resolve(expandUserPath(configured.chromeExecutablePath?.trim() || defaultChromeExecutable())),
     ...(turnTimeoutMs !== undefined ? { turnTimeoutMs } : {}),
     headed: configured.headed !== false,

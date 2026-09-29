@@ -53,9 +53,7 @@ export function appendChatFirstAuditEntry(entry: ChatFirstAuditEntry): void {
     appendFileSync(auditPath, `${JSON.stringify(record)}\n`, { flag: "a" });
   } catch (error) {
     console.error(
-      `[chatgpt-web-mcp] chat-first audit write failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `[chatgpt-web-mcp] chat-first audit write failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

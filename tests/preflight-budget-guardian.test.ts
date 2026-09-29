@@ -3,8 +3,6 @@ import {
   enforcePreflightDeliveryBudget,
   evaluatePreflightBudget,
   PREFLIGHT_SAFE_INLINE_CHAR_LIMIT,
-  PREFLIGHT_MAX_STAGE_CHAR_LIMIT,
-  type PreflightBudgetVerdict,
 } from "../src/adapters/chatgpt-web/preflight-budget";
 import type { CodexMessage, CodexParsedRequest } from "../src/types";
 
@@ -58,14 +56,10 @@ describe("Lossless preflight transport planning", () => {
     expect(verdict.estimatedChars).toBeGreaterThanOrEqual(PREFLIGHT_SAFE_INLINE_CHAR_LIMIT);
   });
 
-
-
   test("a large inline-only payload is left to measured model limits", () => {
     // Single massive user instruction without tool results to prune
     const unprunableMassivePrompt = "u".repeat(120_000);
-    const messages: CodexMessage[] = [
-      { role: "user", content: unprunableMassivePrompt, timestamp: 1 },
-    ];
+    const messages: CodexMessage[] = [{ role: "user", content: unprunableMassivePrompt, timestamp: 1 }];
     const request = createMockRequest(messages);
 
     const verdict = evaluatePreflightBudget(request, baseCapabilities, { experimentalBiggerContext: false });
@@ -74,15 +68,11 @@ describe("Lossless preflight transport planning", () => {
     expect(verdict.actionRequired).toBe("none");
   });
 
-
-
   test("resolveBiggerContextMultipartParts enforces safe boundary when forceMultipart is true", () => {
     const { resolveBiggerContextMultipartParts } = require("../src/adapters/chatgpt-web/usage");
     // Message > 65k chars
     const largeMessage = "x".repeat(80_000);
-    const messages: CodexMessage[] = [
-      { role: "user", content: largeMessage, timestamp: 1 },
-    ];
+    const messages: CodexMessage[] = [{ role: "user", content: largeMessage, timestamp: 1 }];
     const request = createMockRequest(messages);
 
     // With forceMultipart = true, it must return a multipart count (2 or 6), NEVER undefined
@@ -92,9 +82,7 @@ describe("Lossless preflight transport planning", () => {
   });
 
   test("promotes a fitting 160k character payload instead of requiring compaction", () => {
-    const request = createMockRequest([
-      { role: "user", content: "x".repeat(160_001), timestamp: 1 },
-    ]);
+    const request = createMockRequest([{ role: "user", content: "x".repeat(160_001), timestamp: 1 }]);
 
     const verdict = evaluatePreflightBudget(request, baseCapabilities, {
       experimentalBiggerContext: true,
@@ -107,9 +95,7 @@ describe("Lossless preflight transport planning", () => {
   });
 
   test("does not block a 227k character payload before compiled limits are measured", () => {
-    const request = createMockRequest([
-      { role: "user", content: "x".repeat(227_000), timestamp: 1 },
-    ]);
+    const request = createMockRequest([{ role: "user", content: "x".repeat(227_000), timestamp: 1 }]);
     const verdict = evaluatePreflightBudget(request, baseCapabilities, {
       experimentalBiggerContext: true,
     });

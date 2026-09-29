@@ -28,9 +28,12 @@ export function createRuntimeIdentity(entrypoint: string | undefined = process.a
           files?: Array<{ path?: unknown; sha256?: unknown }>;
         };
         const artifactPath = relative(join(appDir, ".."), entrypoint).replaceAll("\\", "/");
-        const listed = manifest.files?.find(file => file.path === artifactPath);
-        if (listed?.sha256 === artifactSha256 && typeof manifest.buildCommit === "string"
-          && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(manifest.buildCommit)) {
+        const listed = manifest.files?.find((file) => file.path === artifactPath);
+        if (
+          listed?.sha256 === artifactSha256 &&
+          typeof manifest.buildCommit === "string" &&
+          /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(manifest.buildCommit)
+        ) {
           buildCommit = manifest.buildCommit;
         }
       }

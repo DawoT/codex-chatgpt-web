@@ -1,27 +1,27 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { atomicWriteFile } from "../../config";
 import { getCodexHome } from "../../codex-integration-shared";
+import { atomicWriteFile } from "../../config";
 import type { CodexParsedRequest } from "../../types";
+import { resolveCurrentCodexRolloutEnvironment } from "./codex-rollout-environment";
 import {
-  extractChatGptTurnEnvironment,
-  extractChatGptCompactionSourceRevision,
-  extractChatGptContinuationEnvironmentClaim,
-  extractChatGptSteeringEnvironmentClaim,
-  extractChatGptTurnIdentity,
-  extractChatGptThreadSpawnLineage,
-  extractChatGptRootThreadMetadata,
-  hasCurrentChatGptEnvironmentContext,
-  hasChatGptCalendarEnvironmentDelta,
-  hasRawChatGptEnvironmentContext,
-  itemTurnId,
-  unattributedChatGptEnvironmentMessages,
-  isChatGptCompactionContinuation,
-  MissingTrustedCodexEnvironmentError,
   type ChatGptSandboxPolicy,
   type ChatGptTurnEnvironment,
+  extractChatGptCompactionSourceRevision,
+  extractChatGptContinuationEnvironmentClaim,
+  extractChatGptRootThreadMetadata,
+  extractChatGptSteeringEnvironmentClaim,
+  extractChatGptThreadSpawnLineage,
+  extractChatGptTurnEnvironment,
+  extractChatGptTurnIdentity,
+  hasChatGptCalendarEnvironmentDelta,
+  hasCurrentChatGptEnvironmentContext,
+  hasRawChatGptEnvironmentContext,
+  isChatGptCompactionContinuation,
+  itemTurnId,
+  MissingTrustedCodexEnvironmentError,
+  unattributedChatGptEnvironmentMessages,
 } from "./environment";
-import { resolveCurrentCodexRolloutEnvironment } from "./codex-rollout-environment";
 
 interface StoredThreadEnvironment {
   cwd: string;
@@ -41,7 +41,7 @@ const THREAD_ENVIRONMENT_TTL_MS = 30 * 24 * 60 * 60_000;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -56,11 +56,15 @@ function contains(root: string, path: string): boolean {
 }
 
 function absolutePaths(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || value.length === 0 || value.some(path => typeof path !== "string" || !isAbsolute(path))) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((path) => typeof path !== "string" || !isAbsolute(path))
+  ) {
     throw new Error(`Invalid persisted ChatGPT thread ${field}`);
   }
   const unique = new Map<string, string>();
-  for (const path of value.map(path => resolve(path as string))) {
+  for (const path of value.map((path) => resolve(path as string))) {
     if (!unique.has(pathIdentity(path))) unique.set(pathIdentity(path), path);
   }
   return [...unique.values()];
@@ -70,7 +74,10 @@ function sandboxPolicy(value: unknown, roots: string[], writableRoots: string[])
   const parsed = record(value);
   if (parsed?.type === "dangerFullAccess") {
     const rootIdentities = new Set(roots.map(pathIdentity));
-    if (writableRoots.length !== roots.length || writableRoots.some(path => !rootIdentities.has(pathIdentity(path)))) {
+    if (
+      writableRoots.length !== roots.length ||
+      writableRoots.some((path) => !rootIdentities.has(pathIdentity(path)))
+    ) {
       throw new Error("Invalid persisted ChatGPT danger-full-access roots");
     }
     return { type: "dangerFullAccess" };
@@ -80,8 +87,11 @@ function sandboxPolicy(value: unknown, roots: string[], writableRoots: string[])
     const declared = new Set(policyRoots.map(pathIdentity));
     // Project membership is not the grant boundary: native Codex also authorizes
     // external output directories. Both persisted grant sets must agree exactly.
-    if (typeof parsed.networkAccess !== "boolean" || policyRoots.length !== writableRoots.length
-      || writableRoots.some(path => !declared.has(pathIdentity(path)))) {
+    if (
+      typeof parsed.networkAccess !== "boolean" ||
+      policyRoots.length !== writableRoots.length ||
+      writableRoots.some((path) => !declared.has(pathIdentity(path)))
+    ) {
       throw new Error("Invalid persisted ChatGPT workspace-write policy");
     }
     return { type: "workspaceWrite", writableRoots, networkAccess: parsed.networkAccess };
@@ -102,10 +112,11 @@ function validateStoredEnvironment(value: unknown): StoredThreadEnvironment {
   }
   const cwd = resolve(parsed.cwd);
   const roots = absolutePaths(parsed.roots, "roots");
-  const writableRoots = Array.isArray(parsed.writableRoots) && parsed.writableRoots.length === 0
-    ? []
-    : absolutePaths(parsed.writableRoots, "writable roots");
-  if (!roots.some(root => contains(root, cwd))) throw new Error("Persisted ChatGPT cwd is outside its roots");
+  const writableRoots =
+    Array.isArray(parsed.writableRoots) && parsed.writableRoots.length === 0
+      ? []
+      : absolutePaths(parsed.writableRoots, "writable roots");
+  if (!roots.some((root) => contains(root, cwd))) throw new Error("Persisted ChatGPT cwd is outside its roots");
   return {
     cwd,
     roots,
@@ -128,14 +139,17 @@ function authority(environment: ChatGptTurnEnvironment, updatedAt: number): Stor
 function sameAuthority(left: ChatGptTurnEnvironment, right: ChatGptTurnEnvironment): boolean {
   const samePaths = (a: string[], b: string[]): boolean => {
     const expected = new Set(b.map(pathIdentity));
-    return a.length === expected.size && a.every(path => expected.has(pathIdentity(path)));
+    return a.length === expected.size && a.every((path) => expected.has(pathIdentity(path)));
   };
-  return pathIdentity(left.cwd) === pathIdentity(right.cwd)
-    && samePaths(left.roots, right.roots)
-    && samePaths(left.writableRoots, right.writableRoots)
-    && left.sandboxPolicy.type === right.sandboxPolicy.type
-    && (left.sandboxPolicy.type === "dangerFullAccess" || (right.sandboxPolicy.type !== "dangerFullAccess"
-      && left.sandboxPolicy.networkAccess === right.sandboxPolicy.networkAccess));
+  return (
+    pathIdentity(left.cwd) === pathIdentity(right.cwd) &&
+    samePaths(left.roots, right.roots) &&
+    samePaths(left.writableRoots, right.writableRoots) &&
+    left.sandboxPolicy.type === right.sandboxPolicy.type &&
+    (left.sandboxPolicy.type === "dangerFullAccess" ||
+      (right.sandboxPolicy.type !== "dangerFullAccess" &&
+        left.sandboxPolicy.networkAccess === right.sandboxPolicy.networkAccess))
+  );
 }
 
 /**
@@ -165,12 +179,13 @@ export class ChatGptThreadEnvironmentStore {
       const hasCurrentContext = hasCurrentChatGptEnvironmentContext(parsed);
       const lineage = extractChatGptThreadSpawnLineage(parsed);
       const currentCompaction = hasCurrentContext && isChatGptCompactionContinuation(parsed);
-      const historicalMessages = hasCurrentContext && !currentCompaction && lineage
-        ? unattributedChatGptEnvironmentMessages(parsed) : undefined;
-      const steeringClaim = hasCurrentContext && !currentCompaction
-        ? extractChatGptSteeringEnvironmentClaim(parsed) : undefined;
+      const historicalMessages =
+        hasCurrentContext && !currentCompaction && lineage ? unattributedChatGptEnvironmentMessages(parsed) : undefined;
+      const steeringClaim =
+        hasCurrentContext && !currentCompaction ? extractChatGptSteeringEnvironmentClaim(parsed) : undefined;
       const calendarDelta = hasCurrentContext && !currentCompaction && hasChatGptCalendarEnvironmentDelta(parsed);
-      if (hasCurrentContext && !currentCompaction && !historicalMessages && !steeringClaim && !calendarDelta) throw error;
+      if (hasCurrentContext && !currentCompaction && !historicalMessages && !steeringClaim && !calendarDelta)
+        throw error;
       const currentClaim = currentCompaction ? extractChatGptContinuationEnvironmentClaim(parsed) : steeringClaim;
       const rolloutIdentity = lineage ?? extractChatGptRootThreadMetadata(parsed);
       // Automatic compaction has a current turn_context; standalone compaction has only its
@@ -205,7 +220,9 @@ export class ChatGptThreadEnvironmentStore {
               throw new Error("Calendar environment delta conflicts with its current Codex rollout");
             }
             if (currentClaim && !sameAuthority(currentClaim, rolloutEnvironment)) {
-              throw new Error(`${currentCompaction ? "Compaction continuation" : "Steering"} environment conflicts with its current Codex rollout`);
+              throw new Error(
+                `${currentCompaction ? "Compaction continuation" : "Steering"} environment conflicts with its current Codex rollout`,
+              );
             }
             this.set(rolloutIdentity.threadId, rolloutEnvironment);
             return rolloutEnvironment;
@@ -220,13 +237,14 @@ export class ChatGptThreadEnvironmentStore {
       // that proof, do not turn arbitrary history or an invalid update into cached authority.
       if (hasRawChatGptEnvironmentContext(parsed) && !parsed._compactionRequest) throw error;
       const sameThread = this.get(identity.threadId);
-      if (sameThread) return {
-        cwd: sameThread.cwd,
-        roots: sameThread.roots,
-        writableRoots: sameThread.writableRoots,
-        sandboxPolicy: sameThread.sandboxPolicy,
-        tools: parsed.context.tools ?? [],
-      };
+      if (sameThread)
+        return {
+          cwd: sameThread.cwd,
+          roots: sameThread.roots,
+          writableRoots: sameThread.writableRoots,
+          sandboxPolicy: sameThread.sandboxPolicy,
+          tools: parsed.context.tools ?? [],
+        };
 
       if (!lineage) throw error;
       const parent = this.get(lineage.parentThreadId);
@@ -234,12 +252,14 @@ export class ChatGptThreadEnvironmentStore {
       if (lineage.sandboxType !== parent.sandboxPolicy.type) {
         throw new Error("ChatGPT Web subagent sandbox metadata conflicts with its trusted parent thread");
       }
-      if (lineage.workspaceRoots.length > 0 && !lineage.workspaceRoots.some(root => contains(root, parent.cwd))) {
+      if (lineage.workspaceRoots.length > 0 && !lineage.workspaceRoots.some((root) => contains(root, parent.cwd))) {
         throw new Error("ChatGPT Web subagent workspace metadata does not contain its trusted parent cwd");
       }
-      if (lineage.workspaceRoots.some(root => !parent.roots.some(parentRoot => (
-        contains(parentRoot, root) || contains(root, parentRoot)
-      )))) {
+      if (
+        lineage.workspaceRoots.some(
+          (root) => !parent.roots.some((parentRoot) => contains(parentRoot, root) || contains(root, parentRoot)),
+        )
+      ) {
         throw new Error("ChatGPT Web subagent workspace metadata conflicts with its trusted parent roots");
       }
       const inherited: ChatGptTurnEnvironment = {

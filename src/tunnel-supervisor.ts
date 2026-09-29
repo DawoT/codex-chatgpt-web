@@ -2,16 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig } from "./config";
-import { connectTunnel, stopTunnel, tunnelStatus, waitForTunnelReady, type TunnelRuntimeStatus } from "./tunnel";
+import { connectTunnel, stopTunnel, type TunnelRuntimeStatus, tunnelStatus, waitForTunnelReady } from "./tunnel";
 import { getTunnelServiceStatus, restartTunnelService } from "./tunnel-service";
 
-export type TunnelSupervisorStatus =
-  | "idle"
-  | "running"
-  | "recovering"
-  | "degraded"
-  | "stopped"
-  | "disabled";
+export type TunnelSupervisorStatus = "idle" | "running" | "recovering" | "degraded" | "stopped" | "disabled";
 
 export interface TunnelSupervisorStats {
   enabled: boolean;
@@ -154,33 +148,35 @@ export class TunnelSupervisor {
     this.pollIntervalMs = options.pollIntervalMs ?? 15_000;
     this.backoffDelaysMs = options.backoffDelaysMs ?? [1_000, 2_000, 5_000];
     this.maxConsecutiveRestarts = options.maxConsecutiveRestarts ?? 3;
-    this.restartAction = options.restartAction ?? (cfg => defaultRestartAction(cfg));
-    this.healthUrlProbe = options.healthUrlProbe ?? (url => defaultHealthUrlProbe(url));
-    this.statusProbe = options.statusProbe ?? (async cfg => {
-      const status = tunnelStatus(cfg);
-      if (!status.ok) return status;
-      const healthUrl = resolveTunnelHealthUrl(cfg);
-      if (healthUrl) {
-        try {
-          const isHealthy = await this.healthUrlProbe(healthUrl);
-          if (!isHealthy) {
-            return {
-              ok: false,
-              processRunning: status.processRunning,
-              healthy: false,
-              ready: false,
-              state: status.state,
-              detail: "tunnel health probe failed (endpoint unreachable or 502 error detected)",
-            };
-          }
-        } catch {}
-      }
-      return status;
-    });
+    this.restartAction = options.restartAction ?? ((cfg) => defaultRestartAction(cfg));
+    this.healthUrlProbe = options.healthUrlProbe ?? ((url) => defaultHealthUrlProbe(url));
+    this.statusProbe =
+      options.statusProbe ??
+      (async (cfg) => {
+        const status = tunnelStatus(cfg);
+        if (!status.ok) return status;
+        const healthUrl = resolveTunnelHealthUrl(cfg);
+        if (healthUrl) {
+          try {
+            const isHealthy = await this.healthUrlProbe(healthUrl);
+            if (!isHealthy) {
+              return {
+                ok: false,
+                processRunning: status.processRunning,
+                healthy: false,
+                ready: false,
+                state: status.state,
+                detail: "tunnel health probe failed (endpoint unreachable or 502 error detected)",
+              };
+            }
+          } catch {}
+        }
+        return status;
+      });
     this.logger = options.logger ?? {
-      info: msg => console.info(`[tunnel-supervisor] ${msg}`),
-      warn: msg => console.warn(`[tunnel-supervisor] ${msg}`),
-      error: msg => console.error(`[tunnel-supervisor] ${msg}`),
+      info: (msg) => console.info(`[tunnel-supervisor] ${msg}`),
+      warn: (msg) => console.warn(`[tunnel-supervisor] ${msg}`),
+      error: (msg) => console.error(`[tunnel-supervisor] ${msg}`),
     };
 
     const isFullWithTunnel = this.config.mode === "full" && Boolean(this.config.tunnel);
@@ -208,7 +204,7 @@ export class TunnelSupervisor {
 
     this.status = "running";
     this.pollTimer = setInterval(() => {
-      void this.probeAndRecover().catch(err => {
+      void this.probeAndRecover().catch((err) => {
         this.logger.error(`Periodic probe failure: ${err instanceof Error ? err.message : String(err)}`);
       });
     }, this.pollIntervalMs);
@@ -312,7 +308,7 @@ export class TunnelSupervisor {
   }
 
   private async performRecovery(force: boolean, cause?: string): Promise<boolean> {
-    const initialStatus = this.status;
+    const _initialStatus = this.status;
     this.status = "recovering";
     const reason = cause || this.lastProbeDetail || (force ? "operator forced recovery" : "probe detected failure");
     this.logger.warn(`Tunnel is down (${reason}). Initiating auto-recovery sequence...`);
@@ -325,7 +321,7 @@ export class TunnelSupervisor {
       attempt += 1;
 
       if (delayMs > 0) {
-        await new Promise(res => setTimeout(res, delayMs));
+        await new Promise((res) => setTimeout(res, delayMs));
       }
 
       this.logger.info(`Auto-recovery attempt ${attempt}/${maxAttempts} executing restart...`);

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { handleExecCommand, type HandleExecCommandOptions } from "../src/adapters/chatgpt-web/fast-path/exec";
 import { createCommandCgroup } from "../src/adapters/chatgpt-web/command-cgroup";
+import { type HandleExecCommandOptions, handleExecCommand } from "../src/adapters/chatgpt-web/fast-path/exec";
 
 const delegatedCgroup = createCommandCgroup();
 delegatedCgroup?.release();

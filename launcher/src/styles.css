@@ -1539,7 +1539,9 @@ code {
   pointer-events: none;
   opacity: 0;
   transform: scale(0.94);
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
 }
 
 .guide-media-pause.is-visible {
@@ -1568,7 +1570,9 @@ code {
   background: transparent;
   color: var(--color-text-primary);
   place-items: center;
-  transition: opacity var(--duration-micro) ease, color var(--duration-micro) ease;
+  transition:
+    opacity var(--duration-micro) ease,
+    color var(--duration-micro) ease;
 }
 
 .guide-media-expand {
@@ -2723,9 +2727,9 @@ code {
   *,
   *::before,
   *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    scroll-behavior: auto;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
   }
 }

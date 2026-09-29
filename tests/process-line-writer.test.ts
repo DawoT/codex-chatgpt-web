@@ -10,10 +10,10 @@ test("browser helper output consumes a closed Windows pipe without an uncaught e
       callback(error);
     },
   });
-  const writer = createProcessLineWriter(output, error => failures.push(error));
+  const writer = createProcessLineWriter(output, (error) => failures.push(error));
 
   expect(writer.write("first event")).toBe(true);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 
   expect(failures).toHaveLength(1);
   expect(failures[0]?.message).toBe("write EOF");

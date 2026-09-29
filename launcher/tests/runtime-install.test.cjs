@@ -18,7 +18,9 @@ function comparePaths(left, right) {
 function manifestFiles(source) {
   const files = [];
   const visit = (directory) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => comparePaths(left.name, right.name))) {
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => comparePaths(left.name, right.name))) {
       const absolutePath = path.join(directory, entry.name);
       const relativePath = path.relative(source, absolutePath).split(path.sep).join("/");
       if (relativePath === "manifest.json") continue;
@@ -53,18 +55,21 @@ function bundleIdFor(files) {
 
 function writeRuntimeManifest(source, version = "0.2.0") {
   const files = manifestFiles(source);
-  fs.writeFileSync(path.join(source, "manifest.json"), `${JSON.stringify({
-    schemaVersion: 2,
-    appVersion: version,
-    bundleId: bundleIdFor(files),
-    bunVersion: "1.4.0",
-    platform: process.platform,
-    arch: process.arch,
-    launcher: `bin/${process.platform === "win32" ? "codex-chatgpt-web.cmd" : "codex-chatgpt-web"}`,
-    entrypoint: "app/cli.js",
-    playwright: "1.62.0",
-    files,
-  })}\n`);
+  fs.writeFileSync(
+    path.join(source, "manifest.json"),
+    `${JSON.stringify({
+      schemaVersion: 2,
+      appVersion: version,
+      bundleId: bundleIdFor(files),
+      bunVersion: "1.4.0",
+      platform: process.platform,
+      arch: process.arch,
+      launcher: `bin/${process.platform === "win32" ? "codex-chatgpt-web.cmd" : "codex-chatgpt-web"}`,
+      entrypoint: "app/cli.js",
+      playwright: "1.62.0",
+      files,
+    })}\n`,
+  );
 }
 
 function runtimeFixture(root, version = "0.2.0") {
@@ -126,11 +131,12 @@ test("packaged runtime installation rejects a platform or version mismatch", () 
   const resourcesPath = runtimeFixture(root, "0.1.0");
   try {
     assert.throws(
-      () => ensurePackagedRuntime({
-        app: { isPackaged: true, getVersion: () => "0.2.0" },
-        coreHome: path.join(root, "core-home"),
-        resourcesPath,
-      }),
+      () =>
+        ensurePackagedRuntime({
+          app: { isPackaged: true, getVersion: () => "0.2.0" },
+          coreHome: path.join(root, "core-home"),
+          resourcesPath,
+        }),
       /identity mismatch/,
     );
   } finally {
@@ -142,20 +148,16 @@ test("packaged runtime rejects a missing executable before creating durable stat
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-runtime-missing-"));
   const resourcesPath = runtimeFixture(root);
   const coreHome = path.join(root, "core-home");
-  const executable = path.join(
-    resourcesPath,
-    "runtime",
-    "runtime",
-    process.platform === "win32" ? "bun.exe" : "bun",
-  );
+  const executable = path.join(resourcesPath, "runtime", "runtime", process.platform === "win32" ? "bun.exe" : "bun");
   fs.rmSync(executable);
   try {
     assert.throws(
-      () => ensurePackagedRuntime({
-        app: { isPackaged: true, getVersion: () => "0.2.0" },
-        coreHome,
-        resourcesPath,
-      }),
+      () =>
+        ensurePackagedRuntime({
+          app: { isPackaged: true, getVersion: () => "0.2.0" },
+          coreHome,
+          resourcesPath,
+        }),
       /Runtime bundle file is missing/,
     );
     assert.equal(fs.existsSync(coreHome), false);
@@ -175,11 +177,12 @@ for (const relativePath of [
     fs.rmSync(path.join(resourcesPath, "runtime", ...relativePath));
     try {
       assert.throws(
-        () => ensurePackagedRuntime({
-          app: { isPackaged: true, getVersion: () => "0.2.0" },
-          coreHome,
-          resourcesPath,
-        }),
+        () =>
+          ensurePackagedRuntime({
+            app: { isPackaged: true, getVersion: () => "0.2.0" },
+            coreHome,
+            resourcesPath,
+          }),
         /Runtime bundle file is missing/,
       );
       assert.equal(fs.existsSync(coreHome), false);
@@ -197,11 +200,12 @@ test("packaged runtime rejects same-count content corruption", () => {
   fs.writeFileSync(dependency, "bad-v4");
   try {
     assert.throws(
-      () => ensurePackagedRuntime({
-        app: { isPackaged: true, getVersion: () => "0.2.0" },
-        coreHome,
-        resourcesPath,
-      }),
+      () =>
+        ensurePackagedRuntime({
+          app: { isPackaged: true, getVersion: () => "0.2.0" },
+          coreHome,
+          resourcesPath,
+        }),
       /checksum mismatch/,
     );
     assert.equal(fs.existsSync(coreHome), false);
@@ -268,15 +272,7 @@ test("packaged runtime transactionally repairs an incomplete installed bundle", 
   const app = { isPackaged: true, getVersion: () => "0.2.0" };
   try {
     const installed = ensurePackagedRuntime({ app, coreHome, resourcesPath });
-    const dependency = path.join(
-      installed,
-      "app",
-      "node_modules",
-      "nested-dependency",
-      "dist",
-      "runtime",
-      "worker.js",
-    );
+    const dependency = path.join(installed, "app", "node_modules", "nested-dependency", "dist", "runtime", "worker.js");
     fs.rmSync(dependency);
     fs.writeFileSync(path.join(installed, "corrupt.partial"), "interrupted copy");
 
@@ -284,7 +280,7 @@ test("packaged runtime transactionally repairs an incomplete installed bundle", 
     assert.equal(fs.readFileSync(dependency, "utf8"), "nested-worker");
     assert.equal(fs.existsSync(path.join(installed, "corrupt.partial")), false);
     assert.deepEqual(
-      fs.readdirSync(path.dirname(installed)).filter(name => name.includes(".previous-") || name.includes(".tmp-")),
+      fs.readdirSync(path.dirname(installed)).filter((name) => name.includes(".previous-") || name.includes(".tmp-")),
       [],
     );
   } finally {
@@ -308,10 +304,7 @@ test("failed candidate validation preserves the previous validated runtime", () 
       originalCopy(from, to, options);
       fs.rmSync(path.join(to, "app", "node_modules", "zod", "v4", "index.js"));
     };
-    assert.throws(
-      () => ensurePackagedRuntime({ app, coreHome, resourcesPath }),
-      /Runtime bundle file is missing/,
-    );
+    assert.throws(() => ensurePackagedRuntime({ app, coreHome, resourcesPath }), /Runtime bundle file is missing/);
     assert.equal(fs.readFileSync(path.join(installed, "app", "cli.js"), "utf8"), "cli");
     assert.equal(
       validateRuntimeBundle(installed, {
@@ -322,7 +315,7 @@ test("failed candidate validation preserves the previous validated runtime", () 
       installed,
     );
     assert.deepEqual(
-      fs.readdirSync(path.dirname(installed)).filter(name => name.includes(".previous-") || name.includes(".tmp-")),
+      fs.readdirSync(path.dirname(installed)).filter((name) => name.includes(".previous-") || name.includes(".tmp-")),
       [],
     );
   } finally {

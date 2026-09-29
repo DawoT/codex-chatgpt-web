@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import {
-  PromptContractCache,
   defaultPromptContractCache,
+  PromptContractCache,
   type PromptContractFingerprintInput,
 } from "../src/adapters/chatgpt-web/prompt-cache";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
-import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 
 describe("Sprint H: Conversation State Fingerprinting & LRU Prompt Assembly Caching", () => {
   beforeEach(() => {
@@ -130,9 +130,7 @@ describe("Sprint H: Conversation State Fingerprinting & LRU Prompt Assembly Cach
         options: { reasoning: "high" as const },
         context: {
           systemPrompt: ["system"],
-          messages: [
-            { role: "user" as const, content: "Initial prompt", timestamp: 1 },
-          ],
+          messages: [{ role: "user" as const, content: "Initial prompt", timestamp: 1 }],
         },
       };
 
@@ -219,10 +217,13 @@ describe("Sprint H: Conversation State Fingerprinting & LRU Prompt Assembly Cach
         context: { messages: [{ role: "user" as const, content: "First task", timestamp: 1 }] },
       };
       const first = compileChatGptWebPrompt(base, caps);
-      const second = compileChatGptWebPrompt({
-        ...base,
-        context: { messages: [{ role: "user" as const, content: "Different task", timestamp: 2 }] },
-      }, caps);
+      const second = compileChatGptWebPrompt(
+        {
+          ...base,
+          context: { messages: [{ role: "user" as const, content: "Different task", timestamp: 2 }] },
+        },
+        caps,
+      );
       const prefix = (text: string) => text.split("<codex_context_json>", 1)[0];
       expect(prefix(first.text)).toBe(prefix(second.text));
       expect(first.text).not.toBe(second.text);

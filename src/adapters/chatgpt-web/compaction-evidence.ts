@@ -12,10 +12,7 @@ export interface CompactionEvidenceObservation {
 }
 
 /** Only a complete, unambiguous execution envelope can establish an exit status. */
-export function completedExecutionStatus(
-  output: string,
-  isError: boolean,
-): "succeeded" | "failed" | null {
+export function completedExecutionStatus(output: string, isError: boolean): "succeeded" | "failed" | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
@@ -30,7 +27,7 @@ export function completedExecutionStatus(
   if (Number.isSafeInteger(result.session_id)) return null;
   if (result.timed_out === true) return "failed";
   const exitCode = result.exit_code ?? result.exitCode;
-  return Number.isSafeInteger(exitCode) ? Number(exitCode) === 0 ? "succeeded" : "failed" : null;
+  return Number.isSafeInteger(exitCode) ? (Number(exitCode) === 0 ? "succeeded" : "failed") : null;
 }
 
 /** Inspect the decoded command output, not JSON escape sequences in its transport envelope. */
@@ -56,7 +53,7 @@ function startedExecutionSessionId(output: string): number | undefined {
     const parsed: unknown = JSON.parse(output);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const sessionId = (parsed as Record<string, unknown>).session_id;
-    return Number.isSafeInteger(sessionId) ? sessionId as number : undefined;
+    return Number.isSafeInteger(sessionId) ? (sessionId as number) : undefined;
   } catch {
     return undefined;
   }
@@ -78,8 +75,11 @@ export function buildCompactionEvidenceIndex(
         if (part.type !== "toolCall") continue;
         const referenceCommand = typeof part.arguments.cmd === "string" ? part.arguments.cmd : undefined;
         let command = referenceCommand;
-        if (!command && ["write_stdin", "codex_write_stdin"].includes(part.name)
-          && Number.isSafeInteger(part.arguments.session_id)) {
+        if (
+          !command &&
+          ["write_stdin", "codex_write_stdin"].includes(part.name) &&
+          Number.isSafeInteger(part.arguments.session_id)
+        ) {
           command = startedSessions.get(part.arguments.session_id as number);
         }
         calls.set(part.id, {
@@ -93,9 +93,10 @@ export function buildCompactionEvidenceIndex(
     if (message.role !== "toolResult") continue;
     const call = calls.get(message.toolCallId);
     if (!call || call.name !== message.toolName) continue;
-    const output = typeof message.content === "string"
-      ? message.content
-      : message.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
+    const output =
+      typeof message.content === "string"
+        ? message.content
+        : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
     if (["exec_command", "codex_exec"].includes(message.toolName) && !message.isError && call.command) {
       const startedSessionId = startedExecutionSessionId(output);
       if (startedSessionId !== undefined) startedSessions.set(startedSessionId, call.command);
@@ -107,13 +108,24 @@ export function buildCompactionEvidenceIndex(
     if (execution && !executionStatus) continue;
     if (patch && !message.isError && !/^Success\./m.test(output)) continue;
     const testCommand = /^(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|^pytest\b/i.test(call.command?.trim() ?? "");
-    const status = execution && testCommand && hasReportedTestFailures(executionResultText(output))
-      ? "failed"
-      : executionStatus ?? (message.isError ? "failed" : "succeeded");
+    const status =
+      execution && testCommand && hasReportedTestFailures(executionResultText(output))
+        ? "failed"
+        : (executionStatus ?? (message.isError ? "failed" : "succeeded"));
     const ref = `obs_${createHash("sha256")
-      .update(sessionId).update("\0").update(message.toolCallId).update("\0")
-      .update(message.toolName).update("\0").update(call.referenceCommand ?? "").update("\0")
-      .update(status).update("\0").update(output).digest("hex").slice(0, 24)}`;
+      .update(sessionId)
+      .update("\0")
+      .update(message.toolCallId)
+      .update("\0")
+      .update(message.toolName)
+      .update("\0")
+      .update(call.referenceCommand ?? "")
+      .update("\0")
+      .update(status)
+      .update("\0")
+      .update(output)
+      .digest("hex")
+      .slice(0, 24)}`;
     observations.push({
       ref,
       messageIndex,
@@ -121,9 +133,10 @@ export function buildCompactionEvidenceIndex(
       toolName: message.toolName,
       status,
       ...(call.command ? { command: call.command } : {}),
-      excerpt: output.length > 1_200
-        ? `${output.slice(0, 600)}\n[recover full output with toolCallId]\n${output.slice(-600)}`
-        : output,
+      excerpt:
+        output.length > 1_200
+          ? `${output.slice(0, 600)}\n[recover full output with toolCallId]\n${output.slice(-600)}`
+          : output,
     });
   }
   return observations;
@@ -135,20 +148,27 @@ export function selectCompactionRepairEvidence(
   limit: number,
 ): CompactionEvidenceObservation[] {
   if (limit <= 0) return [];
-  const terms = [...new Set(query.toLowerCase().match(/[a-z0-9_./-]{4,}/g) ?? [])]
-    .filter(term => !["completed", "observation", "requirement", "evidence", "missing", "verified"].includes(term));
-  return observations.map((observation, index) => {
-    const command = observation.command?.toLowerCase() ?? "";
-    const excerpt = observation.excerpt.toLowerCase();
-    const score = terms.reduce((total, term) => total
-      + (observation.ref.toLowerCase().includes(term) ? 10 : 0)
-      + (observation.toolCallId.toLowerCase().includes(term) ? 10 : 0)
-      + (command.includes(term) ? 3 : 0)
-      + (excerpt.includes(term) ? 1 : 0), 0);
-    return { observation, index, score };
-  }).sort((a, b) => b.score - a.score || b.index - a.index)
+  const terms = [...new Set(query.toLowerCase().match(/[a-z0-9_./-]{4,}/g) ?? [])].filter(
+    (term) => !["completed", "observation", "requirement", "evidence", "missing", "verified"].includes(term),
+  );
+  return observations
+    .map((observation, index) => {
+      const command = observation.command?.toLowerCase() ?? "";
+      const excerpt = observation.excerpt.toLowerCase();
+      const score = terms.reduce(
+        (total, term) =>
+          total +
+          (observation.ref.toLowerCase().includes(term) ? 10 : 0) +
+          (observation.toolCallId.toLowerCase().includes(term) ? 10 : 0) +
+          (command.includes(term) ? 3 : 0) +
+          (excerpt.includes(term) ? 1 : 0),
+        0,
+      );
+      return { observation, index, score };
+    })
+    .sort((a, b) => b.score - a.score || b.index - a.index)
     .slice(0, limit)
-    .map(item => item.observation);
+    .map((item) => item.observation);
 }
 
 /** Keep relevance order while measuring the actual JSON sent through the browser. */

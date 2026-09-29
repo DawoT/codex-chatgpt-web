@@ -53,9 +53,9 @@ describe("Sprint M: SSE Early-Ack & Accelerated Compaction Heartbeats", () => {
     expect(aggregated).toContain("response.heartbeat");
 
     // Must contain the single synthetic compaction item (and NO assistant message output items)
-    expect(aggregated).toContain("\"type\":\"compaction\"");
+    expect(aggregated).toContain('"type":"compaction"');
     expect(aggregated).toContain("ocx1:");
-    expect(aggregated).not.toContain("\"type\":\"message\"");
+    expect(aggregated).not.toContain('"type":"message"');
     expect(aggregated).toContain("[DONE]");
   });
 
@@ -86,16 +86,14 @@ describe("Sprint M: SSE Early-Ack & Accelerated Compaction Heartbeats", () => {
     setTimeout(() => abortController.abort(), 40);
 
     try {
-      await adapter.runTurn!(
-        parsed,
-        { headers: new Headers(), abortSignal: abortController.signal },
-        event => emittedEvents.push(event),
+      await adapter.runTurn!(parsed, { headers: new Headers(), abortSignal: abortController.signal }, (event) =>
+        emittedEvents.push(event),
       );
     } catch {
       // expected abort
     }
 
     // An initial heartbeat must have been emitted immediately before any awaited work
-    expect(emittedEvents.some(e => e.type === "heartbeat")).toBeTrue();
+    expect(emittedEvents.some((e) => e.type === "heartbeat")).toBeTrue();
   });
 });

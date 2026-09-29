@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Locator, Page } from "playwright-core";
-import {
-  chatGptActiveComposer,
-  chatGptClearComposerState,
-} from "../src/adapters/chatgpt-web/browser/composer";
+import { chatGptActiveComposer, chatGptClearComposerState } from "../src/adapters/chatgpt-web/browser/composer";
 
 describe("chatGptActiveComposer", () => {
   test("returns the first composer when exactly one visible composer exists", async () => {
@@ -70,9 +67,9 @@ describe("chatGptActiveComposer", () => {
     const controller = new AbortController();
     controller.abort(new DOMException("ChatGPT prompt attachment aborted", "AbortError"));
 
-    await expect(
-      chatGptActiveComposer(page, 1_000, controller.signal),
-    ).rejects.toThrow("ChatGPT prompt attachment aborted");
+    await expect(chatGptActiveComposer(page, 1_000, controller.signal)).rejects.toThrow(
+      "ChatGPT prompt attachment aborted",
+    );
   });
 });
 
@@ -80,8 +77,12 @@ describe("chatGptClearComposerState", () => {
   test("focuses, clears text, and verifies empty composer", async () => {
     const actions: string[] = [];
     const mockComposer = {
-      focus: async () => { actions.push("focus"); },
-      press: async (key: string) => { actions.push(`press:${key}`); },
+      focus: async () => {
+        actions.push("focus");
+      },
+      press: async (key: string) => {
+        actions.push(`press:${key}`);
+      },
       evaluate: async () => "",
     } as unknown as Locator;
 

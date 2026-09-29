@@ -20,15 +20,19 @@ test("Linux auto-update fails closed without the stable installer wrapper", () =
   process.env.CODEX_WEB_GPT_APPIMAGE = "/opt/codex/Codex Web GPT.AppImage";
   delete process.env.CODEX_WEB_GPT_LAUNCHER_EXECUTABLE;
   try {
-    assert.throws(() => buildJob({
-      version: "1.2.0",
-      platform: "linux",
-      executablePath: "/tmp/transient",
-      assetPath: "/tmp/update.AppImage",
-      stagingRoot: "/tmp/stage",
-      tempRoot: "/tmp/update",
-      logPath: "/tmp/update.log",
-    }), /requires the stable install-launcher\.sh wrapper/);
+    assert.throws(
+      () =>
+        buildJob({
+          version: "1.2.0",
+          platform: "linux",
+          executablePath: "/tmp/transient",
+          assetPath: "/tmp/update.AppImage",
+          stagingRoot: "/tmp/stage",
+          tempRoot: "/tmp/update",
+          logPath: "/tmp/update.log",
+        }),
+      /requires the stable install-launcher\.sh wrapper/,
+    );
   } finally {
     if (previousAppImage === undefined) delete process.env.CODEX_WEB_GPT_APPIMAGE;
     else process.env.CODEX_WEB_GPT_APPIMAGE = previousAppImage;
@@ -39,7 +43,7 @@ test("Linux auto-update fails closed without the stable installer wrapper", () =
 
 test("unsupported Linux launches reject updates before downloading or changing state", async () => {
   const keys = ["CODEX_WEB_GPT_APPIMAGE", "APPIMAGE", "CODEX_WEB_GPT_LAUNCHER_EXECUTABLE"];
-  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
     for (const [appImage, wrapper] of [
       [undefined, "/opt/codex/launcher"],
@@ -53,19 +57,29 @@ test("unsupported Linux launches reject updates before downloading or changing s
       const calls = [];
       const states = [];
       const controller = createUpdateController({
-        currentVersion: "1.1.4", platform: "linux", arch: "x64", packaged: true,
-        publish: state => states.push(state.status),
+        currentVersion: "1.1.4",
+        platform: "linux",
+        arch: "x64",
+        packaged: true,
+        publish: (state) => states.push(state.status),
         dependencies: {
           fetchRelease: async () => ({
             tag_name: "v1.2.0",
-            assets: ["codex-web-gpt-1.2.0-linux-x64.AppImage", "checksums.txt"].map(name => ({
+            assets: ["codex-web-gpt-1.2.0-linux-x64.AppImage", "checksums.txt"].map((name) => ({
               name,
               browser_download_url: `https://github.com/DawoT/codex-chatgpt-web/releases/download/v1.2.0/${name}`,
             })),
           }),
-          downloadText: async () => { calls.push("checksums"); throw new Error("Unexpected download"); },
-          downloadFile: async () => { calls.push("asset"); },
-          spawnWorker: () => { calls.push("worker"); },
+          downloadText: async () => {
+            calls.push("checksums");
+            throw new Error("Unexpected download");
+          },
+          downloadFile: async () => {
+            calls.push("asset");
+          },
+          spawnWorker: () => {
+            calls.push("worker");
+          },
         },
       });
       await controller.checkOnce();
@@ -142,7 +156,8 @@ test("startup check runs once and exposes only a newer complete release", async 
           assets: [
             {
               name: "codex-web-gpt-1.2.0-linux-x64.AppImage",
-              browser_download_url: "https://github.com/DawoT/codex-chatgpt-web/releases/download/v1.2.0/codex-web-gpt-1.2.0-linux-x64.AppImage",
+              browser_download_url:
+                "https://github.com/DawoT/codex-chatgpt-web/releases/download/v1.2.0/codex-web-gpt-1.2.0-linux-x64.AppImage",
             },
             {
               name: "checksums.txt",
@@ -156,18 +171,25 @@ test("startup check runs once and exposes only a newer complete release", async 
   assert.deepEqual(await controller.checkOnce(), { status: "available", version: "1.2.0" });
   assert.deepEqual(await controller.checkOnce(), { status: "available", version: "1.2.0" });
   assert.equal(calls, 1);
-  assert.deepEqual(published.map((state) => state.status), ["checking", "available"]);
+  assert.deepEqual(
+    published.map((state) => state.status),
+    ["checking", "available"],
+  );
 });
 
 test("preview and draft releases stay hidden until promoted, regardless of the version suffix", async () => {
   for (const tag of ["1.2.0", "1.2.0-rc.1"]) {
     for (const flags of [{ prerelease: true }, { draft: true }, { prerelease: false, draft: false }]) {
       const controller = createUpdateController({
-        currentVersion: "1.1.4", platform: "linux", arch: "x64", packaged: true,
+        currentVersion: "1.1.4",
+        platform: "linux",
+        arch: "x64",
+        packaged: true,
         dependencies: {
           fetchRelease: async () => ({
-            tag_name: `v${tag}`, ...flags,
-            assets: [`codex-web-gpt-${tag}-linux-x64.AppImage`, "checksums.txt"].map(name => ({
+            tag_name: `v${tag}`,
+            ...flags,
+            assets: [`codex-web-gpt-${tag}-linux-x64.AppImage`, "checksums.txt"].map((name) => ({
               name,
               browser_download_url: `https://github.com/DawoT/codex-chatgpt-web/releases/download/v${tag}/${name}`,
             })),
@@ -175,9 +197,10 @@ test("preview and draft releases stay hidden until promoted, regardless of the v
         },
       });
       const hidden = flags.prerelease || flags.draft;
-      assert.deepEqual(await controller.checkOnce(), hidden
-        ? { status: "up-to-date" }
-        : { status: "available", version: tag });
+      assert.deepEqual(
+        await controller.checkOnce(),
+        hidden ? { status: "up-to-date" } : { status: "available", version: tag },
+      );
       if (hidden) await assert.rejects(controller.beginInstall(), /No launcher update/);
     }
   }
@@ -218,13 +241,15 @@ for (const arch of ["x64", "arm64"]) {
               },
               {
                 name: "checksums.txt",
-                browser_download_url: "https://github.com/DawoT/codex-chatgpt-web/releases/download/v1.2.0/checksums.txt",
+                browser_download_url:
+                  "https://github.com/DawoT/codex-chatgpt-web/releases/download/v1.2.0/checksums.txt",
               },
             ],
           }),
           downloadText: async () => `${hash}  codex-web-gpt-1.2.0-linux-${arch}.AppImage\n`,
           downloadFile: async (_url, destination) => fs.writeFileSync(destination, assetBody),
-          sha256: (filePath) => require("node:crypto").createHash("sha256").update(fs.readFileSync(filePath)).digest("hex"),
+          sha256: (filePath) =>
+            require("node:crypto").createHash("sha256").update(fs.readFileSync(filePath)).digest("hex"),
           spawnWorker: (runtime, worker, job) => {
             spawned = { runtime, worker, job, data: JSON.parse(fs.readFileSync(job, "utf8")) };
             return { pid: 123, unref() {}, kill() {} };
@@ -272,19 +297,22 @@ test("detached worker replaces an installed Linux AppImage and removes the old v
   fs.writeFileSync(oldTarget, "old");
   fs.writeFileSync(wrapper, "old wrapper");
   fs.writeFileSync(source, `#!/bin/sh\nprintf launched > ${JSON.stringify(marker)}\n`, { mode: 0o755 });
-  fs.writeFileSync(runnerSource, "#!/bin/sh\ntarget=\"$1\"\nshift\nexec \"$target\" \"$@\"\n", { mode: 0o755 });
+  fs.writeFileSync(runnerSource, '#!/bin/sh\ntarget="$1"\nshift\nexec "$target" "$@"\n', { mode: 0o755 });
   const jobPath = path.join(jobRoot, "job.json");
-  fs.writeFileSync(jobPath, JSON.stringify({
-    version: "1.2.0",
-    platform: "linux",
-    parentPid: 2_147_483_647,
-    tempRoot: jobRoot,
-    logPath,
-    source,
-    target: oldTarget,
-    wrapper,
-    runnerSource,
-  }));
+  fs.writeFileSync(
+    jobPath,
+    JSON.stringify({
+      version: "1.2.0",
+      platform: "linux",
+      parentPid: 2_147_483_647,
+      tempRoot: jobRoot,
+      logPath,
+      source,
+      target: oldTarget,
+      wrapper,
+      runnerSource,
+    }),
+  );
   try {
     const result = spawnSync(process.execPath, [path.join(__dirname, "..", "electron", "update-worker.cjs"), jobPath], {
       encoding: "utf8",

@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  formatSubagentResultSummary,
+  parseSubagentStructuredResult,
   SUBAGENT_RESULT_TAG_CLOSE,
   SUBAGENT_RESULT_TAG_OPEN,
   SUBAGENT_STRUCTURED_RESULT_SCHEMA_INSTRUCTION,
-  formatSubagentResultSummary,
-  parseSubagentStructuredResult,
   type SubagentStructuredResult,
 } from "../src/adapters/chatgpt-web/subagent-protocol";
-import { NATIVE_CHATGPT_MCP_INSTRUCTIONS } from "../src/adapters/chatgpt-web/mcp-server";
 
 describe("Sprint F: Structured Subagent Return Protocol", () => {
   describe("parseSubagentStructuredResult", () => {
@@ -215,9 +214,7 @@ End of report.
         options: { reasoning: "high" as const },
         context: {
           systemPrompt: ["test"],
-          messages: [
-            { role: "user" as const, content: "Do atomic subtask", timestamp: 1 },
-          ],
+          messages: [{ role: "user" as const, content: "Do atomic subtask", timestamp: 1 }],
         },
         _rawBody: {
           client_metadata: {
@@ -250,9 +247,7 @@ End of report.
         options: { reasoning: "high" as const },
         context: {
           systemPrompt: ["test"],
-          messages: [
-            { role: "user" as const, content: "Coordinate repository task", timestamp: 1 },
-          ],
+          messages: [{ role: "user" as const, content: "Coordinate repository task", timestamp: 1 }],
         },
       };
 
@@ -270,7 +265,7 @@ End of report.
     test("applyMicroCompactionBoundary preserves subagent result summary across compaction stages", async () => {
       const { applyMicroCompactionBoundary } = await import("../src/adapters/chatgpt-web/prompt");
 
-      const subagentVerboseProse = "Working through steps... " + "reasoning ".repeat(200);
+      const subagentVerboseProse = `Working through steps... ${"reasoning ".repeat(200)}`;
       const subagentResultJson = `
 <subagent_result>
 {
@@ -307,4 +302,3 @@ End of report.
     });
   });
 });
-

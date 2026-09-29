@@ -12,19 +12,14 @@ function waitSync(milliseconds) {
 function renameAtomicFile(
   source,
   destination,
-  {
-    platform = process.platform,
-    rename = fs.renameSync,
-    wait = waitSync,
-  } = {},
+  { platform = process.platform, rename = fs.renameSync, wait = waitSync } = {},
 ) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       rename(source, destination);
       return;
     } catch (error) {
-      const transientWindowsError = platform === "win32"
-        && ["EBUSY", "EPERM", "EACCES"].includes(error?.code);
+      const transientWindowsError = platform === "win32" && ["EBUSY", "EPERM", "EACCES"].includes(error?.code);
       const delay = WINDOWS_RENAME_RETRY_DELAYS_MS[attempt];
       if (!transientWindowsError || delay === undefined) throw error;
       wait(delay);
@@ -36,13 +31,17 @@ function writePrivateFileAtomic(filePath, content, { mode = 0o600, protectDirect
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (protectDirectory) {
-    try { fs.chmodSync(directory, 0o700); } catch {}
+    try {
+      fs.chmodSync(directory, 0o700);
+    } catch {}
   }
   const temporary = `${filePath}.tmp-${process.pid}-${Date.now()}-${++sequence}`;
   try {
     fs.writeFileSync(temporary, content, { flag: "wx", mode });
     renameAtomicFile(temporary, filePath);
-    try { fs.chmodSync(filePath, mode); } catch {}
+    try {
+      fs.chmodSync(filePath, mode);
+    } catch {}
   } finally {
     fs.rmSync(temporary, { force: true });
   }

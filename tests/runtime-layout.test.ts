@@ -3,14 +3,18 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
+  CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL,
+} from "../src/chatgpt-web-models";
+import {
   assertDurableRuntimeCommand,
   CHATGPT_CONNECTOR_NAME,
   DEV_CHATGPT_CONNECTOR_NAME,
   defaultBrokerEndpoint,
   defaultConfig,
   expandUserPath,
-  isWindowsPipeEndpoint,
   installedBunExecutable,
+  isWindowsPipeEndpoint,
   loadConfig,
   loadConfigForSetup,
   providerConfig,
@@ -19,12 +23,8 @@ import {
   runtimeCommandForProcess,
   ZERO_RISK_CHATGPT_CONNECTOR_NAME,
 } from "../src/config";
-import { removeLegacyRuntimeArtifacts } from "../src/service";
 import { processRunning } from "../src/process";
-import {
-  CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
-  CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL,
-} from "../src/chatgpt-web-models";
+import { removeLegacyRuntimeArtifacts } from "../src/service";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -40,15 +40,19 @@ test("managed runtime commands reject every ephemeral path component", () => {
 
 test("Windows Bun shims resolve to the installed Bun executable before service setup", () => {
   const ephemeralBun = join(tmpdir(), "bun-node-test", "bun");
-  expect(runtimeCommandForProcess({
-    executable: ephemeralBun,
-    bunExecutable: process.execPath,
-    entry: import.meta.path,
-  })).toEqual([process.execPath, import.meta.path]);
-  expect(() => runtimeCommandForProcess({
-    executable: ephemeralBun,
-    entry: import.meta.path,
-  })).toThrow("ephemeral path");
+  expect(
+    runtimeCommandForProcess({
+      executable: ephemeralBun,
+      bunExecutable: process.execPath,
+      entry: import.meta.path,
+    }),
+  ).toEqual([process.execPath, import.meta.path]);
+  expect(() =>
+    runtimeCommandForProcess({
+      executable: ephemeralBun,
+      entry: import.meta.path,
+    }),
+  ).toThrow("ephemeral path");
 });
 
 test("installed Bun discovery ignores a temporary self-extract executable", () => {
@@ -57,11 +61,13 @@ test("installed Bun discovery ignores a temporary self-extract executable", () =
   roots.push(root);
   mkdirSync(join(root, "bun-node-test"), { recursive: true });
   writeFileSync(ephemeralBun, "");
-  expect(installedBunExecutable({
-    platform: "win32",
-    pathValue: "",
-    candidates: [ephemeralBun, process.execPath],
-  })).toBe(process.execPath);
+  expect(
+    installedBunExecutable({
+      platform: "win32",
+      pathValue: "",
+      candidates: [ephemeralBun, process.execPath],
+    }),
+  ).toBe(process.execPath);
 });
 
 test("Windows uses a stable native named pipe for the outer Codex tool broker", () => {
@@ -70,20 +76,26 @@ test("Windows uses a stable native named pipe for the outer Codex tool broker", 
   expect(first).toBe(second);
   expect(isWindowsPipeEndpoint(first)).toBe(true);
   expect(resolveBrokerEndpoint(first)).toBe(first);
-  expect(defaultBrokerEndpoint("/home/alice/.codex-chatgpt-web", "linux")).toEndWith(join("runtime", "turn-broker.sock"));
+  expect(defaultBrokerEndpoint("/home/alice/.codex-chatgpt-web", "linux")).toEndWith(
+    join("runtime", "turn-broker.sock"),
+  );
 });
 
 test("permission-denied process probes preserve ownership evidence", () => {
-  expect(processRunning(123, () => {
-    const error = new Error("access denied") as NodeJS.ErrnoException;
-    error.code = "EPERM";
-    throw error;
-  })).toBe(true);
-  expect(processRunning(123, () => {
-    const error = new Error("not found") as NodeJS.ErrnoException;
-    error.code = "ESRCH";
-    throw error;
-  })).toBe(false);
+  expect(
+    processRunning(123, () => {
+      const error = new Error("access denied") as NodeJS.ErrnoException;
+      error.code = "EPERM";
+      throw error;
+    }),
+  ).toBe(true);
+  expect(
+    processRunning(123, () => {
+      const error = new Error("not found") as NodeJS.ErrnoException;
+      error.code = "ESRCH";
+      throw error;
+    }),
+  ).toBe(false);
   expect(processRunning(0)).toBe(false);
 });
 
@@ -140,23 +152,27 @@ test("setup explicitly migrates v1 pro-only config to v3 managed browser-only", 
   roots.push(root);
   process.env.CODEX_CHATGPT_WEB_HOME = root;
   mkdirSync(root, { recursive: true });
-  writeFileSync(join(root, "config.json"), `${JSON.stringify({
-    version: 1,
-    releaseVersion: "0.1.0",
-    mode: "pro-only",
-    host: "127.0.0.1",
-    port: 17841,
-    contextWindow: 256_000,
-    appName: "Codex Native",
-    chromeExecutablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    storageStatePath: join(root, "browser", "storage-state.json"),
-    brokerSocketPath: defaultBrokerEndpoint(root),
-    headed: true,
-    extraHighAvailable: true, proAvailable: true,
-    autoApproveToolCalls: false,
-    controlToken: "config-migration-control-token-0123456789abcdef",
-    runtimeCommand: [process.execPath],
-  })}\n`);
+  writeFileSync(
+    join(root, "config.json"),
+    `${JSON.stringify({
+      version: 1,
+      releaseVersion: "0.1.0",
+      mode: "pro-only",
+      host: "127.0.0.1",
+      port: 17841,
+      contextWindow: 256_000,
+      appName: "Codex Native",
+      chromeExecutablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      storageStatePath: join(root, "browser", "storage-state.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      headed: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+      autoApproveToolCalls: false,
+      controlToken: "config-migration-control-token-0123456789abcdef",
+      runtimeCommand: [process.execPath],
+    })}\n`,
+  );
 
   expect(() => loadConfig()).toThrow("rerun setup to migrate");
   expect(loadConfigForSetup()).toMatchObject({
@@ -265,16 +281,14 @@ test("manual provider configuration preserves a distinct backend without guessin
     appName: ZERO_RISK_CHATGPT_CONNECTOR_NAME,
     browserInteractionMode: "manual",
     solAvailable: false,
-    extraHighAvailable: false, proAvailable: false,
+    extraHighAvailable: false,
+    proAvailable: false,
     experimentalBiggerContext: false,
   });
 
   config.zeroRiskProEnabled = true;
   const proProvider = providerConfig(config);
-  expect(proProvider.models).toEqual([
-    CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL,
-    CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL,
-  ]);
+  expect(proProvider.models).toEqual([CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL, CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL]);
   expect(proProvider.modelReasoningEfforts).toEqual({
     [CHATGPT_WEB_ZERO_RISK_BACKEND_MODEL]: ["low"],
     [CHATGPT_WEB_ZERO_RISK_PRO_BACKEND_MODEL]: ["low"],
@@ -302,8 +316,9 @@ test("conversation preferences survive reload; saved chats also apply to Zero Ri
   expect(providerConfig(loaded).chatgptWeb!.useSavedChats).toBe(true);
   expect(providerConfig({ ...loaded, browserInteractionMode: "manual" }).chatgptWeb!.useSavedChats).toBe(true);
   expect(providerConfig(loaded).chatgptWeb!.experimentalFreshConversationPerTurn).toBe(true);
-  expect(providerConfig({ ...loaded, browserInteractionMode: "manual" })
-    .chatgptWeb!.experimentalFreshConversationPerTurn).toBe(false);
+  expect(
+    providerConfig({ ...loaded, browserInteractionMode: "manual" }).chatgptWeb!.experimentalFreshConversationPerTurn,
+  ).toBe(false);
   expect(loaded.experimentalFreshConversationPerTurn).toBe(true);
   config.experimentalFreshConversationPerTurn = "true";
   persist();
@@ -322,8 +337,14 @@ test("skill attachments config defaults off, reaches the adapter, and rejects in
   const config: Record<string, unknown> = { ...defaultConfig("full") };
   config.browserHost = "launcher";
   config.browserHostDescriptorPath = join(root, "launcher.json");
-  config.tunnel = { binaryPath: join(root, "tunnel"), runtimeKeyFile: join(root, "key"),
-    profileDir: root, tunnelId: `tunnel_${"a".repeat(32)}`, profileName: "test", alias: "test" };
+  config.tunnel = {
+    binaryPath: join(root, "tunnel"),
+    runtimeKeyFile: join(root, "key"),
+    profileDir: root,
+    tunnelId: `tunnel_${"a".repeat(32)}`,
+    profileName: "test",
+    alias: "test",
+  };
   expect(config.experimentalSkillAttachments).toBe(false);
   const persist = () => writeFileSync(join(root, "config.json"), JSON.stringify(config));
   delete config.experimentalSkillAttachments;

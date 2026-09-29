@@ -1,10 +1,10 @@
-import type { ChatGptTurnEnvironment } from "../environment";
 import { runtimeIdentity } from "../../../runtime-identity";
+import type { ChatGptTurnEnvironment } from "../environment";
+import type { ToolDeliveryPhase } from "../tool-delivery-lifecycle";
 import { callTurnBroker } from "./client";
+import { TurnBrokerProtocolError, TurnBrokerStateError } from "./errors";
 import { assertSurfaceNonce } from "./helpers";
 import type { BrokerToolRequest, BrokerToolResult, TurnBrokerOwner } from "./types";
-import type { ToolDeliveryPhase } from "../tool-delivery-lifecycle";
-import { TurnBrokerProtocolError, TurnBrokerStateError } from "./errors";
 
 /**
  * Outer-harness client for a broker already owned by the live launcher runtime. It lets a
@@ -24,15 +24,16 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       status = await callTurnBroker(this.socketPath, { method: "owner_status" });
     } catch (error) {
       throw new Error(
-        "The running launcher runtime does not expose the DEV turn-owner protocol; update and restart Codex Web GPT once before using the working-tree DEV chat"
-        + ` (${error instanceof Error ? error.message : String(error)})`,
+        "The running launcher runtime does not expose the DEV turn-owner protocol; update and restart Codex Web GPT once before using the working-tree DEV chat" +
+          ` (${error instanceof Error ? error.message : String(error)})`,
       );
     }
     if (status.protocolVersion !== 6) {
-      throw new TurnBrokerProtocolError(`Unsupported DEV turn-owner protocol version: ${String(status.protocolVersion)}`);
+      throw new TurnBrokerProtocolError(
+        `Unsupported DEV turn-owner protocol version: ${String(status.protocolVersion)}`,
+      );
     }
-    if (runtimeIdentity.buildCommit !== null
-      && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
+    if (runtimeIdentity.buildCommit !== null && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
       throw new TurnBrokerProtocolError(`Broker build does not match owner build ${runtimeIdentity.buildCommit}`);
     }
     if (status.acceptingExternalOwners !== true) {
@@ -108,10 +109,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     await callTurnBroker(this.socketPath, { method: "owner_update", token, environment });
   }
 
-  async confirmSafeTurnSent(
-    token: string,
-    surfaceNonce: string,
-  ): Promise<{ confirmed: true; duplicate: boolean }> {
+  async confirmSafeTurnSent(token: string, surfaceNonce: string): Promise<{ confirmed: true; duplicate: boolean }> {
     const response = await callTurnBroker<{ confirmed?: unknown; duplicate?: unknown }>(this.socketPath, {
       method: "owner_safe_sent",
       token,
@@ -130,25 +128,36 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       null,
       signal,
     );
-    if (!Array.isArray(response.requests) || response.requests.some(value => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) return true;
-      const request = value as Partial<BrokerToolRequest>;
-      return typeof request.callId !== "string" || typeof request.wireName !== "string"
-        || typeof request.freeform !== "boolean"
-        || (request.freeform
-          ? typeof request.input !== "string"
-          : !request.arguments || typeof request.arguments !== "object" || Array.isArray(request.arguments));
-    })) throw new TurnBrokerProtocolError("DEV turn owner received an invalid tool batch");
+    if (
+      !Array.isArray(response.requests) ||
+      response.requests.some((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return true;
+        const request = value as Partial<BrokerToolRequest>;
+        return (
+          typeof request.callId !== "string" ||
+          typeof request.wireName !== "string" ||
+          typeof request.freeform !== "boolean" ||
+          (request.freeform
+            ? typeof request.input !== "string"
+            : !request.arguments || typeof request.arguments !== "object" || Array.isArray(request.arguments))
+        );
+      })
+    )
+      throw new TurnBrokerProtocolError("DEV turn owner received an invalid tool batch");
     return response.requests as BrokerToolRequest[];
   }
 
   async completeTool(token: string, callId: string, result: BrokerToolResult): Promise<void> {
-    await callTurnBroker(this.socketPath, {
-      method: "owner_complete",
-      token,
-      callId,
-      toolResult: result,
-    }, null);
+    await callTurnBroker(
+      this.socketPath,
+      {
+        method: "owner_complete",
+        token,
+        callId,
+        toolResult: result,
+      },
+      null,
+    );
   }
 
   async recordToolLifecyclePhase(
@@ -173,7 +182,8 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       null,
       signal,
     );
-    if (response.started !== true) throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid start result");
+    if (response.started !== true)
+      throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid start result");
   }
 
   async waitForSafeCompletion(token: string, signal?: AbortSignal): Promise<string> {
@@ -190,11 +200,15 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
   }
 
   async requestCompaction(token: string, queuedResult: BrokerToolResult): Promise<number> {
-    const response = await callTurnBroker<{ interrupted?: unknown }>(this.socketPath, {
-      method: "owner_request_compaction",
-      token,
-      toolResult: queuedResult,
-    }, null);
+    const response = await callTurnBroker<{ interrupted?: unknown }>(
+      this.socketPath,
+      {
+        method: "owner_request_compaction",
+        token,
+        toolResult: queuedResult,
+      },
+      null,
+    );
     if (!Number.isSafeInteger(response.interrupted) || Number(response.interrupted) < 0) {
       throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid compaction interrupt count");
     }
@@ -243,7 +257,8 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       null,
       signal,
     );
-    if (response.retired !== true) throw new TurnBrokerProtocolError("DEV turn owner received an invalid retirement result");
+    if (response.retired !== true)
+      throw new TurnBrokerProtocolError("DEV turn owner received an invalid retirement result");
   }
 
   async revoke(token: string, _reason?: Error): Promise<void> {

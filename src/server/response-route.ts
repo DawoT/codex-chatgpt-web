@@ -1,31 +1,28 @@
-import {
-  chatGptWebExecutionNamespace,
-  chatGptWebTraceId,
-  createChatGptWebAdapter,
-} from "../adapters/chatgpt-web";
-import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
+import type { ProviderAdapter } from "../adapters/base";
+import { chatGptWebExecutionNamespace, chatGptWebTraceId, createChatGptWebAdapter } from "../adapters/chatgpt-web";
+import { rememberCompactionContinuation } from "../adapters/chatgpt-web/compaction-continuation";
 import { chatGptConversationKey } from "../adapters/chatgpt-web/conversation-key";
-import { rememberTaskResumeConversation } from "../adapters/chatgpt-web/task-resume-orchestrator";
-import { sessionHealthGuard } from "../adapters/chatgpt-web/session-guard";
 import {
   CHATGPT_TURN_REVISION_CONFLICT_MESSAGE,
+  extractChatGptCompactionSourceRevision,
   extractChatGptTurnIdentity,
   extractCodexTurnIdentityFromBody,
-  extractChatGptCompactionSourceRevision,
 } from "../adapters/chatgpt-web/environment";
-import { rememberCompactionContinuation } from "../adapters/chatgpt-web/compaction-continuation";
+import { sessionHealthGuard } from "../adapters/chatgpt-web/session-guard";
+import { rememberTaskResumeConversation } from "../adapters/chatgpt-web/task-resume-orchestrator";
+import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import { bridgeToResponsesSSE, buildResponseJSON, formatErrorResponse } from "../bridge";
+import {
+  CHATGPT_WEB_LUNA_BACKEND_MODEL,
+  type ChatGptWebModelRoute,
+  isChatGptWebModelSlug,
+  requireChatGptWebModelRoute,
+} from "../chatgpt-web-models";
 import type { AppConfig } from "../config";
 import { providerConfig } from "../config";
 import { AsyncEventQueue } from "../event-queue";
 import { readJsonRequestBody } from "../http-body";
 import { httpStatusFromTerminalError } from "../lib/errors";
-import {
-  CHATGPT_WEB_LUNA_BACKEND_MODEL,
-  isChatGptWebModelSlug,
-  requireChatGptWebModelRoute,
-  type ChatGptWebModelRoute,
-} from "../chatgpt-web-models";
 import { forwardNativeCodexRequest, type NativeFetch, type NativeImageEndpoint } from "../native-passthrough";
 import {
   buildCompactV1Output,
@@ -35,8 +32,7 @@ import {
 } from "../responses/compaction";
 import { parseRequest } from "../responses/parser";
 import { expandPreviousResponseInput, rememberResponseState } from "../responses/state";
-import { namespacedToolName, type AdapterEvent, type CodexParsedRequest, type CodexProviderConfig } from "../types";
-import type { ProviderAdapter } from "../adapters/base";
+import { type AdapterEvent, type CodexParsedRequest, type CodexProviderConfig, namespacedToolName } from "../types";
 import type { NativeCodexTurnIdentity } from "./types";
 
 export type ChatGptWebAdapterFactory = (provider: CodexProviderConfig) => ProviderAdapter;
@@ -60,16 +56,11 @@ export function routeChatGptWebRequest(parsed: CodexParsedRequest, config: AppCo
   parsed.modelId = route.backendModel;
   // Zero Risk preserves a distinct backend identity. Its immutable Codex effort is only a
   // protocol/catalog value; the manual adapter must never reinterpret it as a ChatGPT selection.
-  parsed.options.reasoning = route.interactionMode === "automatic"
-    ? route.adapterEffort
-    : route.codexEffort;
+  parsed.options.reasoning = route.interactionMode === "automatic" ? route.adapterEffort : route.codexEffort;
   return route;
 }
 
-export async function nativeSearchRequest(
-  req: Request,
-  fetchUpstream?: NativeFetch,
-): Promise<Response> {
+export async function nativeSearchRequest(req: Request, fetchUpstream?: NativeFetch): Promise<Response> {
   try {
     return await forwardNativeCodexRequest(req, "alpha/search", fetchUpstream);
   } catch (error) {
@@ -84,7 +75,11 @@ export async function nativeImagesRequest(
 ): Promise<Response> {
   const authorization = req.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ") || authorization.length <= "Bearer ".length) {
-    return formatErrorResponse(401, "authentication_error", "Native image requests require incoming Codex Bearer authorization");
+    return formatErrorResponse(
+      401,
+      "authentication_error",
+      "Native image requests require incoming Codex Bearer authorization",
+    );
   }
   try {
     return await forwardNativeCodexRequest(req, endpoint, fetchUpstream);
@@ -102,7 +97,8 @@ function toolBridgeMaps(parsed: CodexParsedRequest): {
   const freeformToolNames = new Set<string>();
   const toolSearchToolNames = new Set<string>();
   for (const tool of parsed.context.tools ?? []) {
-    if (tool.namespace) toolNsMap.set(namespacedToolName(tool.namespace, tool.name), { namespace: tool.namespace, name: tool.name });
+    if (tool.namespace)
+      toolNsMap.set(namespacedToolName(tool.namespace, tool.name), { namespace: tool.namespace, name: tool.name });
     if (tool.freeform) freeformToolNames.add(tool.name);
     if (tool.toolSearch) toolSearchToolNames.add(tool.name);
   }
@@ -136,9 +132,8 @@ export async function responseRequest(
       error instanceof Error ? error.message : "Request body must be valid JSON",
     );
   }
-  const requestedModel = raw && typeof raw === "object" && !Array.isArray(raw)
-    ? (raw as { model?: unknown }).model
-    : undefined;
+  const requestedModel =
+    raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { model?: unknown }).model : undefined;
   try {
     const identity = options.hostTurn
       ? { threadId: options.hostTurn.sessionId, turnId: options.hostTurn.turnId }
@@ -159,9 +154,10 @@ export async function responseRequest(
       return formatErrorResponse(502, "upstream_error", error instanceof Error ? error.message : String(error));
     }
   }
-  const requestedPreviousResponseId = raw && typeof raw === "object" && !Array.isArray(raw)
-    ? (raw as { previous_response_id?: unknown }).previous_response_id
-    : undefined;
+  const requestedPreviousResponseId =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as { previous_response_id?: unknown }).previous_response_id
+      : undefined;
   const expanded = options.hostTurn ? raw : expandPreviousResponseInput(raw);
   let parsed: CodexParsedRequest;
   let route: ChatGptWebModelRoute;
@@ -193,8 +189,8 @@ export async function responseRequest(
     return formatErrorResponse(
       400,
       "invalid_request_error",
-      "ChatGPT Web cannot read this encrypted cross-backend subagent payload. "
-        + "Start a new Compatibility V1 task, or delegate from a Web model whose collaboration call uses the plaintext-delivery marker.",
+      "ChatGPT Web cannot read this encrypted cross-backend subagent payload. " +
+        "Start a new Compatibility V1 task, or delegate from a Web model whose collaboration call uses the plaintext-delivery marker.",
     );
   }
   if (typeof requestedPreviousResponseId === "string" && expanded === raw) {
@@ -217,8 +213,7 @@ export async function responseRequest(
 
   const rawBodyForCheck = parsed._rawBody as { client_metadata?: Record<string, unknown> } | undefined;
   const isCompactionOrContinuation = Boolean(
-    parsed._compactionRequest
-    || rawBodyForCheck?.client_metadata?.["x-codex-turn-metadata"]
+    parsed._compactionRequest || rawBodyForCheck?.client_metadata?.["x-codex-turn-metadata"],
   );
 
   if (!parsed.stream && !isCompactionOrContinuation && isLongReasoningTurn(parsed)) {
@@ -240,15 +235,21 @@ export async function responseRequest(
     if (response.status !== "completed") return;
     const identity = extractChatGptTurnIdentity(parsed);
     if (!identity.threadId || !identity.turnId || !Array.isArray(response.output)) return;
-    const items = response.output.filter(item => item?.type === (compactionItem ? "compaction" : "message"));
+    const items = response.output.filter((item) => item?.type === (compactionItem ? "compaction" : "message"));
     if (items.length !== 1 || (compactionItem && response.output.length !== 1)) return;
     const item = items[0];
     const summary = compactionItem
-      ? (typeof item?.encrypted_content === "string" ? decodeCompactionSummary(item.encrypted_content) : null)
-      : (item?.role === "assistant" && Array.isArray(item.content)
-        ? item.content.filter((part: { type?: string; text?: unknown }) => part.type === "output_text" && typeof part.text === "string")
-          .map((part: { text: string }) => part.text).join("")
-        : null);
+      ? typeof item?.encrypted_content === "string"
+        ? decodeCompactionSummary(item.encrypted_content)
+        : null
+      : item?.role === "assistant" && Array.isArray(item.content)
+        ? item.content
+            .filter(
+              (part: { type?: string; text?: unknown }) => part.type === "output_text" && typeof part.text === "string",
+            )
+            .map((part: { text: string }) => part.text)
+            .join("")
+        : null;
     if (!summary) return;
     const source = extractChatGptCompactionSourceRevision(parsed);
     const body = parsed._rawBody as { input?: unknown[] };
@@ -293,8 +294,11 @@ export async function responseRequest(
       // allowing Codex to retry it as an upstream 502.
       return formatErrorResponse(400, "invalid_request_error", message);
     }
-    if (!message.includes("requires native Codex turn_id metadata")
-      && !message.includes("requires a current-turn user message")) throw error;
+    if (
+      !message.includes("requires native Codex turn_id metadata") &&
+      !message.includes("requires a current-turn user message")
+    )
+      throw error;
   }
   // Sprint H3 (background-task resume): pin the trace → retained-conversation binding so the
   // TaskResumeOrchestrator can resolve a conversation head from a later MCP daemon push
@@ -315,16 +319,19 @@ export async function responseRequest(
     // closed the only browser document is instead a terminal client state: repeating that exact
     // request is invalid and must not recreate the DOM. Codex maps HTTP 400 to its non-retryable
     // InvalidRequest category while the body preserves the real client_cancelled classification.
-    return new Response(JSON.stringify({
-      error: {
-        type: "client_closed_request",
-        code: "client_cancelled",
-        message: cancelledError.message,
+    return new Response(
+      JSON.stringify({
+        error: {
+          type: "client_closed_request",
+          code: "client_cancelled",
+          message: cancelledError.message,
+        },
+      }),
+      {
+        status: 400,
+        headers: { "content-type": "application/json" },
       },
-    }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
+    );
   }
   const adapter = adapterFactory(provider);
   const queue = new AsyncEventQueue<AdapterEvent>();
@@ -333,7 +340,7 @@ export async function responseRequest(
   else req.signal.addEventListener("abort", () => abort.abort(), { once: true });
   const run = async () => {
     try {
-      await adapter.runTurn!(parsed, { headers: req.headers, abortSignal: abort.signal }, event => {
+      await adapter.runTurn!(parsed, { headers: req.headers, abortSignal: abort.signal }, (event) => {
         options.onAdapterEvent?.(event);
         queue.push(event);
       });
@@ -371,7 +378,7 @@ export async function responseRequest(
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
         "X-Accel-Buffering": "no",
       },
     });
@@ -412,9 +419,10 @@ export async function compactRequest(
   const headerTurnMetadata = req.headers.get("x-codex-turn-metadata");
   if (headerTurnMetadata) {
     const existingMetadata = raw.client_metadata;
-    const clientMetadata = existingMetadata && typeof existingMetadata === "object" && !Array.isArray(existingMetadata)
-      ? existingMetadata as Record<string, unknown>
-      : {};
+    const clientMetadata =
+      existingMetadata && typeof existingMetadata === "object" && !Array.isArray(existingMetadata)
+        ? (existingMetadata as Record<string, unknown>)
+        : {};
     raw = {
       ...raw,
       client_metadata: {
@@ -473,7 +481,7 @@ export async function compactRequest(
     error?: { message?: unknown; type?: unknown; code?: unknown } | null;
   };
   try {
-    body = await response.json() as typeof body;
+    body = (await response.json()) as typeof body;
   } catch {
     return formatErrorResponse(502, "invalid_response_error", "Compaction turn returned invalid JSON");
   }
@@ -483,24 +491,27 @@ export async function compactRequest(
       type: typeof body.error.type === "string" ? body.error.type : "upstream_error",
       code: typeof body.error.code === "string" ? body.error.code : null,
     };
-    return Response.json(
-      { error },
-      { status: httpStatusFromTerminalError(error) },
-    );
+    return Response.json({ error }, { status: httpStatusFromTerminalError(error) });
   }
   if (body.status !== "completed") {
-    return formatErrorResponse(502, "upstream_error", `Compaction turn failed (status: ${String(body.status ?? "unknown")})`);
+    return formatErrorResponse(
+      502,
+      "upstream_error",
+      `Compaction turn failed (status: ${String(body.status ?? "unknown")})`,
+    );
   }
-  const items = (body.output ?? []).filter(
-    (item): item is { type: "compaction"; encrypted_content?: string } =>
-      Boolean(item && typeof item === "object" && (item as { type?: string }).type === "compaction"),
+  const items = (body.output ?? []).filter((item): item is { type: "compaction"; encrypted_content?: string } =>
+    Boolean(item && typeof item === "object" && (item as { type?: string }).type === "compaction"),
   );
   if (items.length !== 1) {
-    return formatErrorResponse(502, "invalid_response_error", `Compaction turn produced ${items.length} compaction items; expected one`);
+    return formatErrorResponse(
+      502,
+      "invalid_response_error",
+      `Compaction turn produced ${items.length} compaction items; expected one`,
+    );
   }
-  const summary = typeof items[0]!.encrypted_content === "string"
-    ? decodeCompactionSummary(items[0]!.encrypted_content)
-    : null;
+  const summary =
+    typeof items[0]!.encrypted_content === "string" ? decodeCompactionSummary(items[0]!.encrypted_content) : null;
   if (!summary?.trim()) {
     return formatErrorResponse(502, "invalid_response_error", "Compaction turn produced an empty summary");
   }

@@ -4,13 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeCompactionFlow } from "../src/adapters/chatgpt-web/adapter/compaction-flow";
 import { ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
-import {
-  ChatGptTextFeed,
-  ChatGptTraceFeed,
-  ChatGptTurnSession,
-  chatGptTurnSessions,
-} from "../src/adapters/chatgpt-web/turn-execution";
 import { chatGptConversationKey } from "../src/adapters/chatgpt-web/conversation-key";
+import { ChatGptTextFeed, ChatGptTraceFeed, chatGptTurnSessions } from "../src/adapters/chatgpt-web/turn-execution";
 import type { AdapterEvent, CodexParsedRequest } from "../src/types";
 
 test("retained handoff failures fall back to fresh compaction instead of failing immediately", async () => {
@@ -79,7 +74,12 @@ test("retained handoff failures fall back to fresh compaction instead of failing
       parsed,
       incoming: { headers: new Headers() },
       emit: (e: AdapterEvent) => events.push(e),
-      configuredCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      configuredCapabilities: {
+        localToolsEnabled: true,
+        solAvailable: true,
+        extraHighAvailable: true,
+        proAvailable: true,
+      },
       turnCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
       manualRequest: false,
       retainedLauncherDescriptor: "launcher-descriptor",
@@ -139,7 +139,7 @@ test("retained handoff failures fall back to fresh compaction instead of failing
 
     expect(freshCompactionStarted).toBe(true);
     expect(success).toBe(true);
-    expect(events.some(e => e.type === "error")).toBe(false);
+    expect(events.some((e) => e.type === "error")).toBe(false);
   } finally {
     chatGptTurnSessions.clear();
     rmSync(root, { recursive: true, force: true });

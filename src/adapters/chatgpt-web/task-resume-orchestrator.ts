@@ -116,38 +116,40 @@ function optionalString(value: unknown, field: string): string | undefined {
  */
 export function parseTaskCompletionPayload(value: unknown): TaskCompletionPayload {
   if (!isRecord(value)) throw new Error("Background task completion payload must be a JSON object");
-  if (value["source"] !== "chatgpt-web-mcp") {
+  if (value.source !== "chatgpt-web-mcp") {
     throw new Error('Background task completion payload source must be "chatgpt-web-mcp"');
   }
-  const rawTask = value["task"];
+  const rawTask = value.task;
   if (!isRecord(rawTask)) throw new Error("Background task completion payload requires a task object");
-  const id = rawTask["id"];
-  if (typeof id !== "string" || !id.trim()) throw new Error("Background task completion task.id must be a non-empty string");
+  const id = rawTask.id;
+  if (typeof id !== "string" || !id.trim())
+    throw new Error("Background task completion task.id must be a non-empty string");
   for (const field of ["cmd", "cwd", "startedAt", "completedAt", "logPath"] as const) {
-    if (typeof rawTask[field] !== "string") throw new Error(`Background task completion task.${field} must be a string`);
+    if (typeof rawTask[field] !== "string")
+      throw new Error(`Background task completion task.${field} must be a string`);
   }
-  const status = rawTask["status"];
+  const status = rawTask.status;
   if (typeof status !== "string" || !TASK_COMPLETION_STATUSES.includes(status as TaskCompletionStatus)) {
     throw new Error(`Background task completion task.status must be one of ${TASK_COMPLETION_STATUSES.join(", ")}`);
   }
-  const exitCode = rawTask["exitCode"];
+  const exitCode = rawTask.exitCode;
   if (exitCode !== null && (typeof exitCode !== "number" || !Number.isFinite(exitCode))) {
     throw new Error("Background task completion task.exitCode must be a number or null");
   }
-  const summary = optionalString(value["summary"], "summary");
-  const traceId = optionalString(value["traceId"], "traceId");
-  const turnToken = optionalString(value["turnToken"], "turnToken");
+  const summary = optionalString(value.summary, "summary");
+  const traceId = optionalString(value.traceId, "traceId");
+  const turnToken = optionalString(value.turnToken, "turnToken");
   return {
     source: "chatgpt-web-mcp",
     task: {
       id,
-      cmd: rawTask["cmd"] as string,
-      cwd: rawTask["cwd"] as string,
+      cmd: rawTask.cmd as string,
+      cwd: rawTask.cwd as string,
       status: status as TaskCompletionStatus,
       exitCode: exitCode as number | null,
-      startedAt: rawTask["startedAt"] as string,
-      completedAt: rawTask["completedAt"] as string,
-      logPath: rawTask["logPath"] as string,
+      startedAt: rawTask.startedAt as string,
+      completedAt: rawTask.completedAt as string,
+      logPath: rawTask.logPath as string,
     },
     ...(summary !== undefined ? { summary } : {}),
     ...(traceId !== undefined ? { traceId } : {}),
@@ -176,10 +178,7 @@ function formatTaskCompletionLine(payload: TaskCompletionPayload): string {
  * "Background tasks finished: [T1] exit 0 — 42 pass, 1 fail (log: /path). [T2] exit 1 — build error (log: /path)."
  * Bounded to `maxChars`; overflowing entries collapse into a "(+N more)" suffix.
  */
-export function buildTaskResumeNote(
-  events: readonly TaskCompletionPayload[],
-  maxChars = NOTE_MAX_CHARS,
-): string {
+export function buildTaskResumeNote(events: readonly TaskCompletionPayload[], maxChars = NOTE_MAX_CHARS): string {
   const header = "Background tasks finished:";
   const parts: string[] = [];
   let length = header.length;
@@ -203,7 +202,9 @@ const defaultWaitForSettlement = async (head: TaskResumeConversationHead): Promi
   // A physical cleanup failure must not withhold the observation note from the user.
   try {
     await head.physicalSettlement;
-  } catch { /* settlement rejection is not a note failure */ }
+  } catch {
+    /* settlement rejection is not a note failure */
+  }
 };
 
 interface TaskResumeGroup {
@@ -222,8 +223,8 @@ function pendingGroupKey(traceId?: string, turnToken?: string): string {
 }
 
 export class TaskResumeOrchestrator {
-  private readonly options: Required<Pick<TaskResumeOrchestratorOptions, "findConversationHead" | "runResumeTurn">>
-    & TaskResumeOrchestratorOptions;
+  private readonly options: Required<Pick<TaskResumeOrchestratorOptions, "findConversationHead" | "runResumeTurn">> &
+    TaskResumeOrchestratorOptions;
   private readonly coalesceWindowMs: number;
   private readonly maxQueue: number;
   private readonly recentLimit: number;
@@ -409,7 +410,7 @@ export class TaskResumeOrchestrator {
     while (total > this.maxQueue) {
       // Prefer dropping events that never resolved; otherwise the oldest buffered event gives way.
       const droppable = [...this.groups.values()]
-        .filter(group => !group.draining && group.events.length > 0)
+        .filter((group) => !group.draining && group.events.length > 0)
         .sort((a, b) => (a.conversationKey ? 1 : 0) - (b.conversationKey ? 1 : 0));
       const target = droppable[0];
       if (!target) return; // everything is draining; the bound self-heals at dispatch
@@ -446,12 +447,12 @@ export class TaskResumeOrchestrator {
       } catch {
         head = undefined;
       }
-      if (!head || !head.conversationKey()) {
+      if (!head?.conversationKey()) {
         this.stats.skipped_no_session += 1;
         this.pushRecent({
           at: new Date().toISOString(),
           kind: "skipped_no_session",
-          taskIds: group.events.map(event => event.task.id),
+          taskIds: group.events.map((event) => event.task.id),
           detail: "conversation head no longer exists",
         });
         group.events.splice(0);
@@ -470,7 +471,7 @@ export class TaskResumeOrchestrator {
         this.pushRecent({
           at: new Date().toISOString(),
           kind: "skipped_no_session",
-          taskIds: group.events.map(event => event.task.id),
+          taskIds: group.events.map((event) => event.task.id),
           detail: "conversation retired while waiting for settlement",
         });
         group.events.splice(0);
@@ -483,7 +484,7 @@ export class TaskResumeOrchestrator {
       if (snapshot.length > 1) this.stats.coalesced_groups += 1;
       const note = buildTaskResumeNote(snapshot);
       const conversationKey = group.conversationKey!;
-      const taskIds = snapshot.map(event => event.task.id);
+      const taskIds = snapshot.map((event) => event.task.id);
       try {
         await this.options.runResumeTurn(conversationKey, note);
         const at = new Date().toISOString();

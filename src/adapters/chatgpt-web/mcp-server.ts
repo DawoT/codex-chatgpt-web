@@ -1,10 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { VERSION } from "../../version";
 import { loadConfig } from "../../config";
-import { observeMcpToolCalls } from "./mcp-observation";
-import { McpTelemetry } from "./mcp-telemetry";
-import { attachMcpTransportDiagnostics, emitMcpTransportDiagnostic } from "./mcp-transport-observability";
+import { VERSION } from "../../version";
+import { registerChatFirstTools } from "./mcp/chat-first-tools";
 import {
   CHAT_FIRST_MCP_INSTRUCTIONS,
   CHATGPT_WEB_AGENT_WAIT_POLL_MS,
@@ -12,33 +10,31 @@ import {
   NATIVE_CHATGPT_MCP_INSTRUCTIONS,
   ZERO_RISK_MCP_INSTRUCTIONS,
 } from "./mcp/instructions";
-import {
-  asMcpResult,
-  chatGptMcpInvocationTimeout,
-  sanitizeToolOutputContent,
-} from "./mcp/results";
+import { registerNativeAndSafeTools } from "./mcp/native-tools";
+import { asMcpResult, chatGptMcpInvocationTimeout, sanitizeToolOutputContent } from "./mcp/results";
 import { BRIDGE_TOOL_NAMES } from "./mcp/tool-visibility";
 import { TurnCoordinator } from "./mcp/turn-coordinator";
-import { registerNativeAndSafeTools } from "./mcp/native-tools";
-import { registerChatFirstTools } from "./mcp/chat-first-tools";
 import type { ChatGptMcpContract, McpCallResult, McpContentPart } from "./mcp/types";
+import { observeMcpToolCalls } from "./mcp-observation";
+import { McpTelemetry } from "./mcp-telemetry";
+import { attachMcpTransportDiagnostics, emitMcpTransportDiagnostic } from "./mcp-transport-observability";
 
 // Keep the fast-path tool contract importable from mcp-server for existing consumers.
 export {
   CHATGPT_WEB_MAX_TOOL_OUTPUT_CHARS,
+  DEFAULT_EXEC_TIMEOUT_MS,
+  dispatchFastPathTool,
+  executeFastPathBatch,
+  type FastPathBatchResult,
+  type FastPathToolCall,
+  handleExecCommand,
+  isMutatingFastPathTool,
+  isReadOnlyFastPathTool,
+  MAX_EXEC_TIMEOUT_MS,
+  MIN_EXEC_TIMEOUT_MS,
   preserveHeadTailOutput,
   resolveSafeWorkspacePath,
   truncateToolOutputText,
-  isReadOnlyFastPathTool,
-  isMutatingFastPathTool,
-  dispatchFastPathTool,
-  executeFastPathBatch,
-  handleExecCommand,
-  DEFAULT_EXEC_TIMEOUT_MS,
-  MAX_EXEC_TIMEOUT_MS,
-  MIN_EXEC_TIMEOUT_MS,
-  type FastPathToolCall,
-  type FastPathBatchResult,
 } from "./fast-path-handlers";
 export {
   DEFAULT_TOOL_OFFLOAD_THRESHOLD_CHARS,
@@ -47,14 +43,14 @@ export {
   type ToolSpoolerOptions,
 } from "./tool-spooler";
 
-export type { ChatGptMcpContract, McpContentPart, McpCallResult };
+export type { ChatGptMcpContract, McpCallResult, McpContentPart };
 export {
+  asMcpResult,
   CHATGPT_WEB_AGENT_WAIT_POLL_MS,
   CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS,
-  NATIVE_CHATGPT_MCP_INSTRUCTIONS,
   chatGptMcpInvocationTimeout,
+  NATIVE_CHATGPT_MCP_INSTRUCTIONS,
   sanitizeToolOutputContent,
-  asMcpResult,
 };
 
 export async function runChatGptMcpServer(options: {
@@ -65,22 +61,19 @@ export async function runChatGptMcpServer(options: {
   // Chat-First derives its authority from the local operator's config.json instead of a per-turn
   // envelope, so it fails closed before any transport is opened. Native/safe keep deriving their
   // authority from Codex envelopes and never read this configuration.
-  const chatFirstConfig = contract === "chat-first"
-    ? (() => {
-      const config = loadConfig();
-      if (!config.chatFirst?.enabled) {
-        throw new Error("chat-first is not enabled in config.json");
-      }
-      return config;
-    })()
-    : undefined;
+  const chatFirstConfig =
+    contract === "chat-first"
+      ? (() => {
+          const config = loadConfig();
+          if (!config.chatFirst?.enabled) {
+            throw new Error("chat-first is not enabled in config.json");
+          }
+          return config;
+        })()
+      : undefined;
   const server = new McpServer(
     {
-      name: contract === "safe"
-        ? "codex-safe"
-        : contract === "chat-first"
-          ? "codex-chat-first"
-          : "codex-native",
+      name: contract === "safe" ? "codex-safe" : contract === "chat-first" ? "codex-chat-first" : "codex-native",
       version: VERSION,
     },
     contract === "safe"
@@ -109,7 +102,7 @@ export async function runChatGptMcpServer(options: {
   transport.start = async () => {
     // The SDK installs its handler before starting the transport. Wrap that
     // handler so request-local trace context encloses actual tool execution.
-    observeMcpToolCalls(transport, BRIDGE_TOOL_NAMES, event => {
+    observeMcpToolCalls(transport, BRIDGE_TOOL_NAMES, (event) => {
       console.error(`[chatgpt-web-mcp] transport=${JSON.stringify(event)}`);
       telemetry.write(event);
     });

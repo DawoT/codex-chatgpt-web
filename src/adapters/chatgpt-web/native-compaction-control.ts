@@ -1,6 +1,6 @@
 import { COMPACT_PROMPT } from "../../responses/compaction";
-import type { CompactionTransactionHandle } from "./compaction-transaction";
 import type { CompactionEvidenceObservation } from "./compaction-evidence";
+import type { CompactionTransactionHandle } from "./compaction-transaction";
 
 export const CODEX_COMPACTION_CONTROL_WIRE_NAME = "codex.control.compaction_handoff";
 export const CODEX_ACTIVE_COMPACTION_REQUEST_MARKER = "CODEX_ACTIVE_COMPACTION_REQUEST";
@@ -83,7 +83,7 @@ export function structuredCompactionRepairInstruction(
   return [
     "Repair that draft once. It remains in this conversation.",
     "Missing or invalid items:",
-    ...missingInvariants.map(item => `- ${item}`),
+    ...missingInvariants.map((item) => `- ${item}`),
     ...compactionEvidenceInstructions(observations),
     ...compactionControlBinding(transaction),
     "Call no other tools. A successful submitted=true response completes the handoff.",
@@ -94,6 +94,6 @@ function compactionEvidenceInstructions(observations: readonly CompactionEvidenc
   if (observations.length === 0) return [];
   return [
     "Bridge observation references from this session. Cite a ref in evidenceRefs only when its completed result and command support the exact claim; failed results may explain blockers. Keep evidence text as well:",
-    ...observations.map(observation => JSON.stringify(observation)),
+    ...observations.map((observation) => JSON.stringify(observation)),
   ];
 }

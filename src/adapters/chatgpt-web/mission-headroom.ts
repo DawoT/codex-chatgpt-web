@@ -1,12 +1,12 @@
-import type { CodexMessage, CodexParsedRequest } from "../../types";
-import { estimateTokens } from "../../lib/token-estimate";
-import { extractStructuredCompactionHandoff, type CompactionRequirement } from "../../responses/compaction";
 import {
   CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER,
-  resolveChatGptWebContextLimits,
   type ChatGptWebAdapterEffort,
   type ChatGptWebBackendModel,
+  resolveChatGptWebContextLimits,
 } from "../../chatgpt-web-models";
+import { estimateTokens } from "../../lib/token-estimate";
+import { type CompactionRequirement, extractStructuredCompactionHandoff } from "../../responses/compaction";
+import type { CodexMessage, CodexParsedRequest } from "../../types";
 import { chatGptContextCompactionRequiredError } from "./adapter-error";
 import { measureCompiledChatGptWebInput } from "./input-tokens";
 import type { ChatGptWebCapabilities } from "./model";
@@ -23,18 +23,17 @@ export function evaluateMissionHeadroom(input: {
   requirements?: readonly CompactionRequirement[];
   growthSamples: readonly number[];
 }): MissionHeadroomDecision {
-  if (!input.requirements?.some(item => item.status === "pending" || item.status === "blocked")
-    || input.growthSamples.length === 0) {
+  if (
+    !input.requirements?.some((item) => item.status === "pending" || item.status === "blocked") ||
+    input.growthSamples.length === 0
+  ) {
     return { compact: false, reserveTokens: 0 };
   }
-  const recent = input.growthSamples.slice(-5).filter(value => Number.isFinite(value) && value >= 0);
+  const recent = input.growthSamples.slice(-5).filter((value) => Number.isFinite(value) && value >= 0);
   if (recent.length === 0) return { compact: false, reserveTokens: 0 };
   const sorted = [...recent].sort((a, b) => a - b);
   const p90 = sorted[Math.ceil(sorted.length * 0.9) - 1]!;
-  const reserveTokens = Math.min(
-    Math.floor(input.contextWindow * 0.2),
-    Math.max(8_192, Math.ceil(p90 * 1.25)),
-  );
+  const reserveTokens = Math.min(Math.floor(input.contextWindow * 0.2), Math.max(8_192, Math.ceil(p90 * 1.25)));
   return {
     compact: input.inputTokens + reserveTokens >= input.contextWindow,
     reserveTokens,
@@ -43,7 +42,7 @@ export function evaluateMissionHeadroom(input: {
 
 function messageText(message: CodexMessage): string {
   if (typeof message.content === "string") return message.content;
-  return message.content.map(part => "text" in part && typeof part.text === "string" ? part.text : "").join("\n");
+  return message.content.map((part) => ("text" in part && typeof part.text === "string" ? part.text : "")).join("\n");
 }
 
 export function missionRequirements(messages: readonly CodexMessage[]): CompactionRequirement[] | undefined {
@@ -77,7 +76,7 @@ export function enforceMissionHeadroom(
 ): void {
   if (request._compactionRequest) return;
   const requirements = missionRequirements(request.context.messages);
-  if (!requirements?.some(item => item.status !== "verified")) return;
+  if (!requirements?.some((item) => item.status !== "verified")) return;
   const { contextWindow: baseWindow } = resolveChatGptWebContextLimits(
     request.modelId as ChatGptWebBackendModel,
     effort,

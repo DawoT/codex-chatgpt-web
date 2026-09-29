@@ -3,18 +3,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
+  buildChatFirstEnvironment,
+  CHAT_FIRST_SANDBOX_MODES,
+  ChatFirstEnvironmentError,
+  resolveChatFirstWorkspace,
+} from "../src/adapters/chatgpt-web/chat-first-environment";
+import {
+  type AppConfig,
   CHAT_FIRST_CHATGPT_CONNECTOR_NAME,
   defaultConfig,
   expandUserPath,
   loadConfig,
-  type AppConfig,
 } from "../src/config";
-import {
-  CHAT_FIRST_SANDBOX_MODES,
-  ChatFirstEnvironmentError,
-  buildChatFirstEnvironment,
-  resolveChatFirstWorkspace,
-} from "../src/adapters/chatgpt-web/chat-first-environment";
 
 const tempRoots: string[] = [];
 
@@ -104,18 +104,20 @@ describe("parseConfig chatFirst", () => {
   });
 
   test("rejects workspaceWrite without at least one workspace", () => {
-    expect(() => writeConfig({ enabled: true, sandboxMode: "workspaceWrite" }))
-      .toThrow(/chatFirst\.workspaces/);
-    expect(() => writeConfig({ enabled: true, sandboxMode: "workspaceWrite", workspaces: [] }))
-      .toThrow(/chatFirst\.workspaces/);
+    expect(() => writeConfig({ enabled: true, sandboxMode: "workspaceWrite" })).toThrow(/chatFirst\.workspaces/);
+    expect(() => writeConfig({ enabled: true, sandboxMode: "workspaceWrite", workspaces: [] })).toThrow(
+      /chatFirst\.workspaces/,
+    );
   });
 
   test("rejects relative workspace entries", () => {
-    expect(() => writeConfig({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-      workspaces: ["relative/path"],
-    })).toThrow(/absolute/);
+    expect(() =>
+      writeConfig({
+        enabled: true,
+        sandboxMode: "workspaceWrite",
+        workspaces: ["relative/path"],
+      }),
+    ).toThrow(/absolute/);
   });
 
   test("rejects an invalid sandboxMode", () => {
@@ -133,10 +135,12 @@ describe("parseConfig chatFirst", () => {
   });
 
   test("rejects non-string or empty workspace entries", () => {
-    expect(() => writeConfig({ enabled: true, sandboxMode: "readOnly", workspaces: [42] }))
-      .toThrow(/chatFirst\.workspaces/);
-    expect(() => writeConfig({ enabled: true, sandboxMode: "readOnly", workspaces: ["   "] }))
-      .toThrow(/chatFirst\.workspaces/);
+    expect(() => writeConfig({ enabled: true, sandboxMode: "readOnly", workspaces: [42] })).toThrow(
+      /chatFirst\.workspaces/,
+    );
+    expect(() => writeConfig({ enabled: true, sandboxMode: "readOnly", workspaces: ["   "] })).toThrow(
+      /chatFirst\.workspaces/,
+    );
   });
 
   test("enabled false parses fine but buildChatFirstEnvironment fails closed", () => {
@@ -155,11 +159,13 @@ describe("buildChatFirstEnvironment", () => {
 
   test("dangerFullAccess ignores workspaces and grants the full filesystem", () => {
     const workspace = makeWorkspace("danger");
-    const environment = buildChatFirstEnvironment(configWith({
-      enabled: true,
-      sandboxMode: "dangerFullAccess",
-      workspaces: [workspace],
-    }));
+    const environment = buildChatFirstEnvironment(
+      configWith({
+        enabled: true,
+        sandboxMode: "dangerFullAccess",
+        workspaces: [workspace],
+      }),
+    );
     expect(environment).toEqual({
       cwd: homedir(),
       roots: ["/"],
@@ -172,11 +178,13 @@ describe("buildChatFirstEnvironment", () => {
   test("workspaceWrite roots and writableRoots are the configured workspaces", () => {
     const wsA = makeWorkspace("a");
     const wsB = makeWorkspace("b");
-    const environment = buildChatFirstEnvironment(configWith({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-      workspaces: [wsA, wsB],
-    }));
+    const environment = buildChatFirstEnvironment(
+      configWith({
+        enabled: true,
+        sandboxMode: "workspaceWrite",
+        workspaces: [wsA, wsB],
+      }),
+    );
     expect(environment).toEqual({
       cwd: wsA,
       roots: [wsA, wsB],
@@ -188,11 +196,13 @@ describe("buildChatFirstEnvironment", () => {
 
   test("readOnly never grants writable roots and does not promise network access", () => {
     const wsA = makeWorkspace("ro");
-    const environment = buildChatFirstEnvironment(configWith({
-      enabled: true,
-      sandboxMode: "readOnly",
-      workspaces: [wsA],
-    }));
+    const environment = buildChatFirstEnvironment(
+      configWith({
+        enabled: true,
+        sandboxMode: "readOnly",
+        workspaces: [wsA],
+      }),
+    );
     expect(environment).toEqual({
       cwd: wsA,
       roots: [wsA],
@@ -214,10 +224,14 @@ describe("buildChatFirstEnvironment", () => {
   });
 
   test("workspaceWrite without workspaces fails closed even for hand-built configs", () => {
-    const error = expectChatFirstError(() => buildChatFirstEnvironment(configWith({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-    })));
+    const error = expectChatFirstError(() =>
+      buildChatFirstEnvironment(
+        configWith({
+          enabled: true,
+          sandboxMode: "workspaceWrite",
+        }),
+      ),
+    );
     expect(error.message).toMatch(/chatFirst\.workspaces/);
   });
 
@@ -233,15 +247,18 @@ describe("buildChatFirstEnvironment", () => {
 
 describe("resolveChatFirstWorkspace", () => {
   test("validates enabled before resolving", () => {
-    expect(() => resolveChatFirstWorkspace(configWith(undefined), "/tmp"))
-      .toThrow("chat-first is not enabled in config.json");
+    expect(() => resolveChatFirstWorkspace(configWith(undefined), "/tmp")).toThrow(
+      "chat-first is not enabled in config.json",
+    );
   });
 
   test("dangerFullAccess uses the home directory when no workspace is requested", () => {
-    const resolved = resolveChatFirstWorkspace(configWith({
-      enabled: true,
-      sandboxMode: "dangerFullAccess",
-    }));
+    const resolved = resolveChatFirstWorkspace(
+      configWith({
+        enabled: true,
+        sandboxMode: "dangerFullAccess",
+      }),
+    );
     expect(resolved).toEqual({ cwd: homedir(), roots: ["/"], writableRoots: ["/"] });
   });
 
@@ -261,21 +278,24 @@ describe("resolveChatFirstWorkspace", () => {
   });
 
   test("dangerFullAccess rejects relative requested paths", () => {
-    const error = expectChatFirstError(() => resolveChatFirstWorkspace(
-      configWith({ enabled: true, sandboxMode: "dangerFullAccess" }),
-      "relative/path",
-    ));
+    const error = expectChatFirstError(() =>
+      resolveChatFirstWorkspace(configWith({ enabled: true, sandboxMode: "dangerFullAccess" }), "relative/path"),
+    );
     expect(error.message).toMatch(/absolute path in dangerFullAccess mode/);
   });
 
   test("workspaceWrite defaults to the first workspace when nothing is requested", () => {
     const wsA = makeWorkspace("a");
     const wsB = makeWorkspace("b");
-    expect(resolveChatFirstWorkspace(configWith({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-      workspaces: [wsA, wsB],
-    }))).toEqual({ cwd: wsA, roots: [wsA, wsB], writableRoots: [wsA, wsB] });
+    expect(
+      resolveChatFirstWorkspace(
+        configWith({
+          enabled: true,
+          sandboxMode: "workspaceWrite",
+          workspaces: [wsA, wsB],
+        }),
+      ),
+    ).toEqual({ cwd: wsA, roots: [wsA, wsB], writableRoots: [wsA, wsB] });
   });
 
   test("workspaceWrite matches a requested workspace by exact normalized path", () => {
@@ -295,11 +315,14 @@ describe("resolveChatFirstWorkspace", () => {
   test("workspaceWrite matches a requested workspace by unique basename", () => {
     const wsA = makeWorkspace("alpha");
     const wsB = makeWorkspace("beta");
-    const resolved = resolveChatFirstWorkspace(configWith({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-      workspaces: [wsA, wsB],
-    }), basename(wsB));
+    const resolved = resolveChatFirstWorkspace(
+      configWith({
+        enabled: true,
+        sandboxMode: "workspaceWrite",
+        workspaces: [wsA, wsB],
+      }),
+      basename(wsB),
+    );
     expect(resolved).toEqual({ cwd: wsB, roots: [wsA, wsB], writableRoots: [wsA, wsB] });
   });
 
@@ -307,22 +330,30 @@ describe("resolveChatFirstWorkspace", () => {
     const wsA = makeWorkspace("a");
     mkdirSync(join(wsA, "sub", "dir"), { recursive: true });
     const nested = join(wsA, "sub", "dir");
-    const resolved = resolveChatFirstWorkspace(configWith({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-      workspaces: [wsA],
-    }), nested);
+    const resolved = resolveChatFirstWorkspace(
+      configWith({
+        enabled: true,
+        sandboxMode: "workspaceWrite",
+        workspaces: [wsA],
+      }),
+      nested,
+    );
     expect(resolved).toEqual({ cwd: nested, roots: [wsA], writableRoots: [wsA] });
   });
 
   test("workspaceWrite rejects unmatched requests and lists the valid workspaces", () => {
     const wsA = makeWorkspace("a");
     const wsB = makeWorkspace("b");
-    const error = expectChatFirstError(() => resolveChatFirstWorkspace(configWith({
-      enabled: true,
-      sandboxMode: "workspaceWrite",
-      workspaces: [wsA, wsB],
-    }), "/definitely/not/a/configured/workspace"));
+    const error = expectChatFirstError(() =>
+      resolveChatFirstWorkspace(
+        configWith({
+          enabled: true,
+          sandboxMode: "workspaceWrite",
+          workspaces: [wsA, wsB],
+        }),
+        "/definitely/not/a/configured/workspace",
+      ),
+    );
     expect(error.message).toMatch(/does not match any configured chat-first workspace/);
     expect(error.message).toContain(wsA);
     expect(error.message).toContain(wsB);

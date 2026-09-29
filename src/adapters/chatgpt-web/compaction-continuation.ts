@@ -37,7 +37,8 @@ export function rememberCompactionContinuation(
   if (!key || !parsed._compactionRequest || !summary || !sources[0]) return;
   checkpoints.delete(key);
   checkpoints.set(key, {
-    summaryHash: digest(summary), sourceHashes: new Set(sources.map(sourceDigest)),
+    summaryHash: digest(summary),
+    sourceHashes: new Set(sources.map(sourceDigest)),
     source: structuredClone(sources[0]),
   });
   while (checkpoints.size > MAX_CHECKPOINTS) checkpoints.delete(checkpoints.keys().next().value!);
@@ -56,16 +57,16 @@ export function recoverCompactionInstruction(
   parsed: CodexParsedRequest,
   identity: ChatGptTurnIdentity,
 ): { source: ChatGptTurnUserRevision; summaryIndex: number } | undefined {
-  const accepted = acceptedCheckpoint(parsed, identity)
-    ?? (parsed._compactionRequest ? acceptedCheckpointAcrossModes(parsed, identity) : undefined);
-  return accepted ? { source: structuredClone(accepted.checkpoint.source), summaryIndex: accepted.summaryIndex } : undefined;
+  const accepted =
+    acceptedCheckpoint(parsed, identity) ??
+    (parsed._compactionRequest ? acceptedCheckpointAcrossModes(parsed, identity) : undefined);
+  return accepted
+    ? { source: structuredClone(accepted.checkpoint.source), summaryIndex: accepted.summaryIndex }
+    : undefined;
 }
 
 /** Only an exact previously accepted checkpoint may open another compact epoch in this turn. */
-export function acceptedCompactionEpoch(
-  parsed: CodexParsedRequest,
-  identity: ChatGptTurnIdentity,
-): string | undefined {
+export function acceptedCompactionEpoch(parsed: CodexParsedRequest, identity: ChatGptTurnIdentity): string | undefined {
   const exact = acceptedCheckpoint(parsed, identity);
   if (exact) return exact.checkpoint.summaryHash;
   // A model/effort switch must not authorize a normal task continuation, but a checkpoint
@@ -113,14 +114,20 @@ function acceptedCheckpointForKey(
       summary = typeof item.encrypted_content === "string" ? decodeCompactionSummary(item.encrypted_content) : null;
     } else {
       if (item.type !== "message" || item.role !== "user") continue;
-      const text = typeof item.content === "string" ? item.content : Array.isArray(item.content)
-        ? item.content.map(part => part?.text ?? "").join("\n") : "";
+      const text =
+        typeof item.content === "string"
+          ? item.content
+          : Array.isArray(item.content)
+            ? item.content.map((part) => part?.text ?? "").join("\n")
+            : "";
       if (!isReadableCompactionSummaryText(text)) continue;
       summary = text.slice(SUMMARY_PREFIX.length + 1);
     }
     const owner = (item.internal_chat_message_metadata_passthrough as { turn_id?: unknown } | undefined)?.turn_id;
     if (owner !== undefined && owner !== identity.turnId) return undefined;
-    return summary !== null && acceptsSummary(key, checkpoint, summary) ? { checkpoint, summaryIndex: index } : undefined;
+    return summary !== null && acceptsSummary(key, checkpoint, summary)
+      ? { checkpoint, summaryIndex: index }
+      : undefined;
   }
   return undefined;
 }

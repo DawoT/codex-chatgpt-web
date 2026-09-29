@@ -32,17 +32,21 @@ export class McpTelemetry {
     this.pending += 1;
     const call = Number.isSafeInteger(event.call) ? Number(event.call) : 0;
     const eventName = String(event.event);
-    const failed = eventName === "reply_send_failed" || eventName === "transport_error"
-      || event.outcome === "protocol_error" || event.is_error === true;
+    const failed =
+      eventName === "reply_send_failed" ||
+      eventName === "transport_error" ||
+      event.outcome === "protocol_error" ||
+      event.is_error === true;
     const metadata = {
       protocol_version: runtimeIdentity.protocolVersion,
       build_commit: runtimeIdentity.buildCommit,
       artifact_sha256: runtimeIdentity.artifactSha256,
       process_generation: runtimeIdentity.generation,
       process_pid: runtimeIdentity.pid,
-      scope: eventName.startsWith("broker_") || TOOL_LIFECYCLE_EVENTS.has(eventName)
-        ? "broker_tool_lifecycle"
-        : "mcp_transport_only",
+      scope:
+        eventName.startsWith("broker_") || TOOL_LIFECYCLE_EVENTS.has(eventName)
+          ? "broker_tool_lifecycle"
+          : "mcp_transport_only",
       event: eventName,
       tool: typeof event.tool === "string" ? event.tool : "unknown",
       call,
@@ -51,35 +55,47 @@ export class McpTelemetry {
       ...(typeof event.elapsed_ms === "number" ? { elapsed_ms: event.elapsed_ms } : {}),
       ...(typeof event.tracked_calls === "number" ? { tracked_calls: event.tracked_calls } : {}),
       ...(typeof event.evidence === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(event.evidence)
-        ? { evidence: event.evidence } : {}),
+        ? { evidence: event.evidence }
+        : {}),
     };
-    void this.sink.record({
-      traceId: typeof event.trace_id === "string" && /^[a-f0-9-]{36}$/.test(event.trace_id)
-        ? event.trace_id : `${this.instanceId}:${call}`,
-      sessionId: this.instanceId,
-      ...(typeof event.broker_call_id === "string" && /^call_[a-zA-Z0-9_-]{1,128}$/.test(event.broker_call_id)
-        ? { brokerCallId: event.broker_call_id } : {}),
-      kind: "tool_call",
-      terminalState: [
-        "call_received",
-        "transport_ready",
-        "uncorrelated_call",
-        "broker_queued",
-        "broker_delivered",
-        "broker_claimed",
-        "browser_observed",
-        "codex_emitted",
-        "host_started",
-      ].includes(eventName) ? "pending"
-        : eventName === "broker_compaction_cancelled" ? "cancelled"
-        : ["transport_closed", "reply_send_failed", "broker_abandoned"].includes(eventName) ? "transport_dropped"
-          : failed ? "failed" : "completed",
-      metadata,
-    }).catch(() => {
-      this.failed += 1;
-      if (this.failed === 1) console.error("[chatgpt-web-mcp] telemetry_write_failed; transport behavior unchanged");
-    }).finally(() => {
-      this.pending -= 1;
-    });
+    void this.sink
+      .record({
+        traceId:
+          typeof event.trace_id === "string" && /^[a-f0-9-]{36}$/.test(event.trace_id)
+            ? event.trace_id
+            : `${this.instanceId}:${call}`,
+        sessionId: this.instanceId,
+        ...(typeof event.broker_call_id === "string" && /^call_[a-zA-Z0-9_-]{1,128}$/.test(event.broker_call_id)
+          ? { brokerCallId: event.broker_call_id }
+          : {}),
+        kind: "tool_call",
+        terminalState: [
+          "call_received",
+          "transport_ready",
+          "uncorrelated_call",
+          "broker_queued",
+          "broker_delivered",
+          "broker_claimed",
+          "browser_observed",
+          "codex_emitted",
+          "host_started",
+        ].includes(eventName)
+          ? "pending"
+          : eventName === "broker_compaction_cancelled"
+            ? "cancelled"
+            : ["transport_closed", "reply_send_failed", "broker_abandoned"].includes(eventName)
+              ? "transport_dropped"
+              : failed
+                ? "failed"
+                : "completed",
+        metadata,
+      })
+      .catch(() => {
+        this.failed += 1;
+        if (this.failed === 1) console.error("[chatgpt-web-mcp] telemetry_write_failed; transport behavior unchanged");
+      })
+      .finally(() => {
+        this.pending -= 1;
+      });
   };
 }

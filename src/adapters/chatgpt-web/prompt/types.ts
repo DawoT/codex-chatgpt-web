@@ -1,5 +1,5 @@
-import type { ChatGptSkillFile } from "../skill-attachments";
 import { CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT } from "../../../chatgpt-web-models";
+import type { ChatGptSkillFile } from "../skill-attachments";
 
 export interface ChatGptWebPromptImage {
   ref: string;

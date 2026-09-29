@@ -28,9 +28,10 @@ export async function callTurnBroker<T>(
   // The wire protocol requires a client-owned activity identity. Most callers never need to see
   // it; the MCP server supplies its own so it can retire an ambiguously delivered claim, while
   // lower-level diagnostics receive an equally client-generated identity here.
-  const wireRequest = request.method === "claim" && request.activityId === undefined
-    ? { ...request, activityId: opaqueId("activity") }
-    : request;
+  const wireRequest =
+    request.method === "claim" && request.activityId === undefined
+      ? { ...request, activityId: opaqueId("activity") }
+      : request;
   return new Promise<T>((resolveCall, rejectCall) => {
     const socket = createConnection(socketPath);
     activeBrokerClientSockets.add(socket);
@@ -62,21 +63,20 @@ export async function callTurnBroker<T>(
       if (response.error) rejectCall(new Error(response.error));
       else resolveCall(response.result as T);
     };
-    const timer = timeoutMs === null
-      ? undefined
-      : setTimeout(() => finishError(new TurnBrokerTimeoutError()), timeoutMs);
+    const timer =
+      timeoutMs === null ? undefined : setTimeout(() => finishError(new TurnBrokerTimeoutError()), timeoutMs);
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) {
       finishError(new DOMException("ChatGPT web turn broker call aborted", "AbortError"));
       return;
     }
     socket.setEncoding("utf8");
-    socket.once("error", error => finishError(new Error(`ChatGPT web turn broker unavailable: ${error.message}`)));
+    socket.once("error", (error) => finishError(new Error(`ChatGPT web turn broker unavailable: ${error.message}`)));
     // The server owns response termination. Waiting for the pipe/socket to close before resolving
     // prevents callers from retiring the broker while Bun still has a named-pipe write in flight.
     socket.once("close", finishResponse);
     socket.once("connect", () => socket.write(`${JSON.stringify({ id, ...wireRequest })}\n`));
-    socket.on("data", chunk => {
+    socket.on("data", (chunk) => {
       if (settled || response) return;
       buffered += chunk;
       if (buffered.length > MAX_BROKER_LINE_CHARS) {

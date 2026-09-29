@@ -10,11 +10,11 @@ import {
 import { condenseVerboseProseWithSyntaxAwareness } from "../syntax-condenser";
 import { sanitizeHistoricalParalysisClaims } from "./sanitization";
 import {
+  type AdaptivePruningOptions,
   DEFAULT_MICRO_COMPACTION_TOKEN_CEILING,
   DEFAULT_RETAINED_COMPLETED_TOOL_RESULTS,
   DEFAULT_ROOT_PRUNING_TOKEN_CEILING,
   HISTORICAL_TOOL_OUTPUT_PRUNE_THRESHOLD_CHARS,
-  type AdaptivePruningOptions,
   type PruneHistoricalToolOutputOptions,
 } from "./types";
 
@@ -51,7 +51,7 @@ export function pruneHistoricalToolOutputs(
 
   // The active turn begins with the latest user or agent message.
   const lastInstructionIndex = messages.findLastIndex(
-    message => message.role === "user" || message.role === "agentMessage",
+    (message) => message.role === "user" || message.role === "agentMessage",
   );
   if (lastInstructionIndex === -1) return [...messages];
 
@@ -94,7 +94,7 @@ function messageTextContent(message: CodexMessage): string {
   if (Array.isArray(message.content)) {
     return message.content
       .filter((part): part is { type: "text"; text: string } => (part as { type?: string }).type === "text")
-      .map(part => part.text)
+      .map((part) => part.text)
       .join("\n");
   }
   return "";
@@ -105,9 +105,7 @@ function hasEnvironmentContextTag(message: CodexMessage): boolean {
   return /<environment_context>[\s\S]*?<\/environment_context>/i.test(messageTextContent(message));
 }
 
-function stripEnvironmentContextFromContent(
-  content: string | CodexContentPart[],
-): string | CodexContentPart[] {
+function stripEnvironmentContextFromContent(content: string | CodexContentPart[]): string | CodexContentPart[] {
   if (typeof content === "string") {
     const withoutEnv = content.replace(ENVIRONMENT_CONTEXT_REGEX, "").trim();
     if (withoutEnv.length === 0) {
@@ -116,12 +114,13 @@ function stripEnvironmentContextFromContent(
     return content.replace(ENVIRONMENT_CONTEXT_REGEX, "[Historical environment context omitted]");
   }
   if (Array.isArray(content)) {
-    return content.map(part => {
+    return content.map((part) => {
       if (part.type !== "text") return part;
       const withoutEnv = part.text.replace(ENVIRONMENT_CONTEXT_REGEX, "").trim();
-      const text = withoutEnv.length === 0
-        ? "[Historical environment context omitted: superseded by latest turn environment]"
-        : part.text.replace(ENVIRONMENT_CONTEXT_REGEX, "[Historical environment context omitted]");
+      const text =
+        withoutEnv.length === 0
+          ? "[Historical environment context omitted: superseded by latest turn environment]"
+          : part.text.replace(ENVIRONMENT_CONTEXT_REGEX, "[Historical environment context omitted]");
       return { ...part, text };
     });
   }
@@ -196,7 +195,7 @@ export function applyMicroCompactionBoundary(
   }
 
   const lastInstructionIndex = messages.findLastIndex(
-    message => message.role === "user" || message.role === "agentMessage",
+    (message) => message.role === "user" || message.role === "agentMessage",
   );
   if (lastInstructionIndex === -1) return [...messages];
 
@@ -205,7 +204,7 @@ export function applyMicroCompactionBoundary(
     if (message.role !== "assistant" || index >= lastInstructionIndex - 1) {
       return message;
     }
-    const condensedContent = message.content.map(part => {
+    const condensedContent = message.content.map((part) => {
       if (part.type !== "text") return part;
       const subagentResult = parseSubagentStructuredResult(part.text);
       if (subagentResult) {
@@ -227,7 +226,7 @@ export function applyMicroCompactionBoundary(
     if (message.role !== "assistant" || index >= lastInstructionIndex - 1) {
       return message;
     }
-    const condensedContent = message.content.map(part => {
+    const condensedContent = message.content.map((part) => {
       if (part.type !== "text") return part;
       const subagentResult = parseSubagentStructuredResult(part.text);
       if (subagentResult) {
@@ -252,8 +251,8 @@ export function applyMicroCompactionBoundary(
     let rawText: string | undefined;
     if (typeof content === "string") {
       rawText = content;
-    } else if (Array.isArray(content) && content.every(p => p.type === "text")) {
-      rawText = content.map(p => p.type === "text" ? p.text : "").join("\n");
+    } else if (Array.isArray(content) && content.every((p) => p.type === "text")) {
+      rawText = content.map((p) => (p.type === "text" ? p.text : "")).join("\n");
     }
     if (rawText === undefined) return message;
     // Don't condense compaction summaries - they are already the compressed form of history.

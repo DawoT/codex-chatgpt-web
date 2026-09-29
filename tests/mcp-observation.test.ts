@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import * as z from "zod/v4";
 import { observeMcpToolCalls } from "../src/adapters/chatgpt-web/mcp-observation";
@@ -18,15 +18,20 @@ test("concurrent MCP handlers retain distinct opaque trace IDs across awaits", a
     return { content: [{ type: "text", text: "done" }] };
   });
   await server.connect(serverTransport);
-  observeMcpToolCalls(serverTransport, new Set(["codex_exec"]), event => events.push(event));
+  observeMcpToolCalls(serverTransport, new Set(["codex_exec"]), (event) => events.push(event));
   const client = new Client({ name: "trace-client", version: "1" });
   try {
     await client.connect(clientTransport);
-    await Promise.all(["secret-a", "secret-b"].map(cmd => client.callTool({ name: "codex_exec", arguments: { cmd } })));
+    await Promise.all(
+      ["secret-a", "secret-b"].map((cmd) => client.callTool({ name: "codex_exec", arguments: { cmd } })),
+    );
     expect(new Set(observed).size).toBe(2);
     for (const id of observed) {
       expect(id).toMatch(/^[a-f0-9-]{36}$/);
-      expect(events.filter(event => event.trace_id === id).map(event => event.event)).toEqual(["call_received", "reply_sent"]);
+      expect(events.filter((event) => event.trace_id === id).map((event) => event.event)).toEqual([
+        "call_received",
+        "reply_sent",
+      ]);
     }
     expect(JSON.stringify(events)).not.toContain("secret-");
   } finally {
@@ -45,7 +50,7 @@ test("MCP observations separate pre-handler validation and returned tool errors 
     invoked += 1;
     return { isError: invoked === 1, content: [{ type: "text", text: secret }] };
   });
-  observeMcpToolCalls(serverTransport, new Set(["codex_exec"]), event => events.push(event));
+  observeMcpToolCalls(serverTransport, new Set(["codex_exec"]), (event) => events.push(event));
   await server.connect(serverTransport);
   const client = new Client({ name: "test-client", version: "1" });
   try {
@@ -59,9 +64,13 @@ test("MCP observations separate pre-handler validation and returned tool errors 
     expect(accepted.isError).toBeFalse();
     expect(refused.content).toEqual(accepted.content);
     expect(invoked).toBe(2);
-    expect(events.map(event => event.event)).toEqual(Array(3).fill(["call_received", "reply_sent"]).flat());
-    expect(events.filter(event => event.event === "reply_sent").map(event => event.is_error)).toEqual([true, true, false]);
-    expect(events.map(event => event.call)).toEqual([1, 1, 2, 2, 3, 3]);
+    expect(events.map((event) => event.event)).toEqual(Array(3).fill(["call_received", "reply_sent"]).flat());
+    expect(events.filter((event) => event.event === "reply_sent").map((event) => event.is_error)).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    expect(events.map((event) => event.call)).toEqual([1, 1, 2, 2, 3, 3]);
     expect(JSON.stringify(events)).not.toContain(secret);
     expect(JSON.stringify(events)).not.toContain("private_key");
     expect(JSON.stringify(events)).not.toContain("content");
@@ -78,11 +87,19 @@ test("MCP observation failures, arbitrary IDs and unknown names never alter tran
   let received = 0;
   let closed = false;
   const transport: Transport = {
-    start: async () => {}, close: async () => {},
-    onmessage: () => { received += 1; }, onclose: () => { closed = true; },
-    send: async () => { throw originalError; },
+    start: async () => {},
+    close: async () => {},
+    onmessage: () => {
+      received += 1;
+    },
+    onclose: () => {
+      closed = true;
+    },
+    send: async () => {
+      throw originalError;
+    },
   };
-  observeMcpToolCalls(transport, new Set(["codex_exec"]), event => {
+  observeMcpToolCalls(transport, new Set(["codex_exec"]), (event) => {
     events.push(event);
     throw new Error("sink unavailable");
   });

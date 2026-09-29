@@ -1,17 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { collectCodexRolloutFiles, pruneCodexSessions } from "../src/adapters/chatgpt-web/session-store-pruner";
 import { defaultConfig } from "../src/config";
 import { modelsRequest, startServer } from "../src/server";
-import {
-  collectCodexRolloutFiles,
-  pruneCodexSessions,
-  type CodexRolloutFileInfo,
-  type CodexSessionPruningOptions,
-} from "../src/adapters/chatgpt-web/session-store-pruner";
 
 describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
-  const testDir = join(process.cwd(), ".agents", "scratch", "test-sessions-" + Date.now());
+  const testDir = join(process.cwd(), ".agents", "scratch", `test-sessions-${Date.now()}`);
 
   beforeEach(() => {
     mkdirSync(testDir, { recursive: true });
@@ -38,7 +33,7 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
 
       expect(upstreamCalled).toBe(false);
       expect(response.status).toBe(502);
-      const data = await response.json() as { error: { message: string; type: string; code: string } };
+      const data = (await response.json()) as { error: { message: string; type: string; code: string } };
       expect(data.error.type).toBe("server_error");
       expect(data.error.message).toContain("Bearer authorization");
     });
@@ -57,7 +52,7 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
 
       expect(upstreamCalled).toBe(false);
       expect(response.status).toBe(502);
-      const data = await response.json() as { error: { message: string; type: string; code: string } };
+      const data = (await response.json()) as { error: { message: string; type: string; code: string } };
       expect(data.error.type).toBe("server_error");
     });
 
@@ -69,30 +64,32 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
       config.subagentProtocol = "native";
       let upstreamCalled = false;
 
-      const response = await modelsRequest(request, config, async req => {
+      const response = await modelsRequest(request, config, async (req) => {
         upstreamCalled = true;
         expect(req.headers.get("authorization")).toBe("Bearer valid-token");
         return Response.json({
-          models: [{
-            slug: "gpt-5.6-sol",
-            display_name: "5.6 Sol",
-            priority: 1,
-            visibility: "list",
-            supported_in_api: true,
-            multi_agent_version: "v2",
-            supported_reasoning_levels: [],
-            tool_mode: "code_mode_only",
-            context_window: 300_000,
-            max_context_window: 320_000,
-            auto_compact_token_limit: 270_000,
-          }],
+          models: [
+            {
+              slug: "gpt-5.6-sol",
+              display_name: "5.6 Sol",
+              priority: 1,
+              visibility: "list",
+              supported_in_api: true,
+              multi_agent_version: "v2",
+              supported_reasoning_levels: [],
+              tool_mode: "code_mode_only",
+              context_window: 300_000,
+              max_context_window: 320_000,
+              auto_compact_token_limit: 270_000,
+            },
+          ],
         });
       });
 
       expect(upstreamCalled).toBe(true);
       expect(response.status).toBe(200);
-      const data = await response.json() as { models: Array<{ slug: string }> };
-      expect(data.models.some(m => m.slug === "gpt-5.6-sol")).toBe(true);
+      const data = (await response.json()) as { models: Array<{ slug: string }> };
+      expect(data.models.some((m) => m.slug === "gpt-5.6-sol")).toBe(true);
     });
 
     test("startServer responds to HEAD /v1/responses with 200 OK and connection headers", async () => {
@@ -185,8 +182,8 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
 
       const rollouts = collectCodexRolloutFiles(testDir);
       expect(rollouts.length).toBe(2);
-      expect(rollouts.some(r => r.sessionId === "s1" && r.source === "subagent:thread_spawn")).toBe(true);
-      expect(rollouts.some(r => r.sessionId === "s2" && r.source === "exec")).toBe(true);
+      expect(rollouts.some((r) => r.sessionId === "s1" && r.source === "subagent:thread_spawn")).toBe(true);
+      expect(rollouts.some((r) => r.sessionId === "s2" && r.source === "exec")).toBe(true);
     });
 
     test("pruneCodexSessions respects protectRecentMs invariant", () => {
@@ -200,7 +197,11 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
       // Create an old file (modified 2 hours ago)
       createMockRollout(
         "2026/09/24/rollout-old.jsonl",
-        { sessionId: "s-old", source: "subagent:thread_spawn", timestamp: new Date(Date.now() - 7_200_000).toISOString() },
+        {
+          sessionId: "s-old",
+          source: "subagent:thread_spawn",
+          timestamp: new Date(Date.now() - 7_200_000).toISOString(),
+        },
         5000,
         7_200_000, // 2 hours old
       );
@@ -248,7 +249,7 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
       });
 
       expect(result.prunedFiles.length).toBe(2);
-      expect(result.prunedFiles.map(f => f.sessionId)).toEqual(["s-oldest", "s-middle"]);
+      expect(result.prunedFiles.map((f) => f.sessionId)).toEqual(["s-oldest", "s-middle"]);
       expect(result.reclaimedBytes).toBeGreaterThanOrEqual(20_000);
       expect(result.remainingFiles).toBe(1);
     });

@@ -1,19 +1,18 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  readWorkspaceState,
-  writeWorkspaceState,
   defaultWorkspaceState,
+  readWorkspaceState,
+  resolveWorkspaceStatePath,
+  updateWorkspaceState,
   withStateLock,
   withStateLockSync,
-  updateWorkspaceState,
-  resolveWorkspaceStatePath,
+  writeWorkspaceState,
 } from "../src/adapters/chatgpt-web/workspace-state";
-import { isLongReasoningTurn } from "../src/server";
-import { defaultConfig, defaultBrokerEndpoint } from "../src/config";
-import { responseRequest } from "../src/server";
+import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
+import { isLongReasoningTurn, responseRequest } from "../src/server";
 import type { CodexParsedRequest } from "../src/types";
 
 describe("Sprint AB: Long-Reasoning Turn Keep-Alive & Concurrency State Mutex", () => {
@@ -32,7 +31,7 @@ describe("Sprint AB: Long-Reasoning Turn Keep-Alive & Concurrency State Mutex", 
 
   describe("GAP-06: Concurrency Mutex & Lockfile on STATE.md", () => {
     test("updateWorkspaceState handles 10 concurrent async writers without losing milestones", async () => {
-      const statePath = resolveWorkspaceStatePath(tempDir);
+      const _statePath = resolveWorkspaceStatePath(tempDir);
       writeWorkspaceState(tempDir, {
         ...defaultWorkspaceState(),
         goal: "Test Concurrency",
@@ -41,7 +40,7 @@ describe("Sprint AB: Long-Reasoning Turn Keep-Alive & Concurrency State Mutex", 
 
       // Launch 10 concurrent updates appending different milestones
       const tasks = Array.from({ length: 10 }, (_, i) => {
-        return updateWorkspaceState(tempDir, current => {
+        return updateWorkspaceState(tempDir, (current) => {
           return {
             ...current,
             completedMilestones: [...current.completedMilestones, `Milestone ${i + 1}`],
@@ -81,12 +80,18 @@ describe("Sprint AB: Long-Reasoning Turn Keep-Alive & Concurrency State Mutex", 
       writeFileSync(lockPath, JSON.stringify({ pid: 999999, createdAt: Date.now() - 30_000 }), "utf-8");
       // Set mtime to 30 seconds ago
       const pastTime = (Date.now() - 30_000) / 1000;
-      try { utimesSync(lockPath, pastTime, pastTime); } catch {}
+      try {
+        utimesSync(lockPath, pastTime, pastTime);
+      } catch {}
 
       let acquired = false;
-      await withStateLock(tempDir, async () => {
-        acquired = true;
-      }, { staleLockTtlMs: 2_000 });
+      await withStateLock(
+        tempDir,
+        async () => {
+          acquired = true;
+        },
+        { staleLockTtlMs: 2_000 },
+      );
 
       expect(acquired).toBe(true);
       expect(existsSync(lockPath)).toBe(false);
@@ -135,7 +140,11 @@ describe("Sprint AB: Long-Reasoning Turn Keep-Alive & Concurrency State Mutex", 
         stream: false,
         reasoning: { effort: "high" },
         input: [
-          { type: "message", role: "user", content: [{ type: "input_text", text: "Complex mathematical theorem proof" }] },
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Complex mathematical theorem proof" }],
+          },
         ],
       };
 

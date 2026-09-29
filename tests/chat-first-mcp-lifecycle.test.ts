@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 // Chat-First MCP lifecycle: the token-free contract served by
 // `codex-chatgpt-web mcp --contract chat-first`. The server reads its authority from the
@@ -33,35 +33,42 @@ function childEnv(home: string): Record<string, string> {
 }
 
 function writeChatFirstConfig(home: string, chatFirst: Record<string, unknown>): void {
-  writeFileSync(join(home, "config.json"), JSON.stringify({
-    version: 3,
-    releaseVersion: "chat-first-lifecycle-test",
-    mode: "browser-only",
-    subagentProtocol: "compatibility-v1",
-    host: "127.0.0.1",
-    port: 17_841,
-    contextWindow: 256_000,
-    appName: "Codex Native2",
-    automaticAppName: "Codex Native2",
-    manualAppName: "Codex Zero Risk",
-    browserHost: "managed-chrome",
-    browserInteractionMode: "automatic",
-    chromeExecutablePath: "/usr/bin/google-chrome",
-    storageStatePath: join(home, "browser", "storage-state.json"),
-    brokerSocketPath: join(home, "runtime", "turn-broker.sock"),
-    headed: true,
-    solAvailable: true,
-    proAvailable: false,
-    experimentalBiggerContext: false,
-    experimentalSkillAttachments: false,
-    experimentalFreshConversationPerTurn: false,
-    useSavedChats: false,
-    zeroRiskProEnabled: false,
-    autoApproveToolCalls: false,
-    controlToken: "chat_first_test_control_token_0123456789abcdefghij",
-    runtimeCommand: [durableTrueBinary()],
-    chatFirst,
-  }, null, 2));
+  writeFileSync(
+    join(home, "config.json"),
+    JSON.stringify(
+      {
+        version: 3,
+        releaseVersion: "chat-first-lifecycle-test",
+        mode: "browser-only",
+        subagentProtocol: "compatibility-v1",
+        host: "127.0.0.1",
+        port: 17_841,
+        contextWindow: 256_000,
+        appName: "Codex Native2",
+        automaticAppName: "Codex Native2",
+        manualAppName: "Codex Zero Risk",
+        browserHost: "managed-chrome",
+        browserInteractionMode: "automatic",
+        chromeExecutablePath: "/usr/bin/google-chrome",
+        storageStatePath: join(home, "browser", "storage-state.json"),
+        brokerSocketPath: join(home, "runtime", "turn-broker.sock"),
+        headed: true,
+        solAvailable: true,
+        proAvailable: false,
+        experimentalBiggerContext: false,
+        experimentalSkillAttachments: false,
+        experimentalFreshConversationPerTurn: false,
+        useSavedChats: false,
+        zeroRiskProEnabled: false,
+        autoApproveToolCalls: false,
+        controlToken: "chat_first_test_control_token_0123456789abcdefghij",
+        runtimeCommand: [durableTrueBinary()],
+        chatFirst,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 function makeHome(name: string, chatFirst: Record<string, unknown>): string {
@@ -94,18 +101,25 @@ function auditLines(home: string): Array<Record<string, unknown>> {
   return readFileSync(join(home, "runtime", "chat-first-audit.jsonl"), "utf8")
     .trim()
     .split("\n")
-    .map(line => JSON.parse(line) as Record<string, unknown>);
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 describe("Chat-First MCP lifecycle", () => {
   test("an unwritable telemetry destination does not fail a tool request", async () => {
-    const { home, ws } = workspaceHome("telemetry-failure", { enabled: true, sandboxMode: "dangerFullAccess", workspaces: [] });
+    const { home, ws } = workspaceHome("telemetry-failure", {
+      enabled: true,
+      sandboxMode: "dangerFullAccess",
+      workspaces: [],
+    });
     writeFileSync(join(home, "logs"), "not a directory");
     writeFileSync(join(ws, "readable.txt"), "still readable");
     const { transport, client } = connectChatFirst(home);
     try {
       await client.connect(transport);
-      const result = await client.callTool({ name: "codex_read_file", arguments: { workspace: ws, path: "readable.txt" } });
+      const result = await client.callTool({
+        name: "codex_read_file",
+        arguments: { workspace: ws, path: "readable.txt" },
+      });
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent).toMatchObject({ content: "still readable" });
     } finally {
@@ -115,7 +129,11 @@ describe("Chat-First MCP lifecycle", () => {
   });
 
   test("byte pagination round-trips Unicode over stdio and rejects mixed modes", async () => {
-    const { home, ws } = workspaceHome("byte-pages", { enabled: true, sandboxMode: "dangerFullAccess", workspaces: [] });
+    const { home, ws } = workspaceHome("byte-pages", {
+      enabled: true,
+      sandboxMode: "dangerFullAccess",
+      workspaces: [],
+    });
     writeFileSync(join(ws, "unicode.txt"), "ab😀cdéfg");
     const { transport, client } = connectChatFirst(home);
     try {
@@ -123,9 +141,15 @@ describe("Chat-First MCP lifecycle", () => {
       let content = "";
       let offset = 0;
       for (let page = 0; page < 10; page += 1) {
-        const res = await client.callTool({ name: "codex_read_file", arguments: {
-          path: "unicode.txt", workspace: ws, max_bytes: 5, offset_bytes: offset,
-        } });
+        const res = await client.callTool({
+          name: "codex_read_file",
+          arguments: {
+            path: "unicode.txt",
+            workspace: ws,
+            max_bytes: 5,
+            offset_bytes: offset,
+          },
+        });
         expect(res.isError).toBeUndefined();
         const data = res.structuredContent as any;
         expect(data.read_bytes).toBeLessThanOrEqual(5);
@@ -137,26 +161,45 @@ describe("Chat-First MCP lifecycle", () => {
       expect(content).toBe("ab😀cdéfg");
       const tracePath = join(home, "logs", "mcp", "telemetry.jsonl");
       const deadline = Date.now() + 3000;
-      while ((!existsSync(tracePath) || !readFileSync(tracePath, "utf8").includes('"event":"reply_sent"')) && Date.now() < deadline) {
+      while (
+        (!existsSync(tracePath) || !readFileSync(tracePath, "utf8").includes('"event":"reply_sent"')) &&
+        Date.now() < deadline
+      ) {
         await Bun.sleep(10);
       }
-      const events = readFileSync(tracePath, "utf8").trim().split("\n").map(line => JSON.parse(line));
-      const reply = events.find(event => event.metadata?.event === "reply_sent");
+      const events = readFileSync(tracePath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const reply = events.find((event) => event.metadata?.event === "reply_sent");
       expect(reply).toBeDefined();
-      expect(events.some(event => event.traceId === reply.traceId && event.metadata?.event === "call_received")).toBe(true);
+      expect(events.some((event) => event.traceId === reply.traceId && event.metadata?.event === "call_received")).toBe(
+        true,
+      );
       expect(JSON.stringify(events)).not.toContain("unicode.txt");
       expect(JSON.stringify(events)).not.toContain("ab😀cdéfg");
       const large = "line of evidence\n".repeat(5000);
       writeFileSync(join(ws, "large.txt"), large);
-      const page = await client.callTool({ name: "codex_read_file", arguments: {
-        path: "large.txt", workspace: ws, max_bytes: 100000,
-      } });
+      const page = await client.callTool({
+        name: "codex_read_file",
+        arguments: {
+          path: "large.txt",
+          workspace: ws,
+          max_bytes: 100000,
+        },
+      });
       expect(page.isError).toBeUndefined();
       const textPart = (page.content as Array<{ type: string; text: string }>)[0];
       expect(JSON.parse(textPart.text).content).toBe(large);
-      const mixed = await client.callTool({ name: "codex_read_file", arguments: {
-        path: "unicode.txt", workspace: ws, max_bytes: 5, offset: 1,
-      } });
+      const mixed = await client.callTool({
+        name: "codex_read_file",
+        arguments: {
+          path: "unicode.txt",
+          workspace: ws,
+          max_bytes: 5,
+          offset: 1,
+        },
+      });
       expect(mixed.isError).toBe(true);
     } finally {
       await client.close();
@@ -178,7 +221,7 @@ describe("Chat-First MCP lifecycle", () => {
       expect(client.getInstructions()).toContain("recorded in the local audit log");
 
       const listed = await client.listTools();
-      expect(listed.tools.map(tool => tool.name).sort()).toEqual([
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
         "codex_exec",
         "codex_grep",
         "codex_image_generate",
@@ -199,7 +242,7 @@ describe("Chat-First MCP lifecycle", () => {
       }
 
       const inventory = await client.callTool({ name: "codex_tool_inventory", arguments: {} });
-      expect((inventory.structuredContent as Record<string, unknown>)).toMatchObject({
+      expect(inventory.structuredContent as Record<string, unknown>).toMatchObject({
         contract: "chat-first",
         sandboxMode: "dangerFullAccess",
       });
@@ -280,7 +323,7 @@ describe("Chat-First MCP lifecycle", () => {
     try {
       await client.connect(transport);
       const listed = await client.listTools();
-      expect(listed.tools.map(tool => tool.name).sort()).toEqual([
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
         "codex_grep",
         "codex_list_dir",
         "codex_read_file",
@@ -430,13 +473,19 @@ test("MCP cancellation terminates a foreground command before its delayed write"
   const controller = new AbortController();
   try {
     await client.connect(transport);
-    const pending = client.callTool({
-      name: "codex_exec",
-      arguments: {
-        workspace: ws,
-        cmd: "printf ready > ready; sleep 2; printf late > late",
-      },
-    }, undefined, { signal: controller.signal }).catch(error => error);
+    const pending = client
+      .callTool(
+        {
+          name: "codex_exec",
+          arguments: {
+            workspace: ws,
+            cmd: "printf ready > ready; sleep 2; printf late > late",
+          },
+        },
+        undefined,
+        { signal: controller.signal },
+      )
+      .catch((error) => error);
     const deadline = Date.now() + 3000;
     while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
       await Bun.sleep(10);
@@ -468,7 +517,9 @@ test("failed commands that changed files still appear in the audit log", async (
     expect(reply.isError).toBe(true);
     expect(readFileSync(join(ws, "changed"), "utf8")).toBe("changed");
     expect(existsSync(join(home, "runtime", "chat-first-audit.jsonl"))).toBe(true);
-    expect(auditLines(home)).toContainEqual(expect.objectContaining({ tool: "codex_exec", path: cmd, detail: "error" }));
+    expect(auditLines(home)).toContainEqual(
+      expect.objectContaining({ tool: "codex_exec", path: cmd, detail: "error" }),
+    );
   } finally {
     await client.close();
   }
@@ -488,10 +539,16 @@ test("foreground and background execution share admission until process close", 
   const controller = new AbortController();
   try {
     await client.connect(transport);
-    const foreground = client.callTool({
-      name: "codex_exec",
-      arguments: { workspace: ws, cmd: "printf ready > ready; sleep 3" },
-    }, undefined, { signal: controller.signal }).catch(error => error);
+    const foreground = client
+      .callTool(
+        {
+          name: "codex_exec",
+          arguments: { workspace: ws, cmd: "printf ready > ready; sleep 3" },
+        },
+        undefined,
+        { signal: controller.signal },
+      )
+      .catch((error) => error);
     const deadline = Date.now() + 2000;
     while (!existsSync(join(ws, "ready")) && Date.now() < deadline) {
       await Bun.sleep(10);
@@ -532,16 +589,15 @@ test("independent MCP processes share one command capacity for the same home", a
   const first = connectChatFirst(home);
   const second = connectChatFirst(home);
   const childErrors: string[] = [];
-  first.transport.stderr?.on("data", chunk => childErrors.push(String(chunk)));
-  second.transport.stderr?.on("data", chunk => childErrors.push(String(chunk)));
+  first.transport.stderr?.on("data", (chunk) => childErrors.push(String(chunk)));
+  second.transport.stderr?.on("data", (chunk) => childErrors.push(String(chunk)));
   let taskId: string | undefined;
   try {
-    await Promise.all([
-      first.client.connect(first.transport),
-      second.client.connect(second.transport),
-    ]).catch(error => {
-      throw new Error(`${String(error)}\n${childErrors.join("")}`);
-    });
+    await Promise.all([first.client.connect(first.transport), second.client.connect(second.transport)]).catch(
+      (error) => {
+        throw new Error(`${String(error)}\n${childErrors.join("")}`);
+      },
+    );
     const started = await first.client.callTool({
       name: "codex_exec",
       arguments: { workspace: ws, background: true, cmd: "printf ready > ready; sleep 5" },
@@ -579,19 +635,20 @@ test("independent MCP processes share one command capacity for the same home", a
     expect(readFileSync(join(ws, "admitted"), "utf8")).toBe("admitted");
   } finally {
     if (taskId) {
-      await first.client.callTool({
-        name: "codex_poll_task",
-        arguments: { workspace: ws, task_id: taskId, kill: true },
-      }).catch(() => {});
-      await first.client.callTool({
-        name: "codex_poll_task",
-        arguments: { workspace: ws, task_id: taskId, wait_ms: 2000 },
-      }).catch(() => {});
+      await first.client
+        .callTool({
+          name: "codex_poll_task",
+          arguments: { workspace: ws, task_id: taskId, kill: true },
+        })
+        .catch(() => {});
+      await first.client
+        .callTool({
+          name: "codex_poll_task",
+          arguments: { workspace: ws, task_id: taskId, wait_ms: 2000 },
+        })
+        .catch(() => {});
     }
-    await Promise.all([
-      first.client.close().catch(() => {}),
-      second.client.close().catch(() => {}),
-    ]);
+    await Promise.all([first.client.close().catch(() => {}), second.client.close().catch(() => {})]);
   }
 });
 
@@ -608,10 +665,7 @@ test("closing an MCP transport settles its running background task and frees the
   const first = connectChatFirst(home);
   const second = connectChatFirst(home);
   try {
-    await Promise.all([
-      first.client.connect(first.transport),
-      second.client.connect(second.transport),
-    ]);
+    await Promise.all([first.client.connect(first.transport), second.client.connect(second.transport)]);
     const started = await first.client.callTool({
       name: "codex_exec",
       arguments: { workspace: ws, background: true, cmd: "printf ready > ready; sleep 2; printf late > late" },
@@ -632,10 +686,7 @@ test("closing an MCP transport settles its running background task and frees the
     await Bun.sleep(2200);
     expect(existsSync(join(ws, "late"))).toBe(false);
   } finally {
-    await Promise.all([
-      first.client.close().catch(() => {}),
-      second.client.close().catch(() => {}),
-    ]);
+    await Promise.all([first.client.close().catch(() => {}), second.client.close().catch(() => {})]);
   }
 });
 
@@ -652,10 +703,7 @@ test("an abruptly killed MCP owner cannot silently grant its potentially running
   const first = connectChatFirst(home);
   const second = connectChatFirst(home);
   try {
-    await Promise.all([
-      first.client.connect(first.transport),
-      second.client.connect(second.transport),
-    ]);
+    await Promise.all([first.client.connect(first.transport), second.client.connect(second.transport)]);
     const started = await first.client.callTool({
       name: "codex_exec",
       arguments: { workspace: ws, background: true, cmd: "printf ready > ready; sleep 1; printf done > done" },
@@ -681,9 +729,12 @@ test("an abruptly killed MCP owner cannot silently grant its potentially running
     }
     expect(existsSync(join(ws, "done"))).toBe(true);
 
-    const status = Bun.spawn([
-      process.execPath, "src/cli.ts", "admission", "status", "--json",
-    ], { cwd: process.cwd(), env: childEnv(home), stdout: "pipe", stderr: "pipe" });
+    const status = Bun.spawn([process.execPath, "src/cli.ts", "admission", "status", "--json"], {
+      cwd: process.cwd(),
+      env: childEnv(home),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     expect(await status.exited).toBe(0);
     const snapshot = JSON.parse(await new Response(status.stdout).text()) as {
       active: Array<{ id: number; ownerPid: number }>;
@@ -691,10 +742,17 @@ test("an abruptly killed MCP owner cannot silently grant its potentially running
     expect(snapshot.active).toHaveLength(1);
     expect(snapshot.active[0]?.ownerPid).toBe(pid!);
 
-    const recovered = Bun.spawn([
-      process.execPath, "src/cli.ts", "admission", "recover", String(snapshot.active[0]!.id),
-      "--ack-descendants-settled",
-    ], { cwd: process.cwd(), env: childEnv(home), stdout: "pipe", stderr: "pipe" });
+    const recovered = Bun.spawn(
+      [
+        process.execPath,
+        "src/cli.ts",
+        "admission",
+        "recover",
+        String(snapshot.active[0]!.id),
+        "--ack-descendants-settled",
+      ],
+      { cwd: process.cwd(), env: childEnv(home), stdout: "pipe", stderr: "pipe" },
+    );
     expect(await recovered.exited).toBe(0);
     const admitted = await second.client.callTool({
       name: "codex_exec",
@@ -703,9 +761,6 @@ test("an abruptly killed MCP owner cannot silently grant its potentially running
     expect(admitted.isError).toBeUndefined();
     expect(readFileSync(join(ws, "recovered"), "utf8")).toBe("recovered");
   } finally {
-    await Promise.all([
-      first.client.close().catch(() => {}),
-      second.client.close().catch(() => {}),
-    ]);
+    await Promise.all([first.client.close().catch(() => {}), second.client.close().catch(() => {})]);
   }
 });

@@ -21,7 +21,9 @@ export async function readChatGptUsageAccount(page: Page): Promise<{
   }
   const identity = await page.evaluate(async () => {
     const response = await fetch("/api/auth/session", {
-      credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(5_000),
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
     });
     const url = new URL(response.url);
     if (!response.ok || url.origin !== "https://chatgpt.com" || url.pathname !== "/api/auth/session") {
@@ -37,8 +39,11 @@ export async function readChatGptUsageAccount(page: Page): Promise<{
       needsAttention: session?.account?.isDelinquent === true,
     };
   });
-  if ([identity.userId, identity.accountId, identity.planType, identity.structure]
-    .some(value => typeof value !== "string" || !value || value.length > 256)) {
+  if (
+    [identity.userId, identity.accountId, identity.planType, identity.structure].some(
+      (value) => typeof value !== "string" || !value || value.length > 256,
+    )
+  ) {
     throw new Error("Limits could not identify the current ChatGPT account. Sign in and retry.");
   }
   return {
@@ -51,26 +56,31 @@ export async function readChatGptUsageAccount(page: Page): Promise<{
 
 /** Read the current subscription heading, not upgrade offers, invoices, or a bare 'Pro' badge. */
 export function chatGptLimitsPlanFromHeadings(headings: readonly string[]): "pro_100" | "pro_200" {
-  const plans = headings.map(text => text.trim()).filter(text => /^ChatGPT Pro\b/i.test(text));
+  const plans = headings.map((text) => text.trim()).filter((text) => /^ChatGPT Pro\b/i.test(text));
   if (plans.length === 1 && /^ChatGPT Pro 20x$/i.test(plans[0]!)) return "pro_200";
   if (plans.length === 1 && /^ChatGPT Pro 5x$/i.test(plans[0]!)) return "pro_100";
-  throw new Error("Could not distinguish Pro $100 from Pro $200 in ChatGPT billing settings. Limits tracking was not enabled.");
+  throw new Error(
+    "Could not distinguish Pro $100 from Pro $200 in ChatGPT billing settings. Limits tracking was not enabled.",
+  );
 }
 
 export async function detectChatGptLimitsPlan(page: Page): Promise<{ accountKey: string; plan: ChatGptLimitsPlan }> {
   const before = await readChatGptUsageAccount(page);
   if (!supportsChatGptUsageTracking(before)) return { accountKey: before.accountKey, plan: "unsupported" };
   if (before.needsAttention) {
-    throw new Error("ChatGPT reports a subscription payment problem. Check your plan in ChatGPT settings before enabling Limits.");
+    throw new Error(
+      "ChatGPT reports a subscription payment problem. Check your plan in ChatGPT settings before enabling Limits.",
+    );
   }
-  if (await page.getByRole("dialog").filter({ visible: true }).count() > 0) {
+  if ((await page.getByRole("dialog").filter({ visible: true }).count()) > 0) {
     throw new Error("Close the open ChatGPT dialog and retry Limits setup.");
   }
   let settings: Locator | undefined;
   const returnUrl = page.url();
   let openedSettingsPage = false;
   try {
-    const modernComposer = page.locator('form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"][role="textbox"]')
+    const modernComposer = page
+      .locator('form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"][role="textbox"]')
       .filter({ visible: true });
     const modernCount = await modernComposer.count();
     if (modernCount > 1) throw new Error("Limits could not identify a unique ChatGPT page.");
@@ -80,8 +90,10 @@ export async function detectChatGptLimitsPlan(page: Page): Promise<{ accountKey:
       // directly, without depending on translated profile/menu button labels.
       openedSettingsPage = true;
       await page.goto("https://chatgpt.com/settings/billing", { waitUntil: "domcontentloaded", timeout: 15_000 });
-      if (page.url() !== "https://chatgpt.com/settings/billing") throw new Error("ChatGPT did not open Billing settings.");
-      const subscription = page.locator('main [class~="@container/settings-row"]')
+      if (page.url() !== "https://chatgpt.com/settings/billing")
+        throw new Error("ChatGPT did not open Billing settings.");
+      const subscription = page
+        .locator('main [class~="@container/settings-row"]')
         .filter({ has: page.locator("button") })
         .filter({ has: page.getByText(/^ChatGPT Pro\b/i) });
       // Current subscription rows are separate from invoice tables and upgrade
@@ -92,12 +104,15 @@ export async function detectChatGptLimitsPlan(page: Page): Promise<{ accountKey:
       // Collapsed and expanded sidebars can both keep a layout-visible profile
       // control in the DOM. Only the hit-testable control can open its menu.
       const profiles = page.getByTestId("accounts-profile-button").filter({ visible: true });
-      const actionable = await profiles.evaluateAll(elements => elements.flatMap((element, index) => {
-        const rect = element.getBoundingClientRect();
-        const hit = element.ownerDocument.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-        return hit && element.contains(hit) ? [index] : [];
-      }));
-      if (actionable.length !== 1) throw new Error("Limits could not identify a unique accessible ChatGPT profile control.");
+      const actionable = await profiles.evaluateAll((elements) =>
+        elements.flatMap((element, index) => {
+          const rect = element.getBoundingClientRect();
+          const hit = element.ownerDocument.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          return hit && element.contains(hit) ? [index] : [];
+        }),
+      );
+      if (actionable.length !== 1)
+        throw new Error("Limits could not identify a unique accessible ChatGPT profile control.");
       // Enter targets the profile control itself; a center click can hit its nested payment button.
       await profiles.nth(actionable[0]!).press("Enter", { timeout: 5_000 });
       await page.getByTestId("settings-menu-item").click({ timeout: 5_000 });
@@ -110,8 +125,12 @@ export async function detectChatGptLimitsPlan(page: Page): Promise<{ accountKey:
     }
     const plan = chatGptLimitsPlanFromHeadings(headings);
     const after = await readChatGptUsageAccount(page);
-    if (after.accountKey !== before.accountKey || after.planType !== before.planType
-      || !supportsChatGptUsageTracking(after) || after.needsAttention) {
+    if (
+      after.accountKey !== before.accountKey ||
+      after.planType !== before.planType ||
+      !supportsChatGptUsageTracking(after) ||
+      after.needsAttention
+    ) {
       throw new Error("The ChatGPT account or subscription changed during Limits setup. Retry the check.");
     }
     return { accountKey: after.accountKey, plan };
@@ -119,10 +138,15 @@ export async function detectChatGptLimitsPlan(page: Page): Promise<{ accountKey:
     // Only dismiss the UI opened by this inspection; no subscription controls are activated.
     if (openedSettingsPage && page.url().startsWith("https://chatgpt.com/settings/")) {
       await page.goto(returnUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
-    } else if (settings && await settings.isVisible().catch(() => false)) {
+    } else if (settings && (await settings.isVisible().catch(() => false))) {
       await page.keyboard.press("Escape");
       await settings.waitFor({ state: "hidden", timeout: 5_000 });
-    } else if (await page.getByTestId("settings-menu-item").isVisible().catch(() => false)) {
+    } else if (
+      await page
+        .getByTestId("settings-menu-item")
+        .isVisible()
+        .catch(() => false)
+    ) {
       await page.keyboard.press("Escape");
     }
   }
@@ -131,10 +155,12 @@ export async function detectChatGptLimitsPlan(page: Page): Promise<{ accountKey:
 /** The slider's own accessibility announcement names the selected family, even for 'Latest'. */
 export async function readChatGptUsageModel(slider: Locator, isPro: boolean): Promise<ChatGptUsageModel> {
   if (!isPro) return "other";
-  const announcements = await slider.locator("xpath=ancestor::*[@role='menuitem'][1]").evaluate(element => (
-    (element.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean)
-      .map(id => element.ownerDocument.getElementById(id)?.textContent ?? "")
-  ));
+  const announcements = await slider.locator("xpath=ancestor::*[@role='menuitem'][1]").evaluate((element) =>
+    (element.getAttribute("aria-describedby") ?? "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((id) => element.ownerDocument.getElementById(id)?.textContent ?? ""),
+  );
   return chatGptUsageModelFromAnnouncements(announcements);
 }
 

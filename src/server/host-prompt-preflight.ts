@@ -1,19 +1,27 @@
-import type { AppConfig } from "../config";
-import type { CodexParsedRequest } from "../types";
-import { estimateTokens } from "../lib/token-estimate";
-import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "../adapters/chatgpt-web/model";
-import { enforcePreflightDeliveryBudget, preparePreflightInput } from "../adapters/chatgpt-web/preflight-budget";
-import { enforceMissionHeadroom } from "../adapters/chatgpt-web/mission-headroom";
-import { resolveBiggerContextMultipartParts } from "../adapters/chatgpt-web/usage";
-import { compileChatGptWebPrompt, formatChatGptWebMultipartCommit, formatChatGptWebMultipartStage } from "../adapters/chatgpt-web/prompt";
-import { estimateChatGptWebImageTokens, measureCompiledChatGptWebInput } from "../adapters/chatgpt-web/input-tokens";
-import { skillFileTokens } from "../adapters/chatgpt-web/skill-attachments";
 import { assertChatGptPromptAttachments } from "../adapters/chatgpt-web/browser/payloads";
 import {
   assertChatGptWebInputWithinLimits,
   assertChatGptWebMultipartInputWithinLimits,
   resolveChatGptWebMultipartStagingMode,
 } from "../adapters/chatgpt-web/browser/staging-limits";
+import { estimateChatGptWebImageTokens, measureCompiledChatGptWebInput } from "../adapters/chatgpt-web/input-tokens";
+import { enforceMissionHeadroom } from "../adapters/chatgpt-web/mission-headroom";
+import {
+  CHATGPT_WEB_LUNA_MODEL_ID,
+  type ChatGptWebCapabilities,
+  resolveChatGptWebModelMode,
+} from "../adapters/chatgpt-web/model";
+import { enforcePreflightDeliveryBudget, preparePreflightInput } from "../adapters/chatgpt-web/preflight-budget";
+import {
+  compileChatGptWebPrompt,
+  formatChatGptWebMultipartCommit,
+  formatChatGptWebMultipartStage,
+} from "../adapters/chatgpt-web/prompt";
+import { skillFileTokens } from "../adapters/chatgpt-web/skill-attachments";
+import { resolveBiggerContextMultipartParts } from "../adapters/chatgpt-web/usage";
+import type { AppConfig } from "../config";
+import { estimateTokens } from "../lib/token-estimate";
+import type { CodexParsedRequest } from "../types";
 
 // The broker issues opaqueId("host_turn"): 32 base64url characters after this prefix.
 const HOST_PREFLIGHT_TOKEN = "host_turn_Ab3xK9qRm2Vt7Yp4Nc8Fd5Hs0Jw6Ze1L";
@@ -31,14 +39,15 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
     experimentalBiggerContext: config.experimentalBiggerContext === true,
   });
   enforcePreflightDeliveryBudget(input, verdict);
-  const multipartParts = config.experimentalBiggerContext || verdict.actionRequired === "promote_multipart"
-    ? resolveBiggerContextMultipartParts(
-      input,
-      capabilities,
-      config.experimentalSkillAttachments === true,
-      verdict.actionRequired === "promote_multipart",
-    )
-    : undefined;
+  const multipartParts =
+    config.experimentalBiggerContext || verdict.actionRequired === "promote_multipart"
+      ? resolveBiggerContextMultipartParts(
+          input,
+          capabilities,
+          config.experimentalSkillAttachments === true,
+          verdict.actionRequired === "promote_multipart",
+        )
+      : undefined;
   const compiled = compileChatGptWebPrompt(input, capabilities, mode.localTools ? HOST_PREFLIGHT_TOKEN : undefined, {
     captureLunaCheckpoint: parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID,
     experimentalSkillAttachments: config.experimentalSkillAttachments === true,
@@ -59,16 +68,20 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
     return;
   }
   const transaction = `ctx_${"0".repeat(32)}`;
-  const stages = compiled.multipart.parts.slice(0, -1).map((payload, index) => formatChatGptWebMultipartStage(
-    payload,
-    transaction,
-    index + 1,
-    compiled.multipart!.parts.length,
-  ));
+  const stages = compiled.multipart.parts
+    .slice(0, -1)
+    .map((payload, index) =>
+      formatChatGptWebMultipartStage(payload, transaction, index + 1, compiled.multipart!.parts.length),
+    );
   const final = formatChatGptWebMultipartCommit(compiled.multipart, transaction);
-  const maxStageTokens = Math.max(...stages.map(stage => estimateTokens(stage.text, parsed.modelId)));
-  const maxStageChars = Math.max(...stages.map(stage => stage.text.length));
-  const stagingMode = resolveChatGptWebMultipartStagingMode(parsed.modelId, capabilities, maxStageTokens, maxStageChars);
+  const maxStageTokens = Math.max(...stages.map((stage) => estimateTokens(stage.text, parsed.modelId)));
+  const maxStageChars = Math.max(...stages.map((stage) => stage.text.length));
+  const stagingMode = resolveChatGptWebMultipartStagingMode(
+    parsed.modelId,
+    capabilities,
+    maxStageTokens,
+    maxStageChars,
+  );
   assertChatGptWebMultipartInputWithinLimits(
     metrics.inputTokens,
     metrics.maxMessageTokens,

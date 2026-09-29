@@ -41,15 +41,21 @@ test("Bigger Context is disabled by default and read from the isolated DEV runti
     });
     expect(readDevChatExperimentalFeatures(paths)).toEqual({ biggerContext: false });
     mkdirSync(paths.home, { recursive: true });
-    writeFileSync(paths.configPath, JSON.stringify({
-      version: 3,
-      experimentalBiggerContext: true,
-    }));
+    writeFileSync(
+      paths.configPath,
+      JSON.stringify({
+        version: 3,
+        experimentalBiggerContext: true,
+      }),
+    );
     expect(readDevChatExperimentalFeatures(paths)).toEqual({ biggerContext: true });
-    writeFileSync(paths.configPath, JSON.stringify({
-      version: 3,
-      experimentalBiggerContext: "yes",
-    }));
+    writeFileSync(
+      paths.configPath,
+      JSON.stringify({
+        version: 3,
+        experimentalBiggerContext: "yes",
+      }),
+    );
     expect(() => readDevChatExperimentalFeatures(paths)).toThrow("Invalid Bigger Context preference");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -58,68 +64,78 @@ test("Bigger Context is disabled by default and read from the isolated DEV runti
 
 test("DEV profile path refuses production home reuse", () => {
   const shared = "/Users/tester/shared";
-  expect(() => resolveDevProfilePaths({
-    homeDirectory: "/Users/tester",
-    environment: {
-      CODEX_CHATGPT_WEB_HOME: shared,
-      CODEX_WEB_GPT_DEV_HOME: shared,
-    },
-  })).toThrow("must differ from the production");
+  expect(() =>
+    resolveDevProfilePaths({
+      homeDirectory: "/Users/tester",
+      environment: {
+        CODEX_CHATGPT_WEB_HOME: shared,
+        CODEX_WEB_GPT_DEV_HOME: shared,
+      },
+    }),
+  ).toThrow("must differ from the production");
 });
 
 test("installed launcher discovery has explicit platform candidates", () => {
-  expect(installedLauncherCandidates({
-    platform: "darwin",
-    homeDirectory: "/Users/tester",
-    environment: {},
-  })).toEqual([
+  expect(
+    installedLauncherCandidates({
+      platform: "darwin",
+      homeDirectory: "/Users/tester",
+      environment: {},
+    }),
+  ).toEqual([
     "/Applications/Codex Web GPT.app/Contents/MacOS/Codex Web GPT",
     "/Users/tester/Applications/Codex Web GPT.app/Contents/MacOS/Codex Web GPT",
   ]);
-  expect(installedLauncherCandidates({
-    platform: "linux",
-    homeDirectory: "/home/tester",
-    environment: { PATH: "/usr/local/bin:/usr/bin" },
-  })).toEqual([
-    "/home/tester/.local/bin/codex-web-gpt",
-    "/usr/local/bin/codex-web-gpt",
-    "/usr/bin/codex-web-gpt",
-  ]);
-  expect(installedLauncherCandidates({
-    platform: "win32",
-    homeDirectory: "C:\\Users\\tester",
-    environment: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
-  })).toEqual([
-    "C:\\Users\\tester\\AppData\\Local\\Programs\\Codex Web GPT\\Codex Web GPT.exe",
-  ]);
-  expect(installedLauncherCandidates({
-    platform: "win32",
-    homeDirectory: "C:\\Users\\tester",
-    environment: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
-    windowsInstallLocation: "D:\\Apps\\Codex Web GPT",
-  })).toEqual([
-    "D:\\Apps\\Codex Web GPT\\Codex Web GPT.exe",
-  ]);
+  expect(
+    installedLauncherCandidates({
+      platform: "linux",
+      homeDirectory: "/home/tester",
+      environment: { PATH: "/usr/local/bin:/usr/bin" },
+    }),
+  ).toEqual(["/home/tester/.local/bin/codex-web-gpt", "/usr/local/bin/codex-web-gpt", "/usr/bin/codex-web-gpt"]);
+  expect(
+    installedLauncherCandidates({
+      platform: "win32",
+      homeDirectory: "C:\\Users\\tester",
+      environment: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
+    }),
+  ).toEqual(["C:\\Users\\tester\\AppData\\Local\\Programs\\Codex Web GPT\\Codex Web GPT.exe"]);
+  expect(
+    installedLauncherCandidates({
+      platform: "win32",
+      homeDirectory: "C:\\Users\\tester",
+      environment: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
+      windowsInstallLocation: "D:\\Apps\\Codex Web GPT",
+    }),
+  ).toEqual(["D:\\Apps\\Codex Web GPT\\Codex Web GPT.exe"]);
 });
 
 test("injected Windows discovery avoids the live registry while ordinary discovery still uses it", () => {
   const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
-  const registry = spyOn(childProcess, "execFileSync").mockImplementation((() =>
-    "    InstallLocation    REG_SZ    D:\\Installed\\Codex Web GPT\n"
-  ) as unknown as typeof childProcess.execFileSync);
+  const registry = spyOn(childProcess, "execFileSync").mockImplementation(
+    (() =>
+      "    InstallLocation    REG_SZ    D:\\Installed\\Codex Web GPT\n") as unknown as typeof childProcess.execFileSync,
+  );
   Object.defineProperty(process, "platform", { ...platform, value: "win32" });
   try {
-    expect(installedLauncherCandidates({
-      platform: "win32",
-      environment: { LOCALAPPDATA: "C:\\Fixture\\AppData\\Local" },
-    })).toEqual(["C:\\Fixture\\AppData\\Local\\Programs\\Codex Web GPT\\Codex Web GPT.exe"]);
+    expect(
+      installedLauncherCandidates({
+        platform: "win32",
+        environment: { LOCALAPPDATA: "C:\\Fixture\\AppData\\Local" },
+      }),
+    ).toEqual(["C:\\Fixture\\AppData\\Local\\Programs\\Codex Web GPT\\Codex Web GPT.exe"]);
     expect(registry).not.toHaveBeenCalled();
-    expect(installedLauncherCandidates({ platform: "win32", environment: process.env }))
-      .toEqual(["D:\\Installed\\Codex Web GPT\\Codex Web GPT.exe"]);
+    expect(installedLauncherCandidates({ platform: "win32", environment: process.env })).toEqual([
+      "D:\\Installed\\Codex Web GPT\\Codex Web GPT.exe",
+    ]);
     expect(registry).toHaveBeenCalledTimes(1);
-    expect(installedLauncherCandidates({
-      platform: "win32", environment: {}, windowsInstallLocation: "E:\\Explicit",
-    })).toEqual(["E:\\Explicit\\Codex Web GPT.exe"]);
+    expect(
+      installedLauncherCandidates({
+        platform: "win32",
+        environment: {},
+        windowsInstallLocation: "E:\\Explicit",
+      }),
+    ).toEqual(["E:\\Explicit\\Codex Web GPT.exe"]);
     expect(registry).toHaveBeenCalledTimes(1);
   } finally {
     Object.defineProperty(process, "platform", platform);
@@ -135,12 +151,14 @@ test("DEV launcher child cannot inherit production home or browser-profile overr
       CODEX_WEB_GPT_DEV_HOME: "/Users/tester/development",
     },
   });
-  expect(devLauncherEnvironment(paths, {
-    KEEP_ME: "yes",
-    CODEX_CHATGPT_WEB_HOME: paths.home,
-    CODEX_HOME: "/Users/tester/production-codex",
-    CODEX_WEB_GPT_LAUNCHER_DATA_DIR: "/Users/tester/production-launcher",
-  })).toEqual({
+  expect(
+    devLauncherEnvironment(paths, {
+      KEEP_ME: "yes",
+      CODEX_CHATGPT_WEB_HOME: paths.home,
+      CODEX_HOME: "/Users/tester/production-codex",
+      CODEX_WEB_GPT_LAUNCHER_DATA_DIR: "/Users/tester/production-launcher",
+    }),
+  ).toEqual({
     KEEP_ME: "yes",
     CODEX_WEB_GPT_DEV_HOME: paths.home,
   });

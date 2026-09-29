@@ -22,7 +22,7 @@ export function structuredContent(text: string): unknown | undefined {
 
 export function brokerContent(content: string | CodexContentPart[]): unknown[] {
   if (typeof content === "string") return [{ type: "text", text: content }];
-  return content.map(part => {
+  return content.map((part) => {
     if (part.type === "text") return { type: "text", text: part.text };
     const parsed = parseDataUrl(part.imageUrl);
     if (parsed) return { type: "image", data: parsed.base64, mimeType: parsed.mediaType };
@@ -32,9 +32,13 @@ export function brokerContent(content: string | CodexContentPart[]): unknown[] {
 
 export function brokerResult(message: CodexToolResultMessage): BrokerToolResult {
   const content = brokerContent(message.content);
-  const text = typeof message.content === "string"
-    ? message.content
-    : message.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+  const text =
+    typeof message.content === "string"
+      ? message.content
+      : message.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
   const structured = structuredContent(text);
   return {
     content,
@@ -43,7 +47,11 @@ export function brokerResult(message: CodexToolResultMessage): BrokerToolResult 
   };
 }
 
-export function emitToolBatch(requests: BrokerToolRequest[], usage: CodexUsage, emit: (event: AdapterEvent) => void): void {
+export function emitToolBatch(
+  requests: BrokerToolRequest[],
+  usage: CodexUsage,
+  emit: (event: AdapterEvent) => void,
+): void {
   for (const request of requests) {
     emit({ type: "tool_call_start", id: request.callId, name: request.wireName });
     emit({
@@ -57,7 +65,11 @@ export function emitToolBatch(requests: BrokerToolRequest[], usage: CodexUsage, 
   emit({ type: "done", stopReason: "tool_use", endTurn: false, usage });
 }
 
-export function emitBrowserCompletion(outcome: ChatGptBrowserOutcome, usage: CodexUsage, emit: (event: AdapterEvent) => void): void {
+export function emitBrowserCompletion(
+  outcome: ChatGptBrowserOutcome,
+  usage: CodexUsage,
+  emit: (event: AdapterEvent) => void,
+): void {
   if (outcome.type === "error") throw outcome.error;
   emit({ type: "done", stopReason: "stop", endTurn: true, usage });
 }

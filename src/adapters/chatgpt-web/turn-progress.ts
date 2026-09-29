@@ -31,15 +31,12 @@ export const CHATGPT_TOOL_BATCH_TRANSPORT_DEADLINE_MS = 45_000;
 
 export class ChatGptToolBoundaryObservationTimeoutError extends ChatGptWebAdapterError {
   constructor(timeoutMs: number) {
-    super(
-      `ChatGPT did not observe Codex tool boundary within ${timeoutMs}ms`,
-      {
-        status: 504,
-        errorType: "server_error",
-        code: "chatgpt_tool_boundary_observation_timeout",
-        retryable: false,
-      },
-    );
+    super(`ChatGPT did not observe Codex tool boundary within ${timeoutMs}ms`, {
+      status: 504,
+      errorType: "server_error",
+      code: "chatgpt_tool_boundary_observation_timeout",
+      retryable: false,
+    });
     this.name = "ChatGptToolBoundaryObservationTimeoutError";
   }
 }
@@ -250,9 +247,7 @@ export class ChatGptExternalTurnProgress extends ChatGptTurnProgressBroadcaster 
   }
 
   private assertToolBatchRevision(revision: number): void {
-    if (!Number.isSafeInteger(revision)
-      || revision <= 0
-      || revision > this.lastToolBatchRevision) {
+    if (!Number.isSafeInteger(revision) || revision <= 0 || revision > this.lastToolBatchRevision) {
       throw new Error("ChatGPT tool-boundary acknowledgement has an invalid batch revision");
     }
   }
@@ -278,9 +273,7 @@ export class ChatGptMirroredTurnProgress extends ChatGptTurnProgressBroadcaster 
   };
   private observedToolBatchRevision = 0;
 
-  constructor(
-    private readonly onToolBatchObserved?: (revision: number) => Promise<void> | void,
-  ) {
+  constructor(private readonly onToolBatchObserved?: (revision: number) => Promise<void> | void) {
     super();
   }
 
@@ -289,9 +282,7 @@ export class ChatGptMirroredTurnProgress extends ChatGptTurnProgressBroadcaster 
   }
 
   async acknowledgeToolBatch(revision: number): Promise<void> {
-    if (!Number.isSafeInteger(revision)
-      || revision <= 0
-      || revision > this.current.lastToolBatchRevision) {
+    if (!Number.isSafeInteger(revision) || revision <= 0 || revision > this.current.lastToolBatchRevision) {
       throw new Error("ChatGPT mirrored tool-boundary acknowledgement has an invalid batch revision");
     }
     if (revision <= this.observedToolBatchRevision) return;
@@ -306,12 +297,14 @@ export class ChatGptMirroredTurnProgress extends ChatGptTurnProgressBroadcaster 
     // A frame that advances the revision must not contradict what it already reported: the
     // recorder only ever moves these forward, so a regression means a corrupt or forged frame
     // rather than an ordering artefact, and accepting it would desynchronise observed liveness.
-    if (next.lastToolBatchRevision < this.current.lastToolBatchRevision
-      || (this.current.claimed && !next.claimed)
-      || (next.lastProgressAt === undefined && this.current.lastProgressAt !== undefined)
-      || (next.lastProgressAt !== undefined
-        && this.current.lastProgressAt !== undefined
-        && next.lastProgressAt < this.current.lastProgressAt)) {
+    if (
+      next.lastToolBatchRevision < this.current.lastToolBatchRevision ||
+      (this.current.claimed && !next.claimed) ||
+      (next.lastProgressAt === undefined && this.current.lastProgressAt !== undefined) ||
+      (next.lastProgressAt !== undefined &&
+        this.current.lastProgressAt !== undefined &&
+        next.lastProgressAt < this.current.lastProgressAt)
+    ) {
       throw new Error("ChatGPT external progress snapshot regressed against the observed state");
     }
     this.current = { ...next };
@@ -320,20 +313,20 @@ export class ChatGptMirroredTurnProgress extends ChatGptTurnProgressBroadcaster 
   }
 }
 
-export function assertChatGptTurnProgressSnapshot(
-  value: ChatGptExternalTurnProgressSnapshot,
-): void {
+export function assertChatGptTurnProgressSnapshot(value: ChatGptExternalTurnProgressSnapshot): void {
   const finiteIndex = (candidate: number): boolean => Number.isSafeInteger(candidate) && candidate >= 0;
-  if (!value
-    || !finiteIndex(value.revision)
-    || !finiteIndex(value.lastToolBatchRevision)
-    || !finiteIndex(value.activeToolCalls)
-    || (value.claimed !== undefined && typeof value.claimed !== "boolean")
-    || value.lastToolBatchRevision > value.revision
-    || (value.lastProgressAt !== undefined && !Number.isFinite(value.lastProgressAt))
+  if (
+    !value ||
+    !finiteIndex(value.revision) ||
+    !finiteIndex(value.lastToolBatchRevision) ||
+    !finiteIndex(value.activeToolCalls) ||
+    (value.claimed !== undefined && typeof value.claimed !== "boolean") ||
+    value.lastToolBatchRevision > value.revision ||
+    (value.lastProgressAt !== undefined && !Number.isFinite(value.lastProgressAt)) ||
     // Any recorded activity stamps a timestamp, so a frame claiming progress without one is
     // malformed and would otherwise report liveness the daemon never observed.
-    || (value.revision > 0 && value.lastProgressAt === undefined)) {
+    (value.revision > 0 && value.lastProgressAt === undefined)
+  ) {
     throw new Error("ChatGPT external progress snapshot is invalid");
   }
 }
@@ -347,9 +340,11 @@ export function chatGptExternalProgressIsLive(
   if (!Number.isFinite(now) || !Number.isFinite(graceMs) || graceMs < 0) {
     throw new Error("ChatGPT external progress liveness inputs are invalid");
   }
-  return snapshot.claimed === true
-    || snapshot.activeToolCalls > 0
-    || (snapshot.lastProgressAt !== undefined && now - snapshot.lastProgressAt < graceMs);
+  return (
+    snapshot.claimed === true ||
+    snapshot.activeToolCalls > 0 ||
+    (snapshot.lastProgressAt !== undefined && now - snapshot.lastProgressAt < graceMs)
+  );
 }
 
 /** Only unresolved native tool calls veto browser-turn completion. */

@@ -1,19 +1,15 @@
-import {
-  MANAGED_MULTI_AGENT_V2_LINE,
-  MANAGED_MULTI_AGENT_V2_TABLE_LINE,
-  managedAgentMaxDepthLine,
-} from "../codex-integration-shared";
 import type {
   PreviousAgentAssignment,
   PreviousAssignment,
   PreviousFeatureAssignment,
 } from "../codex-integration-shared";
-import { assignmentRegex } from "./assignments";
 import {
-  type CodexConfigDocument,
-  insertDocumentLine,
-  stripTomlComment,
-} from "./document-parser";
+  MANAGED_MULTI_AGENT_V2_LINE,
+  MANAGED_MULTI_AGENT_V2_TABLE_LINE,
+  managedAgentMaxDepthLine,
+} from "../codex-integration-shared";
+import { assignmentRegex } from "./assignments";
+import { type CodexConfigDocument, insertDocumentLine, stripTomlComment } from "./document-parser";
 import { parseInlineBooleanField } from "./inline-tables";
 
 export interface TomlTableRange {
@@ -24,15 +20,11 @@ export interface TomlTableRange {
 export function findTomlTable(lines: string[], tableName: string): TomlTableRange | undefined {
   const escaped = tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const header = new RegExp(`^\\s*\\[${escaped}\\]\\s*(?:#.*)?$`);
-  const matches = lines
-    .map((line, index) => header.test(line) ? index : -1)
-    .filter(index => index >= 0);
+  const matches = lines.map((line, index) => (header.test(line) ? index : -1)).filter((index) => index >= 0);
   if (matches.length > 1) throw new Error(`Codex config contains duplicate [${tableName}] tables`);
   const headerIndex = matches[0];
   if (headerIndex === undefined) return undefined;
-  const relativeEnd = lines
-    .slice(headerIndex + 1)
-    .findIndex(line => /^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(line));
+  const relativeEnd = lines.slice(headerIndex + 1).findIndex((line) => /^\s*\[\[?[^\]]+\]\]?\s*(?:#.*)?$/.test(line));
   return {
     headerIndex,
     endIndex: relativeEnd < 0 ? lines.length : headerIndex + 1 + relativeEnd,
@@ -47,11 +39,7 @@ export function insertFeatureTable(document: CodexConfigDocument): TomlTableRang
   return findTomlTable(document.lines, "features")!;
 }
 
-export function setScalarFeature(
-  document: CodexConfigDocument,
-  key: string,
-  managedLine: string,
-): void {
+export function setScalarFeature(document: CodexConfigDocument, key: string, managedLine: string): void {
   const current = findFeatureAssignment(document.lines, key);
   if (current.index !== undefined) {
     document.lines[current.index] = managedLine;
@@ -177,12 +165,16 @@ export function managedMultiAgentV2AssignmentLine(previous: PreviousFeatureAssig
   const inline = parseInlineBooleanField(rawValue, "multi_agent_v2");
   if (!inline) throw new Error("Could not parse the prior multi_agent_v2 inline table");
   if (inline.valueStart !== undefined && inline.valueEnd !== undefined) {
-    return previous.rawLine.slice(0, prefix[0].length + inline.valueStart)
-      + "false"
-      + previous.rawLine.slice(prefix[0].length + inline.valueEnd);
+    return (
+      previous.rawLine.slice(0, prefix[0].length + inline.valueStart) +
+      "false" +
+      previous.rawLine.slice(prefix[0].length + inline.valueEnd)
+    );
   }
   const bodyHasValues = rawValue.slice(0, inline.bodyContentEnd).trimEnd().endsWith("{") === false;
-  return previous.rawLine.slice(0, prefix[0].length + inline.bodyContentEnd)
-    + `${bodyHasValues ? ", " : ""}enabled = false`
-    + previous.rawLine.slice(prefix[0].length + inline.bodyContentEnd);
+  return (
+    previous.rawLine.slice(0, prefix[0].length + inline.bodyContentEnd) +
+    `${bodyHasValues ? ", " : ""}enabled = false` +
+    previous.rawLine.slice(prefix[0].length + inline.bodyContentEnd)
+  );
 }

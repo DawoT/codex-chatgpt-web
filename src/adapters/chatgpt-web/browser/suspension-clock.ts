@@ -69,11 +69,7 @@ export const chatGptSuspensionClock = new ChatGptSuspensionClock();
  * How much of a stage budget remains once slept time is refunded. Zero means the stage really
  * consumed its budget while awake and the timeout stands.
  */
-export function remainingStageBudgetMs(
-  timeoutMs: number,
-  elapsedMs: number,
-  suspendedMs: number,
-): number {
+export function remainingStageBudgetMs(timeoutMs: number, elapsedMs: number, suspendedMs: number): number {
   const awakeMs = elapsedMs - suspendedMs;
   if (awakeMs >= timeoutMs) return 0;
   return Math.max(250, timeoutMs - awakeMs);
@@ -117,12 +113,8 @@ export async function connectAfterClosingBrowserConnection<T>(
 
 export const CHATGPT_MIN_OPERATIONAL_VIEWPORT = Object.freeze({ width: 320, height: 240 });
 
-export const CHATGPT_COMPOSER_DOCUMENT_END_KEY = process.platform === "darwin"
-  ? "Meta+ArrowDown"
-  : "Control+End";
-export const CHATGPT_COMPOSER_SELECT_ALL_KEY = process.platform === "darwin"
-  ? "Meta+A"
-  : "Control+A";
+export const CHATGPT_COMPOSER_DOCUMENT_END_KEY = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+export const CHATGPT_COMPOSER_SELECT_ALL_KEY = process.platform === "darwin" ? "Meta+A" : "Control+A";
 
 export function throwIfPromptAttachmentAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("ChatGPT prompt attachment aborted", "AbortError");

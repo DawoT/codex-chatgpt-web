@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BackgroundTaskManager, type BackgroundTask } from "../src/adapters/chatgpt-web/background-task-manager";
+import { type BackgroundTask, BackgroundTaskManager } from "../src/adapters/chatgpt-web/background-task-manager";
 
 describe("BackgroundTaskManager", () => {
   test("starts a task in background, streams output to log file, and completes", async () => {
@@ -86,7 +86,7 @@ describe("BackgroundTaskManager", () => {
 
     try {
       const events: BackgroundTask[] = [];
-      const unsubscribe = manager.onCompletion(task => events.push(task));
+      const unsubscribe = manager.onCompletion((task) => events.push(task));
 
       const task = manager.startTask({
         cmd: "echo 'completion test'",
@@ -130,7 +130,7 @@ describe("BackgroundTaskManager", () => {
       manager.onCompletion(() => {
         throw new Error("listener boom");
       });
-      const unsubscribe = manager.onCompletion(task => events.push(task));
+      const unsubscribe = manager.onCompletion((task) => events.push(task));
 
       const task = manager.startTask({
         cmd: "echo 'listener isolation'",
@@ -171,18 +171,27 @@ describe("BackgroundTaskManager", () => {
       });
       running.push(second.id);
 
-      expect(() => manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 }))
-        .toThrow(/2 task\(s\) running \(maxConcurrent=2\)/);
-      expect(() => manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 }))
-        .toThrow(/codex_poll_task/);
+      expect(() =>
+        manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 }),
+      ).toThrow(/2 task\(s\) running \(maxConcurrent=2\)/);
+      expect(() =>
+        manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 }),
+      ).toThrow(/codex_poll_task/);
 
       // A termination request does not immediately free an operating-system process slot.
       expect(manager.killTask(first.id)).toBe(true);
       running.splice(running.indexOf(first.id), 1);
-      expect(() => manager.startTask({ cmd: "echo early", cwd: root, roots: [root], writableRoots: [root] }))
-        .toThrow(/maxConcurrent=2/);
+      expect(() => manager.startTask({ cmd: "echo early", cwd: root, roots: [root], writableRoots: [root] })).toThrow(
+        /maxConcurrent=2/,
+      );
       await manager.pollTask(first.id, 2000);
-      const third = manager.startTask({ cmd: "sleep 5", cwd: root, roots: [root], writableRoots: [root], maxConcurrent: 2 });
+      const third = manager.startTask({
+        cmd: "sleep 5",
+        cwd: root,
+        roots: [root],
+        writableRoots: [root],
+        maxConcurrent: 2,
+      });
       running.push(third.id);
       expect(third.status).toBe("running");
     } finally {
@@ -248,7 +257,7 @@ describe("BackgroundTaskManager", () => {
         lines.push(`log line ${i} with extra padding data to consume bytes in the file`);
       }
       const { appendFileSync } = await import("node:fs");
-      appendFileSync(logPath, "\n" + lines.join("\n") + "\n");
+      appendFileSync(logPath, `\n${lines.join("\n")}\n`);
 
       const log = manager.getTaskLog(task.id, 10);
       expect(log).not.toBeNull();

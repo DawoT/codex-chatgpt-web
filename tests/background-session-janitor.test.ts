@@ -1,17 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SessionStoreJanitor, syncCodexStateDatabase } from "../src/adapters/chatgpt-web/session-store-pruner";
+import { gcSubagentWorkspaces } from "../src/adapters/chatgpt-web/subagent-workspace";
 import { defaultConfig } from "../src/config";
 import { startServer } from "../src/server";
-import {
-  SessionStoreJanitor,
-  syncCodexStateDatabase,
-  type SessionJanitorOptions,
-} from "../src/adapters/chatgpt-web/session-store-pruner";
-import { gcSubagentWorkspaces } from "../src/adapters/chatgpt-web/subagent-workspace";
 
 describe("Sprint AD: Autonomous Background Session Janitor", () => {
-  const testDir = join(process.cwd(), ".agents", "scratch", "test-janitor-" + Date.now());
+  const testDir = join(process.cwd(), ".agents", "scratch", `test-janitor-${Date.now()}`);
 
   beforeEach(() => {
     mkdirSync(testDir, { recursive: true });
@@ -114,17 +110,19 @@ describe("Sprint AD: Autonomous Background Session Janitor", () => {
     });
 
     test("schedules periodic runs with timer", async () => {
-      let runCount = 0;
+      let _runCount = 0;
       const janitor = new SessionStoreJanitor({
         sessionsDir: testDir,
         intervalMs: 50, // fast interval for test
         initialDelayMs: 20,
         runOnStart: true,
-        logger: () => { runCount++; },
+        logger: () => {
+          _runCount++;
+        },
       });
 
       janitor.start();
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 150));
       janitor.stop();
 
       const stats = janitor.getStats();
@@ -143,7 +141,7 @@ describe("Sprint AD: Autonomous Background Session Janitor", () => {
       try {
         const res = await fetch(`http://127.0.0.1:${config.port}/healthz`);
         expect(res.status).toBe(200);
-        const data = await res.json() as { session_janitor?: Record<string, unknown> };
+        const data = (await res.json()) as { session_janitor?: Record<string, unknown> };
         expect(data.session_janitor).toBeDefined();
         expect(data.session_janitor?.enabled).toBe(true);
         expect(typeof data.session_janitor?.runs_count).toBe("number");
@@ -174,7 +172,7 @@ describe("Sprint AD: Autonomous Background Session Janitor", () => {
           },
         });
         expect(authRes.status).toBe(200);
-        const result = await authRes.json() as { status: string; result: { scannedFiles: number } };
+        const result = (await authRes.json()) as { status: string; result: { scannedFiles: number } };
         expect(result.status).toBe("ok");
         expect(typeof result.result.scannedFiles).toBe("number");
       } finally {
@@ -224,7 +222,7 @@ describe("Sprint AD: Autonomous Background Session Janitor", () => {
       const dbAfter = new Database(dbPath);
       const remainingRows = dbAfter.query("SELECT id FROM threads").all() as Array<{ id: string }>;
       dbAfter.close();
-      expect(remainingRows.map(r => r.id)).toEqual(["t1"]);
+      expect(remainingRows.map((r) => r.id)).toEqual(["t1"]);
     });
   });
 });

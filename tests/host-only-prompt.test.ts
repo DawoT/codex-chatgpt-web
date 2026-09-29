@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import type { CodexParsedRequest } from "../src/types";
 
 const capabilities = { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true };
@@ -12,18 +12,22 @@ function request(hostOnly: boolean): CodexParsedRequest {
     context: { systemPrompt: [], messages: [{ role: "user", content: "Inspect symbols", timestamp: 1 }] },
     stream: true,
     options: { reasoning: "high" },
-    ...(hostOnly ? { _hostTurn: {
-      sessionId: "host-session",
-      turnId: "host-turn",
-      environment: {
-        execution: "host-only" as const,
-        cwd: "/workspace",
-        roots: [],
-        writableRoots: [],
-        sandboxPolicy: { type: "readOnly" as const, networkAccess: false },
-        tools: [],
-      },
-    } } : {}),
+    ...(hostOnly
+      ? {
+          _hostTurn: {
+            sessionId: "host-session",
+            turnId: "host-turn",
+            environment: {
+              execution: "host-only" as const,
+              cwd: "/workspace",
+              roots: [],
+              writableRoots: [],
+              sandboxPolicy: { type: "readOnly" as const, networkAccess: false },
+              tools: [],
+            },
+          },
+        }
+      : {}),
   };
 }
 
@@ -46,7 +50,14 @@ for (const continuation of [false, true]) {
 test("authenticated Pi requests derive the user revision without native Codex item metadata", async () => {
   const { parseRequest } = await import("../src/responses/parser");
   const { extractChatGptTurnUserRevision } = await import("../src/adapters/chatgpt-web/environment");
-  const parsed = parseRequest({ model: "chatgpt-web/gpt-5.6-sol", input: [{ role: "user", content: [{ type: "input_text", text: "PI_WEB_OK" }] }] });
-  parsed._hostTurn = { sessionId: "pi_session", turnId: "pi_turn", environment: { cwd: process.cwd(), execution: "host-only" } as any };
+  const parsed = parseRequest({
+    model: "chatgpt-web/gpt-5.6-sol",
+    input: [{ role: "user", content: [{ type: "input_text", text: "PI_WEB_OK" }] }],
+  });
+  parsed._hostTurn = {
+    sessionId: "pi_session",
+    turnId: "pi_turn",
+    environment: { cwd: process.cwd(), execution: "host-only" } as any,
+  };
   expect(extractChatGptTurnUserRevision(parsed)).toEqual([{ type: "input_text", text: "PI_WEB_OK" }]);
 });
