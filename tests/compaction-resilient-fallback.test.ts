@@ -23,6 +23,7 @@ test("retained handoff failures fall back to fresh compaction instead of failing
         { role: "assistant", content: [{ type: "text", text: "Goal in progress" }], timestamp: 2 },
       ],
     },
+    stream: false,
     options: { reasoning: "medium" },
     _compactionRequest: true,
     _rawBody: {
@@ -49,6 +50,8 @@ test("retained handoff failures fall back to fresh compaction instead of failing
   // Register an active retained session head
   chatGptTurnSessions.getOrCreate(convKey, () => ({
     mode: "tools",
+    token: Promise.resolve("turn_active"),
+    externalProgress: { recordToolResult() {} } as never,
     browser: Promise.resolve("source complete"),
     physicalSettlement: Promise.resolve(),
     trace: new ChatGptTraceFeed(),
@@ -80,6 +83,8 @@ test("retained handoff failures fall back to fresh compaction instead of failing
       turnCapabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true },
       manualRequest: false,
       retainedLauncherDescriptor: "launcher-descriptor",
+      experimentalBiggerContext: false,
+      experimentalSkillAttachments: false,
       structuredBroker: {
         beginCompactionTransaction: async () => ({ token: "control_1", handoffId: "handoff_1" }),
         waitForCompactionHandoff: async () => {

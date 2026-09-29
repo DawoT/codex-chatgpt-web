@@ -53,7 +53,7 @@ test("assistant thinking part exceeding the limit is truncated", () => {
     },
   ];
   const result = truncateOversizedMessagesForFallbackCompaction(messages);
-  const parts = result[0]!.content as Array<Record<string, unknown>>;
+  const parts = result[0]!.content as unknown as Array<Record<string, unknown>>;
   const thinkingPart = parts.find(p => p.type === "thinking") as { type: string; thinking: string } | undefined;
   expect(thinkingPart).toBeDefined();
   expect(thinkingPart!.thinking.length).toBeLessThan(longThinking.length);
@@ -70,8 +70,9 @@ test("truncateOversizedContextForFallbackCompaction truncates systemPrompt as we
         { role: "user", content: "hello", timestamp: 1000 },
       ],
     },
+    stream: false,
     options: {
-      reasoning: { effort: "medium" },
+      reasoning: "medium",
     },
   };
   const result = truncateOversizedContextForFallbackCompaction(parsed);
