@@ -14,6 +14,7 @@ import {
   hasCurrentChatGptEnvironmentContext,
   hasChatGptCalendarEnvironmentDelta,
   hasRawChatGptEnvironmentContext,
+  itemTurnId,
   unattributedChatGptEnvironmentMessages,
   isChatGptCompactionContinuation,
   MissingTrustedCodexEnvironmentError,
@@ -174,32 +175,50 @@ export class ChatGptThreadEnvironmentStore {
       const rolloutIdentity = lineage ?? extractChatGptRootThreadMetadata(parsed);
       // Automatic compaction has a current turn_context; standalone compaction has only its
       // source turn_context. Either must be the latest native record, never an arbitrary ancestor.
-      const compactionSourceTurnId = parsed._compactionRequest
-        ? extractChatGptCompactionSourceRevision(parsed).turnId : undefined;
+      let compactionSourceTurnId: Set<string> | undefined;
+      if (parsed._compactionRequest) {
+        compactionSourceTurnId = new Set<string>();
+        try {
+          const source = extractChatGptCompactionSourceRevision(parsed);
+          if (source.turnId) compactionSourceTurnId.add(source.turnId);
+        } catch {}
+        const body = record(parsed._rawBody);
+        const input = Array.isArray(body?.input) ? body.input : [];
+        for (const item of input) {
+          const tid = itemTurnId(item);
+          if (tid) compactionSourceTurnId.add(tid);
+        }
+      }
       if (rolloutIdentity && identity.turnId) {
-        const rolloutEnvironment = resolveCurrentCodexRolloutEnvironment({
-          codexHome: this.codexHome,
-          ...(this.sqliteHome ? { sqliteHome: this.sqliteHome } : {}),
-          lineage: rolloutIdentity,
-          turnId: identity.turnId,
-          ...(compactionSourceTurnId ? { compactionSourceTurnId } : {}),
-          ...(historicalMessages ? { historicalEnvironmentMessages: historicalMessages } : {}),
-          tools: parsed.context.tools,
-        });
-        if (rolloutEnvironment) {
-          if (calendarDelta && rolloutEnvironment.sandboxPolicy.type !== "dangerFullAccess") {
-            throw new Error("Calendar environment delta conflicts with its current Codex rollout");
+        try {
+          const rolloutEnvironment = resolveCurrentCodexRolloutEnvironment({
+            codexHome: this.codexHome,
+            ...(this.sqliteHome ? { sqliteHome: this.sqliteHome } : {}),
+            lineage: rolloutIdentity,
+            turnId: identity.turnId,
+            ...(compactionSourceTurnId ? { compactionSourceTurnId } : {}),
+            ...(historicalMessages ? { historicalEnvironmentMessages: historicalMessages } : {}),
+            tools: parsed.context.tools,
+          });
+          if (rolloutEnvironment) {
+            if (calendarDelta && rolloutEnvironment.sandboxPolicy.type !== "dangerFullAccess") {
+              throw new Error("Calendar environment delta conflicts with its current Codex rollout");
+            }
+            if (currentClaim && !sameAuthority(currentClaim, rolloutEnvironment)) {
+              throw new Error(`${currentCompaction ? "Compaction continuation" : "Steering"} environment conflicts with its current Codex rollout`);
+            }
+            this.set(rolloutIdentity.threadId, rolloutEnvironment);
+            return rolloutEnvironment;
           }
-          if (currentClaim && !sameAuthority(currentClaim, rolloutEnvironment)) {
-            throw new Error(`${currentCompaction ? "Compaction continuation" : "Steering"} environment conflicts with its current Codex rollout`);
-          }
-          this.set(rolloutIdentity.threadId, rolloutEnvironment);
-          return rolloutEnvironment;
+        } catch (rolloutError) {
+          if (!parsed._compactionRequest) throw rolloutError;
+          const cached = this.get(identity.threadId);
+          if (!cached) throw rolloutError;
         }
       }
       // Only a current native rollout can supersede an unrecognized historical envelope. Without
       // that proof, do not turn arbitrary history or an invalid update into cached authority.
-      if (hasRawChatGptEnvironmentContext(parsed)) throw error;
+      if (hasRawChatGptEnvironmentContext(parsed) && !parsed._compactionRequest) throw error;
       const sameThread = this.get(identity.threadId);
       if (sameThread) return {
         cwd: sameThread.cwd,

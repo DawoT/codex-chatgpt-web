@@ -607,7 +607,7 @@ export function resolveCurrentCodexRolloutEnvironment(options: {
   sqliteHome?: string;
   lineage: RolloutIdentity;
   turnId: string;
-  compactionSourceTurnId?: string;
+  compactionSourceTurnId?: string | readonly string[] | Set<string>;
   tools?: readonly CodexTool[];
   historicalEnvironmentMessages?: ChatGptUnattributedEnvironmentMessage[];
 }): ChatGptTurnEnvironment | undefined {
@@ -615,7 +615,8 @@ export function resolveCurrentCodexRolloutEnvironment(options: {
   const nativeThreadId = CODEX_ID.test(lineage.threadId);
   const nativeTurnId = CODEX_ID.test(turnId);
   if (!nativeThreadId && !nativeTurnId) return undefined;
-  if (!nativeThreadId || !nativeTurnId || (compactionSourceTurnId !== undefined && !CODEX_ID.test(compactionSourceTurnId))
+  const singleCompactionSource = typeof compactionSourceTurnId === "string" ? compactionSourceTurnId : undefined;
+  if (!nativeThreadId || !nativeTurnId || (singleCompactionSource !== undefined && !CODEX_ID.test(singleCompactionSource))
     || ("parentThreadId" in lineage && !CODEX_ID.test(lineage.parentThreadId))) {
     throw new Error("Codex thread metadata contains an invalid native identifier");
   }
@@ -639,7 +640,16 @@ export function resolveCurrentCodexRolloutEnvironment(options: {
       validateSessionMeta(firstRolloutRecord(fd, size), lineage);
       const latest = latestTurnContext(fd, size);
       if (!latest) throw new Error("Codex rollout has no complete turn context");
-      if (latest.turn_id !== turnId && (compactionSourceTurnId === undefined || latest.turn_id !== compactionSourceTurnId)) {
+      const latestTurnId = typeof latest.turn_id === "string" ? latest.turn_id : undefined;
+      const matchesTurn = latestTurnId === turnId;
+      const matchesCompactionSource = typeof compactionSourceTurnId === "string"
+        ? latestTurnId === compactionSourceTurnId
+        : compactionSourceTurnId instanceof Set
+          ? (latestTurnId !== undefined && compactionSourceTurnId.has(latestTurnId))
+          : Array.isArray(compactionSourceTurnId)
+            ? (latestTurnId !== undefined && compactionSourceTurnId.includes(latestTurnId))
+            : false;
+      if (!matchesTurn && (compactionSourceTurnId === undefined || !matchesCompactionSource)) {
         if (indexed.kind === "found") {
           throw new Error("Latest Codex rollout turn context does not belong to the requested turn");
         }
