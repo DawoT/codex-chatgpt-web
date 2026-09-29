@@ -3,6 +3,7 @@ import { currentMcpTrace } from "../mcp-trace-context";
 import { randomBytes } from "node:crypto";
 import type { CodexTool } from "../../../types";
 import type { ChatGptTurnEnvironment } from "../environment";
+import { runtimeIdentity } from "../../../runtime-identity";
 import { callTurnBroker, TurnBrokerTimeoutError, type BrokerToolResult } from "../turn-broker";
 import { result } from "../fast-path-handlers";
 import { execGatewayProgram } from "./gateway-programs";
@@ -24,7 +25,10 @@ export class TurnCoordinator {
     extra: McpRequestExtra,
   ): Promise<ClaimedTurn> {
     console.error(`[chatgpt-web-mcp] ${toolName} scope=${requestScopeSummary(extra)}`);
-    const status = await callTurnBroker<{ protocolVersion?: unknown }>(
+    const status = await callTurnBroker<{
+      protocolVersion?: unknown;
+      identity?: { buildCommit?: unknown };
+    }>(
       this.brokerSocketPath,
       { method: "owner_status" },
       5_000,
@@ -32,6 +36,10 @@ export class TurnCoordinator {
     );
     if (status.protocolVersion !== 6) {
       throw new Error(`Unsupported Codex Native broker protocol version: ${String(status.protocolVersion)}`);
+    }
+    if (runtimeIdentity.buildCommit !== null
+      && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
+      throw new Error(`Broker build does not match MCP build ${runtimeIdentity.buildCommit}`);
     }
     const activityId = `activity_${randomBytes(18).toString("base64url")}`;
     try {

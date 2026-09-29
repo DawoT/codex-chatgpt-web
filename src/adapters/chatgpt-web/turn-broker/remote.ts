@@ -1,4 +1,5 @@
 import type { ChatGptTurnEnvironment } from "../environment";
+import { runtimeIdentity } from "../../../runtime-identity";
 import { callTurnBroker } from "./client";
 import { assertSurfaceNonce } from "./helpers";
 import type { BrokerToolRequest, BrokerToolResult, TurnBrokerOwner } from "./types";
@@ -13,7 +14,11 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
   constructor(readonly socketPath: string) {}
 
   async assertCompatible(): Promise<void> {
-    let status: { protocolVersion?: unknown; acceptingExternalOwners?: unknown };
+    let status: {
+      protocolVersion?: unknown;
+      identity?: { buildCommit?: unknown };
+      acceptingExternalOwners?: unknown;
+    };
     try {
       status = await callTurnBroker(this.socketPath, { method: "owner_status" });
     } catch (error) {
@@ -24,6 +29,10 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     }
     if (status.protocolVersion !== 6) {
       throw new Error(`Unsupported DEV turn-owner protocol version: ${String(status.protocolVersion)}`);
+    }
+    if (runtimeIdentity.buildCommit !== null
+      && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
+      throw new Error(`Broker build does not match owner build ${runtimeIdentity.buildCommit}`);
     }
     if (status.acceptingExternalOwners !== true) {
       throw new Error("The running launcher runtime is draining and is not accepting DEV chat turns");
