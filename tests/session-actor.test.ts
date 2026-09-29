@@ -26,7 +26,7 @@ function fixture() {
 function command(
   sessionId: string,
   producerSequence: number,
-  type: "turn_started" | "operation_intent" | "operation_accepted" | "operation_completed" | "surface_claimed" | "surface_released" | "generation_revoked" | "compaction_prepared" | "compaction_received" | "compaction_validated" | "compaction_persisted" | "compaction_accepted" | "compaction_rejected",
+  type: "turn_started" | "operation_intent" | "operation_accepted" | "operation_completed" | "tool_batch_observed" | "surface_claimed" | "surface_released" | "generation_revoked" | "compaction_prepared" | "compaction_received" | "compaction_validated" | "compaction_persisted" | "compaction_accepted" | "compaction_rejected",
   extra: Record<string, unknown> = {},
 ) {
   return {
@@ -567,6 +567,79 @@ test("restart with only browser acceptance leaves the effect uncertain", async (
     } finally {
       restarted.close();
     }
+  } finally {
+    home.close();
+  }
+});
+
+test("tool observation is durably acknowledged before the browser result and deduplicates retries", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const answer = await manager.runBrowserTurn(
+      "namespace/thread-A",
+      "native-turn-1",
+      "browser-1",
+      async (onAccepted, onToolBatchObserved) => {
+        await onAccepted();
+        const first = await onToolBatchObserved(7, 2);
+        const duplicate = await onToolBatchObserved(7, 2);
+        expect(duplicate).toEqual(first);
+        await expect(onToolBatchObserved(7, 3)).rejects.toThrow("different contents");
+        return "Answer after tools";
+      },
+    );
+    expect(answer).toBe("Answer after tools");
+    expect(home.journal.snapshot("namespace/thread-A")?.sequence).toBe(5);
+  } finally {
+    home.close();
+  }
+});
+
+test("a tool observation from a revoked generation cannot cross into another session", async () => {
+  const home = fixture();
+  try {
+    const a = new SessionActor(home.journal, "namespace/thread-A");
+    const b = new SessionActor(home.journal, "namespace/thread-B");
+    await a.dispatch(command("namespace/thread-A", 1, "turn_started"));
+    await b.dispatch(command("namespace/thread-B", 1, "turn_started"));
+    await a.dispatch(command("namespace/thread-A", 2, "operation_intent", {
+      operationId: "browser-A",
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await a.dispatch(command("namespace/thread-A", 3, "operation_accepted", {
+      operationId: "browser-A",
+    }));
+    const observed = command("namespace/thread-A", 4, "tool_batch_observed", {
+      operationId: "batch-A",
+      parentOperationId: "browser-A",
+      historyRevision: 0,
+      toolBatchRevision: 2,
+    });
+    expect(await a.dispatch(observed)).toEqual({ status: "accepted", sequence: 4 });
+    await expect(a.dispatch(command("namespace/thread-A", 5, "tool_batch_observed", {
+      operationId: "batch-B",
+      parentOperationId: "browser-A",
+      historyRevision: 0,
+      toolBatchRevision: 0,
+    }))).rejects.toThrow("owner or revision mismatch");
+    await a.dispatch(command("namespace/thread-A", 5, "generation_revoked"));
+    expect(await a.dispatch(observed)).toEqual({ status: "stale_generation", currentGeneration: 2 });
+    expect(await a.dispatch(command("namespace/thread-A", 6, "tool_batch_observed", {
+      operationId: "batch-late",
+      parentOperationId: "browser-A",
+      historyRevision: 0,
+      toolBatchRevision: 3,
+    }))).toEqual({ status: "stale_generation", currentGeneration: 2 });
+    expect(await b.dispatch(command("namespace/thread-B", 2, "operation_intent", {
+      operationId: "browser-B",
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }))).toEqual({ status: "accepted", sequence: 2 });
   } finally {
     home.close();
   }

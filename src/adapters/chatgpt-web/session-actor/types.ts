@@ -6,6 +6,7 @@ export type SessionEventType =
   | "operation_accepted"
   | "operation_completed"
   | "operation_uncertain"
+  | "tool_batch_observed"
   | "surface_claimed"
   | "surface_released"
   | "compaction_prepared"
@@ -30,6 +31,8 @@ export interface SessionCommand {
   surfaceId?: string;
   resultRef?: string;
   checkpointRef?: string;
+  parentOperationId?: string;
+  toolBatchRevision?: number;
 }
 
 export type SessionAcknowledgement =

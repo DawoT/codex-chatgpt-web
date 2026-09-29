@@ -271,6 +271,11 @@ export class SessionActorJournal {
   }
 
   private applyTransaction(command: SessionCommand): SessionAcknowledgement {
+    const current = this.snapshot(command.sessionId);
+    const generation = current?.generation ?? 1;
+    if (command.generation !== generation) {
+      return { status: "stale_generation", currentGeneration: generation };
+    }
     const existing = this.database.query<EventRow, [string, number, string, number]>(`
       SELECT command_json AS commandJson, acknowledgement_json AS acknowledgementJson
       FROM session_event
@@ -281,11 +286,6 @@ export class SessionActorJournal {
         throw new Error("Session actor duplicate producer sequence has different contents");
       }
       return JSON.parse(existing.acknowledgementJson) as SessionAcknowledgement;
-    }
-    const current = this.snapshot(command.sessionId);
-    const generation = current?.generation ?? 1;
-    if (command.generation !== generation) {
-      return { status: "stale_generation", currentGeneration: generation };
     }
     const producer = this.database.query<{ latest: number }, [string, number, string]>(`
       SELECT MAX(producer_sequence) AS latest FROM session_event
@@ -407,6 +407,20 @@ export class SessionActorJournal {
           UPDATE session_operation SET state = 'uncertain'
           WHERE session_id = ? AND generation = ? AND operation_id = ?
         `).run(command.sessionId, command.generation, command.operationId);
+      }
+      return;
+    }
+    if (command.type === "tool_batch_observed") {
+      const parent = command.parentOperationId
+        ? this.operation(command.sessionId, command.generation, command.parentOperationId)
+        : null;
+      if (!parent || parent.kind !== "browser_send" || parent.turnId !== command.turnId
+        || parent.historyRevision !== session.historyRevision
+        || parent.state !== "accepted"
+        || command.historyRevision !== session.historyRevision
+        || !Number.isSafeInteger(command.toolBatchRevision)
+        || command.toolBatchRevision! < 1) {
+        throw new Error("Session actor tool batch observation owner or revision mismatch");
       }
       return;
     }

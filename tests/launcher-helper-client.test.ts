@@ -198,6 +198,10 @@ test("daemon streams browser lifecycle through the real helper process", async (
     };
     let markPrepared!: () => void;
     const thirdPrepared = new Promise<void>(resolve => { markPrepared = resolve; });
+    let markJournalRequested!: () => void;
+    const journalRequested = new Promise<void>(resolve => { markJournalRequested = resolve; });
+    let releaseJournal!: () => void;
+    const journalGate = new Promise<void>(resolve => { releaseJournal = resolve; });
     const third = client.run({
       traceId: "abcdef123458",
       modelId: "gpt-5.6-sol",
@@ -208,11 +212,22 @@ test("daemon streams browser lifecycle through the real helper process", async (
         return { text: "inspect", images: [], release() {} };
       },
       externalProgress: progress,
+      onToolBatchObserved: async (_requestId, observedRevision) => {
+        expect(observedRevision).toBe(revision);
+        markJournalRequested();
+        await journalGate;
+      },
       completionFence: { begin: async () => 0, commit: async () => true },
       onTextDelta() {},
     });
     await thirdPrepared;
     const revision = progress.recordToolBatch(1);
+    await journalRequested;
+    let memoryAcknowledged = false;
+    void acknowledgementRequested.then(() => { memoryAcknowledged = true; });
+    await Promise.resolve();
+    expect(memoryAcknowledged).toBeFalse();
+    releaseJournal();
     await acknowledgementRequested;
     const early = await Promise.race([
       third.then(() => true),

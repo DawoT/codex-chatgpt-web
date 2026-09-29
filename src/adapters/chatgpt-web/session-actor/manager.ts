@@ -30,7 +30,10 @@ export class SessionActorManager {
     sessionId: string,
     nativeTurnId: string,
     operationId: string,
-    run: (onAccepted: () => Promise<void>) => Promise<string>,
+    run: (
+      onAccepted: () => Promise<void>,
+      onToolBatchObserved: (requestId: number, revision: number) => Promise<SessionAcknowledgement>,
+    ) => Promise<string>,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
     const admission = await this.beginTurn(sessionId, nativeTurnId);
@@ -84,7 +87,31 @@ export class SessionActorManager {
         acceptance ??= emit("operation_accepted");
         return acceptance;
       };
-      const text = await run(onAccepted);
+      const onToolBatchObserved = async (
+        requestId: number,
+        revision: number,
+      ): Promise<SessionAcknowledgement> => {
+        if (!Number.isSafeInteger(requestId) || requestId < 1) {
+          throw new Error("Session actor tool batch request id is invalid");
+        }
+        await onAccepted();
+        const acknowledgement = await actor.recordLocal(
+          "tool_batch_observed",
+          nativeTurnId,
+          `batch:${operationId}:${requestId}`,
+          {
+            parentOperationId: operationId,
+            historyRevision: snapshot.historyRevision,
+            toolBatchRevision: revision,
+          },
+          generation,
+        );
+        if (acknowledgement.status !== "accepted") {
+          throw new Error(`Session actor tool batch observation rejected: ${acknowledgement.status}`);
+        }
+        return acknowledgement;
+      };
+      const text = await run(onAccepted, onToolBatchObserved);
       await onAccepted();
       const resultRef = this.results!.put({
         sessionId,

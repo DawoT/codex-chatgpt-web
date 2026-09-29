@@ -24,13 +24,21 @@ export class SessionActor {
     type: SessionCommand["type"],
     turnId: string,
     operationId: string,
+    fields: Pick<SessionCommand, "historyRevision" | "parentOperationId" | "toolBatchRevision"> = {},
+    expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     const result = this.tail.then(() => {
       const generation = this.journal.snapshot(this.sessionId)?.generation ?? 1;
+      if (expectedGeneration !== undefined && generation !== expectedGeneration) {
+        throw new Error("Session actor generation changed before local event confirmation");
+      }
       const prior = this.journal.findLocalTransition(this.sessionId, generation, type, operationId);
       if (prior) {
-        if (prior.command.turnId !== turnId) {
-          throw new Error("Session actor native turn id does not match its recorded transition");
+        if (prior.command.turnId !== turnId
+          || Object.entries(fields).some(([key, value]) => (
+            prior.command[key as keyof SessionCommand] !== value
+          ))) {
+          throw new Error("Session actor local event duplicate has different contents");
         }
         return prior.acknowledgement;
       }
@@ -43,6 +51,7 @@ export class SessionActor {
         producerId: "daemon",
         producerSequence: this.journal.nextProducerSequence(this.sessionId, generation, "daemon"),
         type,
+        ...fields,
       });
     });
     this.tail = result.then(() => undefined, () => undefined);

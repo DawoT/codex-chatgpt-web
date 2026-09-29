@@ -527,7 +527,16 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void progress.acknowledgeToolBatch(message.revision).then(
+        void Promise.resolve().then(async () => {
+          const latest = progress.snapshot().lastToolBatchRevision;
+          if (!Number.isSafeInteger(message.revision)
+            || message.revision < 1
+            || message.revision > latest) {
+            throw new Error("ChatGPT tool-boundary acknowledgement has an invalid batch revision");
+          }
+          await pending.turn.onToolBatchObserved?.(message.requestId, message.revision);
+          await progress.acknowledgeToolBatch(message.revision);
+        }).then(
           () => {
             if (this.pending.get(message.id) !== pending || pending.localFailure) return;
             return this.send({
