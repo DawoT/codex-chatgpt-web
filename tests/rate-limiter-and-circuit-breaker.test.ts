@@ -324,3 +324,62 @@ describe("Sprint AG: Rate Limiting & Circuit Breaker", () => {
     });
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tests 13–14: loopback Host header guard + per-peer rate limiting
+// ────────────────────────────────────────────────────────────────────────────
+describe("Loopback Host header guard", () => {
+  test("request with a foreign Host header is rejected with 403", async () => {
+    const config = defaultConfig("browser-only");
+    config.port = 0;
+    config.host = "127.0.0.1";
+    const server = startServer(config);
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.port}/healthz`, {
+        headers: { "host": "evil.example" },
+      });
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error.type).toBe("permission_error");
+      expect(body.error.message).toContain("loopback");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("requests addressed to localhost and 127.0.0.1 ports are accepted", async () => {
+    const config = defaultConfig("browser-only");
+    config.port = 0;
+    config.host = "127.0.0.1";
+    const server = startServer(config);
+    try {
+      for (const hostname of ["127.0.0.1", "localhost"]) {
+        const res = await fetch(`http://${hostname}:${server.port}/healthz`);
+        expect(res.status).toBe(200);
+      }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rate limiting keys by peer address, not authorization header", async () => {
+    const config = defaultConfig("browser-only");
+    config.port = 0;
+    config.host = "127.0.0.1";
+    config.rateLimitRpm = 2;
+    const server = startServer(config);
+    try {
+      const makeRequest = (auth: string) => fetch(`http://127.0.0.1:${server.port}/v1/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "authorization": auth },
+        body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
+      });
+      await makeRequest("Bearer key-a"); // 1st from 127.0.0.1
+      await makeRequest("Bearer key-b"); // 2nd from 127.0.0.1 — rotated key must NOT reset the window
+      const r3 = await makeRequest("Bearer key-c"); // 3rd — still limited
+      expect(r3.status).toBe(429);
+    } finally {
+      server.stop(true);
+    }
+  });
+});

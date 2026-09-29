@@ -190,6 +190,18 @@ export function startServer(
     disabled: rateLimitRpm <= 0,
   });
 
+  // DNS-rebinding guard: every request must target the loopback listener itself,
+  // not a foreign hostname that happens to resolve to 127.0.0.1.
+  const isLoopbackHostHeader = (value: string | null): boolean => {
+    if (!value) return false;
+    try {
+      const { hostname } = new URL(`http://${value}`);
+      return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]" || hostname === "::1";
+    } catch {
+      return false;
+    }
+  };
+
   // Sprint AG: Circuit breaker
   const upstreamCircuitBreaker = new CircuitBreaker({
     name: "chatgpt-upstream",
@@ -230,7 +242,10 @@ export function startServer(
     hostname: config.host,
     port: config.port,
     idleTimeout: 0,
-    async fetch(req) {
+    async fetch(req, server) {
+      if (!isLoopbackHostHeader(req.headers.get("host"))) {
+        return formatErrorResponse(403, "invalid_request_error", "This bridge only accepts requests addressed to its loopback host");
+      }
       const url = new URL(req.url);
       if (url.pathname.startsWith("/host/v1/")) {
         if (draining && req.method !== "DELETE" && !url.pathname.endsWith("/cancel")) return formatErrorResponse(503, "server_error", "Host bridge is draining");
@@ -317,8 +332,9 @@ export function startServer(
       if (req.method === "POST" && url.pathname === "/v1/responses") {
         if (draining) return formatErrorResponse(503, "server_error", "codex-chatgpt-web is draining for a requested service operation");
 
-        // Rate limiting
-        const rateLimitKey = req.headers.get("authorization") ?? "anonymous";
+        // Rate limiting. Keyed by peer address so a local client cannot mint
+        // fresh buckets by rotating its authorization header.
+        const rateLimitKey = server.requestIP(req)?.address ?? "anonymous";
         const rlResult = responsesRateLimiter.check(rateLimitKey);
         if (!rlResult.allowed) {
           runtimeMetrics.recordRateLimitRejection();
