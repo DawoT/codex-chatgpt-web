@@ -96,11 +96,15 @@ export class SessionActorManager {
     callId: string,
     result: string,
     deliver: () => void | Promise<void>,
+    expectedGeneration?: number,
   ): Promise<void> {
     if (!this.results) throw new Error("Session actor tool result store is unavailable");
     const snapshot = this.journal.snapshot(sessionId);
     if (!snapshot || snapshot.turnId !== nativeTurnId) {
       throw new Error("Session actor tool result turn ownership changed");
+    }
+    if (expectedGeneration !== undefined && snapshot.generation !== expectedGeneration) {
+      throw new Error("Session actor tool result generation changed before delivery");
     }
     const operationId = `tool-result:${callId}`;
     const existing = this.journal.operation(sessionId, snapshot.generation, operationId);
@@ -171,6 +175,7 @@ export class SessionActorManager {
     browserOperationId: string,
     callId: string,
     toolBatchRevision: number,
+    expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     return this.recordToolCallTransition(
       "tool_call_emitted",
@@ -179,6 +184,7 @@ export class SessionActorManager {
       browserOperationId,
       callId,
       toolBatchRevision,
+      expectedGeneration,
     );
   }
 
@@ -188,6 +194,7 @@ export class SessionActorManager {
     browserOperationId: string,
     callId: string,
     toolBatchRevision: number,
+    expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     return this.recordToolCallTransition(
       "tool_call_prepared",
@@ -196,6 +203,7 @@ export class SessionActorManager {
       browserOperationId,
       callId,
       toolBatchRevision,
+      expectedGeneration,
     );
   }
 
@@ -206,10 +214,14 @@ export class SessionActorManager {
     browserOperationId: string,
     callId: string,
     toolBatchRevision: number,
+    expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     const snapshot = this.journal.snapshot(sessionId);
     if (!snapshot || snapshot.turnId !== nativeTurnId) {
       throw new Error("Session actor tool call turn ownership changed");
+    }
+    if (expectedGeneration !== undefined && snapshot.generation !== expectedGeneration) {
+      throw new Error("Session actor tool call generation changed before confirmation");
     }
     return this.actor(sessionId).recordLocal(
       phase,
@@ -229,10 +241,14 @@ export class SessionActorManager {
     nativeTurnId: string,
     browserOperationId: string,
     toolBatchRevision: number,
+    expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     const snapshot = this.journal.snapshot(sessionId);
     if (!snapshot || snapshot.turnId !== nativeTurnId) {
       throw new Error("Session actor tool batch turn ownership changed");
+    }
+    if (expectedGeneration !== undefined && snapshot.generation !== expectedGeneration) {
+      throw new Error("Session actor tool batch generation changed before confirmation");
     }
     return this.actor(sessionId).recordLocal(
       "tool_batch_observed",
@@ -258,6 +274,7 @@ export class SessionActorManager {
       onSurfaceReleased: (surfaceId: string) => Promise<void>,
       onResultReady: (text: string) => Promise<void>,
     ) => Promise<string>,
+    onAdmitted?: (generation: number) => void,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
     const admission = await this.beginTurn(sessionId, nativeTurnId);
@@ -269,6 +286,7 @@ export class SessionActorManager {
       throw new Error("Session actor native turn ownership changed before browser work");
     }
     const generation = snapshot.generation;
+    onAdmitted?.(generation);
     const actor = this.actor(sessionId);
     const existing = this.journal.operation(sessionId, generation, operationId);
     if (existing?.state === "uncertain") {

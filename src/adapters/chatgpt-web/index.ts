@@ -183,6 +183,7 @@ export function createChatGptWebAdapter(
       ? { localTools: true }
       : resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, turnCapabilities);
     const identity = extractChatGptTurnIdentity(parsed);
+    const sessionActorOwner: { generation?: number } = {};
     const runBrowserTurn = (turn: BrowserTurn): Promise<string> => {
       const manager = dependencies.sessionActorManager;
       if (!manager || !identity.threadId || !identity.turnId) return worker.run(turn);
@@ -205,6 +206,7 @@ export function createChatGptWebAdapter(
           onSurfaceReleased,
           onResultReady,
         }),
+        generation => { sessionActorOwner.generation = generation; },
       );
     };
     const captureLunaCheckpoint = parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID
@@ -472,6 +474,7 @@ export function createChatGptWebAdapter(
     });
     return {
       mode: "tools",
+      ...(dependencies.sessionActorManager ? { sessionActorOwner } : {}),
       token: token.promise,
       externalProgress,
       browser: browserTurn.browser,
@@ -633,6 +636,13 @@ export function createChatGptWebAdapter(
           emitRoundEvents(events);
         };
         const emitRoundEvent = (event: AdapterEvent): void => emitRoundEvents([event]);
+        const sessionActorGeneration = (): number => {
+          const generation = session.runtime.sessionActorOwner?.generation;
+          if (typeof generation !== "number" || !Number.isSafeInteger(generation) || generation < 1) {
+            throw new Error("Session actor browser generation is unavailable for tool delivery");
+          }
+          return generation;
+        };
         try {
           await session.runExclusive(async () => {
             const replay = session.roundEvents(roundKey);
@@ -709,6 +719,7 @@ export function createChatGptWebAdapter(
                         `browser:${traceId}`,
                         request.callId,
                         revision,
+                        sessionActorGeneration(),
                       );
                       if (recorded.status !== "accepted") {
                         throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
@@ -730,6 +741,7 @@ export function createChatGptWebAdapter(
                         `browser:${traceId}`,
                         request.callId,
                         revision,
+                        sessionActorGeneration(),
                       );
                       if (recorded.status !== "accepted") {
                         throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
@@ -760,6 +772,7 @@ export function createChatGptWebAdapter(
                       message.toolCallId,
                       JSON.stringify(result),
                       () => broker.completeTool(turnToken!, message.toolCallId, result),
+                      sessionActorGeneration(),
                     );
                   } else {
                     await broker.completeTool(turnToken, message.toolCallId, result);
@@ -822,6 +835,7 @@ export function createChatGptWebAdapter(
                         nativeTurnId,
                         `browser:${traceId}`,
                         revision,
+                        sessionActorGeneration(),
                       );
                       if (confirmed.status !== "accepted") {
                         throw new Error(`Session actor tool batch requires recovery: ${confirmed.status}`);
@@ -923,6 +937,7 @@ export function createChatGptWebAdapter(
                       `browser:${traceId}`,
                       request.callId,
                       revision,
+                      sessionActorGeneration(),
                     );
                     if (recorded.status !== "accepted") {
                       throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
@@ -944,6 +959,7 @@ export function createChatGptWebAdapter(
                       `browser:${traceId}`,
                       request.callId,
                       revision,
+                      sessionActorGeneration(),
                     );
                     if (recorded.status !== "accepted") {
                       throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);

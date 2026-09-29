@@ -1117,3 +1117,64 @@ test("B starts while A awaits a tool result delivery acknowledgement", async () 
     home.close();
   }
 });
+
+test("a late tool result from generation one cannot enter a replacement browser generation", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-generation-swap";
+    const turnId = "same-native-turn";
+    const browserOperationId = "browser:same-trace";
+    const actor = manager.actor(sessionId);
+    await manager.beginTurn(sessionId, turnId);
+    await actor.dispatch(command(sessionId, 1, "operation_intent", {
+      turnId,
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+      turnId,
+      operationId: browserOperationId,
+    }));
+    await actor.dispatch(command(sessionId, 3, "operation_completed", {
+      turnId,
+      operationId: browserOperationId,
+      resultRef: "old-browser-result",
+    }));
+    await actor.recordLocal("generation_revoked", turnId, "revoke-old");
+    await manager.beginTurn(sessionId, turnId);
+    await actor.dispatch(command(sessionId, 1, "operation_intent", {
+      generation: 2,
+      turnId,
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+      generation: 2,
+      turnId,
+      operationId: browserOperationId,
+    }));
+    await manager.recordToolBatchConfirmed(sessionId, turnId, browserOperationId, 1);
+    await manager.recordToolCallPreparation(sessionId, turnId, browserOperationId, "same-call", 1);
+    await manager.recordToolCallEmission(sessionId, turnId, browserOperationId, "same-call", 1);
+    let deliveries = 0;
+    await expect(manager.deliverToolResult(
+      sessionId,
+      turnId,
+      browserOperationId,
+      "same-call",
+      "late result",
+      () => { deliveries += 1; },
+      1,
+    )).rejects.toThrow("generation");
+    expect(deliveries).toBe(0);
+    expect(home.journal.operation(sessionId, 2, "tool-result:same-call")).toBeNull();
+  } finally {
+    home.close();
+  }
+});

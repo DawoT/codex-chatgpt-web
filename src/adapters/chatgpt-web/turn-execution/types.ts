@@ -28,6 +28,8 @@ export interface TextWaiter {
 
 export interface ChatGptTurnRuntimeBase {
   browser: Promise<string>;
+  /** Generation admitted for this physical browser owner; used by later tool continuations. */
+  sessionActorOwner?: { generation?: number };
   /** Physical helper/Playwright settlement, including the launcher end/release acknowledgement. */
   physicalSettlement: Promise<void>;
   trace: ChatGptTraceFeed;
