@@ -96,7 +96,12 @@ test("launcher worker persists its answer before ending and releasing the leased
     port: 0,
     async fetch(request) {
       const phase = new URL(request.url).pathname.split("/").at(-1);
-      events.push(phase ?? "unknown");
+      if (phase === "end") {
+        const body = await request.json() as { resultPersisted?: boolean };
+        events.push(body.resultPersisted ? "end:persisted" : "end:unpersisted");
+      } else {
+        events.push(phase ?? "unknown");
+      }
       if (phase === "start") {
         return Response.json({ surfaceId, reused: false, connectorBound: false });
       }
@@ -137,7 +142,7 @@ test("launcher worker persists its answer before ending and releasing the leased
       `claim:${surfaceId}`,
       "browser",
       "persist:Browser answer",
-      "end",
+      "end:persisted",
       `release:${surfaceId}`,
     ]);
   } finally {

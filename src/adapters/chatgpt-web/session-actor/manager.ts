@@ -11,6 +11,7 @@ export class SessionActorManager {
   constructor(
     readonly journal: SessionActorJournal,
     private readonly results?: SessionResultStore,
+    private readonly surfaceIsGone?: (surfaceId: string) => boolean | Promise<boolean>,
   ) {}
 
   actor(sessionId: string): SessionActor {
@@ -118,6 +119,22 @@ export class SessionActorManager {
       const onSurfaceLeased = async (surfaceId: string): Promise<void> => {
         if (leasedSurfaceId && leasedSurfaceId !== surfaceId) {
           throw new Error("Session actor browser operation changed leased surface");
+        }
+        const priorSurface = this.journal.surfaceForSession(sessionId, generation);
+        if (priorSurface && priorSurface !== surfaceId) {
+          if (!this.surfaceIsGone || !(await this.surfaceIsGone(priorSurface))) {
+            throw new Error("Session actor retained surface still owns this session");
+          }
+          const release = await actor.recordLocal(
+            "surface_released",
+            nativeTurnId,
+            `surface-reconciled:${operationId}`,
+            { surfaceId: priorSurface },
+            generation,
+          );
+          if (release.status !== "accepted") {
+            throw new Error(`Session actor prior surface release rejected: ${release.status}`);
+          }
         }
         const acknowledgement = await actor.recordLocal(
           "surface_claimed",

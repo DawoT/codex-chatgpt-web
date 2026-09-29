@@ -27,6 +27,7 @@ import {
 import type { NativeFetch, NativeImageEndpoint } from "./native-passthrough";
 import { flushResponseState } from "./responses/state";
 import { SessionStoreJanitor } from "./adapters/chatgpt-web/session-store-pruner";
+import { readLauncherBrowserHostDescriptor } from "./launcher-browser-host";
 import { runtimeMetrics } from "./adapters/chatgpt-web/runtime-metrics";
 import { SlidingWindowRateLimiter } from "./adapters/chatgpt-web/rate-limiter";
 import { CircuitBreaker } from "./adapters/chatgpt-web/circuit-breaker";
@@ -97,7 +98,11 @@ export function startServer(
     ? new SessionActorJournal(join(actorDirectory, "events.sqlite"))
     : undefined;
   const actorManager = actorJournal
-    ? new SessionActorManager(actorJournal, actorResults)
+    ? new SessionActorManager(actorJournal, actorResults, surfaceId => {
+      const descriptorPath = config.browserHostDescriptorPath;
+      if (!descriptorPath) throw new Error("Session actor requires a launcher descriptor for surface reconciliation");
+      return !Object.hasOwn(readLauncherBrowserHostDescriptor(descriptorPath).surfaceTargets, surfaceId);
+    })
     : undefined;
   const adapterFactory: ChatGptWebAdapterFactory = dependencies.adapterFactory
     ?? (actorManager

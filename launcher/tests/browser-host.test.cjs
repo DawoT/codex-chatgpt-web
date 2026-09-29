@@ -2789,9 +2789,9 @@ test("launcher shutdown aborts all pending acquisitions", () => {
   assert.equal(second.signal.aborted, true);
 });
 
-test("a full browser host evicts only its oldest ready tab", () => {
-  const oldest = { id: "oldest", ordinal: 1, status: "ready", lastHeartbeatAt: 10 };
-  const newer = { id: "newer", ordinal: 2, status: "ready", lastHeartbeatAt: 20 };
+test("a full browser host evicts only its oldest recoverable ready tab", () => {
+  const oldest = { id: "oldest", ordinal: 1, status: "ready", recoverable: false, lastHeartbeatAt: 10 };
+  const newer = { id: "newer", ordinal: 2, status: "ready", recoverable: true, lastHeartbeatAt: 20 };
   const running = [3, 4, 5].map((ordinal) => ({
     id: `running-${ordinal}`,
     ordinal,
@@ -2811,8 +2811,18 @@ test("a full browser host evicts only its oldest ready tab", () => {
   };
 
   assert.equal(BrowserHost.prototype.evictOldestRetainedTurnTab.call(fixture), true);
-  assert.deepEqual(removed, [["oldest", false]]);
+  assert.deepEqual(removed, [["newer", false]]);
+  assert.equal(fixture.turnTabs.has("oldest"), true);
   assert.equal(fixture.turnTabs.has("running-3"), true);
+});
+
+test("a ready tab without persisted result evidence is never pressure-evicted", () => {
+  const tab = { id: "unpersisted", status: "ready", recoverable: false, lastHeartbeatAt: 1 };
+  const fixture = {
+    turnTabs: new Map([[tab.id, tab]]),
+    removeTurnTab() { assert.fail("unpersisted browser result cannot be evicted"); },
+  };
+  assert.equal(BrowserHost.prototype.evictOldestRetainedTurnTab.call(fixture), false);
 });
 
 test("ending one browser turn does not stop another running tab", async () => {
@@ -2908,18 +2918,65 @@ test("a completed keyed turn is retained for thirty minutes and preserves its ac
     undefined,
     true,
     true,
+    true,
   );
 
   assert.deepEqual(result, { cancelledByUser: false });
   assert.equal(fixture.turnTabs.get(tab.id), tab);
   assert.equal(tab.status, "ready");
   assert.equal(tab.connectorBound, true);
+  assert.equal(tab.recoverable, true);
   assert.equal(Number.isFinite(tab.lastHeartbeatAt), true);
   assert.deepEqual(throttling, [true]);
 
   const retainedAt = tab.lastHeartbeatAt;
   BrowserHost.prototype.reapExpiredTurnTabs.call(fixture, retainedAt + (30 * 60 * 1000) - 1);
   assert.equal(fixture.turnTabs.has(tab.id), true);
+});
+
+test("a queued turn reclaims a newly ready tab only after its result was persisted", async () => {
+  const tab = {
+    id: "recoverable-tab",
+    traceId: "recoverable-trace",
+    helperPid: 777,
+    conversationKey: "a".repeat(64),
+    connectorIdentity: "Codex Native2",
+    status: "running",
+    view: {
+      webContents: {
+        isDestroyed: () => false,
+        setBackgroundThrottling() {},
+      },
+    },
+  };
+  const removed = [];
+  const fixture = Object.assign(Object.create(BrowserHost.prototype), {
+    turnTabs: new Map([[tab.id, tab]]),
+    userCancelledTurnOwners: new Map(),
+    surfaceAdmission: { queuedCount: 1 },
+    syncPowerSaveBlocker() {},
+    publishState() {},
+    writeDescriptor() {},
+    snapshot: () => ({ tabs: [] }),
+    logger: { info() {} },
+    removeTurnTab(candidate) {
+      removed.push(candidate.id);
+      this.turnTabs.delete(candidate.id);
+    },
+  });
+  await BrowserHost.prototype.endTurn.call(
+    fixture,
+    tab.traceId,
+    tab.helperPid,
+    "completed",
+    false,
+    undefined,
+    true,
+    true,
+    true,
+  );
+  assert.deepEqual(removed, [tab.id]);
+  assert.equal(fixture.turnTabs.size, 0);
 });
 
 test("a retained browser tab expires at thirty minutes", () => {

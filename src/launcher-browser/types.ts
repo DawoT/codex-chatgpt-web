@@ -99,6 +99,7 @@ export type LauncherTurnActivity =
       message?: string;
       retain?: boolean;
       connectorBound?: boolean;
+      resultPersisted?: boolean;
     };
 
 export const LAUNCHER_TURN_START_TIMEOUT_MS = 30 * 60_000;

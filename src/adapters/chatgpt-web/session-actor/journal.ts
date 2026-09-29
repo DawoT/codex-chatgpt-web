@@ -190,6 +190,14 @@ export class SessionActorJournal {
     `).get(surfaceId);
   }
 
+  surfaceForSession(sessionId: string, generation: number): string | null {
+    const row = this.database.query<{ surfaceId: string }, [string, number]>(`
+      SELECT surface_id AS surfaceId FROM session_surface
+      WHERE session_id = ? AND generation = ?
+    `).get(sessionId, generation);
+    return row?.surfaceId ?? null;
+  }
+
   snapshot(sessionId: string): SessionRow | null {
     return this.database.query<SessionRow, [string]>(`
       SELECT generation, sequence, turn_id AS turnId,

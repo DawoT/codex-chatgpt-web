@@ -704,3 +704,78 @@ test("browser answer is durable before the launcher releases its surface", async
     home.close();
   }
 });
+
+test("a missing retained surface is reconciled before its session claims a replacement", async () => {
+  const home = fixture();
+  try {
+    const sessionId = "namespace/thread-A";
+    const missing: string[] = [];
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+      surfaceId => {
+        missing.push(surfaceId);
+        return surfaceId === "old-surface";
+      },
+    );
+    await manager.runBrowserTurn(sessionId, "turn-1", "browser-1", async (
+      onAccepted,
+      _onTools,
+      onSurfaceLeased,
+    ) => {
+      await onSurfaceLeased("old-surface");
+      await onAccepted();
+      return "Retained answer";
+    });
+    expect(home.journal.surfaceOwner("old-surface")).toEqual({ sessionId, generation: 1 });
+    await manager.runBrowserTurn(sessionId, "turn-2", "browser-2", async (
+      onAccepted,
+      _onTools,
+      onSurfaceLeased,
+      onSurfaceReleased,
+    ) => {
+      await onSurfaceLeased("new-surface");
+      expect(home.journal.surfaceOwner("old-surface")).toBeNull();
+      expect(home.journal.surfaceOwner("new-surface")).toEqual({ sessionId, generation: 1 });
+      await onAccepted();
+      await onSurfaceReleased("new-surface");
+      return "New answer";
+    });
+    expect(missing).toEqual(["old-surface"]);
+  } finally {
+    home.close();
+  }
+});
+
+test("a retained surface still present in the launcher blocks a replacement claim", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+      () => false,
+    );
+    const sessionId = "namespace/thread-A";
+    await manager.runBrowserTurn(sessionId, "turn-1", "browser-1", async (
+      onAccepted,
+      _onTools,
+      onSurfaceLeased,
+    ) => {
+      await onSurfaceLeased("old-surface");
+      await onAccepted();
+      return "Retained answer";
+    });
+    await expect(manager.runBrowserTurn(sessionId, "turn-2", "browser-2", async (
+      _onAccepted,
+      _onTools,
+      onSurfaceLeased,
+    ) => {
+      await onSurfaceLeased("new-surface");
+      return "must not send";
+    })).rejects.toThrow("still owns this session");
+    expect(home.journal.surfaceOwner("old-surface")).toEqual({ sessionId, generation: 1 });
+    expect(home.journal.surfaceOwner("new-surface")).toBeNull();
+  } finally {
+    home.close();
+  }
+});

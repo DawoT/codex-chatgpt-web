@@ -561,6 +561,10 @@ class BrowserHost {
   async createTurnTab(traceId, helperPid, conversationKey, connectorIdentity, signal, capacityKind = "ordinary") {
     signal?.throwIfAborted();
     const admission = BrowserHost.prototype.surfaceAdmissionFor.call(this);
+    if (capacityKind === "ordinary"
+      && [...this.turnTabs.values()].filter(tab => tab.capacityKind !== "reserved").length >= 4) {
+      BrowserHost.prototype.evictOldestRetainedTurnTab.call(this);
+    }
     const ticket = await admission.acquire(capacityKind, signal);
     let tab;
     try {
@@ -771,7 +775,7 @@ class BrowserHost {
 
   evictOldestRetainedTurnTab() {
     const retained = [...this.turnTabs.values()]
-      .filter(tab => tab.status === "ready")
+      .filter(tab => tab.status === "ready" && tab.recoverable === true)
       .sort((left, right) => (left.lastHeartbeatAt ?? 0) - (right.lastHeartbeatAt ?? 0))[0];
     if (!retained) return false;
     this.removeTurnTab(retained, false);
@@ -2580,6 +2584,7 @@ class BrowserHost {
     message,
     retain = false,
     connectorBound = false,
+    resultPersisted = false,
   ) {
     const tab = [...this.turnTabs.values()].find((candidate) => candidate.traceId === traceId);
     if (!tab) {
@@ -2610,11 +2615,15 @@ class BrowserHost {
       && tab.conversationKey
       && (!tab.connectorIdentity || connectorBound)) {
       tab.connectorBound = connectorBound === true;
+      tab.recoverable = resultPersisted === true;
       tab.lastHeartbeatAt = Date.now();
       if (hideAfterTurn && !this.activeTraceId) this.hide();
       this.logger.info("browser.tab_retained", { tabId: tab.id, traceId });
       this.publishState?.(this.snapshot());
       this.writeDescriptor();
+      if (this.surfaceAdmission?.queuedCount > 0) {
+        BrowserHost.prototype.evictOldestRetainedTurnTab.call(this);
+      }
       return { cancelledByUser };
     }
     // A browser tab represents an active Codex turn, not durable task history. The result already

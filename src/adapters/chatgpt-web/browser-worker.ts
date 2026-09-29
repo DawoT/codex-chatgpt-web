@@ -3129,6 +3129,7 @@ export class ChatGptBrowserWorker {
 
     let surfaceId: string | undefined;
     let surfaceClaimed = false;
+    let resultReadyConfirmed = false;
     let reused = false;
     let terminal: "completed" | "failed" | "aborted" = "completed";
     let terminalMessage: string | undefined;
@@ -3189,6 +3190,7 @@ export class ChatGptBrowserWorker {
       heartbeatTimer.unref?.();
       const answer = await this.runBrowserTurn(turn, surfaceId, undefined, reused, lease.trackUsage === true, releaseInteractive, acquireInteractive);
       await turn.onResultReady?.(answer);
+      resultReadyConfirmed = turn.onResultReady !== undefined;
       return answer;
     } catch (error) {
       originalError = error;
@@ -3212,6 +3214,7 @@ export class ChatGptBrowserWorker {
             status: terminal,
             ...(terminalMessage ? { message: terminalMessage } : {}),
             ...(terminal === "completed" && turn.retainConversation ? { retain: true } : {}),
+            ...(resultReadyConfirmed ? { resultPersisted: true } : {}),
             ...(terminal === "completed" && (turn.nativeConnector || turn.capabilities.localToolsEnabled)
               ? { connectorBound: true }
               : {}),

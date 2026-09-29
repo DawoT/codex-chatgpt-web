@@ -340,6 +340,9 @@ class BrowserControlServer {
         return;
       } else {
         if (!['completed', 'failed', 'aborted'].includes(body.status)) throw new Error("turn status is invalid");
+        if (body.resultPersisted !== undefined && body.resultPersisted !== true) {
+          throw new Error("turn result persistence flag is invalid");
+        }
         const release = await host.endTurn(
           body.traceId,
           body.helperPid,
@@ -348,6 +351,7 @@ class BrowserControlServer {
           body.message,
           body.retain === true,
           body.connectorBound === true,
+          body.resultPersisted === true,
         );
         this.logger.info("browser.turn_ended", { traceId: body.traceId, status: body.status });
         writeJson(response, 200, { ok: true, ...release });
