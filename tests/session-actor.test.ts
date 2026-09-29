@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1230,6 +1231,27 @@ test("revoking one browser trace invalidates A's generation while B remains acti
     expect(home.journal.operation(sessions[0]!, 1, "browser:trace-A")?.state).toBe("uncertain");
     expect(home.journal.operation(sessions[1]!, 1, "browser:trace-B")?.state).toBe("accepted");
     expect(await manager.revokeBrowserTrace("trace-A")).toBe(false);
+  } finally {
+    home.close();
+  }
+});
+
+test("concurrent native cancellations revoke one generation without failing a duplicate", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(home.journal);
+    const threadId = "thread-concurrent-cancel";
+    const owner = createHash("sha256")
+      .update(JSON.stringify({ kind: "thread", id: threadId }))
+      .digest("hex");
+    const sessionId = `namespace:${owner}`;
+    await manager.beginTurn(sessionId, "turn-1");
+    const results = await Promise.all([
+      manager.revokeNativeTurn(threadId, "turn-1"),
+      manager.revokeNativeTurn(threadId, "turn-1"),
+    ]);
+    expect(results.sort()).toEqual([0, 1]);
+    expect(home.journal.snapshot(sessionId)?.generation).toBe(2);
   } finally {
     home.close();
   }
