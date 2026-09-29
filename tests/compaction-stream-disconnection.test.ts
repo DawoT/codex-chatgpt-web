@@ -419,6 +419,73 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       expect(verdict.valid).toBe(true);
       expect(verdict.missingInvariants).toHaveLength(0);
     });
+
+    it("canonicalizeCompactionHandoff deduplicates entries and normalizes duplicate requirement IDs from model hallucinations", () => {
+      const parsedReq: CodexParsedRequest = {
+        modelId: "chatgpt-web/high",
+        stream: true,
+        context: {
+          messages: samplePatchedMessages,
+        },
+        options: { reasoning: "high" },
+        _compactionRequest: true,
+        _rawBody: {
+          input: [{
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Actualizar catalogo y scripts de importacion" }],
+            internal_chat_message_metadata_passthrough: { turn_id: "turn_source_cat" },
+          }],
+        },
+      };
+
+      // Model hallucinated duplicate requirements with the same ID, and duplicate blockers/invariants
+      const hallucinatedSummary = [
+        "Work in progress.",
+        "<compaction_state>",
+        "version: 2",
+        "original_request_ref: Actualizar catalogo",
+        "modified_files:",
+        "- /home/deuz/projects/Allpa Craft/scripts/import-catalog-csv.mjs",
+        "- /home/deuz/projects/Allpa Craft/.agents/scratch/build_pillaca_catalog.py",
+        "- /home/deuz/projects/Allpa Craft/docs/catalog/TALLER_PILLACA.md",
+        "- /home/deuz/projects/Allpa Craft/.agents/scratch/pillaca-premium-sample.py",
+        "- /home/deuz/projects/Allpa Craft/.agents/scratch/pillaca-rembg-sample.py",
+        "active_hypothesis: Complete catalog import scripts and verify generated outputs.",
+        "requirements:",
+        '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"}',
+        '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo parte 2"}',
+        "closure_criteria:",
+        "- All catalog scripts run without errors",
+        "- All catalog scripts run without errors",
+        "verified_achievements:",
+        "decisions_and_invariants:",
+        "- Keep sample files under .agents/scratch/",
+        "- Keep sample files under .agents/scratch/",
+        "blockers_or_test_failures:",
+        "- None",
+        "- None",
+        "pending_obligations:",
+        "- Run catalog build script",
+        "- Run catalog build script",
+        "next_actions:",
+        "- Run catalog build script",
+        "</compaction_state>",
+      ].join("\n");
+
+      const canonicalized = canonicalizeCompactionHandoff(parsedReq, hallucinatedSummary);
+
+      // Verify that requirement IDs are unique and sections are deduplicated
+      expect(canonicalized).toContain('{"id":"REQ-1","status":"pending"');
+      expect(canonicalized).toContain('{"id":"REQ-1-2","status":"pending"');
+
+      // And it must pass validateCompactionQuality without duplicate invariant errors!
+      const verdict = validateCompactionQuality(samplePatchedMessages, canonicalized, {
+        requireStructured: true,
+      });
+      expect(verdict.valid).toBe(true);
+      expect(verdict.missingInvariants).toHaveLength(0);
+    });
   });
 });
 

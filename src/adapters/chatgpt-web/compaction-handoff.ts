@@ -32,6 +32,8 @@ import {
   formatCompactionStateBlock,
   parseCompactionState,
   type CompactionStateBlock,
+  type CompactionRequirement,
+  type CompactionAchievement,
 } from "../../responses/compaction";
 
 export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
@@ -211,10 +213,37 @@ export function canonicalizeCompactionHandoff(
         );
       }
 
+      const dedupeStrings = (items: string[]) => {
+        const seen = new Set<string>();
+        const result: string[] = [];
+        for (const item of items) {
+          const norm = item.toLowerCase().replace(/\s+/g, " ").trim();
+          if (norm && !seen.has(norm)) {
+            seen.add(norm);
+            result.push(item);
+          }
+        }
+        return result.length > 0 ? result : ["None"];
+      };
+
+      const dedupeAchievements = (items: Array<string | CompactionAchievement>) => {
+        const seen = new Set<string>();
+        const result: Array<string | CompactionAchievement> = [];
+        for (const item of items) {
+          const key = typeof item === "string" ? item : item.result;
+          const norm = key.toLowerCase().replace(/\s+/g, " ").trim();
+          if (norm && !seen.has(norm)) {
+            seen.add(norm);
+            result.push(item);
+          }
+        }
+        return result;
+      };
+
       const activeHypothesis = state.activeHypothesis?.trim()
         || (originalRequest ? `Complete: ${originalRequest.trim().slice(0, 120)}` : "Complete the requested task.");
 
-      const requirements = (state.requirements && state.requirements.length > 0)
+      const rawRequirements = state.requirements && state.requirements.length > 0
         ? state.requirements
         : [{
             id: "REQ-1",
@@ -222,20 +251,48 @@ export function canonicalizeCompactionHandoff(
             source: originalRequest ? `original user request: ${originalRequest.trim().slice(0, 80)}` : "original user request",
           }];
 
-      const closureCriteria = (state.closureCriteria && state.closureCriteria.length > 0)
-        ? state.closureCriteria
-        : ["All mission requirements completed and verified"];
+      const requirements: CompactionRequirement[] = [];
+      const seenReqIds = new Set<string>();
+      for (let idx = 0; idx < rawRequirements.length; idx++) {
+        const req = rawRequirements[idx]!;
+        let id = req.id && typeof req.id === "string" && /^[-A-Za-z0-9_]+$/.test(req.id) ? req.id : `REQ-${idx + 1}`;
+        if (seenReqIds.has(id)) {
+          id = `${id}-${idx + 1}`;
+        }
+        seenReqIds.add(id);
+        const status = ["pending", "blocked", "verified"].includes(req.status) ? req.status : "pending";
+        const source = req.source && typeof req.source === "string" && req.source.trim()
+          ? req.source.trim()
+          : (originalRequest ? `original user request: ${originalRequest.trim().slice(0, 80)}` : "original user request");
+        requirements.push({
+          id,
+          status,
+          source,
+          ...(req.evidence ? { evidence: req.evidence } : {}),
+          ...(req.evidenceRefs ? { evidenceRefs: req.evidenceRefs } : {}),
+        });
+      }
 
-      const verifiedAchievements = state.verifiedAchievements ?? [];
-      const decisionsAndInvariants = state.decisionsAndInvariants ?? [];
+      const closureCriteria = dedupeStrings(
+        (state.closureCriteria && state.closureCriteria.length > 0)
+          ? state.closureCriteria
+          : ["All mission requirements completed and verified"],
+      );
 
-      const blockersOrTestFailures = (state.blockersOrTestFailures && state.blockersOrTestFailures.length > 0)
-        ? state.blockersOrTestFailures
-        : ["None"];
+      const verifiedAchievements = dedupeAchievements(state.verifiedAchievements ?? []);
+      const decisionsAndInvariants = dedupeStrings(state.decisionsAndInvariants ?? []);
 
-      const pendingObligations = (state.pendingObligations && state.pendingObligations.length > 0)
-        ? state.pendingObligations
-        : [latestUserPrompt ? `Complete latest turn: ${latestUserPrompt.trim().slice(0, 80)}` : "Continue next actions"];
+      const blockersOrTestFailures = dedupeStrings(
+        (state.blockersOrTestFailures && state.blockersOrTestFailures.length > 0)
+          ? state.blockersOrTestFailures
+          : ["None"],
+      );
+
+      const pendingObligations = dedupeStrings(
+        (state.pendingObligations && state.pendingObligations.length > 0)
+          ? state.pendingObligations
+          : [latestUserPrompt ? `Complete latest turn: ${latestUserPrompt.trim().slice(0, 80)}` : "Continue next actions"],
+      );
 
       let nextActions = (state.nextActions ?? []).map(a => a.trim()).filter(Boolean);
       if (nextActions.length !== 1) {
