@@ -9,7 +9,7 @@ import {
   codexTurnBindingObservationFailedError,
   codexTurnBindingRetiredError,
 } from "./adapter-error";
-import { ChatGptBrowserWorker } from "./browser-worker";
+import { ChatGptBrowserWorker, type BrowserTurn } from "./browser-worker";
 import {
   extractChatGptThreadSpawnLineage,
   extractChatGptTurnEnvironment,
@@ -57,6 +57,8 @@ import {
 } from "./conversation-key";
 import {
   defaultSubagentGovernor,
+  MAX_CHATGPT_BROWSER_TABS,
+  MAX_CHATGPT_LAUNCHER_PENDING_TURNS,
   SubagentConcurrencyGovernor,
 } from "./concurrency";
 import {
@@ -181,6 +183,24 @@ export function createChatGptWebAdapter(
       ? { localTools: true }
       : resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, turnCapabilities);
     const identity = extractChatGptTurnIdentity(parsed);
+    const runBrowserTurn = (turn: BrowserTurn): Promise<string> => {
+      const manager = dependencies.sessionActorManager;
+      if (!manager || !identity.threadId || !identity.turnId) return worker.run(turn);
+      const sessionId = `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`;
+      const originalSubmitted = turn.onSubmitted;
+      return manager.runBrowserTurn(
+        sessionId,
+        identity.turnId,
+        `browser:${traceId}`,
+        onAccepted => worker.run({
+          ...turn,
+          onSubmitted: async () => {
+            await onAccepted();
+            await originalSubmitted?.();
+          },
+        }),
+      );
+    };
     const captureLunaCheckpoint = parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID
       && !parsed._compactionRequest
       && Boolean(identity.threadId && identity.turnId);
@@ -317,7 +337,7 @@ export function createChatGptWebAdapter(
     }
 
     if (!mode.localTools) {
-      const browserTurn = cancellableBrowserTurn(finalizeCheckpoint(worker.run({
+      const browserTurn = cancellableBrowserTurn(finalizeCheckpoint(runBrowserTurn({
         traceId,
         modelId: parsed.modelId,
         reasoning: parsed.options.reasoning,
@@ -410,7 +430,7 @@ export function createChatGptWebAdapter(
         throw error;
       }
     };
-    const browserTurn = cancellableBrowserTurn(trackBrowserOwner(finalizeCheckpoint(worker.run({
+    const browserTurn = cancellableBrowserTurn(trackBrowserOwner(finalizeCheckpoint(runBrowserTurn({
       traceId,
       modelId: parsed.modelId,
       reasoning: parsed.options.reasoning,
@@ -591,6 +611,7 @@ export function createChatGptWebAdapter(
           nativeTurnId,
           nativeIdentity.threadId,
           chatGptInstructionLineage(parsed),
+          retainedLauncherDescriptor ? MAX_CHATGPT_LAUNCHER_PENDING_TURNS : MAX_CHATGPT_BROWSER_TABS,
         );
         const roundKey = chatGptTurnRoundKey(parsed);
         const emitRoundEvents = (events: readonly AdapterEvent[]): void => {

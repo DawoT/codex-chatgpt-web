@@ -4,6 +4,7 @@
  * traffic that is indistinguishable from spam.
  */
 export const MAX_CHATGPT_BROWSER_TABS = 5;
+export const MAX_CHATGPT_LAUNCHER_PENDING_TURNS = 32;
 
 /**
  * Maximum concurrent subagent turns permitted simultaneously.

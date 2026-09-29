@@ -284,6 +284,31 @@ test("browser turns run concurrently up to the five-tab limit", async () => {
   await Promise.all([...active.slice(1), sixth]);
 });
 
+test("launcher worker accepts a queued compaction after five pending turns", async () => {
+  const releases = new Map<string, () => void>();
+  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    config: { browserHost: "launcher" },
+    activeRuns: new Map(),
+    launcherHelper: {
+      run: (turn: { traceId: string }) => new Promise<string>(resolve => {
+        releases.set(turn.traceId, () => resolve(turn.traceId));
+      }),
+    },
+  }) as ChatGptBrowserWorker;
+  const browserTurn = (traceId: string) => ({
+    traceId,
+    modelId: "chatgpt-web/high",
+    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+    prepare: async () => ({ text: traceId, images: [], release() {} }),
+    onTextDelta() {},
+  });
+  const active = Array.from({ length: 6 }, (_unused, index) => worker.run(browserTurn(`queued_${index}`)));
+  await Promise.resolve();
+  expect(releases.size).toBe(6);
+  for (const release of releases.values()) release();
+  await Promise.all(active);
+});
+
 test("a second browser turn prepares and sends while the first awaits acceptance", async () => {
   const events: string[] = [];
   let markFirstSent!: () => void;

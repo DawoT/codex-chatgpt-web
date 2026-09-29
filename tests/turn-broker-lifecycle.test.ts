@@ -168,6 +168,24 @@ test("five active turns coexist and a sixth fails closed", () => {
   expect(cancelled).toBe(5);
 });
 
+test("launcher registry admits bounded queued turns while retaining its default five-turn limit", () => {
+  const sessions = new ChatGptTurnSessions();
+  const runtime = () => ({
+    mode: "read-only" as const,
+    browser: new Promise<string>(() => {}),
+    physicalSettlement: Promise.resolve(),
+    trace: new ChatGptTraceFeed(),
+    text: new ChatGptTextFeed(),
+    cancel() {},
+  });
+  for (let index = 0; index < 6; index += 1) {
+    sessions.getOrCreate(`queued-${index}`, runtime, undefined, undefined, undefined, undefined, undefined, 32);
+  }
+  expect(sessions.activeCount()).toBe(6);
+  expect(() => sessions.getOrCreate("ordinary-limit", runtime)).toThrow("at most 5 simultaneous browser turns");
+  sessions.clear();
+});
+
 test("settled replay sessions expire from their last use instead of their creation time", async () => {
   const sessions = new ChatGptTurnSessions(50);
   let starts = 0;

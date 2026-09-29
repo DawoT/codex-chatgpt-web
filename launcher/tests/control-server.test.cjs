@@ -193,6 +193,7 @@ test("browser control server authenticates and owns turn visibility", async () =
         conversationKey: "a".repeat(64),
         connectorIdentity: "Codex Native2",
         requireRetainedConversation: true,
+        compaction: true,
       }),
     });
     assert.equal(start.status, 200);
@@ -241,6 +242,7 @@ test("browser control server authenticates and owns turn visibility", async () =
       }),
     });
     assert.equal(end.status, 200);
+    assert.equal(calls[0].pop(), true);
     const acquisitionSignal = calls[0].pop();
     assert.ok(acquisitionSignal instanceof AbortSignal);
     assert.equal(acquisitionSignal.aborted, false);
@@ -636,6 +638,7 @@ test("browser control server rejects malformed retained-conversation contracts",
     assert.equal((await post({ conversationKey: "ABC" })).status, 400);
     assert.equal((await post({ requireRetainedConversation: true })).status, 400);
     assert.equal((await post({ connectorIdentity: "Codex Native2" })).status, 400);
+    assert.equal((await post({ compaction: "yes" })).status, 400);
   } finally {
     await server.close();
   }

@@ -175,6 +175,9 @@ class BrowserControlServer {
         && typeof body.requireRetainedConversation !== "boolean") {
         throw new Error("requireRetainedConversation is invalid");
       }
+      if (body.compaction !== undefined && typeof body.compaction !== "boolean") {
+        throw new Error("compaction is invalid");
+      }
       if (body.requireRetainedConversation === true && body.conversationKey === undefined) {
         throw new Error("requireRetainedConversation requires conversationKey");
       }
@@ -322,6 +325,7 @@ class BrowserControlServer {
             body.connectorIdentity,
             body.requireRetainedConversation === true,
             acquisition.signal,
+            body.compaction === true,
           );
         } finally {
           response.off("close", onClose);

@@ -2487,7 +2487,11 @@ test("a retained conversation is not reused for a different connector identity",
     turnTabs: new Map([[retained.id, retained]]),
     userCancelledTurnOwners: new Map(),
     createTurnTab: (...args) => {
-      assert.deepEqual(args, ["trace_next", 222, conversationKey, "Other Connector", undefined]);
+      assert.ok(args[4] instanceof AbortSignal);
+      assert.deepEqual(
+        [args[0], args[1], args[2], args[3], args[5]],
+        ["trace_next", 222, conversationKey, "Other Connector", "ordinary"],
+      );
       return created;
     },
     writeDescriptor() {},
@@ -2637,16 +2641,152 @@ test("a required retained conversation fails before creating a browser tab", asy
   assert.equal(created, false);
 });
 
-test("five browser tabs are a hard account-safety limit", async () => {
+test("a full browser host queues acquisition and cancellation removes its waiter", async () => {
   const turnTabs = new Map(Array.from({ length: 5 }, (_unused, index) => [
     `tab-${index + 1}`,
-    { ordinal: index + 1 },
+    { ordinal: index + 1, capacityKind: index === 4 ? "reserved" : "ordinary" },
   ]));
-
-  await assert.rejects(
-    BrowserHost.prototype.createTurnTab.call({ turnTabs }, "trace_six", 444),
-    /already has 5 browser tabs.*avoid excessive parallel traffic/,
+  const fixture = { turnTabs };
+  const controller = new AbortController();
+  const pending = BrowserHost.prototype.createTurnTab.call(
+    fixture,
+    "trace_six",
+    444,
+    undefined,
+    undefined,
+    controller.signal,
+    "ordinary",
   );
+  assert.equal(fixture.surfaceAdmission.queuedCount, 1);
+  controller.abort(new Error("client disconnected"));
+  await assert.rejects(
+    pending,
+    /client disconnected/,
+  );
+  assert.equal(fixture.surfaceAdmission.queuedCount, 0);
+});
+
+test("beginTurn requests the reserved surface for compaction", async () => {
+  const requested = [];
+  const fixture = {
+    turnTabs: new Map(),
+    userCancelledTurnOwners: new Map(),
+    createTurnTab: async (...args) => {
+      requested.push(args[5]);
+      return { id: "tab", surfaceId: "surface" };
+    },
+    syncViewVisibility() {},
+    snapshot: () => ({}),
+    logger: { info() {} },
+    writeDescriptor() {},
+  };
+  const lease = await BrowserHost.prototype.beginTurn.call(
+    fixture,
+    "trace_compaction",
+    false,
+    444,
+    undefined,
+    undefined,
+    false,
+    undefined,
+    true,
+  );
+  assert.equal(lease.surfaceId, "surface");
+  assert.deepEqual(requested, ["reserved"]);
+});
+
+test("concurrent starts of one trace share one surface without crossing owners", async () => {
+  const finishCreations = [];
+  let creations = 0;
+  const fixture = Object.assign(Object.create(BrowserHost.prototype), {
+    turnTabs: new Map(),
+    userCancelledTurnOwners: new Map(),
+    createTurnTab: () => {
+      creations += 1;
+      return new Promise(resolve => { finishCreations.push(resolve); });
+    },
+    syncViewVisibility() {},
+    snapshot: () => ({}),
+    logger: { info() {} },
+    writeDescriptor() {},
+  });
+  const first = fixture.beginTurn("shared_trace", false, 123, "a".repeat(64));
+  const second = fixture.beginTurn("shared_trace", false, 123, "a".repeat(64));
+  const crossingOwner = fixture.beginTurn("shared_trace", false, 456, "a".repeat(64));
+  assert.equal(creations, 1);
+  for (const finishCreation of finishCreations) {
+    finishCreation({ id: "tab", surfaceId: "shared_surface" });
+  }
+  await assert.rejects(crossingOwner, /owner.*mismatch/);
+  assert.deepEqual(await first, await second);
+  assert.equal(fixture.pendingTurnStarts.size, 0);
+});
+
+test("disconnecting one pending start leaves its other subscriber attached", async () => {
+  const finishCreations = [];
+  const sharedSignals = [];
+  const fixture = Object.assign(Object.create(BrowserHost.prototype), {
+    turnTabs: new Map(),
+    userCancelledTurnOwners: new Map(),
+    createTurnTab: (_traceId, _helperPid, _conversationKey, _connectorIdentity, signal) => {
+      sharedSignals.push(signal);
+      return new Promise(resolve => { finishCreations.push(resolve); });
+    },
+    syncViewVisibility() {},
+    snapshot: () => ({}),
+    logger: { info() {} },
+    writeDescriptor() {},
+  });
+  const firstController = new AbortController();
+  const first = fixture.beginTurn("shared_trace", false, 123, undefined, undefined, false, firstController.signal);
+  const second = fixture.beginTurn("shared_trace", false, 123);
+  firstController.abort(new Error("first disconnected"));
+  for (const finishCreation of finishCreations) {
+    finishCreation({ id: "tab", surfaceId: "shared_surface" });
+  }
+  await assert.rejects(first, /first disconnected/);
+  assert.equal(sharedSignals[0].aborted, false);
+  assert.equal((await second).surfaceId, "shared_surface");
+});
+
+test("the last disconnected start aborts its pending surface acquisition", async () => {
+  let acquisitionSignal;
+  const fixture = Object.assign(Object.create(BrowserHost.prototype), {
+    turnTabs: new Map(),
+    userCancelledTurnOwners: new Map(),
+    createTurnTab: (_traceId, _helperPid, _conversationKey, _connectorIdentity, signal) => {
+      acquisitionSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    },
+  });
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const first = fixture.beginTurn("shared_trace", false, 123, undefined, undefined, false, firstController.signal);
+  const second = fixture.beginTurn("shared_trace", false, 123, undefined, undefined, false, secondController.signal);
+  firstController.abort(new Error("first disconnected"));
+  await assert.rejects(first, /first disconnected/);
+  assert.equal(acquisitionSignal.aborted, false);
+  secondController.abort(new Error("second disconnected"));
+  await assert.rejects(second, /second disconnected/);
+  assert.equal(acquisitionSignal.aborted, true);
+  await Promise.resolve();
+  assert.equal(fixture.pendingTurnStarts.size, 0);
+});
+
+test("launcher shutdown aborts all pending acquisitions", () => {
+  const first = new AbortController();
+  const second = new AbortController();
+  const fixture = {
+    pendingTurnStarts: new Map([
+      ["first", { controller: first }],
+      ["second", { controller: second }],
+    ]),
+  };
+  BrowserHost.prototype.abortPendingTurnStarts.call(fixture);
+  assert.equal(first.signal.aborted, true);
+  assert.equal(second.signal.aborted, true);
 });
 
 test("a full browser host evicts only its oldest ready tab", () => {

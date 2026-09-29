@@ -112,7 +112,7 @@ test.each([[true, false, true], [false, false, true], [true, true, true], [true,
       `effort:${effort}`,
       tools ? "attach:tools" : "attach:plain", "files", "send", "observe",
     ]);
-    expect(sendBudgets).toEqual(multipart ? Array(6).fill(180_000) : [20_000]);
+    expect(sendBudgets).toEqual(Array(multipart ? 6 : 1).fill(180_000));
     expect(released).toBe(true);
     expect(activated).toBe(multipart ? 6 : 1);
     expect(accepted).toBe(multipart ? 6 : 1);

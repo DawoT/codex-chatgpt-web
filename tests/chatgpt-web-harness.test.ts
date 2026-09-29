@@ -13,6 +13,7 @@ import { chatGptConversationKey } from "../src/adapters/chatgpt-web/conversation
 import { CHATGPT_TURN_REVISION_CONFLICT_MESSAGE, extractChatGptTurnEnvironment, extractChatGptTurnIdentity, extractChatGptTurnUserRevision, priorChatGptAbortedTurnIds } from "../src/adapters/chatgpt-web/environment";
 import { CHATGPT_WEB_ADAPTER_HEARTBEAT_MS, chatGptWebExecutionNamespace, chatGptWebTraceId, createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
 import { cancellableBrowserTurn } from "../src/adapters/chatgpt-web/adapter/cancellation";
+import { SessionActorJournal, SessionActorManager, SessionResultStore } from "../src/adapters/chatgpt-web/session-actor";
 import { chatGptHtmlToMarkdown, ChatGptMarkdownBuffer } from "../src/adapters/chatgpt-web/markdown";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import {
@@ -1047,6 +1048,12 @@ describe("ChatGPT outer-native harness v4", () => {
       chatgptWeb: { brokerSocketPath: socketPath, localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
     };
     const worker = ChatGptBrowserWorker.forProvider(provider);
+    const actorJournal = new SessionActorJournal(join(tempRoot, `actors-${Date.now()}`, "events.sqlite"));
+    const resultStore = new SessionResultStore(join(tempRoot, `results-${Date.now()}`));
+    const sessionActorManager = new SessionActorManager(actorJournal, resultStore);
+    const request = rawWireRequest(environmentXml);
+    const actorSessionId = `${chatGptWebExecutionNamespace(provider)}:${chatGptThreadOwnershipKey(request)}`;
+    const actorOperationId = `browser:${chatGptWebTraceId(provider, request)}`;
     const originalRun = worker.run.bind(worker);
     let browserStarts = 0;
     let browserStarted!: () => void;
@@ -1066,8 +1073,8 @@ describe("ChatGPT outer-native harness v4", () => {
     try {
       const disconnect = new AbortController();
       const firstEvents: AdapterEvent[] = [];
-      const first = createChatGptWebAdapter(provider).runTurn!(
-        rawWireRequest(environmentXml),
+      const first = createChatGptWebAdapter(provider, { sessionActorManager }).runTurn!(
+        request,
         { headers: new Headers(), abortSignal: disconnect.signal },
         event => firstEvents.push(event),
       );
@@ -1078,8 +1085,8 @@ describe("ChatGPT outer-native harness v4", () => {
       expect(firstEvents.some(event => event.type === "text_delta" && event.text === "Recovered ")).toBeTrue();
 
       const events: AdapterEvent[] = [];
-      const reconnect = createChatGptWebAdapter(provider).runTurn!(
-        rawWireRequest(environmentXml),
+      const reconnect = createChatGptWebAdapter(provider, { sessionActorManager }).runTurn!(
+        request,
         { headers: new Headers() },
         event => events.push(event),
       );
@@ -1087,6 +1094,8 @@ describe("ChatGPT outer-native harness v4", () => {
       finishBrowser();
       await reconnect;
       expect(browserStarts).toBe(1);
+      expect(actorJournal.operation(actorSessionId, 1, actorOperationId)?.state).toBe("completed");
+      expect(actorJournal.snapshot(actorSessionId)?.sequence).toBe(4);
       expect(events.filter((event): event is Extract<AdapterEvent, { type: "text_delta" }> => (
         event.type === "text_delta" && event.phase === "final_answer"
       ))
@@ -1094,6 +1103,7 @@ describe("ChatGPT outer-native harness v4", () => {
         .toBe("Recovered after disconnect");
       expect(events.at(-1)).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
     } finally {
+      actorJournal.close();
       (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
       await TurnBroker.forSocket(socketPath).close();
     }

@@ -22,8 +22,13 @@ import {
   waitForLauncherManualTerminal,
 } from "../src/launcher-browser-host";
 import type { Browser, BrowserContext, Page } from "playwright-core";
+import { LAUNCHER_TURN_START_TIMEOUT_MS } from "../src/launcher-browser/types";
 
 const roots: string[] = [];
+
+test("launcher surface admission remains pending across long active turns", () => {
+  expect(LAUNCHER_TURN_START_TIMEOUT_MS).toBeGreaterThan(22 * 60_000);
+});
 
 test("startup waits beyond five seconds and distinguishes its deadline from caller cancellation", async () => {
   let calls = 0;

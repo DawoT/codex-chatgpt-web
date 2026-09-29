@@ -18,7 +18,7 @@ export const browserStageTimeouts = {
   effortSelection: 120_000,
   promptAttachment: 60_000,
   fileAttachment: 120_000,
-  send: 20_000,
+  send: 180_000,
   // A Bigger Context stage posts a much larger payload onto a conversation that already holds the
   // earlier parts. This budget covers ChatGPT accepting the submission, not just the click.
   multipartStageSend: 180_000,

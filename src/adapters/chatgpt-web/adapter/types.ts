@@ -5,6 +5,7 @@ import type {
 } from "../../../launcher-browser-host";
 import type { TurnBrokerOwner } from "../turn-broker";
 import type { SubagentConcurrencyGovernor } from "../concurrency";
+import type { SessionActorManager } from "../session-actor";
 
 /** Keep the Responses bridge alive during every awaited phase of a browser turn. */
 export const CHATGPT_WEB_ADAPTER_HEARTBEAT_MS = 10_000;
@@ -32,4 +33,5 @@ export interface ChatGptAdapterDependencies {
   broker?: TurnBrokerOwner;
   zeroRiskManualControl?: ChatGptZeroRiskManualControl;
   subagentGovernor?: SubagentConcurrencyGovernor;
+  sessionActorManager?: SessionActorManager;
 }

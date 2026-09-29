@@ -3,6 +3,7 @@ const path = require("node:path");
 const { createHash, randomBytes } = require("node:crypto");
 const { clipboard, WebContentsView, powerMonitor, powerSaveBlocker, shell } = require("electron");
 const { writePrivateFileAtomic } = require("./atomic-file.cjs");
+const { SurfaceAdmission } = require("./surface-admission.cjs");
 const {
   runBrowserHelperOperation,
   verifyConnectorWithBrowserHelper,
@@ -362,6 +363,7 @@ class BrowserHost {
     this.visible = false;
     this.surfaceActive = true;
     this.turnTabs = new Map();
+    this.pendingTurnStarts = new Map();
     this.closedTurnOwners = new Map();
     this.userCancelledTurnOwners = new Map();
     this.manualTerminalSignals = new Map();
@@ -550,63 +552,77 @@ class BrowserHost {
     return this.turnTabs.get(this.selectedTabId) || null;
   }
 
-  async createTurnTab(traceId, helperPid, conversationKey, connectorIdentity, signal) {
+  surfaceAdmissionFor() {
+    this.surfaceAdmission ??= new SurfaceAdmission(() => [...this.turnTabs.values()]
+      .map(tab => tab.capacityKind || "ordinary"));
+    return this.surfaceAdmission;
+  }
+
+  async createTurnTab(traceId, helperPid, conversationKey, connectorIdentity, signal, capacityKind = "ordinary") {
     signal?.throwIfAborted();
-    if (this.turnTabs.size >= MAX_BROWSER_TABS
-      && !BrowserHost.prototype.evictOldestReclaimableTurnTab.call(this)) {
-      throw new Error(
-        `ChatGPT Web already has ${MAX_BROWSER_TABS} browser tabs; close one before starting another turn to avoid excessive parallel traffic on the ChatGPT account`,
-      );
+    const admission = BrowserHost.prototype.surfaceAdmissionFor.call(this);
+    const ticket = await admission.acquire(capacityKind, signal);
+    let tab;
+    try {
+      signal?.throwIfAborted();
+      const id = randomBytes(12).toString("base64url");
+      const surfaceId = randomBytes(24).toString("base64url");
+      const ordinal = Array.from({ length: MAX_BROWSER_TABS }, (_unused, index) => index + 1)
+        .find(candidate => ![...this.turnTabs.values()].some(tab => tab.ordinal === candidate));
+      if (!ordinal) throw new Error("ChatGPT Web browser tab allocation is inconsistent");
+      const view = new WebContentsView({
+        webPreferences: {
+          partition: this.partition,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          spellcheck: true,
+          backgroundThrottling: false,
+        },
+      });
+      tab = {
+        id,
+        surfaceId,
+        capacityKind,
+        traceId,
+        conversationKey,
+        connectorIdentity,
+        connectorBound: false,
+        helperPid,
+        view,
+        status: "running",
+        ordinal,
+        label: `ChatGPT ${ordinal}`,
+        pageTitle: "ChatGPT",
+        url: IDLE_BROWSER_URL,
+        loading: true,
+        message: "ChatGPT is working",
+        interactionMode: "automatic",
+        initializingSurface: true,
+        bootstrapReady: false,
+        rendererReady: false,
+        deviceEmulationViewport: null,
+        deviceEmulationDirty: true,
+        bootstrapDeadlineAt: Date.now() + TURN_TAB_BOOTSTRAP_TIMEOUT_MS,
+        lastHeartbeatAt: Date.now(),
+      };
+      this.turnTabs.set(id, tab);
+      ticket.commit();
+      this.syncPowerSaveBlocker();
+      this.window.contentView.addChildView(view);
+      this.presentTurnView(tab, false);
+      view.webContents.setZoomFactor(this.state.zoomFactor);
+      this.bindShellZoomShortcuts(view.webContents);
+      this.bindTurnContents(tab);
+      await this.initializeTurnTab(tab, signal);
+      return tab;
+    } catch (error) {
+      ticket.release();
+      if (tab && this.turnTabs.get(tab.id) === tab) {
+        BrowserHost.prototype.removeTurnTab.call(this, tab, true);
+      }
+      throw error;
     }
-    const id = randomBytes(12).toString("base64url");
-    const surfaceId = randomBytes(24).toString("base64url");
-    const ordinal = Array.from({ length: MAX_BROWSER_TABS }, (_unused, index) => index + 1)
-      .find(candidate => ![...this.turnTabs.values()].some(tab => tab.ordinal === candidate));
-    if (!ordinal) throw new Error("ChatGPT Web browser tab allocation is inconsistent");
-    const view = new WebContentsView({
-      webPreferences: {
-        partition: this.partition,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        spellcheck: true,
-        backgroundThrottling: false,
-      },
-    });
-    const tab = {
-      id,
-      surfaceId,
-      traceId,
-      conversationKey,
-      connectorIdentity,
-      connectorBound: false,
-      helperPid,
-      view,
-      status: "running",
-      ordinal,
-      label: `ChatGPT ${ordinal}`,
-      pageTitle: "ChatGPT",
-      url: IDLE_BROWSER_URL,
-      loading: true,
-      message: "ChatGPT is working",
-      interactionMode: "automatic",
-      initializingSurface: true,
-      bootstrapReady: false,
-      rendererReady: false,
-      deviceEmulationViewport: null,
-      deviceEmulationDirty: true,
-      bootstrapDeadlineAt: Date.now() + TURN_TAB_BOOTSTRAP_TIMEOUT_MS,
-      lastHeartbeatAt: Date.now(),
-    };
-    this.turnTabs.set(id, tab);
-    this.syncPowerSaveBlocker();
-    this.window.contentView.addChildView(view);
-    this.presentTurnView(tab, false);
-    view.webContents.setZoomFactor(this.state.zoomFactor);
-    this.bindShellZoomShortcuts(view.webContents);
-    this.bindTurnContents(tab);
-    await this.initializeTurnTab(tab, signal);
-    return tab;
   }
 
   async initializeTurnTab(tab, signal) {
@@ -641,66 +657,77 @@ class BrowserHost {
   }
 
   createManualTurnTab(traceId, helperPid, conversationKey, prompt, manualSubmitTimeoutMs) {
-    if (this.turnTabs.size >= MAX_BROWSER_TABS
-      && !BrowserHost.prototype.evictOldestReclaimableTurnTab.call(this)) {
+    const ticket = BrowserHost.prototype.surfaceAdmissionFor.call(this).tryAcquire("ordinary");
+    if (!ticket) {
       throw new Error(
-        `ChatGPT Web already has ${MAX_BROWSER_TABS} browser tabs; close one before starting another turn to avoid excessive parallel traffic on the ChatGPT account`,
+        "ChatGPT Web has no ordinary browser surface available for a Zero Risk turn",
       );
     }
-    const id = randomBytes(12).toString("base64url");
-    const ordinal = Array.from({ length: MAX_BROWSER_TABS }, (_unused, index) => index + 1)
-      .find(candidate => ![...this.turnTabs.values()].some(tab => tab.ordinal === candidate));
-    if (!ordinal) throw new Error("ChatGPT Web browser tab allocation is inconsistent");
-    const view = new WebContentsView({
-      webPreferences: {
-        partition: this.partition,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        spellcheck: true,
-        backgroundThrottling: false,
-      },
-    });
-    const tab = {
-      id,
-      surfaceId: null,
-      traceId,
-      conversationKey,
-      connectorIdentity: null,
-      connectorBound: false,
-      helperPid,
-      view,
-      status: "running",
-      ordinal,
-      label: `ChatGPT ${ordinal}`,
-      pageTitle: "ChatGPT",
-      url: this.getUseSavedChats() ? "https://chatgpt.com/" : TEMPORARY_CHAT_URL,
-      loading: true,
-      message: "Paste the copied prompt, add any images yourself because Zero Risk cannot transfer them, choose a model and effort, then press Sent",
-      interactionMode: "manual",
-      manualState: "awaiting-user",
-      manualSubmitTimeoutMs,
-      manualDeadlineAt: Date.now() + manualSubmitTimeoutMs,
-      manualDeadlineTimer: null,
-      manualWaiters: new Set(),
-      manualTerminalWaiters: new Set(),
-      manualTerminalResolutionSuppressed: false,
-      prompt,
-      promptDigest: manualPromptDigest(prompt),
-      manualConversationReused: false,
-      sentAt: null,
-      bootstrapReady: false,
-      rendererReady: false,
-      lastHeartbeatAt: Date.now(),
-    };
-    this.turnTabs.set(id, tab);
-    this.window.contentView.addChildView(view);
-    this.presentTurnView(tab, true);
-    view.webContents.setZoomFactor(this.state.zoomFactor);
-    this.bindShellZoomShortcuts(view.webContents);
-    this.bindManualTurnContents(tab);
-    void this.initializeManualTurnTab(tab);
-    return tab;
+    let tab;
+    try {
+      const id = randomBytes(12).toString("base64url");
+      const ordinal = Array.from({ length: MAX_BROWSER_TABS }, (_unused, index) => index + 1)
+        .find(candidate => ![...this.turnTabs.values()].some(tab => tab.ordinal === candidate));
+      if (!ordinal) throw new Error("ChatGPT Web browser tab allocation is inconsistent");
+      const view = new WebContentsView({
+        webPreferences: {
+          partition: this.partition,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          spellcheck: true,
+          backgroundThrottling: false,
+        },
+      });
+      tab = {
+        id,
+        surfaceId: null,
+        capacityKind: "ordinary",
+        traceId,
+        conversationKey,
+        connectorIdentity: null,
+        connectorBound: false,
+        helperPid,
+        view,
+        status: "running",
+        ordinal,
+        label: `ChatGPT ${ordinal}`,
+        pageTitle: "ChatGPT",
+        url: this.getUseSavedChats() ? "https://chatgpt.com/" : TEMPORARY_CHAT_URL,
+        loading: true,
+        message: "Paste the copied prompt, add any images yourself because Zero Risk cannot transfer them, choose a model and effort, then press Sent",
+        interactionMode: "manual",
+        manualState: "awaiting-user",
+        manualSubmitTimeoutMs,
+        manualDeadlineAt: Date.now() + manualSubmitTimeoutMs,
+        manualDeadlineTimer: null,
+        manualWaiters: new Set(),
+        manualTerminalWaiters: new Set(),
+        manualTerminalResolutionSuppressed: false,
+        prompt,
+        promptDigest: manualPromptDigest(prompt),
+        manualConversationReused: false,
+        sentAt: null,
+        bootstrapReady: false,
+        rendererReady: false,
+        lastHeartbeatAt: Date.now(),
+      };
+      this.turnTabs.set(id, tab);
+      ticket.commit();
+      this.window.contentView.addChildView(view);
+      this.presentTurnView(tab, true);
+      view.webContents.setZoomFactor(this.state.zoomFactor);
+      this.bindShellZoomShortcuts(view.webContents);
+      this.bindManualTurnContents(tab);
+      void this.initializeManualTurnTab(tab);
+      return tab;
+    } catch (error) {
+      ticket.release();
+      if (tab && this.turnTabs.get(tab.id) === tab) {
+        BrowserHost.prototype.removeTurnTab.call(this, tab, true);
+      }
+      throw error;
+    }
   }
 
   async initializeManualTurnTab(tab) {
@@ -1681,6 +1708,7 @@ class BrowserHost {
   removeTurnTab(tab, abortRunning) {
     if (!this.turnTabs.has(tab.id)) return;
     this.turnTabs.delete(tab.id);
+    this.surfaceAdmission?.surfaceReleased();
     if (tab.interactionMode === "manual") {
       if (tab.manualDeadlineTimer) clearTimeout(tab.manualDeadlineTimer);
       tab.manualDeadlineTimer = null;
@@ -2375,6 +2403,37 @@ class BrowserHost {
     return { cancelledByUser: true };
   }
 
+  observePendingTurnStart(entry, signal) {
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    entry.subscribers += 1;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (value, failed) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        entry.subscribers -= 1;
+        if (entry.subscribers === 0 && !entry.settled) {
+          entry.controller.abort(new Error("All browser turn acquisition callers disconnected"));
+        }
+        if (failed) reject(value);
+        else resolve(value);
+      };
+      const onAbort = () => finish(signal.reason, true);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      entry.promise.then(
+        value => finish(value, false),
+        error => finish(error, true),
+      );
+    });
+  }
+
+  abortPendingTurnStarts() {
+    for (const entry of this.pendingTurnStarts?.values() || []) {
+      entry.controller.abort(new Error("Browser host is shutting down"));
+    }
+  }
+
   async beginTurn(
     traceId,
     reveal,
@@ -2383,6 +2442,7 @@ class BrowserHost {
     connectorIdentity,
     requireRetainedConversation = false,
     signal,
+    compaction = false,
   ) {
     signal?.throwIfAborted();
     if (this.manualOperation) {
@@ -2390,6 +2450,18 @@ class BrowserHost {
     }
     if (this.userCancelledTurnOwners.has(traceId)) {
       throw new BrowserTurnCancelledError(traceId);
+    }
+    this.pendingTurnStarts ??= new Map();
+    const pending = this.pendingTurnStarts.get(traceId);
+    if (pending) {
+      if (pending.helperPid !== helperPid
+        || pending.conversationKey !== conversationKey
+        || pending.connectorIdentity !== connectorIdentity
+        || pending.requireRetainedConversation !== requireRetainedConversation
+        || pending.compaction !== compaction) {
+        throw new Error(`Browser turn ${traceId} pending owner or metadata mismatch`);
+      }
+      return BrowserHost.prototype.observePendingTurnStart.call(this, pending, signal);
     }
     const sameTrace = [...this.turnTabs.values()].find((tab) => tab.traceId === traceId);
     if (sameTrace && sameTrace.interactionMode !== "automatic") {
@@ -2459,14 +2531,45 @@ class BrowserHost {
       error.code = "retained_conversation_unavailable";
       throw error;
     }
-    const tab = await this.createTurnTab(traceId, helperPid, conversationKey, connectorIdentity, signal);
-    this.selectedTabId = tab.id;
-    if (reveal) this.show();
-    else this.syncViewVisibility();
-    this.publishState?.(this.snapshot());
-    this.logger.info("browser.tab_created", { tabId: tab.id, traceId, tabCount: this.turnTabs.size });
-    this.writeDescriptor();
-    return { surfaceId: tab.surfaceId, tabId: tab.id, reused: false, connectorBound: false };
+    const entry = {
+      helperPid,
+      conversationKey,
+      connectorIdentity,
+      requireRetainedConversation,
+      compaction,
+      controller: new AbortController(),
+      subscribers: 0,
+      settled: false,
+      promise: null,
+    };
+    this.pendingTurnStarts.set(traceId, entry);
+    entry.promise = (async () => {
+      try {
+        const tab = await this.createTurnTab(
+          traceId,
+          helperPid,
+          conversationKey,
+          connectorIdentity,
+          entry.controller.signal,
+          compaction ? "reserved" : "ordinary",
+        );
+        if (entry.controller.signal.aborted) {
+          if (this.turnTabs.get(tab.id) === tab) this.removeTurnTab(tab, true);
+          throw entry.controller.signal.reason;
+        }
+        this.selectedTabId = tab.id;
+        if (reveal) this.show();
+        else this.syncViewVisibility();
+        this.publishState?.(this.snapshot());
+        this.logger.info("browser.tab_created", { tabId: tab.id, traceId, tabCount: this.turnTabs.size });
+        this.writeDescriptor();
+        return { surfaceId: tab.surfaceId, tabId: tab.id, reused: false, connectorBound: false };
+      } finally {
+        entry.settled = true;
+        if (this.pendingTurnStarts.get(traceId) === entry) this.pendingTurnStarts.delete(traceId);
+      }
+    })();
+    return BrowserHost.prototype.observePendingTurnStart.call(this, entry, signal);
   }
 
   async endTurn(
@@ -3061,6 +3164,7 @@ class BrowserHost {
 
   destroy() {
     this.destroyed = true;
+    this.abortPendingTurnStarts();
     if (this.authenticationCookieListener) {
       this.view.webContents.session.cookies.off("changed", this.authenticationCookieListener);
     }

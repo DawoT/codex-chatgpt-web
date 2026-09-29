@@ -1,5 +1,5 @@
 import { chatGptBrowserTabClosedError, chatGptTurnSupersededError } from "../adapter-error";
-import { MAX_CHATGPT_BROWSER_TABS } from "../concurrency";
+import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "../concurrency";
 import { awaitWithAbort } from "./abort";
 import { ChatGptTurnSession } from "./session";
 import type { ChatGptInstructionLineage, ChatGptTurnRuntime } from "./types";
@@ -24,6 +24,7 @@ export class ChatGptTurnSessions {
     nativeTurnId?: string,
     nativeThreadId?: string,
     instruction?: string,
+    maxActive = MAX_CHATGPT_BROWSER_TABS,
   ): ChatGptTurnSession {
     this.prune();
     const existing = this.entries.get(key);
@@ -33,9 +34,12 @@ export class ChatGptTurnSessions {
       return existing;
     }
     const active = [...this.entries.values()].filter(session => session.isActive()).length;
-    if (active >= MAX_CHATGPT_BROWSER_TABS) {
+    if (maxActive !== MAX_CHATGPT_BROWSER_TABS && maxActive !== MAX_CHATGPT_LAUNCHER_PENDING_TURNS) {
+      throw new Error("ChatGPT browser turn registry capacity is invalid");
+    }
+    if (active >= maxActive) {
       throw new Error(
-        `ChatGPT Web supports at most ${MAX_CHATGPT_BROWSER_TABS} simultaneous browser turns; close or finish a browser tab before starting another`,
+        `ChatGPT Web supports at most ${maxActive} simultaneous browser turns; close or finish a browser tab before starting another`,
       );
     }
     if (this.entries.size >= this.maxEntries) throw new Error(`ChatGPT web session registry is full (${this.maxEntries} entries)`);
@@ -55,6 +59,7 @@ export class ChatGptTurnSessions {
     nativeTurnId?: string,
     nativeThreadId?: string,
     instruction?: ChatGptInstructionLineage,
+    maxActive = MAX_CHATGPT_BROWSER_TABS,
   ): Promise<ChatGptTurnSession> {
     for (;;) {
       if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
@@ -93,7 +98,7 @@ export class ChatGptTurnSessions {
         continue;
       }
       if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
-      return this.getOrCreate(key, start, traceId, ownerKey, nativeTurnId, nativeThreadId, instruction?.current);
+      return this.getOrCreate(key, start, traceId, ownerKey, nativeTurnId, nativeThreadId, instruction?.current, maxActive);
     }
   }
 

@@ -86,7 +86,7 @@ import {
 import { LauncherBrowserHelperClient } from "./launcher-helper-client";
 import { interactiveBrowserTurnMutex, type InteractiveBrowserTurnLock } from "./browser-mutex";
 import { assertChatGptModelFamily, selectChatGptModelFamily } from "./model-selection";
-import { MAX_CHATGPT_BROWSER_TABS } from "./concurrency";
+import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "./concurrency";
 import {
   ChatGptCompactionHandoffAccepted,
   ChatGptWebAdapterError,
@@ -644,9 +644,12 @@ export class ChatGptBrowserWorker {
     if (this.activeRuns.has(turn.traceId)) {
       return Promise.reject(new Error(`Duplicate ChatGPT web browser turn: ${turn.traceId}`));
     }
-    if (this.activeRuns.size >= MAX_CHATGPT_BROWSER_TABS) {
+    const maxRuns = this.config.browserHost === "launcher"
+      ? MAX_CHATGPT_LAUNCHER_PENDING_TURNS
+      : MAX_CHATGPT_BROWSER_TABS;
+    if (this.activeRuns.size >= maxRuns) {
       return Promise.reject(new Error(
-        `ChatGPT Web supports at most ${MAX_CHATGPT_BROWSER_TABS} simultaneous browser turns; close or finish a browser tab before starting another`,
+        `ChatGPT Web supports at most ${maxRuns} simultaneous browser turns; close or finish a browser tab before starting another`,
       ));
     }
     const useHelper = this.config.browserHost === "launcher" && process.env.CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS !== "1";
@@ -3133,6 +3136,7 @@ export class ChatGptBrowserWorker {
           ? { connectorIdentity: this.config.appName }
           : {}),
         ...(turn.requireRetainedConversation ? { requireRetainedConversation: true } : {}),
+        ...(turn.compaction ? { compaction: true } : {}),
       }, undefined, turn.abortSignal).catch(error => {
         if (error instanceof LauncherBrowserTurnCancelledError) throw chatGptBrowserTabClosedError();
         if (error instanceof LauncherRetainedConversationUnavailableError) {
