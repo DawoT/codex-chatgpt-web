@@ -50,6 +50,7 @@ import { persistTurnCompaction } from "../workspace-persistence";
 import type { SessionActorManager } from "../session-actor";
 import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
+import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT } from "../preflight-budget";
 
 const observedRepairDurationsMs: number[] = [];
 const persistedStructuredRunRoots = new WeakMap<Promise<string>, string>();
@@ -93,6 +94,53 @@ function repairObservations(parsed: CodexParsedRequest, query: string, limit = 6
     limit,
   );
   return boundedCompactionRepairObservations(selected);
+}
+
+/**
+ * Fallback-compaction only: truncates messages whose serialized text exceeds the
+ * per-stage char boundary so the compaction browser turn can at least submit.
+ * A notice is appended so the model knows content was omitted.
+ * This is never called for normal task turns.
+ */
+const FALLBACK_COMPACTION_TRUNCATION_LIMIT = PREFLIGHT_MAX_STAGE_CHAR_LIMIT - 500;
+function truncateOversizedMessagesForFallbackCompaction(messages: CodexParsedRequest["context"]["messages"]): CodexParsedRequest["context"]["messages"] {
+  const truncateString = (text: string): string => {
+    if (text.length <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return text;
+    const kept = text.slice(0, FALLBACK_COMPACTION_TRUNCATION_LIMIT);
+    const dropped = text.length - FALLBACK_COMPACTION_TRUNCATION_LIMIT;
+    return `${kept}\n[... ${dropped.toLocaleString("en-US")} characters truncated for compaction]`;
+  };
+  const truncateParts = (parts: Array<unknown>): Array<unknown> => {
+    const totalChars = parts.reduce<number>((sum, part) =>
+      sum + (typeof part === "object" && part !== null && "text" in part && typeof (part as Record<string, unknown>).text === "string"
+        ? ((part as Record<string, unknown>).text as string).length : 0), 0);
+    if (totalChars <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return parts;
+    const result = [...parts];
+    for (let i = 0; i < result.length; i++) {
+      const part = result[i];
+      if (part && typeof part === "object" && "text" in part && typeof (part as Record<string, unknown>).text === "string") {
+        const text = (part as Record<string, unknown>).text as string;
+        if (text.length > FALLBACK_COMPACTION_TRUNCATION_LIMIT) {
+          result[i] = { ...(part as object), text: truncateString(text) };
+          break;
+        }
+      }
+    }
+    return result;
+  };
+  return messages.map(message => {
+    if (typeof message.content === "string") {
+      if (message.content.length <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return message;
+      // Use unknown cast to bypass discriminated-union content type narrowing.
+      return { ...message, content: truncateString(message.content) } as unknown as typeof message;
+    }
+    if (Array.isArray(message.content)) {
+      const truncated = truncateParts(message.content as Array<unknown>);
+      if (truncated === message.content) return message;
+      return { ...message, content: truncated } as unknown as typeof message;
+    }
+    return message;
+  });
 }
 
 function originalRequestFromCanonicalSummary(summary: string): string {
@@ -333,8 +381,19 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             // and the final accepted compact prompt re-arms the five-minute liveness budget;
             // transport time cannot consume the model-generation window.
             armHandoffDeadline();
+            // Truncate any individual messages that exceed the per-stage browser char limit.
+            // This is the only path where truncation is acceptable: the model is summarizing
+            // the conversation, so an approximate view of very large records is fine. Normal
+            // task turns never use this path and are never truncated.
+            const fallbackParsed: CodexParsedRequest = {
+              ...parsed,
+              context: {
+                ...parsed.context,
+                messages: truncateOversizedMessagesForFallbackCompaction(parsed.context.messages),
+              },
+            };
             const fallbackRuntime = startRuntime(
-              parsed,
+              fallbackParsed,
               manualRequest ? environment : undefined,
               freshCompactionTraceId,
               turnCapabilities,
