@@ -46,6 +46,13 @@ on top of the upstream 6.0.x browser bridge.
   idiom rules start as warnings), with a `pre-commit` hook gating staged
   files and `bun run lint` wired into the verify gate alongside a coverage
   run of the test suite.
+- `ChatGptBrowserWorker` decomposed along the roadmap's P7 seams with
+  byte-identical behavior: `browser/submission-observer.ts`,
+  `browser/response-observer.ts`, `browser/model-controls.ts`,
+  `browser/composer-controller.ts`, `browser/browser-session.ts` and
+  `browser/turn-diagnostics.ts` now own the DOM observation, model picker,
+  composer surface, lifecycle and diagnostics clusters; the worker keeps
+  the orchestrating turn loop and one-line delegating wrappers.
 
 ### Security
 

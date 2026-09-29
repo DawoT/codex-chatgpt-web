@@ -5,11 +5,12 @@ schema_version: "1.0"
 # tests), P1 (SSE bridge seams -> src/bridge/), P2 (adapter factory ->
 # src/adapters/chatgpt-web/adapter/), P3/P4 (runtime supervisor/host ->
 # src/server/), P5 (launcher surface queue), P6 (BrowserHost) and P8
-# (TurnBroker, including typed protocol errors). P7 (ChatGptBrowserWorker
-# decomposition: SubmissionObserver, ResponseObserver, ChatGptModelControls,
-# ComposerController, BrowserSession, TurnDiagnostics) remains open and is the
-# active refactor priority. Each phase's acceptance/rollback blocks below stay
-# authoritative for the work that remains.
+# (TurnBroker, including typed protocol errors). P7 landed on 2026-09-29:
+# SubmissionObserver, ResponseObserver, ChatGptModelControls,
+# ComposerController, BrowserSession and TurnDiagnostics now live under
+# src/adapters/chatgpt-web/browser/ with the worker keeping the orchestrating
+# turn loop and delegating wrappers. Each phase's acceptance/rollback blocks
+# below stay authoritative for any follow-up work.
 
 roadmap:
   id: "refactor-monoliths"
