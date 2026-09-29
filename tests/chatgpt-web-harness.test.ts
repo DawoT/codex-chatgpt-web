@@ -2659,6 +2659,11 @@ next_actions:
 
   test.each([false, true])("Pro keeps one MCP tool loop and replays results with fresh mode=%s", async freshConversation => {
     const socketPath = brokerTestEndpoint(`cgw-h3-pro-${process.pid}-${Date.now()}`);
+    const actorJournal = new SessionActorJournal(join(tempRoot, `pro-actors-${Date.now()}-${freshConversation}`, "events.sqlite"));
+    const sessionActorManager = new SessionActorManager(
+      actorJournal,
+      new SessionResultStore(join(tempRoot, `pro-results-${Date.now()}-${freshConversation}`)),
+    );
     const provider: CodexProviderConfig = {
       adapter: "chatgpt-web",
       baseUrl: "browser://chatgpt-pro-test",
@@ -2675,6 +2680,7 @@ next_actions:
       expect(turn.reasoning).toBe("max");
       expect(turn.capabilities.localToolsEnabled).toBe(true);
       const prepared = await turn.prepare();
+      await turn.onSubmitted?.();
       try {
         expect(prepared.text).toContain("For local work required by the task, use the attached Codex Native tools directly");
         expect(prepared.text).not.toContain("with no Codex Native bridge");
@@ -2700,7 +2706,8 @@ next_actions:
     };
 
     const request = proRequest();
-    const adapter = createChatGptWebAdapter(provider);
+    const actorSessionId = `${chatGptWebExecutionNamespace(provider)}:${chatGptThreadOwnershipKey(request)}`;
+    const adapter = createChatGptWebAdapter(provider, { sessionActorManager });
     const firstEvents: AdapterEvent[] = [];
     try {
       await adapter.runTurn!(request, { headers: new Headers() }, event => firstEvents.push(event));
@@ -2709,6 +2716,8 @@ next_actions:
         (event): event is Extract<AdapterEvent, { type: "tool_call_start" }> => event.type === "tool_call_start",
       );
       expect(call?.name).toBe("exec_command");
+      const emitted = actorJournal.findLocalTransition(actorSessionId, 1, "tool_call_emitted", `tool-call:${call!.id}`);
+      expect(emitted?.acknowledgement.status).toBe("accepted");
       expect(firstEvents.some(event => event.type === "text_delta"
         && event.text.includes("cannot access the local Codex computer"))).toBe(false);
       expect(firstEvents.at(-1)).toMatchObject({ type: "done", stopReason: "tool_use", endTurn: false });
@@ -2749,6 +2758,7 @@ next_actions:
 
       const finalEvents: AdapterEvent[] = [];
       await adapter.runTurn!(continuation, { headers: new Headers() }, event => finalEvents.push(event));
+      expect(actorJournal.operation(actorSessionId, 1, `tool-result:${call!.id}`)?.state).toBe("completed");
       expect(browserStarts).toBe(1);
       expect(finalEvents.find(event => event.type === "thinking_delta")).toEqual({
         type: "thinking_delta",
@@ -2766,6 +2776,7 @@ next_actions:
     } finally {
       (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
       await TurnBroker.forSocket(socketPath).close();
+      actorJournal.close();
     }
   });
 

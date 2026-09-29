@@ -1,4 +1,4 @@
-export const SESSION_ACTOR_PROTOCOL_VERSION = 3;
+export const SESSION_ACTOR_PROTOCOL_VERSION = 4;
 
 export type SessionEventType =
   | "turn_started"
@@ -7,6 +7,8 @@ export type SessionEventType =
   | "operation_completed"
   | "operation_uncertain"
   | "tool_batch_observed"
+  | "tool_call_prepared"
+  | "tool_call_emitted"
   | "surface_claimed"
   | "surface_released"
   | "compaction_prepared"

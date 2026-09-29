@@ -89,6 +89,164 @@ export class SessionActorManager {
     );
   }
 
+  async deliverToolResult(
+    sessionId: string,
+    nativeTurnId: string,
+    browserOperationId: string,
+    callId: string,
+    result: string,
+    deliver: () => void | Promise<void>,
+  ): Promise<void> {
+    if (!this.results) throw new Error("Session actor tool result store is unavailable");
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot || snapshot.turnId !== nativeTurnId) {
+      throw new Error("Session actor tool result turn ownership changed");
+    }
+    const operationId = `tool-result:${callId}`;
+    const existing = this.journal.operation(sessionId, snapshot.generation, operationId);
+    if (existing?.state === "uncertain") {
+      throw new Error("Session actor tool result delivery requires reconciliation before retry");
+    }
+    if (existing?.state === "completed") {
+      if (existing.turnId !== nativeTurnId || !existing.resultRef) {
+        throw new Error("Session actor completed tool result has conflicting identity");
+      }
+      const completed = this.results.get(existing.resultRef);
+      if (completed.sessionId !== sessionId || completed.generation !== snapshot.generation
+        || completed.turnId !== nativeTurnId || completed.operationId !== operationId
+        || completed.text !== result) {
+        throw new Error("Session actor completed tool result has conflicting identity");
+      }
+      return;
+    }
+    const emitted = this.journal.findLocalTransition(
+      sessionId,
+      snapshot.generation,
+      "tool_call_emitted",
+      `tool-call:${callId}`,
+    );
+    const browser = this.journal.operation(sessionId, snapshot.generation, browserOperationId);
+    if (!emitted || emitted.command.parentOperationId !== browserOperationId
+      || emitted.command.turnId !== nativeTurnId
+      || emitted.command.historyRevision !== snapshot.historyRevision
+      || browser?.kind !== "browser_send" || browser.turnId !== nativeTurnId
+      || browser.historyRevision !== snapshot.historyRevision || browser.state !== "accepted") {
+      throw new Error("Session actor tool result requires an emitted call on the accepted browser turn");
+    }
+    const resultRef = this.results.put({
+      sessionId,
+      generation: snapshot.generation,
+      turnId: nativeTurnId,
+      operationId,
+      text: result,
+    });
+    const actor = this.actor(sessionId);
+    const launched = await actor.launch({
+      protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
+      sessionId,
+      generation: snapshot.generation,
+      turnId: nativeTurnId,
+      operationId,
+      producerId: `operation:${operationId}`,
+      producerSequence: 1,
+      type: "operation_intent",
+      operationKind: "tool_result_delivery",
+      parentOperationId: browserOperationId,
+      historyRevision: snapshot.historyRevision,
+    }, async emit => {
+      await emit("operation_accepted");
+      await deliver();
+      await emit("operation_completed", resultRef);
+    });
+    await launched.settled;
+    const completed = this.journal.operation(sessionId, snapshot.generation, operationId);
+    if (completed?.state !== "completed" || completed.resultRef !== resultRef) {
+      throw new Error("Session actor tool result delivery was not durably completed");
+    }
+  }
+
+  async recordToolCallEmission(
+    sessionId: string,
+    nativeTurnId: string,
+    browserOperationId: string,
+    callId: string,
+    toolBatchRevision: number,
+  ): Promise<SessionAcknowledgement> {
+    return this.recordToolCallTransition(
+      "tool_call_emitted",
+      sessionId,
+      nativeTurnId,
+      browserOperationId,
+      callId,
+      toolBatchRevision,
+    );
+  }
+
+  async recordToolCallPreparation(
+    sessionId: string,
+    nativeTurnId: string,
+    browserOperationId: string,
+    callId: string,
+    toolBatchRevision: number,
+  ): Promise<SessionAcknowledgement> {
+    return this.recordToolCallTransition(
+      "tool_call_prepared",
+      sessionId,
+      nativeTurnId,
+      browserOperationId,
+      callId,
+      toolBatchRevision,
+    );
+  }
+
+  private async recordToolCallTransition(
+    phase: "tool_call_prepared" | "tool_call_emitted",
+    sessionId: string,
+    nativeTurnId: string,
+    browserOperationId: string,
+    callId: string,
+    toolBatchRevision: number,
+  ): Promise<SessionAcknowledgement> {
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot || snapshot.turnId !== nativeTurnId) {
+      throw new Error("Session actor tool call turn ownership changed");
+    }
+    return this.actor(sessionId).recordLocal(
+      phase,
+      nativeTurnId,
+      `tool-call:${callId}`,
+      {
+        parentOperationId: browserOperationId,
+        historyRevision: snapshot.historyRevision,
+        toolBatchRevision,
+      },
+      snapshot.generation,
+    );
+  }
+
+  async recordToolBatchConfirmed(
+    sessionId: string,
+    nativeTurnId: string,
+    browserOperationId: string,
+    toolBatchRevision: number,
+  ): Promise<SessionAcknowledgement> {
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot || snapshot.turnId !== nativeTurnId) {
+      throw new Error("Session actor tool batch turn ownership changed");
+    }
+    return this.actor(sessionId).recordLocal(
+      "tool_batch_observed",
+      nativeTurnId,
+      `batch-confirmed:${browserOperationId}:${toolBatchRevision}`,
+      {
+        parentOperationId: browserOperationId,
+        historyRevision: snapshot.historyRevision,
+        toolBatchRevision,
+      },
+      snapshot.generation,
+    );
+  }
+
   async runBrowserTurn(
     sessionId: string,
     nativeTurnId: string,

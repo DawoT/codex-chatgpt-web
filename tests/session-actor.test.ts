@@ -7,6 +7,7 @@ import {
   SessionActorJournal,
   SessionActorManager,
   SessionResultStore,
+  SESSION_ACTOR_PROTOCOL_VERSION,
 } from "../src/adapters/chatgpt-web/session-actor";
 
 function fixture() {
@@ -30,7 +31,7 @@ function command(
   extra: Record<string, unknown> = {},
 ) {
   return {
-    protocolVersion: 3,
+    protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
     sessionId,
     generation: 1,
     turnId: "turn-1",
@@ -316,7 +317,7 @@ test("an abruptly killed writer releases its database lock and leaves the effect
     import { SessionActorJournal } from ${JSON.stringify(modulePath)};
     const journal = new SessionActorJournal(${JSON.stringify(home.path)});
     journal.apply({
-      protocolVersion: 3,
+      protocolVersion: ${SESSION_ACTOR_PROTOCOL_VERSION},
       sessionId: "namespace/thread-A",
       generation: 1,
       turnId: "turn-1",
@@ -326,7 +327,7 @@ test("an abruptly killed writer releases its database lock and leaves the effect
       type: "turn_started",
     });
     journal.apply({
-      protocolVersion: 3,
+      protocolVersion: ${SESSION_ACTOR_PROTOCOL_VERSION},
       sessionId: "namespace/thread-A",
       generation: 1,
       turnId: "turn-1",
@@ -837,6 +838,281 @@ test("checkpoint recovery returns only an accepted durable result and never rest
     } finally {
       reopened.close();
     }
+  } finally {
+    home.close();
+  }
+});
+
+test("tool result delivery is journaled once and a completed replay never calls the broker again", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-tool-result";
+    const turnId = "turn-1";
+    const browserOperationId = "browser:trace-1";
+    await manager.beginTurn(sessionId, turnId);
+    const actor = manager.actor(sessionId);
+    await actor.dispatch(command(sessionId, 1, "operation_intent", {
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+      operationId: browserOperationId,
+    }));
+    await manager.recordToolBatchConfirmed(sessionId, turnId, browserOperationId, 1);
+    await manager.recordToolCallPreparation(sessionId, turnId, browserOperationId, "call-1", 1);
+    await manager.recordToolCallEmission(sessionId, turnId, browserOperationId, "call-1", 1);
+    let deliveries = 0;
+    const deliver = async () => { deliveries += 1; };
+    const result = JSON.stringify({ content: [{ type: "text", text: "Done" }] });
+    await Promise.all([
+      manager.deliverToolResult(sessionId, turnId, browserOperationId, "call-1", result, deliver),
+      manager.deliverToolResult(sessionId, turnId, browserOperationId, "call-1", result, deliver),
+    ]);
+    expect(deliveries).toBe(1);
+    expect(home.journal.operation(sessionId, 1, "tool-result:call-1")?.state).toBe("completed");
+    const reopenedManager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    await reopenedManager.deliverToolResult(
+      sessionId,
+      turnId,
+      browserOperationId,
+      "call-1",
+      result,
+      deliver,
+    );
+    expect(deliveries).toBe(1);
+    await expect(reopenedManager.deliverToolResult(
+      sessionId,
+      turnId,
+      browserOperationId,
+      "call-1",
+      JSON.stringify({ content: [{ type: "text", text: "Conflicting" }] }),
+      deliver,
+    )).rejects.toThrow("conflicting identity");
+    expect(deliveries).toBe(1);
+  } finally {
+    home.close();
+  }
+});
+
+test("an interrupted tool result delivery stays uncertain and cannot replay its external effect", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-uncertain-result";
+    const browserOperationId = "browser:trace-2";
+    await manager.beginTurn(sessionId, "turn-1");
+    const actor = manager.actor(sessionId);
+    await actor.dispatch(command(sessionId, 1, "operation_intent", {
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+      operationId: browserOperationId,
+    }));
+    await manager.recordToolBatchConfirmed(sessionId, "turn-1", browserOperationId, 1);
+    await manager.recordToolCallPreparation(sessionId, "turn-1", browserOperationId, "call-2", 1);
+    await manager.recordToolCallEmission(sessionId, "turn-1", browserOperationId, "call-2", 1);
+    let calls = 0;
+    await expect(manager.deliverToolResult(
+      sessionId,
+      "turn-1",
+      browserOperationId,
+      "call-2",
+      "result",
+      async () => { calls += 1; throw new Error("broker status unknown"); },
+    )).rejects.toThrow("broker status unknown");
+    expect(home.journal.operation(sessionId, 1, "tool-result:call-2")?.state).toBe("uncertain");
+    await expect(manager.deliverToolResult(
+      sessionId,
+      "turn-1",
+      browserOperationId,
+      "call-2",
+      "result",
+      async () => { calls += 1; },
+    )).rejects.toThrow("requires reconciliation");
+    expect(calls).toBe(1);
+  } finally {
+    home.close();
+  }
+});
+
+test("tool call emission is owned by the accepted browser operation and revision", async () => {
+  const home = fixture();
+  try {
+    const resultStore = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(
+      home.journal,
+      resultStore,
+    );
+    const sessionId = "namespace/thread-emission";
+    const browserOperationId = "browser:trace-3";
+    await manager.beginTurn(sessionId, "turn-1");
+    await expect(manager.recordToolCallEmission(
+      sessionId, "turn-1", browserOperationId, "call-3", 1,
+    )).rejects.toThrow("accepted browser turn");
+    const actor = manager.actor(sessionId);
+    await actor.dispatch(command(sessionId, 1, "operation_intent", {
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+      operationId: browserOperationId,
+    }));
+    await expect(manager.recordToolCallEmission(
+      sessionId, "turn-1", browserOperationId, "call-3", 1,
+    )).rejects.toThrow("observed batch");
+    await manager.recordToolBatchConfirmed(sessionId, "turn-1", browserOperationId, 1);
+    await expect(manager.recordToolCallEmission(
+      sessionId, "turn-1", browserOperationId, "call-3", 1,
+    )).rejects.toThrow("prepared call");
+    await manager.recordToolCallPreparation(sessionId, "turn-1", browserOperationId, "call-3", 1);
+    await expect(manager.deliverToolResult(
+      sessionId,
+      "turn-1",
+      browserOperationId,
+      "call-3",
+      "premature result",
+      () => { throw new Error("must not call broker"); },
+    )).rejects.toThrow("emitted call");
+    const prematureRef = resultStore.referenceFor({
+      sessionId,
+      generation: 1,
+      turnId: "turn-1",
+      operationId: "tool-result:call-3",
+    });
+    expect(() => resultStore.get(prematureRef)).toThrow();
+    const first = await manager.recordToolCallEmission(
+      sessionId, "turn-1", browserOperationId, "call-3", 1,
+    );
+    expect(first.status).toBe("accepted");
+    expect(await manager.recordToolCallEmission(
+      sessionId, "turn-1", browserOperationId, "call-3", 1,
+    )).toEqual(first);
+    await expect(manager.recordToolCallEmission(
+      sessionId, "turn-1", browserOperationId, "call-3", 2,
+    )).rejects.toThrow("different contents");
+  } finally {
+    home.close();
+  }
+});
+
+test("restart during accepted tool delivery keeps A uncertain while B advances", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionA = "namespace/thread-A-tool-restart";
+    const sessionB = "namespace/thread-B-tool-restart";
+    const browserOperationId = "browser:trace-restart";
+    await manager.beginTurn(sessionA, "turn-A");
+    const actorA = manager.actor(sessionA);
+    await actorA.dispatch(command(sessionA, 1, "operation_intent", {
+      turnId: "turn-A",
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actorA.dispatch(command(sessionA, 2, "operation_accepted", {
+      turnId: "turn-A",
+      operationId: browserOperationId,
+    }));
+    await manager.recordToolBatchConfirmed(sessionA, "turn-A", browserOperationId, 1);
+    await manager.recordToolCallPreparation(sessionA, "turn-A", browserOperationId, "call-A", 1);
+    await manager.recordToolCallEmission(sessionA, "turn-A", browserOperationId, "call-A", 1);
+    await actorA.dispatch(command(sessionA, 3, "operation_intent", {
+      turnId: "turn-A",
+      operationId: "tool-result:call-A",
+      operationKind: "tool_result_delivery",
+      parentOperationId: browserOperationId,
+      historyRevision: 0,
+    }));
+    await actorA.dispatch(command(sessionA, 4, "operation_accepted", {
+      turnId: "turn-A",
+      operationId: "tool-result:call-A",
+    }));
+    home.journal.close();
+    const reopened = new SessionActorJournal(home.path);
+    try {
+      const recovered = new SessionActorManager(reopened, results);
+      expect(reopened.operation(sessionA, 1, "tool-result:call-A")?.state).toBe("uncertain");
+      let delivered = 0;
+      await expect(recovered.deliverToolResult(
+        sessionA,
+        "turn-A",
+        browserOperationId,
+        "call-A",
+        "same result",
+        () => { delivered += 1; },
+      )).rejects.toThrow("requires reconciliation");
+      expect(delivered).toBe(0);
+      expect((await recovered.beginTurn(sessionB, "turn-B")).status).toBe("accepted");
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    home.close();
+  }
+});
+
+test("B starts while A awaits a tool result delivery acknowledgement", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionA = "namespace/thread-A-waiting-tool";
+    const sessionB = "namespace/thread-B-free";
+    const browserOperationId = "browser:waiting-tool";
+    await manager.beginTurn(sessionA, "turn-A");
+    const actorA = manager.actor(sessionA);
+    await actorA.dispatch(command(sessionA, 1, "operation_intent", {
+      turnId: "turn-A",
+      operationId: browserOperationId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actorA.dispatch(command(sessionA, 2, "operation_accepted", {
+      turnId: "turn-A",
+      operationId: browserOperationId,
+    }));
+    await manager.recordToolBatchConfirmed(sessionA, "turn-A", browserOperationId, 1);
+    await manager.recordToolCallPreparation(sessionA, "turn-A", browserOperationId, "call-A", 1);
+    await manager.recordToolCallEmission(sessionA, "turn-A", browserOperationId, "call-A", 1);
+    let markStarted!: () => void;
+    let releaseDelivery!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const release = new Promise<void>(resolve => { releaseDelivery = resolve; });
+    const delivery = manager.deliverToolResult(
+      sessionA,
+      "turn-A",
+      browserOperationId,
+      "call-A",
+      "accepted result",
+      async () => {
+        markStarted();
+        await release;
+      },
+    );
+    await started;
+    expect(home.journal.operation(sessionA, 1, "tool-result:call-A")?.state).toBe("accepted");
+    expect((await manager.beginTurn(sessionB, "turn-B")).status).toBe("accepted");
+    releaseDelivery();
+    await delivery;
+    expect(home.journal.operation(sessionA, 1, "tool-result:call-A")?.state).toBe("completed");
   } finally {
     home.close();
   }

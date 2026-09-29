@@ -700,12 +700,42 @@ export function createChatGptWebAdapter(
                 const results = currentToolResults(parsed, session);
                 if (results.length === 0) {
                   const reasoning = session.reasoningForOutstandingReplay();
+                  if (dependencies.sessionActorManager) {
+                    const revision = session.runtime.externalProgress.snapshot().lastToolBatchRevision;
+                    for (const request of outstanding) {
+                      const recorded = await dependencies.sessionActorManager.recordToolCallPreparation(
+                        ownerKey,
+                        nativeTurnId,
+                        `browser:${traceId}`,
+                        request.callId,
+                        revision,
+                      );
+                      if (recorded.status !== "accepted") {
+                        throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
+                      }
+                    }
+                  }
                   if (replay.length === 0) emitRoundEvents(session.eventsForOutstandingReplay());
                   emitRoundBatch(buffer => emitToolBatch(
                     outstanding,
                     estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning, toolRequests: outstanding }, turnCapabilities, experimentalBiggerContext, experimentalSkillAttachments),
                     buffer,
                   ));
+                  if (dependencies.sessionActorManager) {
+                    const revision = session.runtime.externalProgress.snapshot().lastToolBatchRevision;
+                    for (const request of outstanding) {
+                      const recorded = await dependencies.sessionActorManager.recordToolCallEmission(
+                        ownerKey,
+                        nativeTurnId,
+                        `browser:${traceId}`,
+                        request.callId,
+                        revision,
+                      );
+                      if (recorded.status !== "accepted") {
+                        throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
+                      }
+                    }
+                  }
                   if (broker.recordToolLifecyclePhase) {
                     await Promise.all(outstanding.map(request => broker.recordToolLifecyclePhase!(
                       turnToken!,
@@ -721,7 +751,19 @@ export function createChatGptWebAdapter(
                   throw new Error(`Codex returned ${results.length} of ${outstanding.length} results for a parallel ChatGPT tool batch`);
                 }
                 for (const message of results) {
-                  await broker.completeTool(turnToken, message.toolCallId, brokerResult(message));
+                  const result = brokerResult(message);
+                  if (dependencies.sessionActorManager) {
+                    await dependencies.sessionActorManager.deliverToolResult(
+                      ownerKey,
+                      nativeTurnId,
+                      `browser:${traceId}`,
+                      message.toolCallId,
+                      JSON.stringify(result),
+                      () => broker.completeTool(turnToken!, message.toolCallId, result),
+                    );
+                  } else {
+                    await broker.completeTool(turnToken, message.toolCallId, result);
+                  }
                   session.runtime.externalProgress.recordToolResult();
                   session.markResultDelivered(message.toolCallId);
                 }
@@ -774,6 +816,17 @@ export function createChatGptWebAdapter(
                       );
                     }
                     externalProgress.assertToolBatchActive(revision);
+                    if (dependencies.sessionActorManager) {
+                      const confirmed = await dependencies.sessionActorManager.recordToolBatchConfirmed(
+                        ownerKey,
+                        nativeTurnId,
+                        `browser:${traceId}`,
+                        revision,
+                      );
+                      if (confirmed.status !== "accepted") {
+                        throw new Error(`Session actor tool batch requires recovery: ${confirmed.status}`);
+                      }
+                    }
                     if (broker.recordToolLifecyclePhase) {
                       await Promise.all(requests.map(request => broker.recordToolLifecyclePhase!(
                         turnToken,
@@ -861,12 +914,42 @@ export function createChatGptWebAdapter(
                   return;
                 }
                 validateBatchTools(parsed, next.requests);
+                if (dependencies.sessionActorManager) {
+                  const revision = externalProgress.snapshot().lastToolBatchRevision;
+                  for (const request of next.requests) {
+                    const recorded = await dependencies.sessionActorManager.recordToolCallPreparation(
+                      ownerKey,
+                      nativeTurnId,
+                      `browser:${traceId}`,
+                      request.callId,
+                      revision,
+                    );
+                    if (recorded.status !== "accepted") {
+                      throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
+                    }
+                  }
+                }
                 session.setOutstanding(next.requests, roundReasoning, session.roundEvents(roundKey));
                 emitRoundBatch(buffer => emitToolBatch(
                   next.requests,
                   estimateChatGptWebUsage(currentUsageInput(parsed), { reasoning: roundReasoning, toolRequests: next.requests }, turnCapabilities, experimentalBiggerContext, experimentalSkillAttachments),
                   buffer,
                 ));
+                if (dependencies.sessionActorManager) {
+                  const revision = externalProgress.snapshot().lastToolBatchRevision;
+                  for (const request of next.requests) {
+                    const recorded = await dependencies.sessionActorManager.recordToolCallEmission(
+                      ownerKey,
+                      nativeTurnId,
+                      `browser:${traceId}`,
+                      request.callId,
+                      revision,
+                    );
+                    if (recorded.status !== "accepted") {
+                      throw new Error(`Session actor tool emission requires recovery: ${recorded.status}`);
+                    }
+                  }
+                }
                 if (broker.recordToolLifecyclePhase) {
                   await Promise.all(next.requests.map(request => broker.recordToolLifecyclePhase!(
                     turnToken,

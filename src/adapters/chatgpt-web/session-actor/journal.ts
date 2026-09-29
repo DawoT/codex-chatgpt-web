@@ -386,6 +386,23 @@ export class SessionActorJournal {
         || command.historyRevision !== session.historyRevision) {
         throw new Error("Session actor operation revision or kind is invalid");
       }
+      if (command.operationKind === "tool_result_delivery") {
+        const parent = command.parentOperationId
+          ? this.operation(command.sessionId, command.generation, command.parentOperationId)
+          : null;
+        const emitted = this.findLocalTransition(
+          command.sessionId,
+          command.generation,
+          "tool_call_emitted",
+          `tool-call:${command.operationId.slice("tool-result:".length)}`,
+        );
+        if (!parent || parent.kind !== "browser_send" || parent.turnId !== command.turnId
+          || parent.historyRevision !== session.historyRevision || parent.state !== "accepted"
+          || !emitted || emitted.command.parentOperationId !== command.parentOperationId
+          || emitted.command.turnId !== command.turnId) {
+          throw new Error("Session actor tool result requires an emitted call on the accepted browser turn");
+        }
+      }
       if (operation()) throw new Error("Session actor operation id is already registered");
       const uncertain = this.database.query<{ count: number }, [string]>(`
         SELECT COUNT(*) AS count FROM session_operation
@@ -438,9 +455,18 @@ export class SessionActorJournal {
       }
       return;
     }
-    if (command.type === "tool_batch_observed") {
+    if (command.type === "tool_batch_observed" || command.type === "tool_call_prepared"
+      || command.type === "tool_call_emitted") {
       const parent = command.parentOperationId
         ? this.operation(command.sessionId, command.generation, command.parentOperationId)
+        : null;
+      const confirmed = command.type === "tool_call_prepared" || command.type === "tool_call_emitted"
+        ? this.findLocalTransition(
+          command.sessionId,
+          command.generation,
+          "tool_batch_observed",
+          `batch-confirmed:${command.parentOperationId}:${command.toolBatchRevision}`,
+        )
         : null;
       if (!parent || parent.kind !== "browser_send" || parent.turnId !== command.turnId
         || parent.historyRevision !== session.historyRevision
@@ -448,7 +474,25 @@ export class SessionActorJournal {
         || command.historyRevision !== session.historyRevision
         || !Number.isSafeInteger(command.toolBatchRevision)
         || command.toolBatchRevision! < 1) {
-        throw new Error("Session actor tool batch observation owner or revision mismatch");
+        throw new Error("Session actor tool call owner or revision mismatch on accepted browser turn");
+      }
+      if ((command.type === "tool_call_prepared" || command.type === "tool_call_emitted") && (!confirmed
+        || confirmed.command.parentOperationId !== command.parentOperationId
+        || confirmed.command.turnId !== command.turnId)) {
+        throw new Error("Session actor tool call requires an observed batch at the same revision");
+      }
+      if (command.type === "tool_call_emitted") {
+        const prepared = this.findLocalTransition(
+          command.sessionId,
+          command.generation,
+          "tool_call_prepared",
+          command.operationId,
+        );
+        if (!prepared || prepared.command.parentOperationId !== command.parentOperationId
+          || prepared.command.toolBatchRevision !== command.toolBatchRevision
+          || prepared.command.turnId !== command.turnId) {
+          throw new Error("Session actor tool emission requires a prepared call");
+        }
       }
       return;
     }
