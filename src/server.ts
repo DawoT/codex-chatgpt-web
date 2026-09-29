@@ -177,7 +177,7 @@ export function startServer(
     request: number; at: string; status: number; failure?: ModelCatalogFailure;
   } | null = null;
   const httpTurns = new HttpTurnCounter();
-  const hostRoutes = new HostHttpRoutes(config, httpTurns, adapterFactory);
+  const hostRoutes = new HostHttpRoutes(config, httpTurns, adapterFactory, undefined, undefined, actorManager);
 
   // Sprint AG: Rate limiter
   const rateLimitRpm = config.rateLimitRpm

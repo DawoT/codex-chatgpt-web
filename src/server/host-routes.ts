@@ -4,6 +4,7 @@ import { ChatGptWebAdapterError } from "../adapters/chatgpt-web/adapter-error";
 import { getConfigDir, type AppConfig } from "../config";
 import { availableChatGptWebModelRoutes, chatGptWebRouteEfforts, resolveChatGptWebContextLimits } from "../chatgpt-web-models";
 import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
+import type { SessionActorManager } from "../adapters/chatgpt-web/session-actor";
 import {
   isLongReasoningTurn,
   responseRequest,
@@ -23,18 +24,25 @@ export class HostHttpRoutes {
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly rateLimiter: SlidingWindowRateLimiter;
   private readonly recovery: HostRecoveryStore;
+  private readonly pendingCancellations = new WeakMap<HostTurn, Promise<"requested" | "settled">>();
+  private readonly pendingRemovals = new WeakMap<HostSession, Promise<void>>();
   constructor(
     private readonly config: AppConfig,
     private readonly httpTurns: HttpTurnCounter,
     private readonly adapterFactory?: ChatGptWebAdapterFactory,
     readonly store = new HostSessionStore(),
     recoveryRoot = join(getConfigDir(), "host-recovery"),
+    private readonly sessionActorManager?: SessionActorManager,
   ) {
     this.recovery = new HostRecoveryStore(recoveryRoot);
     const configuredRate = config.rateLimitRpm ?? Number(process.env.CODEX_RATE_LIMIT_RPM ?? 60);
     const rate = Number.isSafeInteger(configuredRate) ? configuredRate : 60;
     this.rateLimiter = new SlidingWindowRateLimiter({ limitPerWindow: rate, disabled: rate <= 0 });
-    this.timer = setInterval(() => this.expire(), 30_000);
+    this.timer = setInterval(() => {
+      void this.expire()?.catch(error => {
+        console.error("[host] session expiration failed:", error);
+      });
+    }, 30_000);
     this.timer.unref();
   }
 
@@ -51,55 +59,84 @@ export class HostHttpRoutes {
     }));
   }
 
-  private cancel(session: HostSession, turn: HostTurn): "requested" | "settled" {
+  private async cancel(session: HostSession, turn: HostTurn): Promise<"requested" | "settled"> {
     if (turn.cancellation) return turn.cancellation;
-    turn.cancelled = true;
-    turn.cancellation = "requested";
-    const reason = new DOMException("Host turn cancelled", "AbortError");
-    if (session.admitting?.turnId === turn.id) session.admitting.abort.abort(reason);
-    const identity = { threadId: session.id, turnId: turn.id };
-    const http = this.httpTurns.beginCancelTurn(identity, reason);
-    const browser = chatGptTurnSessions.cancelNativeTurn(session.id, turn.id, reason);
-    if (session.recoveryScope) {
-      try {
-        this.recovery.markCancelled(session.recoveryScope, turn.id, "requested");
-      } catch (error) {
-        console.warn("[host] recovery cancellation receipt failed:", error instanceof Error ? error.message : "unknown error");
-      }
-    }
-    void Promise.all([http.settlement, browser.settlement]).then(() => {
-      turn.cancellation = "settled";
+    const pending = this.pendingCancellations.get(turn);
+    if (pending) return pending;
+    const cancellation = (async () => {
+      await this.sessionActorManager?.revokeNativeTurn(session.id, turn.id);
+      turn.cancelled = true;
+      turn.cancellation = "requested";
+      const reason = new DOMException("Host turn cancelled", "AbortError");
+      if (session.admitting?.turnId === turn.id) session.admitting.abort.abort(reason);
+      const identity = { threadId: session.id, turnId: turn.id };
+      const http = this.httpTurns.beginCancelTurn(identity, reason);
+      const browser = chatGptTurnSessions.cancelNativeTurn(session.id, turn.id, reason);
       if (session.recoveryScope) {
         try {
-          this.recovery.markCancelled(session.recoveryScope, turn.id, "settled");
+          this.recovery.markCancelled(session.recoveryScope, turn.id, "requested");
         } catch (error) {
-          console.warn("[host] recovery cancellation settlement receipt failed:", error instanceof Error ? error.message : "unknown error");
+          console.warn("[host] recovery cancellation receipt failed:", error instanceof Error ? error.message : "unknown error");
         }
       }
-    }, () => {});
-    return turn.cancellation;
+      void Promise.all([http.settlement, browser.settlement]).then(() => {
+        turn.cancellation = "settled";
+        if (session.recoveryScope) {
+          try {
+            this.recovery.markCancelled(session.recoveryScope, turn.id, "settled");
+          } catch (error) {
+            console.warn("[host] recovery cancellation settlement receipt failed:", error instanceof Error ? error.message : "unknown error");
+          }
+        }
+      }, () => {});
+      return "requested" as const;
+    })();
+    this.pendingCancellations.set(turn, cancellation);
+    try {
+      return await cancellation;
+    } finally {
+      this.pendingCancellations.delete(turn);
+    }
   }
 
-  private remove(session: HostSession): void {
-    this.store.sessions.delete(session.id);
-    session.admitting?.abort.abort(new DOMException("Host session revoked", "AbortError"));
-    for (const turn of session.turns.values()) {
-      if (turn.active) this.cancel(session, turn);
+  private async remove(session: HostSession): Promise<void> {
+    const pending = this.pendingRemovals.get(session);
+    if (pending) return pending;
+    const removal = this.removeOwnedSession(session);
+    this.pendingRemovals.set(session, removal);
+    try {
+      await removal;
+    } finally {
+      this.pendingRemovals.delete(session);
     }
+  }
+
+  private async removeOwnedSession(session: HostSession): Promise<void> {
+    // Refuse new requests while retaining the session for another cleanup attempt if
+    // durable actor revocation fails before browser and HTTP cancellation.
+    session.expires = 0;
+    for (const turn of session.turns.values()) {
+      if (turn.active) await this.cancel(session, turn);
+    }
+    session.admitting?.abort.abort(new DOMException("Host session revoked", "AbortError"));
+    this.store.sessions.delete(session.id);
     session.responses.clear();
     session.calls.clear();
     session.bytes = 0;
   }
 
-  private expire(): void {
-    for (const session of this.store.sessions.values()) {
-      if (session.expires <= this.store.now()) this.remove(session);
-    }
+  private expire(): Promise<void> | undefined {
+    const expired = [...this.store.sessions.values()]
+      .filter(session => session.expires <= this.store.now());
+    if (expired.length === 0) return undefined;
+    return (async () => {
+      for (const session of expired) await this.remove(session);
+    })();
   }
 
   async close(): Promise<void> {
     clearInterval(this.timer);
-    for (const session of [...this.store.sessions.values()]) this.remove(session);
+    for (const session of [...this.store.sessions.values()]) await this.remove(session);
   }
 
   async handle(request: Request): Promise<Response | undefined> {
@@ -107,7 +144,8 @@ export class HostHttpRoutes {
     if (!path.startsWith("/host/v1/")) return undefined;
     try {
       if (request.headers.has("origin")) throw new HostProtocolError(403, "Browser-origin host requests are not allowed");
-      this.expire();
+      const expiration = this.expire();
+      if (expiration) await expiration;
       if (path === "/host/v1/sessions" && request.method === "POST") {
         if (!authorized(request, this.config.controlToken)) throw new HostProtocolError(401, "Host pairing requires local control authorization");
         if (this.config.mode !== "full") throw new HostProtocolError(409, "Host integration requires full mode with host-owned tools");
@@ -141,10 +179,10 @@ export class HostHttpRoutes {
             turn = { id: match[2], catalog: "", names: new Set(), active: false, cancelled: false };
             session.turns.set(turn.id, turn);
           }
-          return Response.json({ state: turn ? this.cancel(session, turn) : "unknown", scope: "bridge-http-and-browser-only" });
+          return Response.json({ state: turn ? await this.cancel(session, turn) : "unknown", scope: "bridge-http-and-browser-only" });
         }
         if (!match[2] && request.method === "DELETE") {
-          this.remove(session);
+          await this.remove(session);
           return Response.json({ state: "requested", scope: "bridge-http-and-browser-only" });
         }
       }
