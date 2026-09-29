@@ -114,8 +114,8 @@ describe("generateImage — edit mode (inputImagePath)", () => {
     expect(capturedRequest).toBeDefined();
     expect(capturedRequest!.url).toContain("/v1/images/edits");
     expect(capturedRequest!.method).toBe("POST");
-    // content-type must NOT be manually set to application/json (browser sets multipart boundary automatically)
-    expect(capturedRequest!.headers.get("content-type") ?? "").not.toContain("application/json");
+    // edit mode uses JSON body with images as data-URL objects
+    expect(capturedRequest!.headers.get("content-type") ?? "").toContain("application/json");
     expect(result.edited).toBe(true);
     expect(result.bytes).toBeGreaterThan(0);
   });

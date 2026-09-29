@@ -121,18 +121,25 @@ export async function generateImage(
   let response: Response;
 
   if (isEdit) {
-    // Edit mode: multipart/form-data to /v1/images/edits
+    // Edit mode: JSON body to /v1/images/edits
+    // The ChatGPT backend codex endpoint expects images as an array of objects:
+    //   { image_url: "data:<mime>;base64,<b64>" }
     const endpointUrl = `${baseUrl}/v1/images/edits`;
-    const form = new FormData();
-    form.append("prompt", prompt);
-    form.append("size", size);
-    form.append("quality", quality);
-    const blob = new Blob([new Uint8Array(inputImage.buffer)], { type: inputImage.mime });
-    form.append("image[]", blob, inputImage.filename);
+    const imageB64 = inputImage.buffer.toString("base64");
+    const dataUrl = `data:${inputImage.mime};base64,${imageB64}`;
+    const payload: Record<string, unknown> = {
+      prompt,
+      size,
+      quality,
+      images: [{ image_url: dataUrl }],
+    };
     response = await fetchImpl(endpointUrl, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-      body: form,
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
     });
   } else {
     // Generation mode: JSON body to /v1/images/generations
