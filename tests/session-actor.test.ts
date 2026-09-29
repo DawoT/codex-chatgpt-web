@@ -727,6 +727,41 @@ test("browser answer is durable before the launcher releases its surface", async
   }
 });
 
+test("a revoked browser callback cannot persist a late answer", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-late-result";
+    const turnId = "native-late-result";
+    const operationId = "browser:late-result";
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let started!: () => void;
+    const admitted = new Promise<void>(resolve => { started = resolve; });
+    const running = manager.runBrowserTurn(
+      sessionId,
+      turnId,
+      operationId,
+      async (onAccepted, _onTools, _onLeased, _onReleased, onResultReady) => {
+        await onAccepted();
+        started();
+        await gate;
+        await onResultReady("late answer");
+        return "late answer";
+      },
+    );
+    await admitted;
+    await manager.actor(sessionId).recordLocal("generation_revoked", turnId, "revoke-late");
+    release();
+    await expect(running).rejects.toThrow(/generation|revoked|stale/i);
+    const ref = results.referenceFor({ sessionId, generation: 1, turnId, operationId });
+    expect(() => results.get(ref)).toThrow();
+  } finally {
+    home.close();
+  }
+});
+
 test("a missing retained surface is reconciled before its session claims a replacement", async () => {
   const home = fixture();
   try {

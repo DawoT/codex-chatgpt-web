@@ -455,8 +455,17 @@ export class SessionActorManager {
           throw new Error(`Session actor surface release rejected: ${acknowledgement.status}`);
         }
       };
+      const assertResultOwner = (): void => {
+        const current = this.journal.snapshot(sessionId);
+        const operation = this.journal.operation(sessionId, generation, operationId);
+        if (current?.generation !== generation || current.turnId !== nativeTurnId
+          || operation?.kind !== "browser_send" || operation.state !== "accepted") {
+          throw new Error("Session actor browser result generation or operation changed before persistence");
+        }
+      };
       const onResultReady = async (text: string): Promise<void> => {
         await onAccepted();
+        assertResultOwner();
         this.results!.put({
           sessionId,
           generation,
@@ -473,6 +482,7 @@ export class SessionActorManager {
         onResultReady,
       );
       await onAccepted();
+      assertResultOwner();
       const resultRef = this.results!.put({
         sessionId,
         generation,
