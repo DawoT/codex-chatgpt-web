@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 export interface ImageGenerationRequest {
@@ -11,6 +11,12 @@ export interface ImageGenerationRequest {
   token?: string;
   baseUrl?: string;
   codexHome?: string;
+  /** Absolute or relative path to an existing image to use as the base for edits. Mutually exclusive with inputImageBase64. */
+  inputImagePath?: string;
+  /** Raw base64-encoded PNG/JPEG image bytes to use as the base for edits. Mutually exclusive with inputImagePath. */
+  inputImageBase64?: string;
+  /** MIME type of the input image when providing inputImageBase64 (default: image/png). */
+  inputImageMime?: "image/png" | "image/jpeg" | "image/webp" | string;
 }
 
 export interface ImageGenerationResult {
@@ -20,6 +26,8 @@ export interface ImageGenerationResult {
   prompt: string;
   size: string;
   created: number;
+  /** true when the result was produced by the edits endpoint (input image was provided). */
+  edited?: boolean;
 }
 
 /**
@@ -55,7 +63,37 @@ export function resolveAuthToken(explicitToken?: string, codexHome?: string): st
 }
 
 /**
- * Generates an image using the local bridge image generation endpoint or upstream backend.
+ * Resolves input image bytes from a path or base64 string.
+ * Returns { buffer, mime, filename } or undefined if no input image is specified.
+ */
+function resolveInputImage(request: ImageGenerationRequest): { buffer: Buffer; mime: string; filename: string } | undefined {
+  if (request.inputImagePath) {
+    const absPath = resolve(request.inputImagePath);
+    if (!existsSync(absPath)) {
+      throw new Error(`Input image not found: ${absPath}`);
+    }
+    const buffer = readFileSync(absPath);
+    const ext = extname(absPath).toLowerCase();
+    const mime = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg"
+      : ext === ".webp" ? "image/webp"
+      : "image/png";
+    return { buffer, mime, filename: basename(absPath) };
+  }
+  if (request.inputImageBase64) {
+    const mime = request.inputImageMime || "image/png";
+    const ext = mime === "image/jpeg" ? ".jpg" : mime === "image/webp" ? ".webp" : ".png";
+    const buffer = Buffer.from(request.inputImageBase64, "base64");
+    return { buffer, mime, filename: `input_image${ext}` };
+  }
+  return undefined;
+}
+
+/**
+ * Generates a new image from a text prompt, or edits an existing image when an input image is
+ * provided. Uses the local bridge endpoint which proxies to the upstream backend.
+ *
+ * - No input image → POST /v1/images/generations (JSON body)
+ * - With input image → POST /v1/images/edits (multipart/form-data)
  */
 export async function generateImage(
   request: ImageGenerationRequest,
@@ -74,25 +112,41 @@ export async function generateImage(
   }
 
   const baseUrl = (request.baseUrl || "http://127.0.0.1:17841").replace(/\/+$/, "");
-  const endpointUrl = `${baseUrl}/v1/images/generations`;
-
   const size = request.size || "1024x1024";
   const quality = request.quality || "auto";
 
-  const payload: Record<string, unknown> = {
-    prompt,
-    size,
-    quality,
-  };
+  const inputImage = resolveInputImage(request);
+  const isEdit = inputImage !== undefined;
 
-  const response = await fetchImpl(endpointUrl, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+
+  if (isEdit) {
+    // Edit mode: multipart/form-data to /v1/images/edits
+    const endpointUrl = `${baseUrl}/v1/images/edits`;
+    const form = new FormData();
+    form.append("prompt", prompt);
+    form.append("size", size);
+    form.append("quality", quality);
+    const blob = new Blob([new Uint8Array(inputImage.buffer)], { type: inputImage.mime });
+    form.append("image[]", blob, inputImage.filename);
+    response = await fetchImpl(endpointUrl, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: form,
+    });
+  } else {
+    // Generation mode: JSON body to /v1/images/generations
+    const endpointUrl = `${baseUrl}/v1/images/generations`;
+    const payload: Record<string, unknown> = { prompt, size, quality };
+    response = await fetchImpl(endpointUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  }
 
   if (!response.ok) {
     let errorDetail = response.statusText;
@@ -153,5 +207,6 @@ export async function generateImage(
     prompt,
     size,
     created: data.created || Math.floor(Date.now() / 1000),
+    edited: isEdit,
   };
 }

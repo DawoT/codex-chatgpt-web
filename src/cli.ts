@@ -578,6 +578,7 @@ async function runImageGenCommand(args: string[]): Promise<void> {
   if (takeFlag(args, "--help") || takeFlag(args, "-h")) {
     stdout.write(`Usage:
   codex-chatgpt-web image-gen generate <PROMPT> [options]
+  codex-chatgpt-web image-gen edit     <PROMPT> --input-image <PATH> [options]
 
 Options:
   --out PATH            Output file path (default: $CODEX_HOME/generated_images/...)
@@ -585,6 +586,8 @@ Options:
   --quality QUALITY     Image quality (low, medium, high, auto)
   --base-url URL        Bridge base URL (default: http://127.0.0.1:17841)
   --token TOKEN         Bearer token (default: reads from ~/.codex/auth.json)
+  --input-image PATH    Path to an existing image to use as base for editing (PNG/JPEG/WebP).
+                        When provided the request is sent to the image-edits endpoint.
 `);
     return;
   }
@@ -596,6 +599,7 @@ Options:
   const quality = takeOption(args, "--quality");
   const baseUrl = takeOption(args, "--base-url");
   const token = takeOption(args, "--token");
+  const inputImagePath = takeOption(args, "--input-image");
 
   if (args[0] === "generate" || args[0] === "edit") {
     args.shift();
@@ -617,6 +621,7 @@ Options:
     quality,
     baseUrl,
     token,
+    inputImagePath: inputImagePath || undefined,
   });
 
   stdout.write(`${result.path}\n`);
