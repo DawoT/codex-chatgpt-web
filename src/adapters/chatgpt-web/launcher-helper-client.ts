@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import {
   RUNTIME_PROTOCOL_VERSION,
+  runtimeIdentity,
   setObservedHelperDiagnostic,
   type RuntimeIdentity,
 } from "../../runtime-identity";
@@ -535,6 +536,14 @@ export class LauncherBrowserHelperClient {
       if (message.identity && (message.identity.pid !== child.pid
         || message.identity.artifactSha256 !== this.expectedHelperArtifactSha256)) {
         this.handleExit(child, new Error("Launcher browser helper artifact hash or process identity disagrees with the launched helper"));
+        void this.terminateChild(child, 0).catch(() => {});
+        return;
+      }
+      if (runtimeIdentity.buildCommit !== null
+        && message.identity?.buildCommit !== runtimeIdentity.buildCommit) {
+        this.handleExit(child, new Error(
+          `Launcher browser helper build does not match daemon build ${runtimeIdentity.buildCommit}`,
+        ));
         void this.terminateChild(child, 0).catch(() => {});
         return;
       }

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { LauncherBrowserHelperClient } from "../src/adapters/chatgpt-web/launcher-helper-client";
 import { LAUNCHER_BROWSER_HOST_KIND, LAUNCHER_BROWSER_IDLE_URL } from "../src/launcher-browser-host";
 import { handleAdminRoute, type AdminRouteContext } from "../src/server/admin-routes";
-import { createRuntimeIdentity } from "../src/runtime-identity";
+import { createRuntimeIdentity, runtimeIdentity } from "../src/runtime-identity";
 
 const roots: string[] = [];
 
@@ -46,17 +46,17 @@ test("health diagnostics identify the running daemon generation and loaded artif
   expect((await healthDiagnostics()).runtime_identity.generation).toBe(identity.generation);
 });
 
-function helperClient(frame: Record<string, unknown> | "identified" | "tampered" | "previous"): LauncherBrowserHelperClient {
+function helperClient(frame: Record<string, unknown> | "identified" | "tampered" | "previous" | "mismatched"): LauncherBrowserHelperClient {
   const root = mkdtempSync(join(tmpdir(), "runtime-identity-helper-"));
   roots.push(root);
   const helper = join(root, "helper.cjs");
-  const helperSource = frame === "identified" || frame === "tampered" || frame === "previous"
+  const helperSource = frame === "identified" || frame === "tampered" || frame === "previous" || frame === "mismatched"
     ? `
 const { createHash, randomUUID } = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const identity = {
   protocolVersion: ${frame === "previous" ? 1 : 2},
-  buildCommit: null,
+  buildCommit: ${frame === "mismatched" ? JSON.stringify("b".repeat(40)) : JSON.stringify(runtimeIdentity.buildCommit)},
   artifactSha256: ${frame === "tampered"
     ? JSON.stringify("0".repeat(64))
     : "createHash(\"sha256\").update(readFileSync(process.argv[1])).digest(\"hex\")"},
@@ -207,5 +207,44 @@ test("a versioned helper cannot claim a hash other than its launched artifact", 
       .rejects.toThrow(/artifact hash/i);
   } finally {
     await client.close();
+  }
+});
+
+test("a packaged daemon rejects an identified helper from another build", async () => {
+  const previous = runtimeIdentity.buildCommit;
+  runtimeIdentity.buildCommit = "a".repeat(40);
+  const client = helperClient("mismatched");
+  try {
+    await expect((client as unknown as { ensureChild(): Promise<void> }).ensureChild())
+      .rejects.toThrow(/helper build.*daemon build/i);
+  } finally {
+    await client.close();
+    runtimeIdentity.buildCommit = previous;
+  }
+});
+
+test("a packaged daemon accepts a helper from the same build", async () => {
+  const previous = runtimeIdentity.buildCommit;
+  runtimeIdentity.buildCommit = "a".repeat(40);
+  const client = helperClient("identified");
+  try {
+    await expect((client as unknown as { ensureChild(): Promise<void> }).ensureChild())
+      .resolves.toBeUndefined();
+  } finally {
+    await client.close();
+    runtimeIdentity.buildCommit = previous;
+  }
+});
+
+test("a packaged daemon rejects a legacy helper without build identity", async () => {
+  const previous = runtimeIdentity.buildCommit;
+  runtimeIdentity.buildCommit = "a".repeat(40);
+  const client = helperClient({ type: "ready", features: [] });
+  try {
+    await expect((client as unknown as { ensureChild(): Promise<void> }).ensureChild())
+      .rejects.toThrow(/helper build.*daemon build/i);
+  } finally {
+    await client.close();
+    runtimeIdentity.buildCommit = previous;
   }
 });
