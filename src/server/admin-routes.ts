@@ -23,6 +23,7 @@ import type { AppConfig } from "../config";
 import type { TunnelSupervisor } from "../tunnel-supervisor";
 import type { SessionStoreJanitor } from "../adapters/chatgpt-web/session-store-pruner";
 import type { TurnBroker } from "../adapters/chatgpt-web/turn-broker";
+import type { SessionActorManager } from "../adapters/chatgpt-web/session-actor";
 import type { HttpTurnCounter } from "./http-turn-counter";
 import type { NativeCodexTurnIdentity } from "./types";
 
@@ -42,6 +43,7 @@ export interface AdminRouteContext {
   sessionJanitor?: SessionStoreJanitor;
   taskResumeOrchestrator?: TaskResumeOrchestrator;
   turnBroker?: TurnBroker;
+  sessionActorManager?: SessionActorManager;
   httpTurns: HttpTurnCounter;
   shutdown: () => void;
 }
@@ -59,7 +61,7 @@ export async function handleAdminRoute(
   url: URL,
   ctx: AdminRouteContext,
 ): Promise<Response | undefined> {
-  const { config, startedAt, isDraining, setDraining, activity, modelCatalogStats, tunnelSupervisor, sessionJanitor, taskResumeOrchestrator, turnBroker, httpTurns, shutdown } = ctx;
+  const { config, startedAt, isDraining, setDraining, activity, modelCatalogStats, tunnelSupervisor, sessionJanitor, taskResumeOrchestrator, turnBroker, sessionActorManager, httpTurns, shutdown } = ctx;
   const isAuthorized = () => controlAuthorized(req, config.controlToken);
 
   if (req.method === "GET" && url.pathname === "/healthz") {
@@ -147,6 +149,7 @@ export async function handleAdminRoute(
         { status: 504, errorType: "server_error", code: leaseFailure, retryable: false },
       )
       : chatGptBrowserTabClosedError();
+    await sessionActorManager?.revokeBrowserTrace(traceId);
     // Revoke the owner first. This prevents a compaction callback that observes its retained
     // source being cancelled below from starting a fresh fallback during operator shutdown.
     const compactionCancellation = beginCancelStructuredCompactionTrace(traceId, reason);
@@ -186,6 +189,7 @@ export async function handleAdminRoute(
       );
     }
     const reason = new DOMException("Codex turn interrupted", "AbortError");
+    await sessionActorManager?.revokeNativeTurn(identity.threadId, identity.turnId);
     const browserCancellation = chatGptTurnSessions.cancelNativeTurn(
       identity.threadId,
       identity.turnId,
@@ -222,6 +226,7 @@ export async function handleAdminRoute(
   if (req.method === "POST" && url.pathname === "/admin/cancel-turns") {
     if (!isAuthorized()) return new Response("Unauthorized", { status: 401 });
     const reason = new Error("Active turn cancelled by launcher");
+    await sessionActorManager?.revokeAllCurrentTurns();
     const compactionCancellation = cancelAllStructuredCompactions(reason);
     const cancelledBrowserTurns = chatGptTurnSessions.clear() + (turnBroker?.revokeExternalOwners() ?? 0);
     defaultSubagentGovernor.clear(reason);

@@ -79,15 +79,18 @@ export function chatGptTurnRetryKey(parsed: CodexParsedRequest): string {
 }
 
 /** One native Codex thread may own at most one live ChatGPT browser surface. */
+export function chatGptNativeThreadOwnershipKey(threadId: string): string {
+  return createHash("sha256").update(JSON.stringify({ kind: "thread", id: threadId })).digest("hex");
+}
+
 export function chatGptThreadOwnershipKey(parsed: CodexParsedRequest): string {
   const identity = extractChatGptTurnIdentity(parsed);
-  const owner = identity.threadId
-    ? { kind: "thread", id: identity.threadId }
-    : identity.promptCacheKey
-      ? { kind: "prompt_cache", id: identity.promptCacheKey }
-      : identity.turnId
-        ? { kind: "turn", id: identity.turnId }
-        : undefined;
+  if (identity.threadId) return chatGptNativeThreadOwnershipKey(identity.threadId);
+  const owner = identity.promptCacheKey
+    ? { kind: "prompt_cache", id: identity.promptCacheKey }
+    : identity.turnId
+      ? { kind: "turn", id: identity.turnId }
+      : undefined;
   if (!owner) throw new Error("ChatGPT web requires native Codex turn identity metadata for browser ownership");
   return createHash("sha256").update(JSON.stringify(owner)).digest("hex");
 }

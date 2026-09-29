@@ -219,6 +219,7 @@ export function startServer(
     sessionJanitor,
     taskResumeOrchestrator,
     turnBroker,
+    sessionActorManager: actorManager,
     httpTurns,
     shutdown: () => shutdown(),
   };

@@ -3,6 +3,7 @@ import { SessionActorJournal } from "./journal";
 import { SessionResultStore } from "./results";
 import type { SessionAcknowledgement } from "./types";
 import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
+import { chatGptNativeThreadOwnershipKey } from "../turn-execution/keys";
 
 /** Holds only actor mailboxes; the WAL journal owns session state. */
 export class SessionActorManager {
@@ -25,6 +26,59 @@ export class SessionActorManager {
 
   beginTurn(sessionId: string, nativeTurnId: string): Promise<SessionAcknowledgement> {
     return this.actor(sessionId).recordLocal("turn_started", nativeTurnId, `turn:${nativeTurnId}`);
+  }
+
+  async revokeBrowserTrace(traceId: string): Promise<boolean> {
+    const owner = this.journal.activeBrowserOwner(`browser:${traceId}`);
+    if (!owner) return false;
+    const acknowledgement = await this.actor(owner.sessionId).recordLocal(
+      "generation_revoked",
+      owner.turnId,
+      `revoke:${traceId}`,
+      {},
+      owner.generation,
+    );
+    if (acknowledgement.status !== "accepted") {
+      throw new Error(`Session actor browser revocation requires recovery: ${acknowledgement.status}`);
+    }
+    return true;
+  }
+
+  async revokeNativeTurn(threadId: string, nativeTurnId: string): Promise<number> {
+    const owners = this.journal.nativeTurnOwners(
+      chatGptNativeThreadOwnershipKey(threadId),
+      nativeTurnId,
+    );
+    for (const owner of owners) {
+      const acknowledgement = await this.actor(owner.sessionId).recordLocal(
+        "generation_revoked",
+        owner.turnId,
+        `revoke-native:${nativeTurnId}`,
+        {},
+        owner.generation,
+      );
+      if (acknowledgement.status !== "accepted") {
+        throw new Error(`Session actor native turn revocation requires recovery: ${acknowledgement.status}`);
+      }
+    }
+    return owners.length;
+  }
+
+  async revokeAllCurrentTurns(): Promise<number> {
+    const owners = this.journal.currentTurnOwners();
+    for (const owner of owners) {
+      const acknowledgement = await this.actor(owner.sessionId).recordLocal(
+        "generation_revoked",
+        owner.turnId,
+        `revoke-all:${owner.generation}`,
+        {},
+        owner.generation,
+      );
+      if (acknowledgement.status !== "accepted") {
+        throw new Error(`Session actor global revocation requires recovery: ${acknowledgement.status}`);
+      }
+    }
+    return owners.length;
   }
 
   checkpointRecovery(

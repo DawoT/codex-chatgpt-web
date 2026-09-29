@@ -95,6 +95,26 @@ test("generation revocation rejects late results and does not affect another ses
   }
 });
 
+test("a stale cancellation cannot revoke a later turn in the same generation", async () => {
+  const home = fixture();
+  try {
+    const actor = new SessionActor(home.journal, "namespace/thread-A");
+    await actor.recordLocal("turn_started", "turn-1", "turn:turn-1");
+    await actor.recordLocal("turn_started", "turn-2", "turn:turn-2");
+    await expect(actor.recordLocal(
+      "generation_revoked",
+      "turn-1",
+      "revoke:turn-1",
+      {},
+      1,
+    )).rejects.toThrow("revocation turn ownership changed");
+    expect(home.journal.snapshot("namespace/thread-A")?.generation).toBe(1);
+    expect(home.journal.snapshot("namespace/thread-A")?.turnId).toBe("turn-2");
+  } finally {
+    home.close();
+  }
+});
+
 test("restart marks unconfirmed effects uncertain without replaying them", async () => {
   const home = fixture();
   try {
@@ -1174,6 +1194,42 @@ test("a late tool result from generation one cannot enter a replacement browser 
     )).rejects.toThrow("generation");
     expect(deliveries).toBe(0);
     expect(home.journal.operation(sessionId, 2, "tool-result:same-call")).toBeNull();
+  } finally {
+    home.close();
+  }
+});
+
+test("revoking one browser trace invalidates A's generation while B remains active", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessions = ["namespace/thread-A-cancel", "namespace/thread-B-cancel"];
+    const traces = ["trace-A", "trace-B"];
+    for (let index = 0; index < sessions.length; index += 1) {
+      const sessionId = sessions[index]!;
+      const browserOperationId = `browser:${traces[index]}`;
+      await manager.beginTurn(sessionId, `turn-${index}`);
+      const actor = manager.actor(sessionId);
+      await actor.dispatch(command(sessionId, 1, "operation_intent", {
+        turnId: `turn-${index}`,
+        operationId: browserOperationId,
+        operationKind: "browser_send",
+        historyRevision: 0,
+      }));
+      await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+        turnId: `turn-${index}`,
+        operationId: browserOperationId,
+      }));
+    }
+    expect(await manager.revokeBrowserTrace("trace-A")).toBe(true);
+    expect(home.journal.snapshot(sessions[0]!)?.generation).toBe(2);
+    expect(home.journal.snapshot(sessions[1]!)?.generation).toBe(1);
+    expect(home.journal.operation(sessions[0]!, 1, "browser:trace-A")?.state).toBe("uncertain");
+    expect(home.journal.operation(sessions[1]!, 1, "browser:trace-B")?.state).toBe("accepted");
+    expect(await manager.revokeBrowserTrace("trace-A")).toBe(false);
   } finally {
     home.close();
   }

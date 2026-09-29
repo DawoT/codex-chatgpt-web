@@ -183,6 +183,55 @@ export class SessionActorJournal {
     `).get(sessionId, generation, operationId);
   }
 
+  activeBrowserOwner(operationId: string): { sessionId: string; generation: number; turnId: string } | null {
+    const owners = this.database.query<{
+      sessionId: string;
+      generation: number;
+      turnId: string;
+    }, [string]>(`
+      SELECT operation.session_id AS sessionId, operation.generation,
+        operation.turn_id AS turnId
+      FROM session_operation AS operation
+      JOIN session_actor AS session
+        ON session.session_id = operation.session_id
+        AND session.generation = operation.generation
+      WHERE operation.operation_id = ? AND operation.kind = 'browser_send'
+        AND operation.state IN ('intent', 'accepted')
+      LIMIT 2
+    `).all(operationId);
+    if (owners.length > 1) throw new Error("Browser trace has ambiguous session ownership");
+    return owners[0] ?? null;
+  }
+
+  nativeTurnOwners(ownershipKey: string, turnId: string): Array<{
+    sessionId: string;
+    generation: number;
+    turnId: string;
+  }> {
+    return this.database.query<{
+      sessionId: string;
+      generation: number;
+      turnId: string;
+    }, [string, string]>(`
+      SELECT session_id AS sessionId, generation, turn_id AS turnId
+      FROM session_actor
+      WHERE turn_id = ? AND substr(session_id, -65) = ':' || ?
+    `).all(turnId, ownershipKey);
+  }
+
+  currentTurnOwners(): Array<{ sessionId: string; generation: number; turnId: string }> {
+    return this.database.query<{
+      sessionId: string;
+      generation: number;
+      turnId: string;
+    }, []>(`
+      SELECT session_id AS sessionId, generation, turn_id AS turnId
+      FROM session_actor
+      WHERE turn_id IS NOT NULL
+      ORDER BY session_id
+    `).all();
+  }
+
   surfaceOwner(surfaceId: string): { sessionId: string; generation: number } | null {
     return this.database.query<{ sessionId: string; generation: number }, [string]>(`
       SELECT session_id AS sessionId, generation
@@ -368,6 +417,9 @@ export class SessionActorJournal {
       return;
     }
     if (command.type === "generation_revoked") {
+      if (session.turnId !== command.turnId) {
+        throw new Error("Session actor revocation turn ownership changed");
+      }
       this.database.query(`
         UPDATE session_operation SET state = 'uncertain'
         WHERE session_id = ? AND generation = ? AND state IN ('intent', 'accepted')
