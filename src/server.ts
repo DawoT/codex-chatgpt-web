@@ -104,6 +104,8 @@ export function startServer(
       return !Object.hasOwn(readLauncherBrowserHostDescriptor(descriptorPath).surfaceTargets, surfaceId);
     })
     : undefined;
+  actorManager?.recoverUncertainOperations();
+
   const adapterFactory: ChatGptWebAdapterFactory = dependencies.adapterFactory
     ?? (actorManager
       ? provider => createChatGptWebAdapter(provider, { sessionActorManager: actorManager })

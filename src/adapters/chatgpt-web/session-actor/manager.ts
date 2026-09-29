@@ -113,6 +113,54 @@ export class SessionActorManager {
     return revoked;
   }
 
+  /**
+   * Called once during server startup after the journal has run recoverInterrupted().
+   * For each uncertain browser_send operation that has no result file (i.e. the browser
+   * never completed the send before the server was killed), the operation is immediately
+   * abandoned so it no longer blocks future operation_intent commands.
+   */
+  recoverUncertainOperations(): void {
+    if (!this.results) return;
+    const uncertain = this.journal.uncertainBrowserSendOperations();
+    for (const op of uncertain) {
+      const ref = this.results.referenceFor({
+        sessionId: op.sessionId,
+        generation: op.generation,
+        turnId: op.turnId,
+        operationId: op.operationId,
+      });
+      let hasResult = false;
+      try {
+        this.results.get(ref);
+        hasResult = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.error(
+            `[session-actor] uncertain op ${op.operationId} result check failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          continue;
+        }
+      }
+      if (hasResult) {
+        // Result exists — will be auto-reconciled as completed when the next turn starts.
+        continue;
+      }
+      // No result file: the browser never sent. Mark as abandoned so new turns can proceed.
+      try {
+        // Use a stable synthetic evidence ref that fits within the 256-char limit.
+        const evidenceRef = `not-sent:${ref}`;
+        this.journal.reconcileOperation(op.sessionId, op.generation, op.operationId, "not_sent", evidenceRef);
+        console.info(
+          `[session-actor] abandoned unrecoverable uncertain op ${op.operationId} for session ${op.sessionId}`,
+        );
+      } catch (error) {
+        console.error(
+          `[session-actor] could not abandon uncertain op ${op.operationId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
   checkpointRecovery(
     sessionId: string,
     nativeTurnId: string,

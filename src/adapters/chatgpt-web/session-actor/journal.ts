@@ -183,6 +183,17 @@ export class SessionActorJournal {
     `).get(sessionId, generation, operationId);
   }
 
+  uncertainBrowserSendOperations(): Array<OperationRow> {
+    return this.database.query<OperationRow, []>(`
+      SELECT session_id AS sessionId, generation, operation_id AS operationId,
+        turn_id AS turnId, history_revision AS historyRevision, kind, state,
+        result_ref AS resultRef
+      FROM session_operation
+      WHERE state = 'uncertain' AND kind = 'browser_send'
+      ORDER BY session_id, generation, operation_id
+    `).all();
+  }
+
   activeBrowserOwner(operationId: string): { sessionId: string; generation: number; turnId: string } | null {
     const owners = this.database.query<{
       sessionId: string;
