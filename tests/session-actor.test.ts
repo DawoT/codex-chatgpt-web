@@ -644,3 +644,30 @@ test("a tool observation from a revoked generation cannot cross into another ses
     home.close();
   }
 });
+
+test("browser work claims its leased surface before Send and releases it after turn end", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-A";
+    const answer = await manager.runBrowserTurn(
+      sessionId,
+      "native-turn-1",
+      "browser-1",
+      async (onAccepted, _onToolBatchObserved, onSurfaceLeased, onSurfaceReleased) => {
+        await onSurfaceLeased("surface-A");
+        expect(home.journal.surfaceOwner("surface-A")).toEqual({ sessionId, generation: 1 });
+        await onAccepted();
+        await onSurfaceReleased("surface-A");
+        expect(home.journal.surfaceOwner("surface-A")).toBeNull();
+        return "Finished";
+      },
+    );
+    expect(answer).toBe("Finished");
+  } finally {
+    home.close();
+  }
+});

@@ -36,6 +36,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
         return "second";
       }
       if (turn.traceId === "abcdef123458") {
+        await turn.onSurfaceLeased?.("a".repeat(32));
         await turn.onPreparedSelected(false);
         const prepared = await turn.prepare();
         try {
@@ -45,6 +46,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
           }
           await turn.externalProgress.acknowledgeToolBatch(snapshot.lastToolBatchRevision);
           turn.onTextDelta("observed");
+          await turn.onSurfaceReleased?.("a".repeat(32));
           return "observed";
         } finally {
           prepared.release();
@@ -198,6 +200,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
     };
     let markPrepared!: () => void;
     const thirdPrepared = new Promise<void>(resolve => { markPrepared = resolve; });
+    const surfaceEvents: string[] = [];
     let markJournalRequested!: () => void;
     const journalRequested = new Promise<void>(resolve => { markJournalRequested = resolve; });
     let releaseJournal!: () => void;
@@ -212,6 +215,12 @@ test("daemon streams browser lifecycle through the real helper process", async (
         return { text: "inspect", images: [], release() {} };
       },
       externalProgress: progress,
+      onSurfaceLeased: async surfaceId => {
+        surfaceEvents.push(`claimed:${surfaceId}`);
+      },
+      onSurfaceReleased: async surfaceId => {
+        surfaceEvents.push(`released:${surfaceId}`);
+      },
       onToolBatchObserved: async (_requestId, observedRevision) => {
         expect(observedRevision).toBe(revision);
         markJournalRequested();
@@ -236,6 +245,10 @@ test("daemon streams browser lifecycle through the real helper process", async (
     expect(early).toBeFalse();
     releaseAcknowledgement();
     expect(await third).toBe("observed");
+    expect(surfaceEvents).toEqual([
+      `claimed:${"a".repeat(32)}`,
+      `released:${"a".repeat(32)}`,
+    ]);
     await expect(progress.waitForToolBatchObservation(revision)).resolves.toBeUndefined();
     const repeatedDeltas: string[] = [];
     const repeatedTurn = () => ({

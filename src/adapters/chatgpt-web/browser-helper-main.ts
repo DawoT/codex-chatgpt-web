@@ -38,6 +38,7 @@ interface RunMessage {
     pendingMissionRequirements?: boolean;
     captureLunaCheckpoint?: boolean;
     externalProgress?: boolean;
+    surfaceOwnership?: boolean;
   };
 }
 
@@ -74,6 +75,7 @@ type InputMessage = RunMessage
   | MaintenanceMessage
   | { type: "prepared_selected_ack"; id: string; prepared: CompiledChatGptWebPrompt }
   | { type: "send_activation_ack"; id: string }
+  | { type: "surface_ownership_ack"; id: string; phase: "leased" | "released"; surfaceId: string; accepted: boolean }
   | { type: "tool_batch_observed_ack"; id: string; requestId: number; revision: number; accepted: boolean }
   | { type: "completion_fence_begin_ack"; id: string; requestId: number; revision: number | null }
   | { type: "completion_fence_commit_ack"; id: string; requestId: number; committed: boolean }
@@ -107,6 +109,12 @@ const sendActivationWaiters = new Map<string, {
   resolve: () => void;
   reject: (error: Error) => void;
 }>();
+const surfaceOwnershipWaiters = new Map<string, {
+  phase: "leased" | "released";
+  surfaceId: string;
+  resolve: () => void;
+  reject: (error: Error) => void;
+}>();
 const toolBoundaryWaiters = new Map<string, {
   requestId: number;
   revision: number;
@@ -129,6 +137,24 @@ let completionFenceRequestId = 0;
 let shuttingDown = false;
 let shutdownPromise: Promise<void> | undefined;
 
+function confirmSurfaceOwnership(
+  id: string,
+  phase: "leased" | "released",
+  surfaceId: string,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (surfaceOwnershipWaiters.has(id)) {
+      reject(new Error("Browser helper surface ownership confirmation is already pending"));
+      return;
+    }
+    surfaceOwnershipWaiters.set(id, { phase, surfaceId, resolve, reject });
+    if (!writeProtocol({ type: "event", id, event: "surface_ownership", phase, surfaceId })) {
+      surfaceOwnershipWaiters.delete(id);
+      reject(new Error("Browser helper could not confirm launcher surface ownership"));
+    }
+  });
+}
+
 function requestShutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
   let completeShutdown!: () => void;
@@ -145,6 +171,10 @@ function requestShutdown(): Promise<void> {
     waiter.reject(new DOMException("Browser helper is shutting down", "AbortError"));
   }
   sendActivationWaiters.clear();
+  for (const waiter of surfaceOwnershipWaiters.values()) {
+    waiter.reject(new DOMException("Browser helper is shutting down", "AbortError"));
+  }
+  surfaceOwnershipWaiters.clear();
   for (const waiter of completionFenceBeginWaiters.values()) {
     waiter.reject(new DOMException("Browser helper is shutting down", "AbortError"));
   }
@@ -298,6 +328,10 @@ async function run(message: RunMessage): Promise<void> {
       },
     } : {}),
     onHeartbeat: () => writeProtocol({ type: "event", id: message.id, event: "heartbeat" }),
+    ...(message.turn.surfaceOwnership ? {
+      onSurfaceLeased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "leased", surfaceId),
+      onSurfaceReleased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "released", surfaceId),
+    } : {}),
     onPreparedSelected: reused => {
       if (!writeProtocol({ type: "event", id: message.id, event: "prepared_selected", reused })) {
         throw new Error("Browser helper could not request prompt selection");
@@ -366,6 +400,9 @@ async function run(message: RunMessage): Promise<void> {
     const sendWaiter = sendActivationWaiters.get(message.id);
     sendActivationWaiters.delete(message.id);
     sendWaiter?.reject(new DOMException("Browser helper turn ended before Send acknowledgement", "AbortError"));
+    const surfaceWaiter = surfaceOwnershipWaiters.get(message.id);
+    surfaceOwnershipWaiters.delete(message.id);
+    surfaceWaiter?.reject(new DOMException("Browser helper turn ended before surface confirmation", "AbortError"));
     const beginWaiter = completionFenceBeginWaiters.get(message.id);
     completionFenceBeginWaiters.delete(message.id);
     beginWaiter?.reject(new DOMException("Browser helper turn ended before completion-fence begin", "AbortError"));
@@ -481,6 +518,12 @@ input.on("line", line => {
     }
     sendActivationWaiters.delete(message.id);
     waiter.resolve();
+  } else if (message.type === "surface_ownership_ack") {
+    const waiter = surfaceOwnershipWaiters.get(message.id);
+    if (!waiter || waiter.phase !== message.phase || waiter.surfaceId !== message.surfaceId) return;
+    surfaceOwnershipWaiters.delete(message.id);
+    if (message.accepted) waiter.resolve();
+    else waiter.reject(new Error("Daemon rejected launcher surface ownership"));
   } else if (message.type === "tool_batch_observed_ack") {
     const waiter = toolBoundaryWaiters.get(message.id);
     if (!waiter || waiter.requestId !== message.requestId || waiter.revision !== message.revision) return;
@@ -533,6 +576,9 @@ input.on("line", line => {
     const waiter = sendActivationWaiters.get(message.id);
     sendActivationWaiters.delete(message.id);
     waiter?.reject(new DOMException("Browser helper turn aborted before Send acknowledgement", "AbortError"));
+    const surfaceWaiter = surfaceOwnershipWaiters.get(message.id);
+    surfaceOwnershipWaiters.delete(message.id);
+    surfaceWaiter?.reject(new DOMException("Browser helper turn aborted before surface confirmation", "AbortError"));
     const beginWaiter = completionFenceBeginWaiters.get(message.id);
     completionFenceBeginWaiters.delete(message.id);
     beginWaiter?.reject(new DOMException("Browser helper turn aborted before completion-fence begin", "AbortError"));
@@ -599,6 +645,7 @@ writeProtocol({
     "tool-boundary-ack",
     "tool-boundary-request-ack-v2",
     "session-operation-id-v2",
+    "surface-ownership-ack-v1",
     "completion-fence",
     "multipart-stage-ack",
     "multipart-submission-lifecycle",

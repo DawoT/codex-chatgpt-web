@@ -492,6 +492,10 @@ export interface BrowserTurn {
   onSubmitted?: () => void | Promise<void>;
   /** Persist the helper's exact tool-boundary request before acknowledging it. */
   onToolBatchObserved?: (requestId: number, revision: number) => void | Promise<void>;
+  /** Confirm the launcher surface owner before any browser mutation. */
+  onSurfaceLeased?: (surfaceId: string) => void | Promise<void>;
+  /** Confirm a released launcher surface after the host ends the turn. */
+  onSurfaceReleased?: (surfaceId: string) => void | Promise<void>;
   /** One inert Bigger Context stage completed its exact acknowledgement boundary. */
   onMultipartStageAcknowledged?: (stageIndex: number) => void | Promise<void>;
   /** Visible ChatGPT reasoning-summary step titles only; never hidden chain-of-thought. */
@@ -3120,6 +3124,7 @@ export class ChatGptBrowserWorker {
     }
 
     let surfaceId: string | undefined;
+    let surfaceClaimed = false;
     let reused = false;
     let terminal: "completed" | "failed" | "aborted" = "completed";
     let terminalMessage: string | undefined;
@@ -3148,6 +3153,9 @@ export class ChatGptBrowserWorker {
       });
       surfaceId = lease.surfaceId;
       reused = lease.reused === true;
+      if (!surfaceId) throw new Error("Launcher did not lease a browser tab for the ChatGPT turn");
+      await turn.onSurfaceLeased?.(surfaceId);
+      surfaceClaimed = true;
       const sendHeartbeat = () => {
         if (heartbeatInFlight) return;
         heartbeatInFlight = true;
@@ -3166,7 +3174,6 @@ export class ChatGptBrowserWorker {
           heartbeatInFlight = false;
         });
       };
-      if (!surfaceId) throw new Error("Launcher did not lease a browser tab for the ChatGPT turn");
       if (turn.requireRetainedConversation && !reused) {
         throw chatGptRetainedConversationUnavailableError();
       }
@@ -3203,6 +3210,10 @@ export class ChatGptBrowserWorker {
               ? { connectorBound: true }
               : {}),
           });
+          if (surfaceClaimed
+            && !(terminal === "completed" && turn.retainConversation && turn.conversationKey)) {
+            await turn.onSurfaceReleased?.(surfaceId);
+          }
           if (release.cancelledByUser) throw chatGptBrowserTabClosedError();
         } catch (controlError) {
           if (controlError instanceof ChatGptWebAdapterError && controlError.code === "client_cancelled") {

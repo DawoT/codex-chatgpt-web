@@ -33,6 +33,7 @@ type HelperMessage =
   | { type: "ready"; features?: string[]; protocolVersion?: number; identity?: RuntimeIdentity }
   | { type: "event"; id: string; event: "heartbeat" | "send_activated" | "submitted" | "reasoning" | "commentary" | "text"; text?: string; continuation?: boolean }
   | { type: "event"; id: string; event: "tool_batch_observed"; requestId: number; revision: number }
+  | { type: "event"; id: string; event: "surface_ownership"; phase: "leased" | "released"; surfaceId: string }
   | { type: "event"; id: string; event: "multipart_stage_acknowledged"; stageIndex: number }
   | { type: "event"; id: string; event: "completion_fence_begin"; requestId: number }
   | { type: "event"; id: string; event: "completion_fence_commit"; requestId: number; revision: number }
@@ -108,6 +109,20 @@ function parseHelperMessage(line: string): HelperMessage {
         event,
         requestId: message.requestId as number,
         revision: message.revision as number,
+      };
+    }
+    if (event === "surface_ownership") {
+      if ((message.phase !== "leased" && message.phase !== "released")
+        || typeof message.surfaceId !== "string"
+        || !/^[A-Za-z0-9_-]{32}$/.test(message.surfaceId)) {
+        throw new Error("Launcher browser helper surface ownership event is invalid");
+      }
+      return {
+        type: "event",
+        id: message.id,
+        event,
+        phase: message.phase,
+        surfaceId: message.surfaceId,
       };
     }
     if (event === "completion_fence_begin") {
@@ -262,6 +277,10 @@ export class LauncherBrowserHelperClient {
     if (!this.helperFeatures.has("session-operation-id-v2")) {
       throw new Error("Launcher browser helper does not support isolated operation identities; update or restart the launcher");
     }
+    if ((turn.onSurfaceLeased || turn.onSurfaceReleased)
+      && !this.helperFeatures.has("surface-ownership-ack-v1")) {
+      throw new Error("Launcher browser helper lacks surface ownership confirmation; update or restart the launcher");
+    }
     if (turn.onMultipartStageAcknowledged && !this.helperFeatures.has("multipart-stage-ack")) {
       throw new Error(
         "Launcher browser helper does not support multipart acknowledgement forwarding; update or restart the launcher",
@@ -351,6 +370,7 @@ export class LauncherBrowserHelperClient {
             ...(turn.pendingMissionRequirements ? { pendingMissionRequirements: true } : {}),
             ...(turn.captureLunaCheckpoint ? { captureLunaCheckpoint: true } : {}),
             ...(turn.externalProgress ? { externalProgress: true } : {}),
+            ...(turn.onSurfaceLeased && turn.onSurfaceReleased ? { surfaceOwnership: true } : {}),
           },
         })
           // Only mirror once the run frame is on the wire, so the helper never sees progress for a
@@ -517,6 +537,40 @@ export class LauncherBrowserHelperClient {
     if (!pending) return;
     if (message.type === "event") {
       if (message.event === "heartbeat") pending.turn.onHeartbeat?.();
+      else if (message.event === "surface_ownership") {
+        const callback = message.phase === "leased"
+          ? pending.turn.onSurfaceLeased
+          : pending.turn.onSurfaceReleased;
+        if (!/^[A-Za-z0-9_-]{32}$/.test(message.surfaceId) || !callback) {
+          this.abortWithLocalFailure(
+            message.id,
+            new Error("Launcher browser helper reported invalid surface ownership"),
+            pending,
+          );
+          return;
+        }
+        void Promise.resolve().then(() => callback(message.surfaceId)).then(
+          () => {
+            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+            return this.send({
+              type: "surface_ownership_ack",
+              id: message.id,
+              phase: message.phase,
+              surfaceId: message.surfaceId,
+              accepted: true,
+            });
+          },
+          error => this.abortWithLocalFailure(
+            message.id,
+            error instanceof Error ? error : new Error(String(error)),
+            pending,
+          ),
+        ).catch(error => this.abortWithLocalFailure(
+          message.id,
+          error instanceof Error ? error : new Error(String(error)),
+          pending,
+        ));
+      }
       else if (message.event === "tool_batch_observed") {
         const progress = pending.turn.externalProgress;
         if (!progress) {

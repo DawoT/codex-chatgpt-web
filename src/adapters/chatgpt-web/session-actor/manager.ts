@@ -33,6 +33,8 @@ export class SessionActorManager {
     run: (
       onAccepted: () => Promise<void>,
       onToolBatchObserved: (requestId: number, revision: number) => Promise<SessionAcknowledgement>,
+      onSurfaceLeased: (surfaceId: string) => Promise<void>,
+      onSurfaceReleased: (surfaceId: string) => Promise<void>,
     ) => Promise<string>,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
@@ -111,7 +113,39 @@ export class SessionActorManager {
         }
         return acknowledgement;
       };
-      const text = await run(onAccepted, onToolBatchObserved);
+      let leasedSurfaceId: string | undefined;
+      const onSurfaceLeased = async (surfaceId: string): Promise<void> => {
+        if (leasedSurfaceId && leasedSurfaceId !== surfaceId) {
+          throw new Error("Session actor browser operation changed leased surface");
+        }
+        const acknowledgement = await actor.recordLocal(
+          "surface_claimed",
+          nativeTurnId,
+          `surface-claim:${operationId}`,
+          { surfaceId },
+          generation,
+        );
+        if (acknowledgement.status !== "accepted") {
+          throw new Error(`Session actor surface claim rejected: ${acknowledgement.status}`);
+        }
+        leasedSurfaceId = surfaceId;
+      };
+      const onSurfaceReleased = async (surfaceId: string): Promise<void> => {
+        if (leasedSurfaceId !== surfaceId) {
+          throw new Error("Session actor browser operation released an unclaimed surface");
+        }
+        const acknowledgement = await actor.recordLocal(
+          "surface_released",
+          nativeTurnId,
+          `surface-release:${operationId}`,
+          { surfaceId },
+          generation,
+        );
+        if (acknowledgement.status !== "accepted") {
+          throw new Error(`Session actor surface release rejected: ${acknowledgement.status}`);
+        }
+      };
+      const text = await run(onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased);
       await onAccepted();
       const resultRef = this.results!.put({
         sessionId,
