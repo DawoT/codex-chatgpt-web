@@ -60,7 +60,8 @@
     "launcher:typecheck": "bun run --cwd launcher typecheck",
     "launcher:build": "bun run --cwd launcher build",
     "launcher:test": "bun run --cwd launcher test",
-    "verify": "bun run scripts/verify.ts"
+    "verify": "bun run scripts/verify.ts",
+    "test:coverage": "bun test ./tests --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -79,6 +80,7 @@
     "@biomejs/biome": "^2.5.14",
     "@types/bun": "1.4.2",
     "@types/turndown": "5.0.5",
+    "simple-git-hooks": "^2.14.0",
     "typescript": "5.9.3"
   },
   "engines": {
@@ -99,5 +101,8 @@
     "mcp",
     "playwright"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "simple-git-hooks": {
+    "pre-commit": "bunx biome check --staged --no-errors-on-unmatched"
+  }
 }

@@ -42,6 +42,10 @@ on top of the upstream 6.0.x browser bridge.
 - Bun toolchain pinned to 1.4.2 across CI, installers, launchers and
   runtime notices.
 - Internal `odd/` agent task notes are no longer tracked.
+- Biome adopted for lint and formatting (recommended rules; a11y and a few
+  idiom rules start as warnings), with a `pre-commit` hook gating staged
+  files and `bun run lint` wired into the verify gate alongside a coverage
+  run of the test suite.
 
 ### Security
 
