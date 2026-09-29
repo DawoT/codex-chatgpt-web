@@ -147,7 +147,7 @@ test("oversized first host prompt is rejected before durable recovery admission"
   }
 });
 
-test("a viable 160k character first host prompt is admitted", async () => {
+test("an indivisible 160k character first host prompt is rejected before admission", async () => {
   const root = mkdtempSync(join(tmpdir(), "host-preventive-budget-"));
   let calls = 0;
   const runtime = host(root, () => { calls += 1; }, { experimentalBiggerContext: true });
@@ -156,10 +156,10 @@ test("a viable 160k character first host prompt is admitted", async () => {
     const response = await runtime.request(session, "turn-preventive", 1, {
       input: "evidence ".repeat(19_000),
     });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(400);
     await response.text();
-    expect(calls).toBe(1);
-    expect(await (await runtime.inspect(session)).json()).not.toMatchObject({ state: "unobserved", turn_id: null });
+    expect(calls).toBe(0);
+    expect(await (await runtime.inspect(session)).json()).toMatchObject({ state: "unobserved", turn_id: null });
   } finally {
     await runtime.close();
     rmSync(root, { recursive: true, force: true });

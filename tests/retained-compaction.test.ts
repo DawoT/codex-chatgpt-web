@@ -1781,7 +1781,7 @@ test("invalid checkpoint keeps the retained source and does not send a second pr
       method: "submit_compaction_handoff",
       token: binding.token,
       handoffId: binding.handoffId,
-      summary: "This checkpoint omits the mission checklist and cannot replace the source history.",
+      summary: "Incomplete checkpoint.",
     });
     return "submitted";
   };
@@ -1920,7 +1920,7 @@ test.each([true, false])("an invalid retained checkpoint gets one repair without
       token: binding.token,
       handoffId: binding.handoffId,
       summary: browserMessages === 1 || !repaired
-        ? "Incomplete checkpoint without a mission checklist."
+        ? "Incomplete checkpoint."
         : missionCheckpoint("Repaired retained checkpoint"),
     });
     return "submitted";
@@ -2224,7 +2224,7 @@ test("a malformed fresh fallback is rejected without a second original-history s
   let browserMessages = 0;
   worker.run = async () => {
     browserMessages += 1;
-    return "Narrative only; the mission checklist was omitted.";
+    return "Incomplete checkpoint.";
   };
   const events: AdapterEvent[] = [];
   try {
@@ -2258,7 +2258,7 @@ test("an invalid fresh fallback receives one bounded draft repair, not a replay 
   };
   const worker = ChatGptBrowserWorker.forProvider(provider);
   const originalRun = worker.run.bind(worker);
-  const draft = "Narrative only; the mission checklist was omitted.";
+  const draft = "Incomplete checkpoint.";
   const compact = request(true);
   compact.context.messages[0] = {
     role: "user",
@@ -2288,25 +2288,17 @@ test("an invalid fresh fallback receives one bounded draft repair, not a replay 
     );
     expect(browserMessages).toBe(2);
     expect(repairPrompt).toContain(draft);
-    expect(repairPrompt).toContain("Missing structured compaction state");
+    expect(repairPrompt).toContain("Validation issues:");
     expect(repairPrompt).not.toContain("Work completed");
     expect(repairPrompt).not.toContain("SHOULD_NOT_COPY");
     expect(repairPrompt).toContain("Latest user request:\\n\\\"Continue with the next step\\\"");
-    expect(repairPrompt).toContain("version: 2");
-    expect(repairPrompt).toContain("original_request_ref:");
-    expect(repairPrompt).toContain("requirements:");
-    expect(repairPrompt).toContain("blockers_or_test_failures:");
-    expect(repairPrompt).toContain("next_actions:");
     const repairContext = JSON.parse(repairPrompt.match(/<codex_context_json>\n([\s\S]*?)\n<\/codex_context_json>/)![1]!) as {
       messages: Array<{ content: string }>;
     };
     expect(repairContext.messages[0]!.content.trimEnd()).toEndWith(
-      "Return only the complete checkpoint block. No preface, narrative summary, Markdown fence, or trailing text.",
+      "Return one faithful corrected handoff. The bridge will normalize its internal format.",
     );
-    expect(repairContext.messages[0]!.content).toContain("do not wrap them in Markdown code fences");
-    expect(repairContext.messages[0]!.content).toContain(
-      "Begin your answer with a literal <compaction_state> line and end it with a literal </compaction_state> line.",
-    );
+    expect(repairContext.messages[0]!.content).not.toContain("<compaction_state>");
     expect(events.some(event => event.type === "text_delta"
       && event.text.includes("Repaired fresh checkpoint"))).toBeTrue();
     expect(events.at(-1)).toMatchObject({ type: "done", endTurn: true });
@@ -2337,7 +2329,7 @@ test("an invalid fresh repair is rejected after exactly one correction attempt",
   worker.run = async () => {
     browserMessages += 1;
     return browserMessages === 1
-      ? "Incomplete checkpoint without a mission checklist."
+      ? "Incomplete checkpoint."
       : "version: 2\nrequirements:\n- pending requirement\nnext_actions:\n- Continue\n</compaction_state>";
   };
   const events: AdapterEvent[] = [];
@@ -2385,7 +2377,7 @@ test("a failed fresh repair cannot trigger another original-history submission f
   let browserMessages = 0;
   worker.run = async () => {
     browserMessages += 1;
-    if (browserMessages === 1) return "Incomplete checkpoint without a mission checklist.";
+    if (browserMessages === 1) return "Incomplete checkpoint.";
     throw new ChatGptWebAdapterError("ChatGPT final DOM could not be aligned with text already streamed to Codex", {
       status: 502,
       errorType: "server_error",
@@ -2509,7 +2501,7 @@ test("checkpoint format telemetry describes the generated draft, not tags in the
   });
   const compact = request(true);
   compact.context.messages[0]!.content = "Investigate <compaction_state> and </compaction_state> tags";
-  worker.run = async () => "ChatGPT returned only a narrative about the ongoing investigation and no mission checklist.";
+  worker.run = async () => "Incomplete checkpoint.";
   const events: AdapterEvent[] = [];
   try {
     await createChatGptWebAdapter(provider).runTurn!(
@@ -2558,7 +2550,9 @@ test("fresh repair uses compiled multipart capacity beyond the raw Instant compo
   let browserMessages = 0;
   worker.run = async () => {
     browserMessages += 1;
-    return browserMessages === 1 ? "A".repeat(560_000) : missionCheckpoint("Repaired large draft");
+    return browserMessages === 1
+      ? `<compaction_state>\n${"A".repeat(560_000)}\n</compaction_state>`
+      : missionCheckpoint("Repaired large draft");
   };
   const events: AdapterEvent[] = [];
   try {
@@ -2593,12 +2587,13 @@ test("fresh repair keeps the original history when its compiled payload cannot f
   };
   const compact = request(true);
   compact.options.reasoning = "low";
+  compact.context.messages[0]!.content = "A".repeat(46_000);
   const worker = ChatGptBrowserWorker.forProvider(provider);
   const originalRun = worker.run.bind(worker);
   let browserMessages = 0;
   worker.run = async () => {
     browserMessages += 1;
-    return "A".repeat(300_000);
+    return `<compaction_state>\n${"A".repeat(300_000)}\n</compaction_state>`;
   };
   const events: AdapterEvent[] = [];
   try {
@@ -2705,7 +2700,7 @@ test("cancelling a fresh repair revokes its turn and prevents a third submission
   let repairAborted = false;
   worker.run = async turn => {
     browserMessages += 1;
-    if (browserMessages === 1) return "Incomplete checkpoint without a mission checklist.";
+    if (browserMessages === 1) return "Incomplete checkpoint.";
     repairStarted(turn.traceId);
     return new Promise<string>((_resolve, reject) => {
       turn.abortSignal?.addEventListener("abort", () => {

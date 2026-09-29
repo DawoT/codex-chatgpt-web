@@ -4,11 +4,13 @@ import {
   resolveChatGptWebMessageTokenBudget,
   resolveChatGptWebTransportLimits,
   resolveChatGptWebContextLimits,
+  type ChatGptWebBackendModel,
 } from "../../../chatgpt-web-models";
 import { estimateTokens } from "../../../lib/token-estimate";
 import type { CodexMessage, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { measureCompiledChatGptWebInput } from "../input-tokens";
+import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT } from "../preflight-budget";
 import { isChatGptSubagentTurn } from "../environment";
 import { transformSkillsInstructionsBlock } from "../lazy-skills";
 import {
@@ -368,7 +370,10 @@ function compileChatGptWebPromptInternal(
           ? formatChatGptWebMultipartCommit(multipart, transactionId)
           : formatChatGptWebMultipartStage(payload, transactionId, index + 1, multipartParts!).text;
         const tokens = tokenLimit - estimateTokens(fixedMessage);
-        const chars = (limits.browserComposerCharLimit ?? Infinity) - fixedMessage.length;
+        const chars = Math.min(
+          limits.browserComposerCharLimit ?? Infinity,
+          PREFLIGHT_MAX_STAGE_CHAR_LIMIT,
+        ) - fixedMessage.length;
         if (tokens <= 0 || chars <= 0) {
           throw new ChatGptWebAdapterError(
             `The Bigger Context ${final ? "final part's instructions and attachments" : "stage wrapper"} exceed the available message budget before any task history is added. Reduce those inputs before retrying.`,
@@ -417,7 +422,7 @@ function compileChatGptWebPromptInternal(
         ...options,
         experimentalMultipartParts: 6,
       });
-      const { contextWindow } = resolveChatGptWebContextLimits(CHATGPT_WEB_MODEL_ID, mode.effort, {
+      const { contextWindow } = resolveChatGptWebContextLimits(parsed.modelId as ChatGptWebBackendModel, mode.effort, {
         ...capabilities,
         experimentalBiggerContext: false,
       });

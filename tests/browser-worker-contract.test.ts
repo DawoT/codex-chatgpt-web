@@ -3849,7 +3849,7 @@ test("browser preflight separates model context from one-message transport limit
   }
 });
 
-test("Bigger Context fits mixed-density whole records within both token and composer limits", () => {
+test("Bigger Context rejects mixed-density records that exceed the safe browser boundary", () => {
   const capabilities = { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false, experimentalBiggerContext: true };
   const dense = "a!b@c#d$e%f^g&h*".repeat(3_750);
   const sparse = "x".repeat(dense.length);
@@ -3884,17 +3884,14 @@ test("Bigger Context fits mixed-density whole records within both token and comp
     const final = formatChatGptWebMultipartCommit(multipart, transaction);
     const maxStageMessageTokens = Math.max(...stages.map(text => estimateTokens(text)));
     const maxStageChars = Math.max(...stages.map(text => text.length));
-    const stagingMode = resolveChatGptWebMultipartStagingMode(
-      CHATGPT_WEB_MODEL_ID, capabilities, maxStageMessageTokens, maxStageChars,
-    );
     const finalMessageTokens = estimateTokens(final);
     expect(() => assertChatGptWebMultipartInputWithinLimits(
       estimateCompiledChatGptWebInputTokens(compiled, CHATGPT_WEB_MODEL_ID),
       Math.max(maxStageMessageTokens, finalMessageTokens),
       CHATGPT_WEB_MODEL_ID, "high", capabilities,
       Math.max(maxStageChars, final.length), 6,
-      { stagingEffort: stagingMode.effort, maxStageMessageTokens, maxStageChars, finalMessageTokens, finalMessageChars: final.length },
-    )).not.toThrow();
+      { stagingEffort: "medium", maxStageMessageTokens, maxStageChars, finalMessageTokens, finalMessageChars: final.length },
+    )).toThrow("45,000");
   }
 }, 90_000);
 
@@ -4019,10 +4016,11 @@ test("Bigger Context stages use the lowest account mode that can carry the stage
       tokens + 10_000, tokens, "gpt-5.6-sol", "high", plus, 300_000, 6,
       { stagingEffort: "medium", maxStageMessageTokens: 500, maxStageChars: 2_000, finalMessageTokens: tokens, finalMessageChars: 300_000 },
     );
-    for (const preflight of [inline, stage, final]) {
+    for (const preflight of [inline, stage]) {
       if (tokens === 81_807) expect(preflight).not.toThrow();
       else expect(preflight).toThrow();
     }
+    expect(final).toThrow("45,000");
   }
   expect(() => resolveChatGptWebMultipartStagingMode(
     "gpt-5.6-sol",
@@ -4054,7 +4052,7 @@ test("Bigger Context stages use the lowest account mode that can carry the stage
       finalMessageTokens: 1_000,
       finalMessageChars: 4_000,
     },
-  )).not.toThrow();
+  )).toThrow("45,000");
 });
 
 test("browser diagnostics redact context envelopes and capability values", () => {

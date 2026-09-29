@@ -7,22 +7,21 @@ export const CODEX_ACTIVE_COMPACTION_REQUEST_MARKER = "CODEX_ACTIVE_COMPACTION_R
 
 function compactionControlBinding(transaction: CompactionTransactionHandle): string[] {
   return [
-    "Submit the summary to the pending Codex task through the attached Codex Native plugin using codex_tool_call with the binding below.",
-    "The reserved codex.control.compaction_handoff operation stores this summary for task continuation. It does not run commands, read or edit files, or invoke other tools, and it is not listed by tool inventory.",
-    "This one-shot control token is valid only for the reserved compaction operation; do not use it with codex_exec, codex_tool_inventory, or any outer Codex tool.",
+    "Submit the handoff through the reserved Codex MCP operation:",
     "<codex_compaction_control>",
     `turn_token ${transaction.token}`,
     `wire_name ${CODEX_COMPACTION_CONTROL_WIRE_NAME}`,
     `handoff_id ${transaction.handoffId}`,
     "</codex_compaction_control>",
-    `Call codex_tool_call exactly once with ${JSON.stringify({
+    JSON.stringify({
       turn_token: transaction.token,
       wire_name: CODEX_COMPACTION_CONTROL_WIRE_NAME,
       arguments: {
         handoff_id: transaction.handoffId,
-        summary: "<complete checkpoint summary>",
+        summary: "<your handoff>",
       },
-    })}.`,
+    }),
+    "This token is only for the handoff; do not use it with codex_exec, codex_tool_inventory, or any outer Codex tool.",
   ];
 }
 
@@ -68,12 +67,11 @@ export function structuredCompactionHandoffInstruction(
   observations: readonly CompactionEvidenceObservation[] = [],
 ): string {
   return [
-    "Automatic Codex context compaction has started. Stop ordinary task work and do not call any more work tools.",
+    "Automatic Codex context compaction has started. Stop ordinary task work.",
     COMPACT_PROMPT,
     ...compactionEvidenceInstructions(observations),
     ...compactionControlBinding(transaction),
-    "After the control call returns submitted=true, call no more tools. The bridge will close this one-purpose Web response after accepting the checkpoint.",
-    "If the call is rejected or fails, stop and report its actual error. Do not retry through another tool or claim the summary was submitted without submitted=true.",
+    "Call no other tools. A successful submitted=true response completes the handoff.",
   ].join("\n");
 }
 
@@ -83,15 +81,12 @@ export function structuredCompactionRepairInstruction(
   observations: readonly CompactionEvidenceObservation[] = [],
 ): string {
   return [
-    "The previous checkpoint was rejected. Its complete draft remains in this retained conversation.",
-    "Repair that draft once. Preserve all requirements, evidence, blockers, decisions, modified files and the original request reference.",
-    "If a claimed result has no completed observation, keep its requirement as pending or blocked and state what evidence is missing. Never drop it to make validation pass.",
+    "Repair that draft once. It remains in this conversation.",
     "Missing or invalid items:",
     ...missingInvariants.map(item => `- ${item}`),
     ...compactionEvidenceInstructions(observations),
-    "Submit one complete corrected version 2 <compaction_state> checkpoint. Do not claim a requirement is verified without an observed successful result.",
     ...compactionControlBinding(transaction),
-    "After submitted=true, call no more tools.",
+    "Call no other tools. A successful submitted=true response completes the handoff.",
   ].join("\n");
 }
 

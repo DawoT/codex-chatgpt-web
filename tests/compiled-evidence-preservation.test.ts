@@ -95,3 +95,23 @@ test("manual compaction never automatically stages browser messages", () => {
     localToolsEnabled: true, solAvailable: true, extraHighAvailable: true, proAvailable: true,
   }, "turn_12345678901234567890123456789012", { manualControl: true })).toThrow("complete history");
 });
+
+test("manual compaction rejects an explicit multipart request until the launcher supports several sends", () => {
+  const request: CodexParsedRequest = {
+    modelId: "chatgpt-web-zero-risk",
+    stream: false,
+    options: {},
+    _compactionRequest: true,
+    context: { messages: [{ role: "user", content: "Continue the task", timestamp: 1 }] },
+  };
+
+  expect(() => compileChatGptWebPrompt(request, {
+    localToolsEnabled: true,
+    solAvailable: false,
+    extraHighAvailable: false,
+    proAvailable: false,
+  }, "turn_12345678901234567890123456789012", {
+    manualControl: true,
+    experimentalMultipartParts: 6,
+  })).toThrow("does not support rolling or multipart browser transport");
+});

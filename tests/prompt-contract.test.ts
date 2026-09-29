@@ -171,7 +171,7 @@ test("Bigger Context sends six semantic record envelopes and starts work from th
   expect(commit).toContain("acknowledged_parts: 5/6");
   expect(commit).toContain("The final part is included in this same message and starts the task");
   expect(commit).toContain(compiled.multipart!.parts.at(-1)!);
-  expect(commit).toContain("latest-request");
+  expect(compiled.multipart!.parts.join("\n")).toContain("latest-request");
   expect(commit.match(new RegExp(token, "g"))).toHaveLength(1);
 });
 

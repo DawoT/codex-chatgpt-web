@@ -8,9 +8,10 @@ import {
 import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { acceptedCompactionEpoch } from "../compaction-continuation";
 import { checkpointIssueCodes, checkpointStructuralDiagnostic, logCompactionEvent, type CompactionRoute } from "../compaction-observability";
-import { buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "../compaction-evidence";
+import { boundedCompactionRepairObservations, buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "../compaction-evidence";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
 import {
+  buildCompactionFallbackRepairPrompt,
   checkpointCompiledRepairFits,
   checkpointRepairPromptFits,
   recordRepairDuration,
@@ -85,12 +86,13 @@ function compactionSessionId(parsed: CodexParsedRequest): string {
   return extractChatGptTurnIdentity(parsed).threadId ?? "";
 }
 
-function repairObservations(parsed: CodexParsedRequest, query: string) {
-  return selectCompactionRepairEvidence(
+function repairObservations(parsed: CodexParsedRequest, query: string, limit = 6) {
+  const selected = selectCompactionRepairEvidence(
     buildCompactionEvidenceIndex(parsed.context.messages, compactionSessionId(parsed)),
     query,
-    12,
+    limit,
   );
+  return boundedCompactionRepairObservations(selected);
 }
 
 function originalRequestFromCanonicalSummary(summary: string): string {
@@ -370,52 +372,26 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   .map(message => checkpointText(message.content))
                   .filter(value => value && value !== COMPACT_PROMPT
                     && value !== originalRequest && value !== latestRequest))];
-                const repairPrompt = [
-                  "Repair the previous context checkpoint exactly once. This is a correction, not a new task turn.",
-                  "Return one complete version 2 <compaction_state> checkpoint with all still-open requirements, verified evidence, blockers, decisions, and one next action.",
-                  "Write literal <compaction_state> and </compaction_state> on their own lines; do not wrap them in Markdown code fences or inline backticks.",
-                  "Do not claim verification without an observed result. Do not call tools or redo the original task.",
-                  "Validation issues:",
-                  ...quality.missingInvariants.map(issue => `- ${issue}`),
-                  "Original user request:",
-                  JSON.stringify(originalRequest),
-                  "Latest user request:",
-                  JSON.stringify(latestRequest),
-                  "Other user requests since previous checkpoint:",
-                  JSON.stringify(otherUserRequests),
-                  "Previous mission checkpoint state:",
-                  JSON.stringify(priorState ?? {}),
-                  "Relevant bridge observations (cite only these references; failed results can explain blockers):",
-                  JSON.stringify(repairObservations(parsed, `${quality.missingInvariants.join(" ")} ${rawSummary}`)),
-                  "Rejected draft:",
-                  rawSummary,
-                  "The previous draft is reference material only. Do not copy this schema or invent evidence.",
-                  "Begin your answer with a literal <compaction_state> line and end it with a literal </compaction_state> line.",
-                  "Include these fields in the block, in this order, using real values from the supplied history:",
-                  "version: 2",
-                  "original_request_ref:",
-                  "modified_files:",
-                  "active_hypothesis:",
-                  "requirements: (each item is JSON with id, status pending|blocked|verified, source, and evidence only when verified)",
-                  "closure_criteria:",
-                  "verified_achievements:",
-                  "decisions_and_invariants:",
-                  "blockers_or_test_failures:",
-                  "pending_obligations:",
-                  "next_actions: (exactly one concrete action)",
-                  "Return only the complete checkpoint block. No preface, narrative summary, Markdown fence, or trailing text.",
-                ].join("\n");
+                const repairPrompt = buildCompactionFallbackRepairPrompt({
+                  issues: quality.missingInvariants,
+                  originalRequest,
+                  latestRequest,
+                  otherUserRequests,
+                  priorState,
+                  observations: repairObservations(parsed, `${quality.missingInvariants.join(" ")} ${rawSummary.slice(0, 15_000)}`),
+                  rejectedDraft: rawSummary,
+                });
                 const repairParsed: CodexParsedRequest = {
                   ...parsed,
                   context: {
                     messages: [
-                      { role: "user", content: repairPrompt, timestamp: Date.now() },
+                      { role: "user", content: repairPrompt ?? "", timestamp: Date.now() },
                     ],
                   },
                 };
                 if (shouldRepairCheckpoint({
                   remainingMs: handoffDeadlineAt - Date.now(),
-                  transportFits: checkpointCompiledRepairFits(repairParsed, turnCapabilities, {
+                  transportFits: repairPrompt !== undefined && checkpointCompiledRepairFits(repairParsed, turnCapabilities, {
                     experimentalBiggerContext,
                     experimentalSkillAttachments,
                   }),
@@ -572,14 +548,30 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             });
             recordValidation(summary, quality, false);
             if (!quality.valid && !manualRequest && structuredBroker) {
-              const probe = structuredCompactionRepairInstruction({
-                token: `control_${"0".repeat(32)}`,
-                handoffId: `handoff_${"0".repeat(32)}`,
-              }, quality.missingInvariants, repairObservations(
+              const probeObservations = repairObservations(
                 parsed,
                 `${quality.missingInvariants.join(" ")} ${summary}`,
-              ));
+                6,
+              );
+              let probe = structuredCompactionRepairInstruction({
+                token: `control_${"0".repeat(32)}`,
+                handoffId: `handoff_${"0".repeat(32)}`,
+              }, quality.missingInvariants, probeObservations);
               const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, configuredCapabilities).effort;
+              while (
+                !checkpointRepairPromptFits(
+                  probe,
+                  parsed.modelId as ChatGptWebBackendModel,
+                  effort,
+                  configuredCapabilities,
+                ) && probeObservations.length > 0
+              ) {
+                probeObservations.pop();
+                probe = structuredCompactionRepairInstruction({
+                  token: `control_${"0".repeat(32)}`,
+                  handoffId: `handoff_${"0".repeat(32)}`,
+                }, quality.missingInvariants, probeObservations);
+              }
               const transportFits = checkpointRepairPromptFits(
                 probe,
                 parsed.modelId as ChatGptWebBackendModel,

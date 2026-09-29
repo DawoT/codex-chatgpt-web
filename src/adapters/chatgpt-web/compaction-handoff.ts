@@ -7,7 +7,7 @@ import type {
 } from "../../types";
 import { extractChatGptCompactionSourceRevision } from "./environment";
 import { extractChatGptTurnIdentity } from "./environment";
-import { buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "./compaction-evidence";
+import { boundedCompactionRepairObservations, buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "./compaction-evidence";
 import type { ChatGptBrowserWorker } from "./browser-worker";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
@@ -25,6 +25,7 @@ import { resolveChatGptWebModelMode } from "./model";
 import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
 import { extractModifiedFilePaths } from "./autonomous-compaction";
 import {
+  COMPACT_PROMPT,
   LATEST_USER_PROMPT_MARKER,
   ORIGINAL_USER_REQUEST_MARKER,
   compactionStateFields,
@@ -36,6 +37,7 @@ import {
   normalizeCompactionStateBlock,
   parseCompactionState,
   type CompactionStateBlock,
+  type CompactionRequirement,
 } from "../../responses/compaction";
 
 export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
@@ -115,6 +117,52 @@ function userPromptText(content: unknown): string | undefined {
   return text || undefined;
 }
 
+function freeformCompactionState(parsed: CodexParsedRequest, summary: string, digest: string): CompactionStateBlock {
+  const previous = parsed.context.messages.findLast(message => message.role === "user"
+    && message.origin === "compaction_summary");
+  const prior = previous
+    ? extractStructuredCompactionHandoff(userPromptText(previous.content) ?? "").state
+    : null;
+  const checkpointIndex = previous ? parsed.context.messages.lastIndexOf(previous) : -1;
+  const requirements: CompactionRequirement[] = [...(prior?.requirements ?? [])];
+  const sources = new Set(requirements.map(requirement => requirement.source));
+  const ids = new Set(requirements.map(requirement => requirement.id));
+  for (const message of parsed.context.messages.slice(checkpointIndex + 1)) {
+    if (message.role !== "user" || message.origin === "codex_skill"
+      || message.origin === "compaction_summary") continue;
+    const source = userPromptText(message.content)?.trim();
+    if (!source || source === COMPACT_PROMPT || sources.has(source)) continue;
+    const hash = createHash("sha256").update(source).digest("hex");
+    let length = 12;
+    let id = `REQ-${hash.slice(0, length)}`;
+    while (ids.has(id) && length < hash.length) {
+      length += 2;
+      id = `REQ-${hash.slice(0, length)}`;
+    }
+    requirements.push({ id, status: "pending", source });
+    sources.add(source);
+    ids.add(id);
+  }
+  if (requirements.length === 0) {
+    requirements.push({ id: `REQ-${digest.slice(0, 12)}`, status: "pending", source: summary });
+  }
+  return {
+    version: 2,
+    originalRequestRef: `sha256:${digest}`,
+    modifiedFiles: [...new Set([...(prior?.modifiedFiles ?? []), ...extractModifiedFilePaths(parsed.context.messages)])],
+    activeHypothesis: "Continue the user requirements described in the checkpoint narrative.",
+    requirements,
+    closureCriteria: prior?.closureCriteria?.length
+      ? prior.closureCriteria
+      : ["Complete and verify the pending user requirements."],
+    verifiedAchievements: prior?.verifiedAchievements ?? [],
+    decisionsAndInvariants: prior?.decisionsAndInvariants ?? [],
+    blockersOrTestFailures: prior?.blockersOrTestFailures ?? [],
+    pendingObligations: prior?.pendingObligations ?? [],
+    nextActions: ["Continue the pending requirements using the checkpoint narrative and source evidence."],
+  };
+}
+
 export function canonicalizeCompactionHandoff(
   parsed: CodexParsedRequest,
   summary: string,
@@ -175,6 +223,14 @@ export function canonicalizeCompactionHandoff(
         throw new Error("ChatGPT compaction handoff contains a conflicting original-request marker");
       }
       body = body.slice(0, originalOffset).trimEnd();
+    }
+    if (body.trim().length >= 50
+      && !/<\/?compaction_state\b/i.test(body)
+      && !/^ {0,3}(?:`{3,}|~{3,})/m.test(body)
+      && !/^ {4,}(?:version|original_request_ref|modified_files|active_hypothesis|requirements|closure_criteria|next_actions):/m.test(body)
+      && !locateCompactionStateBounds(body)
+      && extractStructuredCompactionHandoff(body).state?.version !== 2) {
+      body = `${body}\n\n${formatCompactionStateBlock(freeformCompactionState(parsed, body, digest))}`;
     }
     const bounds = locateCompactionStateBounds(body);
     let state: CompactionStateBlock | null = null;
@@ -457,24 +513,56 @@ export async function requestRetainedCompactionHandoff(
       parsed.context.messages,
       extractChatGptTurnIdentity(parsed).threadId ?? "",
     );
-    const observations = repairIssues
-      ? selectCompactionRepairEvidence(allObservations, `${repairIssues.join(" ")} ${repairDraft ?? ""}`, 12)
-      : allObservations.slice(-24);
-    const instruction = repairIssues
-      ? structuredCompactionRepairInstruction(transaction, repairIssues, observations)
-      : structuredCompactionHandoffInstruction(transaction, observations);
-    if (repairIssues && !checkpointRepairPromptFits(
-      instruction,
-      parsed.modelId as ChatGptWebBackendModel,
-      resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort,
-      capabilities,
-    )) {
-      throw new ChatGptWebAdapterError("Checkpoint repair exceeds the measured browser transport budget", {
-        status: 413,
-        errorType: "invalid_request_error",
-        code: "compaction_repair_transport_limit",
-        retryable: false,
-      });
+    let instruction: string;
+    if (repairIssues) {
+      const selected = boundedCompactionRepairObservations(
+        selectCompactionRepairEvidence(allObservations, `${repairIssues.join(" ")} ${repairDraft ?? ""}`, 6),
+      );
+      instruction = structuredCompactionRepairInstruction(transaction, repairIssues, selected);
+      const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
+      while (
+        !checkpointRepairPromptFits(
+          instruction,
+          parsed.modelId as ChatGptWebBackendModel,
+          effort,
+          capabilities,
+        ) && selected.length > 0
+      ) {
+        selected.pop();
+        instruction = structuredCompactionRepairInstruction(transaction, repairIssues, selected);
+      }
+      if (!checkpointRepairPromptFits(
+        instruction,
+        parsed.modelId as ChatGptWebBackendModel,
+        effort,
+        capabilities,
+      )) {
+        throw new ChatGptWebAdapterError("Checkpoint repair exceeds the measured browser transport budget", {
+          status: 413,
+          errorType: "invalid_request_error",
+          code: "compaction_repair_transport_limit",
+          retryable: false,
+        });
+      }
+    } else {
+      instruction = structuredCompactionHandoffInstruction(
+        transaction,
+        boundedCompactionRepairObservations(allObservations.slice(-6)),
+      );
+      const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
+      if (!checkpointRepairPromptFits(
+        instruction,
+        parsed.modelId as ChatGptWebBackendModel,
+        effort,
+        capabilities,
+      )) {
+        throw new ChatGptWebAdapterError("Checkpoint handoff exceeds the measured browser transport budget", {
+          status: 413,
+          errorType: "invalid_request_error",
+          code: "compaction_handoff_transport_limit",
+          retryable: false,
+        });
+      }
     }
     const prepare = async () => ({ text: instruction, images: [], release: () => {} });
     browser = worker.run({

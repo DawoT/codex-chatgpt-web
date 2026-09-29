@@ -18,16 +18,10 @@ import {
 } from "../src/responses/compaction";
 
 describe("Sprint Q: Structured Compaction Handoff Envelope", () => {
-  test("COMPACT_PROMPT includes structured state XML instructions", () => {
-    expect(COMPACT_PROMPT).toContain(COMPACTION_STATE_TAG_START);
-    expect(COMPACT_PROMPT).toContain(COMPACTION_STATE_TAG_END);
-    expect(COMPACT_PROMPT).toContain("modified_files:");
-    expect(COMPACT_PROMPT).toContain("active_hypothesis:");
-    expect(COMPACT_PROMPT).toContain("verified_achievements:");
-    expect(COMPACT_PROMPT).toContain("decisions_and_invariants:");
-    expect(COMPACT_PROMPT).toContain("pending_obligations:");
-    expect(COMPACT_PROMPT).toContain("Do not convert attempts into achievements");
-    expect(COMPACT_PROMPT).toContain("next_actions:");
+  test("COMPACT_PROMPT requests a faithful handoff without exposing the internal schema", () => {
+    expect(COMPACT_PROMPT).toContain("faithful handoff");
+    expect(COMPACT_PROMPT).not.toContain(COMPACTION_STATE_TAG_START);
+    expect(COMPACT_PROMPT).not.toContain("requirements:");
   });
 
   test("parses structured compaction state from summary text", () => {

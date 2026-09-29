@@ -150,3 +150,19 @@ export function selectCompactionRepairEvidence(
     .slice(0, limit)
     .map(item => item.observation);
 }
+
+/** Keep relevance order while measuring the actual JSON sent through the browser. */
+export function boundedCompactionRepairObservations(
+  observations: readonly CompactionEvidenceObservation[],
+  maxBytes = 10_000,
+): CompactionEvidenceObservation[] {
+  const selected: CompactionEvidenceObservation[] = [];
+  let bytes = 0;
+  for (const observation of observations) {
+    const size = Buffer.byteLength(JSON.stringify(observation), "utf8");
+    if (bytes + size > maxBytes) continue;
+    selected.push(observation);
+    bytes += size;
+  }
+  return selected;
+}

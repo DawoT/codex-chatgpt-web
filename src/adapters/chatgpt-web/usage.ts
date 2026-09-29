@@ -20,7 +20,7 @@ import {
 import { extractChatGptTurnIdentity } from "./environment";
 import { CHATGPT_WEB_LUNA_MODEL_ID, resolveChatGptWebModelMode, type ChatGptWebCapabilities } from "./model";
 import type { BrokerToolRequest } from "./turn-broker";
-import { PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "./preflight-budget";
+import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT, PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "./preflight-budget";
 
 // The real capability has the same length. Keeping it out of usage accounting would make
 // estimates differ slightly between the prepared browser prompt and later Codex tool rounds.
@@ -96,6 +96,9 @@ export function resolveBiggerContextMultipartParts(
 
   const fits = (compiled: CompiledChatGptWebPrompt): boolean => {
     const messages = compiledChatGptWebMessages(compiled);
+    if (messages.length > 1 && messages.some(message => message.length > PREFLIGHT_MAX_STAGE_CHAR_LIMIT)) {
+      return false;
+    }
     if (messages.length === 1 && compiled.text.length > PREFLIGHT_SAFE_INLINE_CHAR_LIMIT) {
       return false;
     }

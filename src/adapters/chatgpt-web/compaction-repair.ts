@@ -19,10 +19,59 @@ import {
   estimateChatGptWebImageTokens,
   measureCompiledChatGptWebInput,
 } from "./input-tokens";
-import { enforcePreflightDeliveryBudget, preparePreflightInput } from "./preflight-budget";
+import { enforcePreflightDeliveryBudget, PREFLIGHT_MAX_STAGE_CHAR_LIMIT, preparePreflightInput } from "./preflight-budget";
 import { compileChatGptWebPrompt } from "./prompt";
 import { skillFileTokens } from "./skill-attachments";
 import { resolveBiggerContextMultipartParts } from "./usage";
+import type { CompactionEvidenceObservation } from "./compaction-evidence";
+
+export const MAX_COMPACTION_REPAIR_PROMPT_CHARS = PREFLIGHT_MAX_STAGE_CHAR_LIMIT;
+
+export function buildCompactionFallbackRepairPrompt(input: {
+  issues: readonly string[];
+  originalRequest: string;
+  latestRequest: string;
+  otherUserRequests: readonly string[];
+  priorState: unknown;
+  observations: readonly CompactionEvidenceObservation[];
+  rejectedDraft: string;
+}): string | undefined {
+  const observations = [...input.observations];
+  let draftLimit = 15_000;
+  const render = (): string => {
+    const draft = input.rejectedDraft.length > draftLimit
+      ? `${input.rejectedDraft.slice(0, Math.ceil(draftLimit / 2))}\n[draft excerpt truncated]\n${input.rejectedDraft.slice(-Math.floor(draftLimit / 2))}`
+      : input.rejectedDraft;
+    return [
+      "Repair the previous Codex handoff once. Keep user requirements and observed evidence; do not resume ordinary task work.",
+      "Validation issues:",
+      ...input.issues.map(issue => `- ${issue}`),
+      "Original user request:",
+      JSON.stringify(input.originalRequest),
+      "Latest user request:",
+      JSON.stringify(input.latestRequest),
+      "Other user requests:",
+      JSON.stringify(input.otherUserRequests),
+      "Previous checkpoint state:",
+      JSON.stringify(input.priorState ?? {}),
+      "Relevant bridge observations:",
+      JSON.stringify(observations),
+      "Rejected draft excerpt:",
+      draft,
+      "Return one faithful corrected handoff. The bridge will normalize its internal format.",
+    ].join("\n");
+  };
+  let prompt = render();
+  while (prompt.length > MAX_COMPACTION_REPAIR_PROMPT_CHARS && observations.length > 0) {
+    observations.pop();
+    prompt = render();
+  }
+  while (prompt.length > MAX_COMPACTION_REPAIR_PROMPT_CHARS && draftLimit > 0) {
+    draftLimit = Math.max(0, draftLimit - 1_000);
+    prompt = render();
+  }
+  return prompt.length <= MAX_COMPACTION_REPAIR_PROMPT_CHARS ? prompt : undefined;
+}
 
 export function checkpointCompiledRepairFits(
   request: CodexParsedRequest,
@@ -105,7 +154,8 @@ export function checkpointRepairPromptFits(
   const tokens = estimateTokens(prompt, modelId);
   const transport = resolveChatGptWebTransportLimits(modelId, effort, capabilities);
   const context = resolveChatGptWebContextLimits(modelId, effort, capabilities);
-  return (transport.browserComposerCharLimit === undefined || prompt.length <= transport.browserComposerCharLimit)
+  return prompt.length <= MAX_COMPACTION_REPAIR_PROMPT_CHARS
+    && (transport.browserComposerCharLimit === undefined || prompt.length <= transport.browserComposerCharLimit)
     && (transport.browserMessageTokenLimit === undefined || tokens <= transport.browserMessageTokenLimit)
     && tokens + CHATGPT_WEB_PLATFORM_RESERVE_TOKENS < context.contextWindow;
 }

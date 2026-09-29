@@ -214,48 +214,8 @@ export function isNativeTextCompaction(body: unknown): boolean {
   return true;
 }
 
-/** Mirrors codex-rs core/templates/compact/prompt.md (the local-compaction instruction). */
-export const COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
-
-Include:
-- The current objective and working hypothesis
-- Verified achievements only, each paired with concrete evidence (tests, file state, command output, or other observable proof)
-- Key decisions and invariants that must remain true
-- Blockers, failed attempts, failed tests, and unresolved diagnostics
-- Pending obligations and one clear next action
-- Modified files and references needed to continue
-
-Do not convert attempts into achievements. A step is a verified achievement only when the source conversation contains observable evidence that it completed successfully. Preserve unresolved failures and obligations even when they are inconvenient or repetitive.
-Deduplicate repeated state. Replace long tool output with a precise, recoverable source reference and the observed result; do not silently drop evidence.
-
-STRUCTURED HANDOFF REQUIREMENT:
-At the beginning or end of your summary, include a <compaction_state> XML block:
-Do not wrap the <compaction_state> block in a Markdown code fence or inline backticks. The opening and closing tags must be literal standalone lines.
-<compaction_state>
-version: 2
-original_request_ref: Exact reference to the original user request.
-modified_files:
-- path/to/modified_file1
-- path/to/modified_file2
-active_hypothesis: One concise sentence describing the current working hypothesis or task goal.
-requirements:
-- {"id":"REQ-1","status":"pending","source":"original user request: exact requirement"}
-- {"id":"REQ-2","status":"verified","source":"original user request: exact requirement","evidence":"observable successful result from source conversation"}
-closure_criteria:
-- Criterion that proves the mission is complete
-verified_achievements:
-- Achievement — evidence: exact test, command, file state, or observation proving it
-decisions_and_invariants:
-- Decision or invariant that must survive the handoff
-blockers_or_test_failures:
-- Specific failed test or blocker (or None)
-pending_obligations:
-- Unfinished requirement or follow-up that must not be dropped
-next_actions:
-- The single best concrete next action
-</compaction_state>
-
-Be concise, structured, and focused on helping the next LLM seamlessly continue the work without losing file paths or test state.`;
+/** The model summarizes freely; the bridge builds the internal versioned checkpoint. */
+export const COMPACT_PROMPT = "Codex is compacting this conversation. Stop ordinary task work and return a faithful handoff for the next model. Preserve unfinished work and distinguish observed results from attempts.";
 
 /** Mirrors codex-rs core/templates/compact/summary_prefix.md (framing for a replayed summary). */
 export const SUMMARY_PREFIX = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";

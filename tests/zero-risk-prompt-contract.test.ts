@@ -76,6 +76,6 @@ test("active Zero Risk compaction returns its checkpoint through the bound compl
   expect(automatic).not.toContain("codex_turn_complete");
   expect(safe).toContain("codex_turn_complete");
   expect(safe).toContain("Return only the complete checkpoint summary to Codex");
-  expect(safe).toContain("CONTEXT CHECKPOINT COMPACTION");
+  expect(safe).toContain("faithful handoff");
   expect(safe).not.toContain("separate structured compaction handoff request");
 });
