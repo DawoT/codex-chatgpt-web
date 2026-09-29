@@ -247,6 +247,19 @@ export class SessionActorJournal {
     return row?.surfaceId ?? null;
   }
 
+  revokedSurfaces(sessionId: string): Array<{ surfaceId: string; generation: number }> {
+    return this.database.query<{
+      surfaceId: string;
+      generation: number;
+    }, [string]>(`
+      SELECT surface.surface_id AS surfaceId, surface.generation
+      FROM session_surface AS surface
+      JOIN session_actor AS actor ON actor.session_id = surface.session_id
+      WHERE surface.session_id = ? AND surface.generation < actor.generation
+      ORDER BY surface.generation, surface.surface_id
+    `).all(sessionId);
+  }
+
   snapshot(sessionId: string): SessionRow | null {
     return this.database.query<SessionRow, [string]>(`
       SELECT generation, sequence, turn_id AS turnId,
@@ -428,6 +441,21 @@ export class SessionActorJournal {
         UPDATE session_actor SET generation = generation + 1, turn_id = NULL
         WHERE session_id = ?
       `).run(command.sessionId);
+      return;
+    }
+    if (command.type === "surface_reconciled") {
+      if (!command.surfaceId || !Number.isSafeInteger(command.surfaceGeneration)
+        || command.surfaceGeneration! < 1
+        || command.surfaceGeneration! >= session.generation) {
+        throw new Error("Session actor revoked surface generation is invalid");
+      }
+      const removed = this.database.query(`
+        DELETE FROM session_surface
+        WHERE surface_id = ? AND session_id = ? AND generation = ?
+      `).run(command.surfaceId, command.sessionId, command.surfaceGeneration!);
+      if (removed.changes !== 1) {
+        throw new Error("Session actor revoked surface release owner mismatch");
+      }
       return;
     }
     if (session.turnId !== command.turnId) {

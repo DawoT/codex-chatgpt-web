@@ -762,6 +762,113 @@ test("a revoked browser callback cannot persist a late answer", async () => {
   }
 });
 
+test("physical release after revocation clears only the old surface reservation", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-revoked-surface";
+    const turnId = "native-revoked-surface";
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let leased!: () => void;
+    const surfaceLeased = new Promise<void>(resolve => { leased = resolve; });
+    const running = manager.runBrowserTurn(
+      sessionId,
+      turnId,
+      "browser:revoked-surface",
+      async (onAccepted, _onTools, onSurfaceLeased, onSurfaceReleased) => {
+        await onSurfaceLeased("surface-old");
+        await onAccepted();
+        leased();
+        await gate;
+        await onSurfaceReleased("surface-old");
+        return "cancelled";
+      },
+    );
+    await surfaceLeased;
+    await manager.actor(sessionId).recordLocal("generation_revoked", turnId, "revoke-surface");
+    expect(home.journal.surfaceOwner("surface-old")).toEqual({ sessionId, generation: 1 });
+    release();
+    await expect(running).rejects.toThrow(/generation|revoked|stale/i);
+    expect(home.journal.surfaceOwner("surface-old")).toBeNull();
+  } finally {
+    home.close();
+  }
+});
+
+test("old surface reconciliation cannot release a replacement generation's claim", async () => {
+  const home = fixture();
+  try {
+    const actor = new SessionActor(home.journal, "namespace/thread-surface-reclaim");
+    await actor.recordLocal("turn_started", "turn-1", "turn:turn-1");
+    await actor.recordLocal("surface_claimed", "turn-1", "claim-old", { surfaceId: "surface-A" });
+    await actor.recordLocal("generation_revoked", "turn-1", "revoke-old");
+    await actor.recordLocal("surface_reconciled", "turn-1", "release-old", {
+      surfaceId: "surface-A",
+      surfaceGeneration: 1,
+    });
+    await actor.recordLocal("turn_started", "turn-2", "turn:turn-2");
+    await actor.recordLocal("surface_claimed", "turn-2", "claim-new", { surfaceId: "surface-A" });
+    await expect(actor.recordLocal("surface_reconciled", "turn-1", "release-old-again", {
+      surfaceId: "surface-A",
+      surfaceGeneration: 1,
+    })).rejects.toThrow("owner mismatch");
+    expect(home.journal.surfaceOwner("surface-A")).toEqual({
+      sessionId: "namespace/thread-surface-reclaim",
+      generation: 2,
+    });
+  } finally {
+    home.close();
+  }
+});
+
+test("restart reconciles a revoked surface only after its browser target is gone", async () => {
+  const home = fixture();
+  let restarted: SessionActorJournal | undefined;
+  try {
+    const sessionId = "namespace/thread-surface-restart";
+    const actor = new SessionActor(home.journal, sessionId);
+    await actor.recordLocal("turn_started", "turn-1", "turn:turn-1");
+    await actor.recordLocal("surface_claimed", "turn-1", "claim-old", { surfaceId: "surface-old" });
+    await actor.recordLocal("generation_revoked", "turn-1", "revoke-old");
+    home.journal.close();
+    restarted = new SessionActorJournal(home.path);
+    let gone = false;
+    const manager = new SessionActorManager(
+      restarted,
+      new SessionResultStore(join(dirname(home.path), "results")),
+      () => gone,
+    );
+    await expect(manager.runBrowserTurn(
+      sessionId,
+      "turn-2",
+      "browser:new",
+      async () => "should not send",
+    )).rejects.toThrow(/revoked surface|surface.*still/i);
+    expect(restarted.surfaceOwner("surface-old")).toEqual({ sessionId, generation: 1 });
+    gone = true;
+    const answer = await manager.runBrowserTurn(
+      sessionId,
+      "turn-2",
+      "browser:new",
+      async (onAccepted, _onTools, onSurfaceLeased, onSurfaceReleased) => {
+        expect(restarted?.surfaceOwner("surface-old")).toBeNull();
+        await onSurfaceLeased("surface-new");
+        await onAccepted();
+        await onSurfaceReleased("surface-new");
+        return "recovered";
+      },
+    );
+    expect(answer).toBe("recovered");
+  } finally {
+    restarted?.close();
+    home.close();
+  }
+});
+
 test("a missing retained surface is reconciled before its session claims a replacement", async () => {
   const home = fixture();
   try {

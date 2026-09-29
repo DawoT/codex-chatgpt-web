@@ -1,4 +1,4 @@
-export const SESSION_ACTOR_PROTOCOL_VERSION = 4;
+export const SESSION_ACTOR_PROTOCOL_VERSION = 5;
 
 export type SessionEventType =
   | "turn_started"
@@ -11,6 +11,7 @@ export type SessionEventType =
   | "tool_call_emitted"
   | "surface_claimed"
   | "surface_released"
+  | "surface_reconciled"
   | "compaction_prepared"
   | "compaction_received"
   | "compaction_validated"
@@ -31,6 +32,7 @@ export interface SessionCommand {
   operationKind?: string;
   historyRevision?: number;
   surfaceId?: string;
+  surfaceGeneration?: number;
   resultRef?: string;
   checkpointRef?: string;
   parentOperationId?: string;

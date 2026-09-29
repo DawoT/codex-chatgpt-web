@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { SessionActor } from "./actor";
 import { SessionActorJournal } from "./journal";
 import { SessionResultStore } from "./results";
@@ -26,6 +27,28 @@ export class SessionActorManager {
 
   beginTurn(sessionId: string, nativeTurnId: string): Promise<SessionAcknowledgement> {
     return this.actor(sessionId).recordLocal("turn_started", nativeTurnId, `turn:${nativeTurnId}`);
+  }
+
+  private surfaceReconciliationId(surfaceId: string, generation: number): string {
+    const digest = createHash("sha256").update(surfaceId).digest("hex");
+    return `surface-reconciled:${generation}:${digest}`;
+  }
+
+  private async reconcileRevokedSurfaces(sessionId: string): Promise<void> {
+    for (const owner of this.journal.revokedSurfaces(sessionId)) {
+      if (!this.surfaceIsGone || !(await this.surfaceIsGone(owner.surfaceId))) {
+        throw new Error("Session actor revoked surface is still present and cannot be replaced");
+      }
+      const acknowledgement = await this.actor(sessionId).recordLocal(
+        "surface_reconciled",
+        "surface-recovery",
+        this.surfaceReconciliationId(owner.surfaceId, owner.generation),
+        { surfaceId: owner.surfaceId, surfaceGeneration: owner.generation },
+      );
+      if (acknowledgement.status !== "accepted") {
+        throw new Error(`Session actor revoked surface recovery requires reconciliation: ${acknowledgement.status}`);
+      }
+    }
   }
 
   private async revokeOwner(
@@ -331,6 +354,7 @@ export class SessionActorManager {
     onAdmitted?: (generation: number) => void,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
+    await this.reconcileRevokedSurfaces(sessionId);
     const admission = await this.beginTurn(sessionId, nativeTurnId);
     if (admission.status !== "accepted") {
       throw new Error(`Session actor turn requires recovery: ${admission.status}`);
@@ -444,15 +468,29 @@ export class SessionActorManager {
         if (leasedSurfaceId !== surfaceId) {
           throw new Error("Session actor browser operation released an unclaimed surface");
         }
-        const acknowledgement = await actor.recordLocal(
-          "surface_released",
-          nativeTurnId,
-          `surface-release:${operationId}`,
-          { surfaceId },
-          generation,
-        );
-        if (acknowledgement.status !== "accepted") {
-          throw new Error(`Session actor surface release rejected: ${acknowledgement.status}`);
+        try {
+          const acknowledgement = await actor.recordLocal(
+            "surface_released",
+            nativeTurnId,
+            `surface-release:${operationId}`,
+            { surfaceId },
+            generation,
+          );
+          if (acknowledgement.status !== "accepted") {
+            throw new Error(`Session actor surface release rejected: ${acknowledgement.status}`);
+          }
+        } catch (error) {
+          const current = this.journal.snapshot(sessionId);
+          if (!current || current.generation <= generation) throw error;
+          const reconciled = await actor.recordLocal(
+            "surface_reconciled",
+            "surface-recovery",
+            this.surfaceReconciliationId(surfaceId, generation),
+            { surfaceId, surfaceGeneration: generation },
+          );
+          if (reconciled.status !== "accepted") {
+            throw new Error(`Session actor revoked surface reconciliation rejected: ${reconciled.status}`);
+          }
         }
       };
       const assertResultOwner = (): void => {
