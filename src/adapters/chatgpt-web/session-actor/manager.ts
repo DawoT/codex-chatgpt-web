@@ -121,7 +121,7 @@ export class SessionActorManager {
    */
   recoverUncertainOperations(): void {
     if (!this.results) return;
-    const uncertain = this.journal.uncertainBrowserSendOperations();
+    const uncertain = this.journal.uncertainOperations();
     for (const op of uncertain) {
       const ref = this.results.referenceFor({
         sessionId: op.sessionId,

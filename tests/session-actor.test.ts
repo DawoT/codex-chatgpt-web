@@ -1416,3 +1416,73 @@ test("global cancellation selects a pending checkpoint but ignores a rejected on
     home.close();
   }
 });
+
+test("recoverUncertainOperations abandons unrecoverable uncertain operations regardless of kind", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-uncertain-all-kinds";
+    const browserOpId = "browser:trace-1";
+    await manager.beginTurn(sessionId, "turn-1");
+    const actor = manager.actor(sessionId);
+    await actor.dispatch(command(sessionId, 1, "operation_intent", {
+      turnId: "turn-1",
+      operationId: browserOpId,
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 2, "operation_accepted", {
+      turnId: "turn-1",
+      operationId: browserOpId,
+    }));
+    await manager.recordToolBatchConfirmed(sessionId, "turn-1", browserOpId, 1);
+    await manager.recordToolCallPreparation(sessionId, "turn-1", browserOpId, "call-1", 1);
+    await manager.recordToolCallEmission(sessionId, "turn-1", browserOpId, "call-1", 1);
+    await actor.dispatch(command(sessionId, 3, "operation_intent", {
+      turnId: "turn-1",
+      operationId: "tool-result:call-1",
+      operationKind: "tool_result_delivery",
+      parentOperationId: browserOpId,
+      historyRevision: 0,
+    }));
+    await actor.dispatch(command(sessionId, 4, "operation_accepted", {
+      turnId: "turn-1",
+      operationId: "tool-result:call-1",
+    }));
+
+    // Simulate restart after crash mid-tool delivery
+    home.journal.close();
+    const reopened = new SessionActorJournal(home.path);
+    try {
+      expect(reopened.operation(sessionId, 1, "tool-result:call-1")?.state).toBe("uncertain");
+      expect(reopened.operation(sessionId, 1, browserOpId)?.state).toBe("uncertain");
+
+      const recoveredManager = new SessionActorManager(reopened, results);
+      recoveredManager.recoverUncertainOperations();
+
+      // Both operations should now be abandoned because neither had a persisted result file
+      expect(reopened.operation(sessionId, 1, "tool-result:call-1")?.state).toBe("abandoned");
+      expect(reopened.operation(sessionId, 1, browserOpId)?.state).toBe("abandoned");
+
+      // Verify that starting a new turn and launching an operation is not blocked by uncertain effects
+      await recoveredManager.beginTurn(sessionId, "turn-2");
+      const actor2 = recoveredManager.actor(sessionId);
+      const admission = await actor2.dispatch({
+        ...command(sessionId, 1, "operation_intent", {
+          turnId: "turn-2",
+          operationId: "browser:trace-2",
+          operationKind: "browser_send",
+          historyRevision: 0,
+        }),
+        producerId: "test-2",
+      });
+      expect(admission.status).toBe("accepted");
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    home.close();
+  }
+});
+
