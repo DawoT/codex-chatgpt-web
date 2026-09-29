@@ -27,13 +27,14 @@ import { extractModifiedFilePaths } from "./autonomous-compaction";
 import {
   LATEST_USER_PROMPT_MARKER,
   ORIGINAL_USER_REQUEST_MARKER,
+  compactionStateFields,
+  countActiveCompactionStates,
+  countCompactionRequirementItems,
   locateCompactionStateBounds,
   extractStructuredCompactionHandoff,
   formatCompactionStateBlock,
   parseCompactionState,
   type CompactionStateBlock,
-  type CompactionRequirement,
-  type CompactionAchievement,
 } from "../../responses/compaction";
 
 export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
@@ -181,11 +182,7 @@ export function canonicalizeCompactionHandoff(
     if (bounds && !bounds.fenced) {
       before = body.slice(0, bounds.startTagStart).trimEnd();
       after = body.slice(bounds.endTagEnd).trimStart();
-      state = parseCompactionState(body.slice(bounds.startTagStart, bounds.endTagEnd)) ?? {
-        modifiedFiles: [],
-        blockersOrTestFailures: [],
-        nextActions: [],
-      };
+      state = parseCompactionState(body.slice(bounds.startTagStart, bounds.endTagEnd));
     } else {
       const handoff = extractStructuredCompactionHandoff(body);
       state = handoff.state;
@@ -194,7 +191,32 @@ export function canonicalizeCompactionHandoff(
       }
     }
 
-    if (state) {
+    const fields = compactionStateFields(body);
+    const completeDraft = !bounds?.fenced
+      && (bounds !== null || !/^ {0,3}(?:`{3,}|~{3,})/m.test(body))
+      && state?.version === 2
+      && countActiveCompactionStates(body) <= 1
+      && state.activeHypothesis?.trim()
+      && state.requirements?.length
+      && countCompactionRequirementItems(body) === state.requirements.length
+      && state.closureCriteria?.length
+      && state.nextActions.length === 1
+      && [
+        "version",
+        "modified_files",
+        "active_hypothesis",
+        "requirements",
+        "closure_criteria",
+        "verified_achievements",
+        "decisions_and_invariants",
+        "pending_obligations",
+        "next_actions",
+      ].every(field => fields.has(field))
+      && (fields.has("blockers_or_test_failures") || fields.has("blockers"));
+
+    // Only normalize a complete, explicitly versioned draft. Missing fields,
+    // conflicting IDs and extra actions must remain visible to validation/repair.
+    if (state && completeDraft) {
       const detectedFiles = extractModifiedFilePaths(parsed.context.messages);
       const existingFiles = (state.modifiedFiles ?? []).filter(
         f => f && f.toLowerCase() !== "none" && f.toLowerCase() !== "- none",
@@ -207,114 +229,23 @@ export function canonicalizeCompactionHandoff(
         }
       }
       if (injectedFiles.length > 0) {
-        console.info(
-          `[chatgpt-web] [COMPACTION AUTO-HEAL 🟢] Injected ${injectedFiles.length} file(s) into modified_files from patch history:`,
-          injectedFiles,
-        );
+        console.info(`[chatgpt-web] compaction_file_reconciliation ${JSON.stringify({
+          schemaVersion: 1,
+          source: "successful_patch_history",
+          insertedCount: injectedFiles.length,
+        })}`);
       }
 
-      const dedupeStrings = (items: string[]) => {
-        const seen = new Set<string>();
-        const result: string[] = [];
-        for (const item of items) {
-          const norm = item.toLowerCase().replace(/\s+/g, " ").trim();
-          if (norm && !seen.has(norm)) {
-            seen.add(norm);
-            result.push(item);
-          }
-        }
-        return result.length > 0 ? result : ["None"];
-      };
-
-      const dedupeAchievements = (items: Array<string | CompactionAchievement>) => {
-        const seen = new Set<string>();
-        const result: Array<string | CompactionAchievement> = [];
-        for (const item of items) {
-          const key = typeof item === "string" ? item : item.result;
-          const norm = key.toLowerCase().replace(/\s+/g, " ").trim();
-          if (norm && !seen.has(norm)) {
-            seen.add(norm);
-            result.push(item);
-          }
-        }
-        return result;
-      };
-
-      const activeHypothesis = state.activeHypothesis?.trim()
-        || (originalRequest ? `Complete: ${originalRequest.trim().slice(0, 120)}` : "Complete the requested task.");
-
-      const rawRequirements = state.requirements && state.requirements.length > 0
-        ? state.requirements
-        : [{
-            id: "REQ-1",
-            status: "pending" as const,
-            source: originalRequest ? `original user request: ${originalRequest.trim().slice(0, 80)}` : "original user request",
-          }];
-
-      const requirements: CompactionRequirement[] = [];
-      const seenReqIds = new Set<string>();
-      for (let idx = 0; idx < rawRequirements.length; idx++) {
-        const req = rawRequirements[idx]!;
-        let id = req.id && typeof req.id === "string" && /^[-A-Za-z0-9_]+$/.test(req.id) ? req.id : `REQ-${idx + 1}`;
-        if (seenReqIds.has(id)) {
-          id = `${id}-${idx + 1}`;
-        }
-        seenReqIds.add(id);
-        const status = ["pending", "blocked", "verified"].includes(req.status) ? req.status : "pending";
-        const source = req.source && typeof req.source === "string" && req.source.trim()
-          ? req.source.trim()
-          : (originalRequest ? `original user request: ${originalRequest.trim().slice(0, 80)}` : "original user request");
-        requirements.push({
-          id,
-          status,
-          source,
-          ...(req.evidence ? { evidence: req.evidence } : {}),
-          ...(req.evidenceRefs ? { evidenceRefs: req.evidenceRefs } : {}),
-        });
-      }
-
-      const closureCriteria = dedupeStrings(
-        (state.closureCriteria && state.closureCriteria.length > 0)
-          ? state.closureCriteria
-          : ["All mission requirements completed and verified"],
-      );
-
-      const verifiedAchievements = dedupeAchievements(state.verifiedAchievements ?? []);
-      const decisionsAndInvariants = dedupeStrings(state.decisionsAndInvariants ?? []);
-
-      const blockersOrTestFailures = dedupeStrings(
-        (state.blockersOrTestFailures && state.blockersOrTestFailures.length > 0)
-          ? state.blockersOrTestFailures
-          : ["None"],
-      );
-
-      const pendingObligations = dedupeStrings(
-        (state.pendingObligations && state.pendingObligations.length > 0)
-          ? state.pendingObligations
-          : [latestUserPrompt ? `Complete latest turn: ${latestUserPrompt.trim().slice(0, 80)}` : "Continue next actions"],
-      );
-
-      let nextActions = (state.nextActions ?? []).map(a => a.trim()).filter(Boolean);
-      if (nextActions.length !== 1) {
-        const action = nextActions[0] || (latestUserPrompt ? `Proceed with: ${latestUserPrompt.trim().slice(0, 80)}` : "Continue with the next planned step");
-        nextActions = [action];
-      }
-
-      const healedState: CompactionStateBlock = {
-        version: 2,
+      const canonicalState: CompactionStateBlock = {
+        ...state,
         originalRequestRef: `sha256:${digest}`,
         modifiedFiles: existingFiles,
-        activeHypothesis,
-        requirements,
-        closureCriteria,
-        verifiedAchievements,
-        decisionsAndInvariants,
-        blockersOrTestFailures,
-        pendingObligations,
-        nextActions,
+        verifiedAchievements: state.verifiedAchievements ?? [],
+        decisionsAndInvariants: state.decisionsAndInvariants ?? [],
+        pendingObligations: state.pendingObligations ?? [],
       };
 
-      body = [before, formatCompactionStateBlock(healedState), after].filter(Boolean).join("\n\n");
+      body = [before, formatCompactionStateBlock(canonicalState), after].filter(Boolean).join("\n\n");
     }
     return `${body}\n\n${originalAppendix}\n\n${latestAppendix}`;
   }

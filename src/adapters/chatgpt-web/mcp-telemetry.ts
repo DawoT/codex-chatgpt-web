@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { getConfigDir } from "../../config";
+import { runtimeIdentity } from "../../runtime-identity";
 import { TelemetryTraceSink } from "./telemetry-trace";
 
 const TOOL_LIFECYCLE_EVENTS = new Set([
@@ -31,8 +32,14 @@ export class McpTelemetry {
     this.pending += 1;
     const call = Number.isSafeInteger(event.call) ? Number(event.call) : 0;
     const eventName = String(event.event);
-    const failed = eventName === "reply_send_failed" || event.outcome === "protocol_error" || event.is_error === true;
+    const failed = eventName === "reply_send_failed" || eventName === "transport_error"
+      || event.outcome === "protocol_error" || event.is_error === true;
     const metadata = {
+      protocol_version: runtimeIdentity.protocolVersion,
+      build_commit: runtimeIdentity.buildCommit,
+      artifact_sha256: runtimeIdentity.artifactSha256,
+      process_generation: runtimeIdentity.generation,
+      process_pid: runtimeIdentity.pid,
       scope: eventName.startsWith("broker_") || TOOL_LIFECYCLE_EVENTS.has(eventName)
         ? "broker_tool_lifecycle"
         : "mcp_transport_only",
@@ -43,7 +50,8 @@ export class McpTelemetry {
       failed_writes: this.failed,
       ...(typeof event.elapsed_ms === "number" ? { elapsed_ms: event.elapsed_ms } : {}),
       ...(typeof event.tracked_calls === "number" ? { tracked_calls: event.tracked_calls } : {}),
-      ...(typeof event.evidence === "string" ? { evidence: event.evidence } : {}),
+      ...(typeof event.evidence === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(event.evidence)
+        ? { evidence: event.evidence } : {}),
     };
     void this.sink.record({
       traceId: typeof event.trace_id === "string" && /^[a-f0-9-]{36}$/.test(event.trace_id)
@@ -54,6 +62,7 @@ export class McpTelemetry {
       kind: "tool_call",
       terminalState: [
         "call_received",
+        "transport_ready",
         "uncorrelated_call",
         "broker_queued",
         "broker_delivered",

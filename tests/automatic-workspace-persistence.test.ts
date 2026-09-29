@@ -163,6 +163,25 @@ test("replaying the exact checkpoint does not create a second epoch", () => {
   }
 });
 
+test("checkpoint history identity ignores parser timestamps but detects changed content", () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-checkpoint-timestamps-"));
+  try {
+    const env = environment(root, {
+      type: "workspaceWrite",
+      writableRoots: [root],
+      networkAccess: false,
+    });
+    const message = { role: "user" as const, content: "Continue this task", timestamp: 1 };
+    expect(persistTurnCompaction(env, [message], "Stable checkpoint")).toBeTrue();
+    expect(persistTurnCompaction(env, [{ ...message, timestamp: 2 }], "Stable checkpoint")).toBeTrue();
+    expect(listTurnCheckpoints(root).map(item => item.epoch)).toEqual([1]);
+    expect(persistTurnCompaction(env, [{ ...message, content: "A revised task", timestamp: 3 }], "Stable checkpoint")).toBeTrue();
+    expect(listTurnCheckpoints(root).map(item => item.epoch)).toEqual([2, 1]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("compaction retains one bounded latest summary and other custom sections across state round trips", async () => {
   const { defaultWorkspaceState, writeWorkspaceState } = await import("../src/adapters/chatgpt-web/workspace-state");
   const { mergeCompactionIntoWorkspaceState } = await import("../src/adapters/chatgpt-web/autonomous-compaction");

@@ -527,11 +527,57 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
   };
 }
 
+function withoutFencedExamples(summary: string): string {
+  let fence: { marker: string; length: number } | undefined;
+  return summary.split(/\r?\n/).map(line => {
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (run?.[0] === fence.marker && run.length >= fence.length
+        && /^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) {
+        fence = undefined;
+      }
+      return "";
+    }
+    if (run) {
+      fence = { marker: run[0]!, length: run.length };
+      return "";
+    }
+    if (/^(?: {4,}|\t)/.test(line)) return "";
+    return line;
+  }).join("\n");
+}
+
+/** Count all listed requirements, including items the parser cannot represent. */
+export function countCompactionRequirementItems(summary: string): number {
+  const bounds = locateCompactionStateBounds(summary);
+  const text = bounds
+    ? summary.slice(bounds.openingEnd, bounds.closingStart)
+    : withoutFencedExamples(summary);
+  let inRequirements = false;
+  let count = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const field = checkpointField(line);
+    if (field) {
+      inRequirements = field.name === "requirements";
+      continue;
+    }
+    if (!inRequirements || !line.trim()) continue;
+    const item = /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim();
+    if (!item) {
+      inRequirements = false;
+    } else if (item.toLowerCase() !== "none" && item.toLowerCase() !== "none.") {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 function parseTaglessCompactionState(summary: string): CompactionStateBlock | null {
   if (PERMISSIVE_OPENING_TAG.test(summary) || PERMISSIVE_CLOSING_TAG.test(summary)) {
     return null;
   }
-  const fields = compactionStateFields(summary);
+  const active = withoutFencedExamples(summary);
+  const fields = compactionStateFields(active);
   const hasVersion = fields.has("version");
   const hasRequirements = fields.has("requirements");
   const hasNextActions = fields.has("next_actions") || fields.has("next_steps");
@@ -545,7 +591,7 @@ function parseTaglessCompactionState(summary: string): CompactionStateBlock | nu
     if (structuredHeaders < 2) return null;
   }
 
-  const parsed = parseCompactionStateLines(summary);
+  const parsed = parseCompactionStateLines(active);
   if (!parsed.requirements?.length || !parsed.nextActions?.length) return null;
   return parsed;
 }

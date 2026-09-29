@@ -39,7 +39,10 @@ export function initializeTurnWorkspace(environment: ChatGptTurnEnvironment | un
 export function persistTurnCompaction(environment: ChatGptTurnEnvironment | undefined, messages: readonly CodexMessage[], summary: string): boolean {
   const root = writableWorkspace(environment, ["STATE.md", "checkpoints"]);
   if (!root) return false;
-  const sourceHistoryHash = createHash("sha256").update(JSON.stringify(messages)).digest("hex");
+  // The Responses parser stamps every reconstructed message with the current request time.
+  // An exact HTTP replay must retain the same checkpoint epoch.
+  const stableHistory = messages.map(({ timestamp: _timestamp, ...message }) => message);
+  const sourceHistoryHash = createHash("sha256").update(JSON.stringify(stableHistory)).digest("hex");
   const latest = listTurnCheckpoints(root)[0];
   if (latest?.compactSummary !== summary || latest.metadata?.sourceHistoryHash !== sourceHistoryHash) {
     saveTurnCheckpoint(root, {

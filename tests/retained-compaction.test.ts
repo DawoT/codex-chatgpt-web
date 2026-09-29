@@ -1527,6 +1527,11 @@ test("retained compaction can close its browser epoch while preserving an ordina
 });
 
 test("adapter compact returns one same-agent handoff and preserves a pre-existing ordinary final", async () => {
+  const canaryLines: string[] = [];
+  const canaryLogger = spyOn(console, "info").mockImplementation((...args) => {
+    const line = args.join(" ");
+    if (line.startsWith("[chatgpt-web] compaction_event ")) canaryLines.push(line);
+  });
   const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-adapter-retained-compact-"));
   const provider: CodexProviderConfig = {
     adapter: "chatgpt-web",
@@ -1613,7 +1618,24 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
     expect(chatGptTurnSessions.find(compactedSourceKey)!.conversationKey()).toBeUndefined();
     expect(chatGptTurnSessions.findConversationHead(conversationKey)).toBeUndefined();
     expect(releases).toBe(1);
+    const canary = canaryLines.map(line => JSON.parse(line.slice("[chatgpt-web] compaction_event ".length)) as {
+      phase: string;
+      traceId: string;
+      outcome: string;
+      route: string;
+      localPersisted?: boolean;
+    });
+    expect(canary.map(event => event.phase)).toEqual([
+      "prepared", "received", "validated", "persisted", "validated", "persisted", "accepted", "delivered",
+    ]);
+    expect(new Set(canary.map(event => event.traceId)).size).toBe(1);
+    expect(canary.find(event => event.phase === "persisted")).toMatchObject({
+      outcome: "skipped",
+      localPersisted: false,
+    });
+    expect(canary.at(-1)).toMatchObject({ phase: "delivered", route: "retained" });
   } finally {
+    canaryLogger.mockRestore();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     chatGptTurnSessions.clear();
     await broker.close();
@@ -1709,6 +1731,11 @@ test.each([false, true])("retained handoff persists before retirement and avoids
 });
 
 test("invalid checkpoint keeps the retained source and does not send a second prompt without repair time", async () => {
+  const canaryLines: string[] = [];
+  const canaryLogger = spyOn(console, "info").mockImplementation((...args) => {
+    const line = args.join(" ");
+    if (line.startsWith("[chatgpt-web] compaction_event ")) canaryLines.push(line);
+  });
   const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-invalid-checkpoint-"));
   const provider: CodexProviderConfig = {
     adapter: "chatgpt-web",
@@ -1767,7 +1794,12 @@ test("invalid checkpoint keeps the retained source and does not send a second pr
     expect(browserMessages).toBe(1);
     expect(releases).toBe(0);
     expect(chatGptTurnSessions.findConversationHead(conversationKey)).toBeDefined();
+    const phases = canaryLines.map(line => JSON.parse(line.slice("[chatgpt-web] compaction_event ".length)).phase);
+    expect(phases).toContain("failed");
+    expect(phases).not.toContain("accepted");
+    expect(phases).not.toContain("delivered");
   } finally {
+    canaryLogger.mockRestore();
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     chatGptTurnSessions.clear();
     await broker.close();

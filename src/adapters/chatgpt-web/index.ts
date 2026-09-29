@@ -14,7 +14,9 @@ import {
   extractChatGptThreadSpawnLineage,
   extractChatGptTurnEnvironment,
   extractChatGptTurnIdentity,
+  hasRawChatGptEnvironmentContext,
   isChatGptSubagentTurn,
+  MissingTrustedCodexEnvironmentError,
   priorChatGptAbortedTurnIds,
 } from "./environment";
 import {
@@ -513,13 +515,20 @@ export function createChatGptWebAdapter(
         if (mode.localTools || parsed._compactionRequest) {
           try {
             environment = parsed._hostTurn?.environment
-              ?? (mode.localTools ? environmentStore.resolve(parsed) : undefined);
+              ?? environmentStore.resolve(parsed);
           } catch (error) {
-            const identity = extractChatGptTurnIdentity(parsed);
-            console.warn(
-              `[chatgpt-web] trusted environment unavailable (thread_id=${identity.threadId ? "present" : "missing"}, turn_id=${identity.turnId ? "present" : "missing"}, previous_response_id=${parsed.previousResponseId ?? "none"}, replay_prefix_items=${parsed._replayPrefixLen ?? 0}, context_messages=${parsed.context.messages.length})`,
-            );
-            throw error;
+            if (parsed._compactionRequest
+              && !mode.localTools
+              && error instanceof MissingTrustedCodexEnvironmentError
+              && !hasRawChatGptEnvironmentContext(parsed)) {
+              environment = undefined;
+            } else {
+              const identity = extractChatGptTurnIdentity(parsed);
+              console.warn(
+                `[chatgpt-web] trusted environment unavailable (thread_id=${identity.threadId ? "present" : "missing"}, turn_id=${identity.turnId ? "present" : "missing"}, previous_response_id=${parsed.previousResponseId ?? "none"}, replay_prefix_items=${parsed._replayPrefixLen ?? 0}, context_messages=${parsed.context.messages.length})`,
+              );
+              throw error;
+            }
           }
         }
         if (environment?.cwd && environment.execution !== "host-only") {

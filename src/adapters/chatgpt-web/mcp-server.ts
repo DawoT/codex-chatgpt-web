@@ -4,6 +4,7 @@ import { VERSION } from "../../version";
 import { loadConfig } from "../../config";
 import { observeMcpToolCalls } from "./mcp-observation";
 import { McpTelemetry } from "./mcp-telemetry";
+import { attachMcpTransportDiagnostics, emitMcpTransportDiagnostic } from "./mcp-transport-observability";
 import {
   CHAT_FIRST_MCP_INSTRUCTIONS,
   CHATGPT_WEB_AGENT_WAIT_POLL_MS,
@@ -103,6 +104,7 @@ export async function runChatGptMcpServer(options: {
   }
   const telemetry = new McpTelemetry();
   const transport = new StdioServerTransport();
+  attachMcpTransportDiagnostics(transport, telemetry.write);
   const start = transport.start.bind(transport);
   transport.start = async () => {
     // The SDK installs its handler before starting the transport. Wrap that
@@ -112,6 +114,7 @@ export async function runChatGptMcpServer(options: {
       telemetry.write(event);
     });
     await start();
+    emitMcpTransportDiagnostic("transport_ready", telemetry.write);
   };
   await server.connect(transport);
 }

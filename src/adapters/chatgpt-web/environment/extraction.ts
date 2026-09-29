@@ -106,7 +106,11 @@ export function environmentBeforeUser(input: unknown[], userIndex: number, expec
     const text = record(part)?.text;
     if (typeof text !== "string") continue;
     const trimmed = text.trim();
-    if (/^<environment_context>[\s\S]*<\/environment_context>$/.test(trimmed)) return trimmed;
+    if (/^<environment_context>[\s\S]*<\/environment_context>$/.test(trimmed)) {
+      const policyClaim = metadata ? canonicalSandboxMetadata(metadata) : undefined;
+      if (policyClaim !== undefined && !sandboxMetadataMatchesEnvironment(policyClaim, trimmed)) return undefined;
+      return trimmed;
+    }
   }
   return undefined;
 }

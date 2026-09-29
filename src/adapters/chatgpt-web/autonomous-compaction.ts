@@ -6,7 +6,9 @@ import {
   compactionDraftText,
   compactionStateFields,
   countActiveCompactionStates,
+  countCompactionRequirementItems,
   extractStructuredCompactionHandoff,
+  locateCompactionStateBounds,
   type CompactionRequirement,
 } from "../../responses/compaction";
 import { evaluateMissionHeadroom } from "./mission-headroom";
@@ -272,7 +274,11 @@ export function validateCompactionQuality(
     }
   }
 
-  const structured = extractStructuredCompactionHandoff(draft).state;
+  const hasOnlyFencedState = locateCompactionStateBounds(draft) !== null
+    && locateCompactionStateBounds(draft, { unfencedOnly: true }) === null;
+  const structured = hasOnlyFencedState
+    ? null
+    : extractStructuredCompactionHandoff(draft).state;
   if (options?.requireStructured) {
     if (countActiveCompactionStates(draft) > 1) {
       missingInvariants.push("Multiple active compaction state blocks");
@@ -284,6 +290,9 @@ export function validateCompactionQuality(
       if (structured.version !== 2) missingInvariants.push("Checkpoint requires mission checklist version 2");
       if (!structured.originalRequestRef) missingInvariants.push("Missing original request reference");
       if (!structured.requirements?.length) missingInvariants.push("Missing mission requirements");
+      if (countCompactionRequirementItems(draft) !== (structured.requirements?.length ?? 0)) {
+        missingInvariants.push("Invalid mission requirement item");
+      }
       if (!structured.closureCriteria?.length) missingInvariants.push("Missing closure criteria");
       if (structured.nextActions.length !== 1) missingInvariants.push("Checkpoint requires one clear next action");
       const fields = compactionStateFields(draft);

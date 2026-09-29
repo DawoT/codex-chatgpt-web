@@ -158,6 +158,15 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
 
       expect(verdict.valid).toBe(true);
       expect(verdict.missingInvariants).toHaveLength(0);
+
+      const fencedVerdict = validateCompactionQuality(
+        samplePatchedMessages,
+        `\`\`\`xml\n${validCompleteCheckpoint}\n\`\`\``,
+        { requireStructured: true },
+      );
+      expect(fencedVerdict.valid).toBe(false);
+      expect(fencedVerdict.missingInvariants).toContain("Missing structured compaction state");
+
     });
   });
 
@@ -371,9 +380,80 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
       });
       expect(verdict.valid).toBe(true);
       expect(verdict.missingInvariants).toHaveLength(0);
+
+      const versionless = canonicalizeCompactionHandoff(
+        parsedReq,
+        summaryWithoutFiles.replace("version: 2\n", ""),
+      );
+      const versionlessVerdict = validateCompactionQuality(samplePatchedMessages, versionless, {
+        requireStructured: true,
+      });
+      expect(versionless).not.toContain("version: 2");
+      expect(versionlessVerdict.missingInvariants).toContain("Checkpoint requires mission checklist version 2");
+
+      const ambiguousActions = canonicalizeCompactionHandoff(
+        parsedReq,
+        summaryWithoutFiles.replace(
+          "- Run catalog build script\n</compaction_state>",
+          "- Run catalog build script\n- Review imports\n</compaction_state>",
+        ),
+      );
+      const ambiguousVerdict = validateCompactionQuality(samplePatchedMessages, ambiguousActions, {
+        requireStructured: true,
+      });
+      expect(ambiguousVerdict.missingInvariants).toContain("Checkpoint requires one clear next action");
+
+      const missingSection = canonicalizeCompactionHandoff(
+        parsedReq,
+        summaryWithoutFiles.replace("pending_obligations:\n- Run catalog build script\n", ""),
+      );
+      const missingSectionVerdict = validateCompactionQuality(samplePatchedMessages, missingSection, {
+        requireStructured: true,
+      });
+      expect(missingSectionVerdict.missingInvariants).toContain("Missing pending_obligations section");
+
+      const fencedExample = canonicalizeCompactionHandoff(
+        parsedReq,
+        `Example only:\n\`\`\`xml\n${summaryWithoutFiles}\n\`\`\``,
+      );
+      expect(fencedExample).toContain("```xml");
+      expect(fencedExample).not.toContain("original_request_ref: sha256:");
+
+      const fencedTaglessExample = canonicalizeCompactionHandoff(
+        parsedReq,
+        `Example only:\n\`\`\`text\n${summaryWithoutFiles.replace(/<\/?compaction_state>\n?/g, "")}\n\`\`\``,
+      );
+      expect(fencedTaglessExample).toContain("```text");
+      expect(fencedTaglessExample).not.toContain("original_request_ref: sha256:");
+      expect(validateCompactionQuality(samplePatchedMessages, fencedTaglessExample, {
+        requireStructured: true,
+      }).valid).toBe(false);
+
+      const indentedExample = canonicalizeCompactionHandoff(
+        parsedReq,
+        `Example only:\n${summaryWithoutFiles.replace(/<\/?compaction_state>\n?/g, "")
+          .split("\n").map(line => `    ${line}`).join("\n")}`,
+      );
+      expect(indentedExample).not.toContain("original_request_ref: sha256:");
+      expect(validateCompactionQuality(samplePatchedMessages, indentedExample, {
+        requireStructured: true,
+      }).valid).toBe(false);
+
+      const arrayRequirement = canonicalizeCompactionHandoff(
+        parsedReq,
+        summaryWithoutFiles.replace(
+          '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"}',
+          '- {"id":"REQ-1","status":"pending","source":"Actualizar catalogo"}\n'
+            + '- [{"id":"REQ-2","status":"pending","source":"Run tests"}]',
+        ),
+      );
+      expect(arrayRequirement).toContain('- [{"id":"REQ-2","status":"pending","source":"Run tests"}]');
+      expect(validateCompactionQuality(samplePatchedMessages, arrayRequirement, {
+        requireStructured: true,
+      }).missingInvariants).toContain("Invalid mission requirement item");
     });
 
-    it("canonicalizeCompactionHandoff auto-heals an empty/malformed <compaction_state> block into a valid v2 checkpoint", () => {
+    it("keeps an empty checkpoint invalid so repair can recover the actual requirements", () => {
       const parsedReq: CodexParsedRequest = {
         modelId: "chatgpt-web/high",
         stream: true,
@@ -401,26 +481,20 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
 
       const canonicalized = canonicalizeCompactionHandoff(parsedReq, emptyBlockDraft);
 
-      // Must be healed to a valid v2 state block
       expect(canonicalized).toContain("<compaction_state>");
-      expect(canonicalized).toContain("version: 2");
-      expect(canonicalized).toContain("modified_files:");
-      expect(canonicalized).toContain("- /home/deuz/projects/Allpa Craft/scripts/import-catalog-csv.mjs");
-      expect(canonicalized).toContain("active_hypothesis:");
-      expect(canonicalized).toContain("requirements:");
-      expect(canonicalized).toContain("closure_criteria:");
-      expect(canonicalized).toContain("next_actions:");
+      expect(canonicalized).not.toContain("version: 2");
+      expect(canonicalized).not.toContain("requirements:");
       expect(canonicalized).toContain("</compaction_state>");
 
-      // And it MUST PASS validation so the stream doesn't fail!
       const verdict = validateCompactionQuality(samplePatchedMessages, canonicalized, {
         requireStructured: true,
       });
-      expect(verdict.valid).toBe(true);
-      expect(verdict.missingInvariants).toHaveLength(0);
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants).toContain("Checkpoint requires mission checklist version 2");
+      expect(verdict.missingInvariants).toContain("Missing mission requirements");
     });
 
-    it("canonicalizeCompactionHandoff deduplicates entries and normalizes duplicate requirement IDs from model hallucinations", () => {
+    it("does not silently rename conflicting requirement IDs or erase duplicate evidence", () => {
       const parsedReq: CodexParsedRequest = {
         modelId: "chatgpt-web/high",
         stream: true,
@@ -475,18 +549,15 @@ describe("Compaction Stream Disconnection & Checkpoint Validation Diagnostics", 
 
       const canonicalized = canonicalizeCompactionHandoff(parsedReq, hallucinatedSummary);
 
-      // Verify that requirement IDs are unique and sections are deduplicated
       expect(canonicalized).toContain('{"id":"REQ-1","status":"pending"');
-      expect(canonicalized).toContain('{"id":"REQ-1-2","status":"pending"');
+      expect(canonicalized).not.toContain('"id":"REQ-1-2"');
 
-      // And it must pass validateCompactionQuality without duplicate invariant errors!
       const verdict = validateCompactionQuality(samplePatchedMessages, canonicalized, {
         requireStructured: true,
       });
-      expect(verdict.valid).toBe(true);
-      expect(verdict.missingInvariants).toHaveLength(0);
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants).toContain("Duplicate requirement ID: REQ-1");
+      expect(verdict.missingInvariants).toContain("Duplicate pending_obligations entries");
     });
   });
 });
-
-

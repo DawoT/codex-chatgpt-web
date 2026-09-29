@@ -120,6 +120,9 @@ test("lifecycle telemetry keeps each phase on the same trace and call ID", async
     ]));
     expect(records.every(record => record.brokerCallId === callId)).toBe(true);
     expect(records.every(record => record.metadata?.scope === "broker_tool_lifecycle")).toBe(true);
+    expect(records.every(record => record.metadata?.process_generation === records[0]?.metadata?.process_generation)).toBe(true);
+    expect(records.every(record => record.metadata?.protocol_version === 1)).toBe(true);
+    expect(records.every(record => typeof record.metadata?.artifact_sha256 === "string")).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
