@@ -32,7 +32,8 @@ test("manual prompt handoff keeps ordinary turns at one minute and compaction at
 
 test("Electron and Bun agree on the exact launcher idle surface", () => {
   const clientSource = fs.readFileSync(resolve(__dirname, "../../src/launcher-browser-host.ts"), "utf8");
-  assert.ok(clientSource.includes(`export const LAUNCHER_BROWSER_IDLE_URL = ${JSON.stringify(IDLE_BROWSER_URL)};`));
+  const inline = clientSource.replace(/\n\s*/g, " ");
+  assert.ok(inline.includes(`export const LAUNCHER_BROWSER_IDLE_URL = ${JSON.stringify(IDLE_BROWSER_URL)};`));
 });
 
 test("descriptor publishes native surface identities without inspecting renderers or Zero Risk tabs", () => {

@@ -12,7 +12,7 @@ const preloadSource = fs.readFileSync(path.join(launcherRoot, "electron", "prelo
 
 test("embedded ChatGPT is measured only after its animated surface mounts", () => {
   assert.match(appSource, /const \[browserSlot, setBrowserSlot\] = useState<HTMLDivElement \| null>\(null\)/);
-  assert.match(appSource, /setBrowserSurfaceActive\(browserSurfaceActive\)\.then\(\(\) => \{/);
+  assert.match(appSource, /setBrowserSurfaceActive\(browserSurfaceActive\)\s*\.then\(\(\) => \{/);
   assert.match(appSource, /observer\.observe\(browserSlot\)/);
   assert.match(appSource, /ref=\{browserSlotRef\}/);
 });
@@ -228,7 +228,7 @@ test("DEV launcher exposes its profile and supervises only its Full-mode MCP run
   assert.match(electronMain, /profile:\s*LAUNCHER_PROFILE\.kind/);
   assert.match(
     electronMain,
-    /if \(IS_DEV_PROFILE\) \{[\s\S]*?config\?\.mode === "full"[\s\S]*?runtimeSupervisor\.startIfConfigured\(\)[\s\S]*?\} else void \(async \(\) => \{/,
+    /if \(IS_DEV_PROFILE\) \{[\s\S]*?config\?\.mode === "full"[\s\S]*?runtimeSupervisor\.startIfConfigured\(\)[\s\S]*?\} else\s+void \(async \(\) => \{/,
   );
   assert.match(electronMain, /await runtimeSupervisor\?\.shutdown\(\{ cancelActiveTurns: true, force: true \}\)/);
   assert.match(electronMain, /packaged:\s*app\.isPackaged && !IS_DEV_PROFILE/);
@@ -290,7 +290,7 @@ test("Zero Risk setup commits state after the runtime transaction and preserves 
     electronMain.indexOf('handle("launcher:setup-mcp"'),
     electronMain.indexOf('handle("launcher:set-mcp-step"'),
   );
-  const runtimeMcpCommit = mcpSetupHandler.indexOf("const runSetup = afterRuntimeReady => setup({");
+  const runtimeMcpCommit = mcpSetupHandler.search(/const runSetup = \(afterRuntimeReady\) =>/);
   const mcpTransaction = mcpSetupHandler.indexOf(
     "await browserHost.withInteractionModeChange(interactionMode, runSetup)",
   );
@@ -386,7 +386,7 @@ test("saved ChatGPT authentication is refreshed before setup is presented", () =
   assert.ok(upgrade > refreshBarrier, "runtime upgrade must not inspect the browser before refresh settles");
   assert.ok(runtimeStart > upgrade, "configured runtime must start after any upgrade");
   assert.ok(routeConnect > runtimeStart, "Codex route must connect only after the runtime is healthy");
-  assert.match(appSource, /browser\?\.status === "loading" \? copy\.checkingSignIn/);
+  assert.match(appSource, /browser\?\.status === "loading"\s*\?\s*copy\.checkingSignIn/);
 });
 
 test("completed model setup remains a repeatable capability probe", () => {
