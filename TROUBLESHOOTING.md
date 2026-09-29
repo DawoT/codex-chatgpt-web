@@ -5,7 +5,7 @@ editing Codex configuration, or opening a new issue.
 
 ## The first five minutes
 
-1. Install the [latest release](https://github.com/miuuyy/codex-chatgpt-web/releases/latest). Quit
+1. Install the [latest release](https://github.com/DawoT/codex-chatgpt-web/releases/latest). Quit
    **Codex Web GPT** before running the installer again; updating preserves its private ChatGPT
    profile and launcher configuration.
 2. In **Setup**, confirm that ChatGPT sign-in, the browser smoke test, and **Install into Codex**
