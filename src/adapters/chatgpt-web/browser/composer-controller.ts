@@ -20,6 +20,7 @@ import {
   chatGptRowIsHighlighted,
   chatGptSelectedConnectorControl,
 } from "./connectors";
+import { waitForChatGptDomRevision, waitForChatGptDomSettle } from "./dom-signal";
 import { chatGptConnectorAttachmentMode } from "./dom-trackers";
 import {
   ChatGptPromptAttachmentIntegrityError,
@@ -33,7 +34,6 @@ import {
   ChatGptPersistentBrowserStateError,
   chatGptConnectorUnavailableError,
   ensureChatGptPersonalizedConnectorAccess,
-  settleChatGptUi,
 } from "./personalization";
 import {
   CHATGPT_COMPOSER_DOCUMENT_END_KEY,
@@ -41,6 +41,7 @@ import {
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
 } from "./suspension-clock";
+import type { ChatGptTurnEventBus } from "./turn-events";
 
 export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
 const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
@@ -89,6 +90,7 @@ export interface ChatGptComposerControllerHost {
     attemptBudget?: ChatGptConnectorAttemptBudget,
     abortSignal?: AbortSignal,
     hasExistingTurns?: boolean,
+    turnEvents?: ChatGptTurnEventBus,
   ): Promise<Locator>;
   selectedConnectorControl(composer: Locator): Locator;
 }
@@ -207,12 +209,22 @@ export class ComposerController {
   ): Promise<void> {
     const deadline = Date.now() + 10_000;
     let observed = "";
-    while (Date.now() < deadline) {
+    let domKey: string | undefined;
+    for (;;) {
       throwIfPromptAttachmentAborted(abortSignal);
       observed = await this.attachedPromptText(page, abortSignal);
       throwIfPromptAttachmentAborted(abortSignal);
       if (this.promptTextEquivalent(prompt, observed)) return;
-      await withBrowserTurnAbort(new Promise((resolveSleep) => setTimeout(resolveSleep, 200)), abortSignal);
+      if (Date.now() >= deadline) break;
+      // React commits the prompt asynchronously; wake on the composer's next qualifying mutation
+      // instead of re-reading on a fixed 200 ms beat. Text edits always bump the revision.
+      const verdict = await waitForChatGptDomRevision(page, {
+        afterKey: domKey,
+        settleMs: 150,
+        horizonMs: 200,
+        signal: abortSignal,
+      });
+      domKey = verdict.key;
     }
     throwIfPromptAttachmentAborted(abortSignal);
     const commonPrefix = this.promptEquivalentPrefixLength(prompt, observed);
@@ -277,6 +289,7 @@ export class ComposerController {
     attemptBudget: ChatGptConnectorAttemptBudget = { triggerAttempts: 0 },
     abortSignal?: AbortSignal,
     hasExistingTurns = false,
+    turnEvents?: ChatGptTurnEventBus,
   ): Promise<Locator> {
     const capture = async (checkpoint: string): Promise<void> => {
       throwIfPromptAttachmentAborted(abortSignal);
@@ -312,7 +325,7 @@ export class ComposerController {
               signal: personalizationSignal,
               timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
             });
-            await withBrowserTurnAbort(settleChatGptUi(), personalizationSignal);
+            await waitForChatGptDomSettle(page, { signal: personalizationSignal, horizonMs: 250 });
             await composer.pressSequentially(CHATGPT_CONNECTOR_MENTION_QUERY, {
               delay: 25,
               signal: personalizationSignal,
@@ -390,7 +403,7 @@ export class ComposerController {
           await page.bringToFront().catch(() => {});
         }
         await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-        await withBrowserTurnAbort(settleChatGptUi(), abortSignal);
+        await waitForChatGptDomSettle(page, { signal: abortSignal, horizonMs: 250 });
         await composer.pressSequentially(CHATGPT_CONNECTOR_MENTION_QUERY, {
           delay: 25,
           signal: abortSignal,
@@ -484,6 +497,7 @@ export class ComposerController {
         timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
         signal: abortSignal,
       });
+      turnEvents?.publish({ type: "connector_pill_mounted", source: "dom" });
       if (!(await this.connectorIsSelected(selectedComposer, abortSignal))) {
         throw new Error(
           `ChatGPT composer did not select ${JSON.stringify(this.config?.appName ?? CHATGPT_CONNECTOR_NAME)} connector`,
@@ -517,6 +531,7 @@ export class ComposerController {
     connectorAttemptBudget?: ChatGptConnectorAttemptBudget,
     reuseConnector = false,
     requireThink = false,
+    turnEvents?: ChatGptTurnEventBus,
   ): Promise<void> {
     prompt = prompt.replace(/\r\n|\r/g, "\n");
     throwIfPromptAttachmentAborted(abortSignal);
@@ -578,6 +593,7 @@ export class ComposerController {
               connectorAttemptBudget,
               abortSignal,
               userTurnCount > 0,
+              turnEvents,
             );
       } else {
         selectedComposer = await this.selectConnector(
@@ -587,6 +603,7 @@ export class ComposerController {
           connectorAttemptBudget,
           abortSignal,
           userTurnCount > 0,
+          turnEvents,
         );
       }
       // selectConnector owns and rolls back every mutation until it returns. From this point the
@@ -709,7 +726,7 @@ export class ComposerController {
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (await send.isEnabled().catch(() => false)) return;
-      await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
+      await waitForChatGptDomRevision(page, { horizonMs: 100 }).catch(() => {});
     }
     throw new Error("ChatGPT accepted the prompt attachments but did not make the message ready to send");
   }

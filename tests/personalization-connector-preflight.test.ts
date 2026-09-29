@@ -11,6 +11,7 @@ function matchesName(name: string | RegExp, label: string): boolean {
 const personalizationLabels = [
   { personalized: "Personalized", unpersonalized: "Unpersonalized" },
   { personalized: "个性化", unpersonalized: "非个性化" },
+  { personalized: "Personalizado", unpersonalized: "Sin personalizar" },
 ];
 
 function visibleLocator(count: () => number, overrides: Record<string, unknown> = {}) {

@@ -49,6 +49,7 @@ function compileChatGptWebPromptInternal(
 ): CompiledChatGptWebPrompt {
   const manualControl = options?.manualControl === true;
   const isContinuation = options?.continuation === true;
+  const conversationalFreedom = options?.conversationalFreedom === true;
   const executionMode = parsed._hostTurn?.environment.execution;
   const attachSkills = options?.experimentalSkillAttachments === true;
   if (attachSkills && (manualControl || isChatGptWebZeroRiskBackendModel(parsed.modelId))) {
@@ -173,17 +174,19 @@ function compileChatGptWebPromptInternal(
     const outputControlContract = parsed._compactionRequest
       ? []
       : [
-          ...(parsed.options.verbosity === "low"
-            ? [
-                "Codex requested low response verbosity. Keep the final user-facing answer concise and direct while still satisfying every explicit requirement.",
-              ]
-            : parsed.options.verbosity === "medium"
-              ? ["Codex requested medium response verbosity. Use balanced detail in the final user-facing answer."]
-              : parsed.options.verbosity === "high"
-                ? [
-                    "Codex requested high response verbosity. Use thorough detail in the final user-facing answer when it improves completeness or precision.",
-                  ]
-                : []),
+          ...(conversationalFreedom
+            ? []
+            : parsed.options.verbosity === "low"
+              ? [
+                  "Codex requested low response verbosity. Keep the final user-facing answer concise and direct while still satisfying every explicit requirement.",
+                ]
+              : parsed.options.verbosity === "medium"
+                ? ["Codex requested medium response verbosity. Use balanced detail in the final user-facing answer."]
+                : parsed.options.verbosity === "high"
+                  ? [
+                      "Codex requested high response verbosity. Use thorough detail in the final user-facing answer when it improves completeness or precision.",
+                    ]
+                  : []),
           ...(parsed.options.outputFormat
             ? [
                 `Codex requested a ${parsed.options.outputFormat.strict ? "strict " : ""}JSON-schema final answer named ${JSON.stringify(parsed.options.outputFormat.name)}.`,
@@ -206,15 +209,17 @@ function compileChatGptWebPromptInternal(
           "The outer bridge removes this marker and checkpoint from the user-facing stream. Never refer to the checkpoint in the visible answer.",
         ]
       : [];
-    return isContinuation && !parsed._compactionRequest
-      ? [
-          "Act as the model backend for the ongoing Codex task continuation below.",
-          ...transportContract,
-          ...outputControlContract,
-          ...checkpointContract,
-          answerContract,
-        ]
-      : [...sharedContract, ...transportContract, ...outputControlContract, ...checkpointContract, answerContract];
+    const contracts =
+      isContinuation && !parsed._compactionRequest
+        ? [
+            "Act as the model backend for the ongoing Codex task continuation below.",
+            ...transportContract,
+            ...outputControlContract,
+            ...checkpointContract,
+            answerContract,
+          ]
+        : [...sharedContract, ...transportContract, ...outputControlContract, ...checkpointContract, answerContract];
+    return contracts.filter((line): line is string => Boolean(line && line.trim().length > 0));
   };
   const manualControlContract = manualControl
     ? ["<codex_zero_risk_request_json>", JSON.stringify({ request_id: turnToken }), "</codex_zero_risk_request_json>"]
@@ -250,7 +255,9 @@ function compileChatGptWebPromptInternal(
           ];
   const answerContract = captureLunaCheckpoint
     ? "Return the complete answer that the outer Codex task should receive, then the required private checkpoint tail."
-    : "Return only the answer that the outer Codex task should receive.";
+    : conversationalFreedom
+      ? ""
+      : "Return only the answer that the outer Codex task should receive.";
 
   const fingerprintInput: PromptContractFingerprintInput = {
     modelId: parsed.modelId,
@@ -268,6 +275,7 @@ function compileChatGptWebPromptInternal(
     isCompaction: Boolean(parsed._compactionRequest),
     isContinuation,
     executionMode,
+    conversationalFreedom,
   };
   const fingerprint = defaultPromptContractCache.computeFingerprint(fingerprintInput);
   let staticContracts = defaultPromptContractCache.get(fingerprint);

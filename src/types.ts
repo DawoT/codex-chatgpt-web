@@ -326,5 +326,7 @@ export interface CodexProviderConfig {
     experimentalFreshConversationPerTurn?: boolean;
     /** Use ordinary ChatGPT history for task conversations. Default: Temporary Chat. */
     useSavedChats?: boolean;
+    /** Enterprise conversational freedom: when true (default), eliminates artificial brevity throttles. */
+    conversationalFreedom?: boolean;
   };
 }

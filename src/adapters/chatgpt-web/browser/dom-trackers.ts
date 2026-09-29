@@ -50,6 +50,45 @@ export const CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS = 10 * 60_000;
 /** Tolerated clock difference between the recording daemon and the observing helper process. */
 export const CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS = 5_000;
 
+/**
+ * The only attributes whose changes count as conversation DOM progress.
+ *
+ * ChatGPT's React tree mutates constantly; a revision counter that watched every mutation would
+ * never settle. Anything outside this filter is UI churn and must not wake a turn observer.
+ */
+export const CHATGPT_DOM_REVISION_ATTRIBUTES = [
+  "aria-hidden",
+  "aria-label",
+  "aria-busy",
+  "aria-disabled",
+  "aria-expanded",
+  "class",
+  "data-item-anchor",
+  "data-is-last-node",
+  "data-message-author-role",
+  "data-state",
+  "data-streaming-response-status",
+  "data-testid",
+  "data-turn",
+  "data-turn-id",
+  "data-turn-id-container",
+  // New ChatGPT UI (2025+) attributes replacing data-turn-id / data-turn-id-container
+  "data-turn-key",
+  "data-conversation-role",
+  "data-chatgpt-agent-turn-start",
+  "data-content-search-unit-key",
+  "data-user-message-bubble",
+  "data-markdown-text-style",
+  "data-markdown-text-tone",
+  "disabled",
+  "hidden",
+  "inert",
+  "open",
+  "role",
+  "start",
+  "style",
+] as const;
+
 export function chatGptTurnIsComplete(state: {
   responsePresent: boolean;
   running: boolean;

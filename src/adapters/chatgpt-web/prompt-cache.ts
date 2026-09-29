@@ -16,6 +16,7 @@ export interface PromptContractFingerprintInput {
   isCompaction?: boolean;
   isContinuation?: boolean;
   executionMode?: "host-only";
+  conversationalFreedom?: boolean;
 }
 
 export interface PromptCacheStats {
@@ -68,6 +69,7 @@ export class PromptContractCache {
       Boolean(input.isCompaction),
       Boolean(input.isContinuation),
       input.executionMode ?? "legacy",
+      input.conversationalFreedom ?? true,
     ]);
     return createHash("sha256").update(raw).digest("hex").slice(0, 16);
   }

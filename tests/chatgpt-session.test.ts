@@ -191,6 +191,65 @@ test("effort activation retries one ghost click with a primary pointerdown", asy
   ]);
 });
 
+test("effort activation clears unrelated open menus with Escape before opening the effort control", async () => {
+  let opened = false;
+  let otherMenuOpen = true;
+  const events: unknown[] = [];
+  const ownedMenu = { isVisible: async () => opened };
+  const hiddenSurface = {
+    filter() {
+      return this;
+    },
+    last() {
+      return this;
+    },
+    locator() {
+      return this;
+    },
+    count: async () => 0,
+    isVisible: async () => false,
+  };
+  const control = {
+    getAttribute: async (name: string) => {
+      if (name === "aria-controls") return opened ? "radix-effort-menu" : null;
+      if (name === "aria-expanded") return opened ? "true" : "false";
+      if (name === "data-state") return opened ? "open" : "closed";
+      return null;
+    },
+    click: async (options: unknown) => {
+      events.push(["click", options]);
+      opened = true;
+    },
+  };
+  const otherMenu = {
+    count: async () => (otherMenuOpen ? 1 : 0),
+  };
+  const page = {
+    locator: (selector: string) => {
+      if (selector === '[id="radix-effort-menu"]') return ownedMenu;
+      if (selector === '[role="menu"]') {
+        return {
+          filter: () => otherMenu,
+        };
+      }
+      return hiddenSurface;
+    },
+    keyboard: {
+      press: async (key: string) => {
+        events.push(["keyboard", key]);
+        if (key === "Escape") otherMenuOpen = false;
+      },
+    },
+  };
+
+  const activation = await activateChatGptEffortMenu(page as never, control as never, { settleMs: 0 });
+  expect(activation.method).toBe("click");
+  expect(events).toEqual([
+    ["keyboard", "Escape"],
+    ["click", { force: true, timeout: 1 }],
+  ]);
+});
+
 test("effort activation fails closed when neither event exposes a structural surface", async () => {
   const hiddenSurface = {
     filter() {
@@ -311,11 +370,13 @@ function reasoningPicker(
     staleAttributeMax?: string;
     maxAfterClose?: string;
     locksAfterClose?: Array<string | null>;
+    droppedPresses?: number;
   } = {},
 ) {
   let value = 0;
   let opened = true;
   let closedOnce = false;
+  let droppedPresses = options.droppedPresses ?? 0;
   const max = () => (closedOnce ? (options.maxAfterClose ?? options.max ?? "4") : (options.max ?? "4"));
   const keys: string[] = [];
   const hidden = {
@@ -335,8 +396,13 @@ function reasoningPicker(
       }),
   };
   const sliderControl = {
+    focus: async () => {},
     press: async (key: string) => {
       keys.push(key);
+      if (droppedPresses > 0) {
+        droppedPresses--;
+        return;
+      }
       value += key === "ArrowRight" ? 1 : -1;
     },
   };
@@ -649,4 +715,20 @@ test("Pro selection verifies the persisted hidden slider through its visible own
     expect(fixture.keys).toEqual(["ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight"]);
     expect(fixture.value()).toBe(loseSelectionOnClose ? 0 : 4);
   }
+});
+
+test("selectModelAndEffort retries keyboard press when initial slider movement does not immediately register", async () => {
+  const fixture = reasoningPicker({ droppedPresses: 1 });
+  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    activeComposer: async () => fixture.composer,
+  }) as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
+  const selection = await worker.selectModelAndEffort(fixture.page, "gpt-5.6-sol", "medium", {
+    localToolsEnabled: false,
+    solAvailable: true,
+    extraHighAvailable: true,
+    proAvailable: true,
+  });
+  expect(selection.selection.label).toBe("Medium");
+  // One press was dropped, so it had to press twice to move from 0 to 1
+  expect(fixture.keys).toEqual(["ArrowRight", "ArrowRight"]);
 });

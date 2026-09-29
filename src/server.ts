@@ -231,13 +231,14 @@ export function startServer(
     turnBroker,
     sessionActorManager: actorManager,
     httpTurns,
-    shutdown: () => shutdown(),
+    shutdown: () => shutdown(true),
   };
 
   const createListener = (): ReturnType<typeof Bun.serve> =>
     Bun.serve({
       hostname: config.host,
       port: config.port,
+      reusePort: true,
       idleTimeout: 0,
       async fetch(req, server) {
         if (!isLoopbackHostHeader(req.headers.get("host"))) {
@@ -486,7 +487,7 @@ export function startServer(
     }
   };
 
-  function shutdown(): void {
+  function shutdown(exitProcess = false): void {
     if (shutdownPromise) return;
     draining = true;
     void hostRoutes.close();
@@ -511,15 +512,21 @@ export function startServer(
         }
       }
       await server.stop(true);
+      if (exitProcess) {
+        process.exit(process.exitCode ?? 0);
+      }
     })().catch((error) => {
       process.exitCode = 1;
       console.error(
         `[codex-chatgpt-web] server shutdown failed: ${error instanceof Error ? error.message : String(error)}`,
       );
+      if (exitProcess) {
+        process.exit(1);
+      }
     });
   }
 
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", () => shutdown(true));
+  process.once("SIGTERM", () => shutdown(true));
   return server;
 }

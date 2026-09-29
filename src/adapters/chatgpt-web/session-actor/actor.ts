@@ -63,7 +63,7 @@ export class SessionActor {
       if (expectedGeneration !== undefined && generation !== expectedGeneration) {
         throw new Error("Session actor generation changed before local event confirmation");
       }
-      const prior = this.journal.findLocalTransition(this.sessionId, generation, type, operationId);
+      const prior = this.journal.findLocalTransition(this.sessionId, generation, type, operationId, turnId);
       if (prior) {
         if (
           prior.command.turnId !== turnId ||
@@ -125,16 +125,17 @@ export class SessionActor {
     if (acknowledgement.status === "accepted" && operation?.state === "completed") {
       return { acknowledgement, settled: Promise.resolve() };
     }
-    if (acknowledgement.status !== "accepted" || operation?.state !== "intent") {
+    if (acknowledgement.status !== "accepted" || (operation?.state !== "intent" && operation?.state !== "uncertain")) {
       throw new Error("Session actor operation requires reconciliation before an external effect");
     }
-    let producerSequence = 0;
+    const effectProducerId = `effect:${intent.operationId}`;
+    let producerSequence = this.journal.nextProducerSequence(this.sessionId, intent.generation, effectProducerId) - 1;
     const emit = async (type: "operation_accepted" | "operation_completed", resultRef?: string): Promise<void> => {
       producerSequence += 1;
       const result = await this.dispatch({
         ...intent,
         type,
-        producerId: `effect:${intent.operationId}`,
+        producerId: effectProducerId,
         producerSequence,
         ...(resultRef ? { resultRef } : {}),
       });
@@ -150,7 +151,7 @@ export class SessionActor {
           await this.dispatch({
             ...intent,
             type: "operation_uncertain",
-            producerId: `effect:${intent.operationId}`,
+            producerId: effectProducerId,
             producerSequence: producerSequence + 1,
           });
         }

@@ -52,6 +52,7 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
     captureLunaCheckpoint: parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID,
     experimentalSkillAttachments: config.experimentalSkillAttachments === true,
     ...(multipartParts !== undefined ? { experimentalMultipartParts: multipartParts } : {}),
+    conversationalFreedom: config.promptStyle?.conversationalFreedom !== false,
   });
   enforceMissionHeadroom(input, compiled, mode.effort, capabilities);
   assertChatGptPromptAttachments(compiled);

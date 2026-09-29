@@ -135,6 +135,21 @@ export interface AppConfig {
     resumeNotes?: boolean; // default true
     logRetentionHours?: number; // 1..720, default 48
   };
+  /**
+   * Enterprise prompt styling and conversational autonomy settings.
+   */
+  promptStyle?: PromptStyleConfig;
+}
+
+export interface PromptStyleConfig {
+  /**
+   * When true (default), eliminates artificial brevity throttles and allows the model full conversational autonomy.
+   */
+  conversationalFreedom?: boolean;
+  /**
+   * Default verbosity level: "unconstrained" | "high" | "medium" | "low".
+   */
+  defaultVerbosity?: "unconstrained" | "high" | "medium" | "low";
 }
 
 export function tunnelConfigForInteractionMode(
@@ -658,6 +673,30 @@ function parseConfig(value: unknown, path: string): AppConfig {
     }
     backgroundTasks = { maxConcurrent, resumeNotes, logRetentionHours };
   }
+  let promptStyle: AppConfig["promptStyle"];
+  const rawPromptStyle = parsed.promptStyle as unknown;
+  if (rawPromptStyle !== undefined) {
+    if (!rawPromptStyle || typeof rawPromptStyle !== "object" || Array.isArray(rawPromptStyle)) {
+      throw new Error(`Invalid promptStyle in ${path}`);
+    }
+    const raw = rawPromptStyle as Partial<NonNullable<AppConfig["promptStyle"]>>;
+    const conversationalFreedom = typeof raw.conversationalFreedom === "boolean" ? raw.conversationalFreedom : true;
+    const defaultVerbosity = raw.defaultVerbosity;
+    if (
+      defaultVerbosity !== undefined &&
+      defaultVerbosity !== "unconstrained" &&
+      defaultVerbosity !== "high" &&
+      defaultVerbosity !== "medium" &&
+      defaultVerbosity !== "low"
+    ) {
+      throw new Error(`Invalid promptStyle.defaultVerbosity in ${path}`);
+    }
+    promptStyle = { conversationalFreedom, ...(defaultVerbosity ? { defaultVerbosity } : {}) };
+  } else {
+    const envFreedom = process.env.CODEX_CONVERSATIONAL_FREEDOM;
+    const conversationalFreedom = envFreedom !== undefined ? envFreedom !== "false" && envFreedom !== "0" : true;
+    promptStyle = { conversationalFreedom };
+  }
   return {
     ...parsed,
     appName: expectedAppName,
@@ -672,6 +711,7 @@ function parseConfig(value: unknown, path: string): AppConfig {
     experimentalFreshConversationPerTurn,
     useSavedChats,
     zeroRiskProEnabled,
+    promptStyle,
     ...(chatFirst !== undefined ? { chatFirst } : {}),
     ...(backgroundTasks !== undefined ? { backgroundTasks } : {}),
   } as AppConfig;
@@ -735,6 +775,7 @@ export function providerConfig(config: AppConfig): CodexProviderConfig {
       experimentalSkillAttachments: manual ? false : config.experimentalSkillAttachments,
       experimentalFreshConversationPerTurn: !manual && config.experimentalFreshConversationPerTurn === true,
       useSavedChats: config.useSavedChats === true,
+      conversationalFreedom: config.promptStyle?.conversationalFreedom !== false,
       ...(config.stallTimeoutSec !== undefined ? { stallTimeoutSec: config.stallTimeoutSec } : {}),
       autoApproveToolCalls: manual ? false : config.autoApproveToolCalls,
     },

@@ -44,7 +44,67 @@ export class SessionActorManager {
   }
 
   beginTurn(sessionId: string, nativeTurnId: string): Promise<SessionAcknowledgement> {
+    this.recoverUncertainOperationsForSession(sessionId, nativeTurnId);
     return this.actor(sessionId).recordLocal("turn_started", nativeTurnId, `turn:${nativeTurnId}`);
+  }
+
+  /**
+   * Auto-abandon or complete uncertain operations for a specific session at runtime.
+   * If an operation has no result on disk (ENOENT), it was never completed and is
+   * auto-abandoned so it does not block future turns or effects. If currentTurnId
+   * and currentOperationId match, that operation is actively being retried and is skipped.
+   */
+  recoverUncertainOperationsForSession(sessionId: string, currentTurnId?: string, currentOperationId?: string): void {
+    if (!this.results) return;
+    const uncertain = this.journal.uncertainOperationsForSession(sessionId);
+    for (const op of uncertain) {
+      if (
+        currentTurnId &&
+        op.turnId === currentTurnId &&
+        (!currentOperationId || op.operationId === currentOperationId)
+      ) {
+        continue;
+      }
+      if (this.journal.wasOperationAccepted(op.sessionId, op.generation, op.operationId)) {
+        continue;
+      }
+      const ref = this.results.referenceFor({
+        sessionId: op.sessionId,
+        generation: op.generation,
+        turnId: op.turnId,
+        operationId: op.operationId,
+      });
+      let hasResult = false;
+      try {
+        this.results.get(ref);
+        hasResult = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          console.error(
+            `[session-actor] session ${sessionId} uncertain op ${op.operationId} result check failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          continue;
+        }
+      }
+      try {
+        if (hasResult) {
+          this.journal.reconcileOperation(op.sessionId, op.generation, op.operationId, "completed", ref);
+          console.info(
+            `[session-actor] reconciled completed uncertain op ${op.operationId} for session ${op.sessionId}`,
+          );
+        } else {
+          const evidenceRef = `not-sent:${ref}`;
+          this.journal.reconcileOperation(op.sessionId, op.generation, op.operationId, "not_sent", evidenceRef);
+          console.info(
+            `[session-actor] abandoned unrecoverable uncertain op ${op.operationId} for session ${op.sessionId}`,
+          );
+        }
+      } catch (error) {
+        console.error(
+          `[session-actor] could not reconcile uncertain op ${op.operationId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
   }
 
   private surfaceReconciliationId(surfaceId: string, generation: number): string {
@@ -294,6 +354,7 @@ export class SessionActorManager {
       snapshot.generation,
       "tool_call_emitted",
       `tool-call:${callId}`,
+      nativeTurnId,
     );
     const browser = this.journal.operation(sessionId, snapshot.generation, browserOperationId);
     if (
@@ -451,6 +512,7 @@ export class SessionActorManager {
     onAdmitted?: (generation: number) => void,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
+    this.recoverUncertainOperationsForSession(sessionId, nativeTurnId, operationId);
     await this.reconcileRevokedSurfaces(sessionId);
     const admission = await this.beginTurn(sessionId, nativeTurnId);
     if (admission.status !== "accepted") {
@@ -474,17 +536,21 @@ export class SessionActorManager {
         turnId: nativeTurnId,
         operationId,
       });
-      let recovered: ReturnType<SessionResultStore["get"]>;
+      let recovered: ReturnType<SessionResultStore["get"]> | undefined;
       try {
         recovered = this.results.get(ref);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          throw new Error("Session actor browser send requires reconciliation before retry");
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
         }
-        throw error;
       }
-      await actor.reconcile(operationId, generation, "completed", ref);
-      return recovered.text;
+      if (recovered) {
+        await actor.reconcile(operationId, generation, "completed", ref);
+        return recovered.text;
+      }
+      if (this.journal.wasOperationAccepted(sessionId, generation, operationId)) {
+        throw new Error("Session actor browser send requires reconciliation before retry");
+      }
     }
     const intent = {
       protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
@@ -538,7 +604,7 @@ export class SessionActorManager {
           const release = await actor.recordLocal(
             "surface_released",
             nativeTurnId,
-            `surface-reconciled:${operationId}`,
+            `surface-reconciled:${operationId}:${priorSurface}`,
             { surfaceId: priorSurface },
             generation,
           );
@@ -549,7 +615,7 @@ export class SessionActorManager {
         const acknowledgement = await actor.recordLocal(
           "surface_claimed",
           nativeTurnId,
-          `surface-claim:${operationId}`,
+          `surface-claim:${operationId}:${surfaceId}`,
           { surfaceId },
           generation,
         );
@@ -566,7 +632,7 @@ export class SessionActorManager {
           const acknowledgement = await actor.recordLocal(
             "surface_released",
             nativeTurnId,
-            `surface-release:${operationId}`,
+            `surface-release:${operationId}:${surfaceId}`,
             { surfaceId },
             generation,
           );

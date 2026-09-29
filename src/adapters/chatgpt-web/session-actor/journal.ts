@@ -211,6 +211,30 @@ export class SessionActorJournal {
       .all();
   }
 
+  uncertainOperationsForSession(sessionId: string): Array<OperationRow> {
+    return this.database
+      .query<OperationRow, [string]>(`
+      SELECT session_id AS sessionId, generation, operation_id AS operationId,
+        turn_id AS turnId, history_revision AS historyRevision, kind, state,
+        result_ref AS resultRef
+      FROM session_operation
+      WHERE session_id = ? AND state = 'uncertain'
+      ORDER BY generation, operation_id
+    `)
+      .all(sessionId);
+  }
+
+  wasOperationAccepted(sessionId: string, generation: number, operationId: string): boolean {
+    const row = this.database
+      .query<{ count: number }, [string, number, string]>(`
+      SELECT COUNT(*) AS count FROM session_event
+      WHERE session_id = ? AND generation = ? AND producer_id = ?
+        AND command_json LIKE '%"type":"operation_accepted"%'
+    `)
+      .get(sessionId, generation, `effect:${operationId}`);
+    return (row?.count ?? 0) > 0;
+  }
+
   uncertainBrowserSendOperations(): Array<OperationRow> {
     return this.uncertainOperations();
   }
@@ -375,7 +399,27 @@ export class SessionActorJournal {
     generation: number,
     type: SessionCommand["type"],
     operationId: string,
+    turnId?: string,
   ): { command: SessionCommand; acknowledgement: SessionAcknowledgement } | null {
+    if (turnId !== undefined) {
+      const row = this.database
+        .query<EventRow, [string, number, string, string, string]>(`
+        SELECT command_json AS commandJson, acknowledgement_json AS acknowledgementJson
+        FROM session_event
+        WHERE session_id = ? AND generation = ?
+          AND json_extract(command_json, '$.type') = ?
+          AND json_extract(command_json, '$.operationId') = ?
+          AND json_extract(command_json, '$.turnId') = ?
+        ORDER BY sequence DESC LIMIT 1
+      `)
+        .get(sessionId, generation, type, operationId, turnId);
+      return row
+        ? {
+            command: JSON.parse(row.commandJson) as SessionCommand,
+            acknowledgement: JSON.parse(row.acknowledgementJson) as SessionAcknowledgement,
+          }
+        : null;
+    }
     const row = this.database
       .query<EventRow, [string, number, string, string]>(`
       SELECT command_json AS commandJson, acknowledgement_json AS acknowledgementJson
@@ -383,7 +427,7 @@ export class SessionActorJournal {
       WHERE session_id = ? AND generation = ?
         AND json_extract(command_json, '$.type') = ?
         AND json_extract(command_json, '$.operationId') = ?
-      ORDER BY sequence LIMIT 1
+      ORDER BY sequence DESC LIMIT 1
     `)
       .get(sessionId, generation, type, operationId);
     return row
@@ -604,6 +648,7 @@ export class SessionActorJournal {
           command.generation,
           "tool_call_emitted",
           `tool-call:${command.operationId.slice("tool-result:".length)}`,
+          command.turnId,
         );
         if (
           parent?.kind !== "browser_send" ||
@@ -652,7 +697,9 @@ export class SessionActorJournal {
         throw new Error("Session actor operation ownership or revision mismatch");
       }
       if (command.type === "operation_accepted") {
-        if (pending.state !== "intent") throw new Error("Session actor operation acceptance is out of order");
+        if (pending.state !== "intent" && pending.state !== "uncertain") {
+          throw new Error("Session actor operation acceptance is out of order");
+        }
         this.database
           .query(`
           UPDATE session_operation SET state = 'accepted'
@@ -697,6 +744,7 @@ export class SessionActorJournal {
               command.generation,
               "tool_batch_observed",
               `batch-confirmed:${command.parentOperationId}:${command.toolBatchRevision}`,
+              command.turnId,
             )
           : null;
       if (
@@ -724,6 +772,7 @@ export class SessionActorJournal {
           command.generation,
           "tool_call_prepared",
           command.operationId,
+          command.turnId,
         );
         if (
           !prepared ||

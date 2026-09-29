@@ -28,6 +28,14 @@ export interface CompileChatGptWebPromptOptions {
    */
   manualControl?: true;
   continuation?: boolean;
+  /**
+   * Enterprise conversational freedom: when true (default), eliminates artificial brevity throttles.
+   */
+  conversationalFreedom?: boolean;
+  /**
+   * Optional default verbosity override ("unconstrained" | "high" | "medium" | "low").
+   */
+  defaultVerbosity?: "unconstrained" | "high" | "medium" | "low";
 }
 
 export const CHATGPT_BIGGER_CONTEXT_PARTS = 6 as const;

@@ -135,7 +135,15 @@ async function waitForEffortSurface(
 async function clearGhostEffortState(page: Page, control: Locator): Promise<void> {
   const expanded = await control.getAttribute("aria-expanded").catch(() => null);
   const state = await control.getAttribute("data-state").catch(() => null);
-  if (expanded === "true" || state === "open") {
+  let otherMenuOpen = false;
+  try {
+    const menus = page.locator?.('[role="menu"]')?.filter?.({ visible: true });
+    if (menus && (await menus.count().catch(() => 0)) > 0) {
+      otherMenuOpen = true;
+    }
+  } catch {}
+
+  if (expanded === "true" || state === "open" || otherMenuOpen) {
     await page.keyboard.press("Escape").catch(() => {});
   }
 }

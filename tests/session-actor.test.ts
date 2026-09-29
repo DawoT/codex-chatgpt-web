@@ -1627,3 +1627,210 @@ test("dispose of an unknown session is a no-op and concurrent disposes evict exa
     home.close();
   }
 });
+
+test("hot runtime self-healing: aborted browser turn without result auto-abandons and allows retry and new turns", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-hot-self-healing";
+
+    // 1. First attempt fails during browser navigation (e.g. net::ERR_ABORTED)
+    let callCount = 0;
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async () => {
+        callCount += 1;
+        throw new Error("page.goto: net::ERR_ABORTED");
+      }),
+    ).rejects.toThrow("net::ERR_ABORTED");
+
+    expect(callCount).toBe(1);
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
+
+    // 2. Retry of the same operation should NOT fail with "requires reconciliation before retry"
+    // Instead, it should detect ENOENT on result file, auto-abandon the unsent operation, and execute cleanly!
+    const retryResult = await manager.runBrowserTurn(
+      sessionId,
+      "turn-1",
+      "browser:trace-1",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        callCount += 1;
+        await onAccepted();
+        await onResultReady("Recovered answer on retry");
+        return "Recovered answer on retry";
+      },
+    );
+
+    expect(callCount).toBe(2);
+    expect(retryResult).toBe("Recovered answer on retry");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("completed");
+
+    // 3. Next turn should run cleanly without "requires reconciliation before another external effect"
+    const turn2Result = await manager.runBrowserTurn(
+      sessionId,
+      "turn-2",
+      "browser:trace-2",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        callCount += 1;
+        await onAccepted();
+        await onResultReady("Turn 2 answer");
+        return "Turn 2 answer";
+      },
+    );
+
+    expect(callCount).toBe(3);
+    expect(turn2Result).toBe("Turn 2 answer");
+  } finally {
+    home.close();
+  }
+});
+
+test("hot runtime self-healing: unrecovered uncertain operation does not block a new turn in the same session", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-new-turn-healing";
+
+    // 1. First turn fails before producing a result
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async () => {
+        throw new Error("net::ERR_ABORTED");
+      }),
+    ).rejects.toThrow("net::ERR_ABORTED");
+
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
+
+    // 2. Client launches turn-2 with a new operationId:
+    // Should NOT throw "Session actor requires reconciliation before another external effect"
+    const turn2Result = await manager.runBrowserTurn(
+      sessionId,
+      "turn-2",
+      "browser:trace-2",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        await onAccepted();
+        await onResultReady("Turn 2 succeeded");
+        return "Turn 2 succeeded";
+      },
+    );
+
+    expect(turn2Result).toBe("Turn 2 succeeded");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("abandoned");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-2")?.state).toBe("completed");
+  } finally {
+    home.close();
+  }
+});
+
+test("surface replacement across retries leases new surface without duplicate content error", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results, () => true);
+    const sessionId = "namespace/thread-surface-retry";
+
+    // 1. Attempt 1 leases surface-1 then aborts during navigation
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async (_onAccepted, _onTool, onLeased) => {
+        await onLeased("surface-1");
+        throw new Error("net::ERR_ABORTED");
+      }),
+    ).rejects.toThrow("net::ERR_ABORTED");
+
+    // 2. Retry leases replacement surface-2: must not fail with "local event duplicate has different contents"
+    const result = await manager.runBrowserTurn(
+      sessionId,
+      "turn-1",
+      "browser:trace-1",
+      async (onAccepted, _onTool, onLeased, onReleased, onReady) => {
+        await onLeased("surface-2");
+        await onAccepted();
+        await onReady("Retry answer on surface-2");
+        await onReleased("surface-2");
+        return "Retry answer on surface-2";
+      },
+    );
+
+    expect(result).toBe("Retry answer on surface-2");
+  } finally {
+    home.close();
+  }
+});
+
+test("tool call recording with same callId across different turns does not conflict", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-tool-call-collision";
+
+    // 1. Turn 1 starts, admits batch, prepares call_1
+    await manager.beginTurn(sessionId, "turn-1");
+    // Simulate browser send accepted
+    const actor = manager.actor(sessionId);
+    const launch1 = await actor.launch(
+      {
+        protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
+        sessionId,
+        generation: 1,
+        turnId: "turn-1",
+        operationId: "browser:turn-1",
+        producerId: "operation:browser:turn-1",
+        producerSequence: 1,
+        type: "operation_intent",
+        operationKind: "browser_send",
+        historyRevision: 0,
+      },
+      async (emit) => {
+        await emit("operation_accepted");
+        await manager.recordToolBatchConfirmed(sessionId, "turn-1", "browser:turn-1", 1);
+        const prep1 = await manager.recordToolCallPreparation(sessionId, "turn-1", "browser:turn-1", "call_1", 1);
+        expect(prep1.status).toBe("accepted");
+        const ref = results.put({
+          sessionId,
+          generation: 1,
+          turnId: "turn-1",
+          operationId: "browser:turn-1",
+          text: "Done 1",
+        });
+        await emit("operation_completed", ref);
+      },
+    );
+    await launch1.settled;
+
+    // 2. Turn 2 starts in same generation and also has tool call with same ID "call_1"
+    await manager.beginTurn(sessionId, "turn-2");
+    const launch2 = await actor.launch(
+      {
+        protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
+        sessionId,
+        generation: 1,
+        turnId: "turn-2",
+        operationId: "browser:turn-2",
+        producerId: "operation:browser:turn-2",
+        producerSequence: 1,
+        type: "operation_intent",
+        operationKind: "browser_send",
+        historyRevision: 0,
+      },
+      async (emit) => {
+        await emit("operation_accepted");
+        await manager.recordToolBatchConfirmed(sessionId, "turn-2", "browser:turn-2", 1);
+        // This must NOT throw "Session actor local event duplicate has different contents"
+        const prep2 = await manager.recordToolCallPreparation(sessionId, "turn-2", "browser:turn-2", "call_1", 1);
+        expect(prep2.status).toBe("accepted");
+        const ref = results.put({
+          sessionId,
+          generation: 1,
+          turnId: "turn-2",
+          operationId: "browser:turn-2",
+          text: "Done 2",
+        });
+        await emit("operation_completed", ref);
+      },
+    );
+    await launch2.settled;
+  } finally {
+    home.close();
+  }
+});

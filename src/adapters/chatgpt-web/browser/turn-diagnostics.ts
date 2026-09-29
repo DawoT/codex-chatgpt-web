@@ -24,6 +24,7 @@ import {
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
 } from "./suspension-clock";
+import type { ChatGptTurnEventBus } from "./turn-events";
 
 export interface ChatGptSubmissionObservationRecovery {
   page: Page;
@@ -63,6 +64,13 @@ export interface ChatGptTurnDiagnosticsHost {
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
   ): Promise<void>;
+  waitForTurnDomRevisionOrExternalProgress(
+    page: Page,
+    afterDomKey: string | undefined,
+    afterProgressRevision: number,
+    externalProgress?: ChatGptTurnProgressReader,
+    signal?: AbortSignal,
+  ): Promise<string>;
   responseDomSnapshot(responseTurn: Locator, cache?: ChatGptResponseDomCache): Promise<ChatGptResponseDomSnapshot>;
   waitForSubmissionAccepted(
     page: Page,
@@ -85,10 +93,12 @@ export class TurnDiagnostics {
     graceMs: number = CHATGPT_RESPONSE_DOM_GRACE_MS,
     completionTracker?: ChatGptCompletionTracker,
     recoverObservation?: ChatGptObservationRecovery,
+    turnEvents?: ChatGptTurnEventBus,
   ): Promise<ChatGptAssistantTurnBinding> {
     let observationPage = page;
     let observationBaseline = baseline;
     let recoveryAttempts = 0;
+    let domSignalKey: string | undefined;
     let responseDeadline = Math.min(deadline ?? Number.POSITIVE_INFINITY, Date.now() + graceMs);
     for (;;) {
       if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
@@ -111,12 +121,17 @@ export class TurnDiagnostics {
       } catch (error) {
         const latestProgress = externalProgress?.snapshot();
         if (chatGptExternalProgressIsLive(latestProgress, Date.now(), graceMs)) {
-          await this.waitForTurnDomOrExternalProgress(
+          const prevKey = domSignalKey;
+          domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
             observationPage,
+            domSignalKey,
             latestProgress?.revision ?? 0,
             externalProgress,
             signal,
           );
+          if (domSignalKey !== prevKey) {
+            turnEvents?.publish({ type: "response_mutated", source: "dom" });
+          }
           continue;
         }
         if (error instanceof ChatGptBrowserObservationTimeoutError && recoverObservation) {
@@ -128,17 +143,23 @@ export class TurnDiagnostics {
             );
           }
           const recovered = await recoverObservation(recoveryAttempts, error, observationBaseline, signal);
+          turnEvents?.publish({ type: "page_rebound", source: "host" });
           observationPage = recovered.page;
           observationBaseline = recovered.baseline;
           continue;
         }
         if (!chatGptExternalProgressIsLive(latestProgress, Date.now(), graceMs)) throw error;
-        await this.waitForTurnDomOrExternalProgress(
+        const prevKey = domSignalKey;
+        domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
           observationPage,
+          domSignalKey,
           latestProgress?.revision ?? 0,
           externalProgress,
           signal,
         );
+        if (domSignalKey !== prevKey) {
+          turnEvents?.publish({ type: "response_mutated", source: "dom" });
+        }
         continue;
       }
       recoveryAttempts = 0;
@@ -168,15 +189,18 @@ export class TurnDiagnostics {
         completionTracker.observeToolBatch(progress.lastToolBatchRevision, boundaryText);
         await externalProgress.acknowledgeToolBatch(progress.lastToolBatchRevision);
       }
-      if (identity)
+      if (identity) {
+        turnEvents?.publish({ type: "turn_inserted_detected", source: "dom" });
         return {
           identity,
           locator: observationPage.locator(chatGptAssistantTurnSelector(identity)),
           acceptedTurnIdentities: state.turnIdentities,
         };
+      }
       // The power UI can expose Stop for a long reasoning phase before mounting any assistant
       // node. Fresh generation evidence extends only DOM grace, never the caller's deadline.
       if (state.visibleStopButtonCount > 0) {
+        turnEvents?.publish({ type: "stop_button_visibility_changed", source: "dom", visible: true });
         responseDeadline = Math.min(deadline ?? Number.POSITIVE_INFINITY, Date.now() + graceMs);
       }
       // A delayed renderer wake can cross the grace while the assistant appears. Only a fresh
@@ -184,7 +208,17 @@ export class TurnDiagnostics {
       if (Date.now() >= responseDeadline && !chatGptExternalProgressSuppressesDomHealth(progress, Date.now())) {
         throw new Error("ChatGPT accepted the message but did not expose its assistant turn in the DOM");
       }
-      await this.waitForTurnDomOrExternalProgress(observationPage, progress?.revision ?? 0, externalProgress, signal);
+      const prevKey = domSignalKey;
+      domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+        observationPage,
+        domSignalKey,
+        progress?.revision ?? 0,
+        externalProgress,
+        signal,
+      );
+      if (domSignalKey !== prevKey) {
+        turnEvents?.publish({ type: "response_mutated", source: "dom" });
+      }
     }
   }
 

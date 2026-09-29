@@ -116,6 +116,7 @@ export function createChatGptWebAdapter(
     extraHighAvailable: provider.chatgptWeb?.extraHighAvailable === true,
     proAvailable: provider.chatgptWeb?.proAvailable === true,
   };
+  const conversationalFreedom = provider.chatgptWeb?.conversationalFreedom !== false;
   const manualInteraction = provider.chatgptWeb?.browserInteractionMode === "manual";
   const freshConversationPerTurn = provider.chatgptWeb?.experimentalFreshConversationPerTurn === true;
   if (
@@ -248,6 +249,7 @@ export function createChatGptWebAdapter(
         captureLunaCheckpoint,
         experimentalSkillAttachments,
         ...(experimentalMultipartParts !== undefined ? { experimentalMultipartParts } : {}),
+        conversationalFreedom,
         ...overrides,
       };
     };

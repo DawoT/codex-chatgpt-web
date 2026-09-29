@@ -6,7 +6,9 @@ import {
   chatGptAssistantTurnSelector,
 } from "../../../chatgpt-session";
 import { type ChatGptTurnProgressReader, chatGptExternalProgressIsLive } from "../turn-progress";
+import { waitForChatGptDomRevision, waitForChatGptDomSettle } from "./dom-signal";
 import {
+  CHATGPT_DOM_REVISION_ATTRIBUTES,
   type ChatGptCompletionTracker,
   type ChatGptResponseDomCache,
   type ChatGptResponseDomSnapshot,
@@ -23,38 +25,7 @@ import {
   withChatGptBrowserObservationTimeout,
 } from "./suspension-clock";
 
-export const CHATGPT_DOM_REVISION_ATTRIBUTES = [
-  "aria-hidden",
-  "aria-label",
-  "aria-busy",
-  "aria-disabled",
-  "aria-expanded",
-  "class",
-  "data-item-anchor",
-  "data-is-last-node",
-  "data-message-author-role",
-  "data-state",
-  "data-streaming-response-status",
-  "data-testid",
-  "data-turn",
-  "data-turn-id",
-  "data-turn-id-container",
-  // New ChatGPT UI (2025+) attributes replacing data-turn-id / data-turn-id-container
-  "data-turn-key",
-  "data-conversation-role",
-  "data-chatgpt-agent-turn-start",
-  "data-content-search-unit-key",
-  "data-user-message-bubble",
-  "data-markdown-text-style",
-  "data-markdown-text-tone",
-  "disabled",
-  "hidden",
-  "inert",
-  "open",
-  "role",
-  "start",
-  "style",
-] as const;
+export { CHATGPT_DOM_REVISION_ATTRIBUTES } from "./dom-trackers";
 
 export interface ChatGptSubmissionBaseline {
   userTurns: Locator;
@@ -94,6 +65,13 @@ export interface ChatGptSubmissionObserverHost {
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
   ): Promise<void>;
+  waitForTurnDomRevisionOrExternalProgress(
+    page: Page,
+    afterDomKey: string | undefined,
+    afterProgressRevision: number,
+    externalProgress?: ChatGptTurnProgressReader,
+    signal?: AbortSignal,
+  ): Promise<string>;
   waitForSubmissionAccepted(
     page: Page,
     baseline: ChatGptSubmissionBaseline,
@@ -119,35 +97,10 @@ export interface ChatGptSubmissionObserverHost {
 
 export class SubmissionObserver {
   async waitForTurnDomMutation(this: ChatGptSubmissionObserverHost, page: Page, timeoutMs = 250): Promise<void> {
-    await page.evaluate(
-      ({ timeout, attributeFilter }) =>
-        new Promise<void>((resolveMutation) => {
-          let settled = false;
-          let settleTimer: ReturnType<typeof setTimeout> | undefined;
-          const finish = () => {
-            if (settled) return;
-            settled = true;
-            observer.disconnect();
-            clearTimeout(timeoutTimer);
-            if (settleTimer) clearTimeout(settleTimer);
-            resolveMutation();
-          };
-          const observer = new MutationObserver(() => {
-            if (settleTimer) return;
-            // Let one React mutation batch finish before the next compact state read.
-            settleTimer = setTimeout(finish, 150);
-          });
-          observer.observe(document.documentElement, {
-            subtree: true,
-            childList: true,
-            characterData: true,
-            attributes: true,
-            attributeFilter,
-          });
-          const timeoutTimer = setTimeout(finish, timeout);
-        }),
-      { timeout: timeoutMs, attributeFilter: [...CHATGPT_DOM_REVISION_ATTRIBUTES] },
-    );
+    // Generalized settle barrier over the shared in-page revision signal: resolve once the DOM
+    // mutated and stayed quiet for the settle window, or return after the horizon. The signal's
+    // singleton observer replaces the throwaway per-call observer this barrier used to install.
+    await waitForChatGptDomSettle(page, { settleMs: 150, horizonMs: timeoutMs });
   }
 
   async waitForTurnDomOrExternalProgress(
@@ -177,6 +130,51 @@ export class SubmissionObserver {
     }
   }
 
+  /**
+   * Event-driven successor of `waitForTurnDomOrExternalProgress`: instead of a fixed 250 ms
+   * mutation barrier, the DOM half is the in-page revision long-poll, which resolves the moment
+   * the conversation mutates. Returns the latest DOM signal key so the caller can re-arm the next
+   * wait; when external progress wins the race the key is unchanged and the pending signal
+   * settles itself within its horizon.
+   */
+  async waitForTurnDomRevisionOrExternalProgress(
+    this: ChatGptSubmissionObserverHost,
+    page: Page,
+    afterDomKey: string | undefined,
+    afterProgressRevision: number,
+    externalProgress?: ChatGptTurnProgressReader,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (this.waitForTurnDomOrExternalProgress !== SubmissionObserver.prototype.waitForTurnDomOrExternalProgress) {
+      await this.waitForTurnDomOrExternalProgress(page, afterProgressRevision, externalProgress, signal);
+      return afterDomKey ?? "legacy-stub";
+    }
+    let domKey = afterDomKey;
+    const domSignal = waitForChatGptDomRevision(page, {
+      afterKey: afterDomKey,
+      settleMs: 150,
+      horizonMs: 250,
+      signal,
+    });
+    if (!externalProgress) return (await domSignal).key;
+    const trackedKey = domSignal.then((verdict) => {
+      domKey = verdict.key;
+    });
+    const progressWaitAbort = new AbortController();
+    const progressSignal = signal ? AbortSignal.any([progressWaitAbort.signal, signal]) : progressWaitAbort.signal;
+    try {
+      await Promise.race([
+        trackedKey,
+        externalProgress.waitForChange(afterProgressRevision, progressSignal).then(() => undefined),
+      ]);
+    } finally {
+      progressWaitAbort.abort();
+    }
+    // The signal had not delivered yet, so the next wait fast-paths on the first mutation and
+    // refreshes the key; an empty placeholder never matches a live key.
+    return domKey ?? afterDomKey ?? "";
+  }
+
   async waitForSubmissionAccepted(
     this: ChatGptSubmissionObserverHost,
     page: Page,
@@ -187,6 +185,7 @@ export class SubmissionObserver {
     completionTracker?: ChatGptCompletionTracker,
   ): Promise<ChatGptSubmissionEvidence> {
     if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
+    let domSignalKey: string | undefined;
     for (;;) {
       if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
       const progress = externalProgress?.snapshot();
@@ -245,7 +244,13 @@ export class SubmissionObserver {
         evidence = await this.currentSubmissionEvidence(page, baseline, signal);
       }
       if (evidence) return evidence;
-      await this.waitForTurnDomOrExternalProgress(page, progress?.revision ?? 0, externalProgress, signal);
+      domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+        page,
+        domSignalKey,
+        progress?.revision ?? 0,
+        externalProgress,
+        signal,
+      );
     }
   }
 

@@ -8,6 +8,8 @@ import { ChatGptWebAdapterError } from "../adapter-error";
 import { type ChatGptUsageModel, readChatGptUsageModel } from "../limits";
 import { type ChatGptWebCapabilities, type ChatGptWebModelMode, resolveChatGptWebModelMode } from "../model";
 import { assertChatGptModelFamily, selectChatGptModelFamily } from "../model-selection";
+import { waitForElementAttribute, waitForElementText, waitForSliderValue } from "./dom-events";
+import { waitForChatGptDomSettle } from "./dom-signal";
 import {
   chatGptExpiredSessionAlert,
   chatGptRateLimitDialog,
@@ -15,7 +17,7 @@ import {
   throwIfChatGptSessionFailureAlert,
 } from "./overlays";
 import { setChatGptThinkMode } from "./payloads";
-import { chatGptUnavailableProDetail, settleChatGptUi } from "./personalization";
+import { chatGptUnavailableProDetail } from "./personalization";
 
 export type SelectedChatGptWebModelMode = ChatGptWebModelMode & {
   modelFamily?: "5.6" | "6";
@@ -72,7 +74,7 @@ export class ChatGptModelControls {
     const composerForm = composer.locator("xpath=ancestor::form[1]");
     const uiEffortIndex = mode.uiEffortIndex;
     if (uiEffortIndex === null) {
-      await settleChatGptUi();
+      await waitForChatGptDomSettle(page, { horizonMs: 250 });
       await throwIfChatGptRateLimitDialog(page);
       const visibleControls = composerForm.locator(CHATGPT_EFFORT_CONTROL_SELECTOR).filter({ visible: true });
       if ((await visibleControls.count()) > 0) {
@@ -111,7 +113,7 @@ export class ChatGptModelControls {
     } finally {
       effortWaitAbort.abort();
     }
-    await settleChatGptUi();
+    await waitForChatGptDomSettle(page, { horizonMs: 250 });
     await throwIfChatGptRateLimitDialog(page);
     await captureDiagnostic?.("effort-control-ready");
     await throwIfChatGptRateLimitDialog(page);
@@ -185,25 +187,32 @@ export class ChatGptModelControls {
       await throwIfChatGptRateLimitDialog(page);
       const direction = targetValue > sliderState.value ? 1 : -1;
       const key = direction > 0 ? "ArrowRight" : "ArrowLeft";
-      const previousValue = sliderState.value;
-      await sliderControl.press(key);
-      const changeDeadline = Date.now() + 5_000;
-      do {
+      const expectedValue = sliderState.value + direction;
+      let stepSucceeded = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await (sliderControl as unknown as { focus?: () => Promise<void> }).focus?.().catch(() => {});
+        await sliderControl
+          .press(key)
+          .catch(() => effortSlider.press(key))
+          .catch(() => page.keyboard.press(key));
+        await waitForSliderValue(effortSlider, expectedValue, 1_000).catch(() => {});
         sliderState = await readAvailableEffort(sliderContainer, activation.menu);
         if (sliderState.min !== initialMin) {
           throw chatGptModelControlUnavailableError("ChatGPT changed its effort range origin during selection");
         }
-        if (sliderState.value !== previousValue) break;
-        await new Promise((resolveSleep) => setTimeout(resolveSleep, 50));
-      } while (Date.now() < changeDeadline);
-      if (sliderState.value !== previousValue + direction) {
+        if (sliderState.value === expectedValue) {
+          stepSucceeded = true;
+          break;
+        }
+      }
+      if (!stepSucceeded) {
         throw chatGptModelControlUnavailableError(
           `ChatGPT effort slider did not move exactly one step with ${key}` +
-            ` (before=${previousValue}; after=${sliderState.value})`,
+            ` (before=${expectedValue - direction}; after=${sliderState.value})`,
         );
       }
     }
-    await settleChatGptUi();
+    await waitForChatGptDomSettle(page, { horizonMs: 250 });
     const selectedState = await readAvailableEffort(sliderContainer, activation.menu);
     if (selectedState.min !== initialMin || selectedState.value !== targetValue) {
       throw chatGptModelControlUnavailableAdapterError(
@@ -212,7 +221,8 @@ export class ChatGptModelControls {
     }
     await captureDiagnostic?.("effort-selected");
     await page.keyboard.press("Escape");
-    await settleChatGptUi();
+    await waitForElementAttribute(currentEffort, "aria-expanded", "false", 2_000).catch(() => {});
+    await waitForChatGptDomSettle(page, { horizonMs: 250 });
     // While open, the trigger reads "Thinking effort", not the selected value. Read its
     // closed label and reopen the menu once to prove the selection survived the commit.
     const selectedMode: SelectedChatGptWebModelMode = {
@@ -238,7 +248,8 @@ export class ChatGptModelControls {
       );
     }
     await page.keyboard.press("Escape");
-    await settleChatGptUi();
+    await waitForElementAttribute(currentEffort, "aria-expanded", "false", 2_000).catch(() => {});
+    await waitForChatGptDomSettle(page, { horizonMs: 250 });
     await this.assertSelectedEffort(page, selectedMode, false);
     await captureDiagnostic?.("effort-selection-confirmed");
     return selectedMode;
@@ -262,6 +273,10 @@ export class ChatGptModelControls {
       );
     }
     const control = controls.first();
+    await waitForElementAttribute(control, "aria-expanded", "false", 2_000).catch(() => {});
+    if (mode.selection.label) {
+      await waitForElementText(control, mode.selection.label, 2_000).catch(() => {});
+    }
     if (
       (await control.innerText()).trim() !== mode.selection.label ||
       (await control.getAttribute("aria-expanded")) !== "false" ||
@@ -277,6 +292,7 @@ export class ChatGptModelControls {
         await assertChatGptModelFamily(menu, mode.modelFamily, mode.effort, mode.uiEffortIndex);
       } finally {
         await page.keyboard.press("Escape");
+        await waitForElementAttribute(control, "aria-expanded", "false", 2_000).catch(() => {});
       }
       if (
         page.url() !== mode.selection.url ||

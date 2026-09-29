@@ -1,11 +1,17 @@
 import type { Locator, Page } from "playwright-core";
 import { ChatGptWebAdapterError } from "../adapter-error";
+import { waitForChatGptDomSettle } from "./dom-signal";
 import { withBrowserTurnAbort } from "./suspension-clock";
 
 export const CHATGPT_UI_SETTLE_MS = 250;
 
-export const settleChatGptUi = (): Promise<void> =>
-  new Promise((resolveSettle) => setTimeout(resolveSettle, CHATGPT_UI_SETTLE_MS));
+export const settleChatGptUi = (page?: Page, options?: { signal?: AbortSignal; horizonMs?: number }): Promise<void> =>
+  page && typeof page.evaluate === "function"
+    ? waitForChatGptDomSettle(page, {
+        signal: options?.signal,
+        horizonMs: options?.horizonMs ?? CHATGPT_UI_SETTLE_MS,
+      }).then(() => {})
+    : new Promise((resolveSettle) => setTimeout(resolveSettle, CHATGPT_UI_SETTLE_MS));
 
 export function chatGptConnectorUnavailableError(message: string): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(message, {
@@ -342,7 +348,11 @@ async function toggleChatGptPersonalizationChoice(
       timeout: remainingChatGptPersonalizationMs(deadline, signal),
       signal,
     });
-    await runChatGptPersonalizationStep(settleChatGptUi, deadline, signal);
+    await runChatGptPersonalizationStep(
+      () => settleChatGptUi(page, { signal, horizonMs: CHATGPT_UI_SETTLE_MS }),
+      deadline,
+      signal,
+    );
     return receipt;
   } catch (error) {
     try {
@@ -385,7 +395,7 @@ async function ensureChatGptPersonalizedConnectorAccessWithinDeadline(
     .filter({ visible: true });
   const unpersonalized = page
     .getByRole("button", {
-      name: /^(?:Unpersonalized|No personalizado|Despersonalizado|非个性化)$/i,
+      name: /^(?:Unpersonalized|No personalizado|Sin personalizar|Despersonalizado|非个性化)$/i,
       exact: true,
       includeHidden: true,
     })
@@ -393,7 +403,11 @@ async function ensureChatGptPersonalizedConnectorAccessWithinDeadline(
   let personalizedCount = await runChatGptPersonalizationStep(() => personalized.count(), deadline, abortSignal);
   let unpersonalizedCount = await runChatGptPersonalizationStep(() => unpersonalized.count(), deadline, abortSignal);
   if (personalizedCount === 0 && unpersonalizedCount === 0) {
-    await runChatGptPersonalizationStep(settleChatGptUi, deadline, abortSignal);
+    await runChatGptPersonalizationStep(
+      () => settleChatGptUi(page, { signal: abortSignal, horizonMs: CHATGPT_UI_SETTLE_MS }),
+      deadline,
+      abortSignal,
+    );
     personalizedCount = await runChatGptPersonalizationStep(() => personalized.count(), deadline, abortSignal);
     unpersonalizedCount = await runChatGptPersonalizationStep(() => unpersonalized.count(), deadline, abortSignal);
     if (personalizedCount === 0 && unpersonalizedCount === 0) {

@@ -4,6 +4,7 @@ import { result } from "../fast-path-handlers";
 import { callTurnBroker } from "../turn-broker";
 import { registerHostCommandTools } from "./host-command-tools";
 import { registerHostRegistryTools } from "./host-registry-tools";
+import { registerImageTools } from "./image-tools";
 import { registerLegacyFilesystemTools } from "./legacy-filesystem-tools";
 import { requestScopeSummary, turnTokenSchema } from "./tool-visibility";
 import type { TurnCoordinator } from "./turn-coordinator";
@@ -48,6 +49,7 @@ export function registerNativeAndSafeTools(server: McpServer, coordinator: TurnC
 
     registerLegacyFilesystemTools(server, coordinator);
     registerHostRegistryTools(server, coordinator);
+    registerImageTools(server);
   }
 
   if (contract === "safe") {
