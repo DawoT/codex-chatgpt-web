@@ -5,14 +5,13 @@ export const CHATGPT_WEB_AGENT_WAIT_POLL_MS = 30_000;
 
 export const AGENT_WAIT_TRANSPORT_RULE = `ChatGPT Web transport rule: wait for exactly ${CHATGPT_WEB_AGENT_WAIT_POLL_MS / 1_000} seconds per call, matching the Codex default, then release the MCP channel so spawned Web agents can use their own tools. A wait timeout is not task completion; check agent progress and wait again if needed. Keep the native tool's declared arguments.`;
 
-// The OpenAI tunnel currently owns a two-minute command-response deadline. The local MCP server
-// must settle first so an abandoned native tool call is returned as an MCP error instead of
-// letting the tunnel tear down and poison its long-lived stdio transport.
+// Settle the local MCP response within the 45-second transport budget. A deadline does not
+// prove that the underlying command stopped; the caller must reconcile its operation.
 export function resolveMcpInvocationTimeout(value: string | undefined): number {
   const configured = Number(value);
   return Number.isFinite(configured) && configured >= 1
-    ? Math.min(90_000, Math.floor(configured))
-    : 90_000;
+    ? Math.min(45_000, Math.floor(configured))
+    : 45_000;
 }
 
 export const CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS =

@@ -19,19 +19,19 @@ const dummyEnvironment: ChatGptTurnEnvironment = {
 
 describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming Resilience", () => {
   describe("Dynamic Invocation Timeout for Long Commands", () => {
-    test("returns default 90s timeout when requested timeout is omitted and expiresAt is undefined", () => {
+    test("returns default 45s timeout when requested timeout is omitted and expiresAt is undefined", () => {
       const timeout = chatGptMcpInvocationTimeout(dummyEnvironment);
       expect(timeout).toBe(CHATGPT_WEB_MCP_INVOCATION_TIMEOUT_MS);
-      expect(timeout).toBe(90_000);
+      expect(timeout).toBe(45_000);
     });
 
-    test("clamps to expiresAt if remaining time is less than default 90s", () => {
+    test("clamps to expiresAt if remaining time is less than default 45s", () => {
       const now = 1_000_000;
       const timeout = chatGptMcpInvocationTimeout(
-        { ...dummyEnvironment, expiresAt: now + 45_000 },
+        { ...dummyEnvironment, expiresAt: now + 20_000 },
         now,
       );
-      expect(timeout).toBe(45_000);
+      expect(timeout).toBe(20_000);
     });
 
     test("caps long requested waits below the transport deadline", () => {
@@ -41,7 +41,7 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
         Date.now(),
         requestedTimeoutMs,
       );
-      expect(timeout).toBe(90_000);
+      expect(timeout).toBe(45_000);
     });
 
     test("turn TTL cannot expand the transport deadline", () => {
@@ -52,7 +52,7 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
         now,
         requestedTimeoutMs,
       );
-      expect(timeout).toBe(90_000);
+      expect(timeout).toBe(45_000);
     });
 
     test("transport cap applies even when the turn has two minutes remaining", () => {
@@ -63,7 +63,7 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
         now,
         requestedTimeoutMs,
       );
-      expect(timeout).toBe(90_000);
+      expect(timeout).toBe(45_000);
     });
 
     test("a short native session yield retires a stalled MCP call before the transport deadline", () => {
@@ -180,7 +180,7 @@ describe("Sprint C: Keep-Alive SSE Heartbeats & Long-Running Command Streaming R
 test("MCP timeout configuration remains finite and within the transport budget", async () => {
   const { resolveMcpInvocationTimeout } = await import("../src/adapters/chatgpt-web/mcp/instructions");
   for (const value of [undefined, "", "NaN", "Infinity", "-1", "0", "300000"]) {
-    expect(resolveMcpInvocationTimeout(value)).toBe(90_000);
+    expect(resolveMcpInvocationTimeout(value)).toBe(45_000);
   }
   expect(resolveMcpInvocationTimeout("5000.9")).toBe(5000);
 });

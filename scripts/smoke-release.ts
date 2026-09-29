@@ -109,7 +109,7 @@ try {
     || loadedIdentity.buildCommit !== manifest.buildCommit
     || loadedIdentity.artifactSha256 !== expectedCliHash
     || loadedIdentity.pid !== child.pid
-    || loadedIdentity.protocolVersion !== 1
+    || loadedIdentity.protocolVersion !== 2
     || typeof loadedIdentity.generation !== "string") {
     throw new Error(`relocated daemon loaded identity does not match its runtime manifest: ${JSON.stringify(loadedIdentity)}`);
   }
