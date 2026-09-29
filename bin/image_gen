@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -e
+
+# Resolve the absolute directory even across symlinks
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+DIR="$(cd -P "$(dirname "$SOURCE")/.." >/dev/null 2>&1 && pwd)"
+
+if command -v bun >/dev/null 2>&1; then
+  exec bun run "$DIR/src/cli.ts" image-gen "$@"
+elif command -v node >/dev/null 2>&1; then
+  exec node "$DIR/src/cli.ts" image-gen "$@"
+else
+  echo "Error: neither bun nor node found in PATH" >&2
+  exit 1
+fi

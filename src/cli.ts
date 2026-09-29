@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { stdin, stdout } from "node:process";
 import { captureSystemBrowserLoginToFile, checkBrowserEngine, loginToChatGpt } from "./browser-login";
 import { defaultConfig, getConfigDir, getConfigPath, loadConfig, loadConfigForSetup } from "./config";
@@ -31,6 +31,8 @@ import { installRuntimeKeyBytes, managedRuntimeKeyPath, stopTunnel, tunnelStatus
 import { getTunnelServiceStatus, restartTunnelService, startTunnelService, stopTunnelService, uninstallTunnelService } from "./tunnel-service";
 import { VERSION } from "./version";
 import { runDevCommand } from "./dev-chat/cli";
+import { generateImage } from "./image-generation";
+import { installImageGenCliWrappers, uninstallImageGenCliWrappers } from "./image-gen-install";
 
 const HELP = `codex-chatgpt-web ${VERSION}
 
@@ -51,6 +53,7 @@ Usage:
   codex-chatgpt-web dev list
   codex-chatgpt-web serve
   codex-chatgpt-web mcp [--broker-socket PATH]
+  codex-chatgpt-web image-gen [generate] <PROMPT> [options]
   codex-chatgpt-web admission <status [--json]|recover ID --ack-descendants-settled [--ack-owner-offline]>
   codex-chatgpt-web service <status|install|start|restart|stop|cancel-turns>
   codex-chatgpt-web tunnel <status|start|restart|stop|key-import>
@@ -370,6 +373,7 @@ async function setupCommand(args: string[]): Promise<void> {
   }
 
   const result = await setup(options);
+  installImageGenCliWrappers();
   stdout.write(`Setup complete: ${result.mode}\n`);
   stdout.write(`Config: ${result.configPath}\n`);
   if (result.connectorSetupRequired) {
@@ -401,9 +405,17 @@ async function routeCommand(args: string[]): Promise<void> {
         };
       })()
     : action === "connect"
-      ? activateCodexIntegration()
+      ? (() => {
+          const res = activateCodexIntegration();
+          installImageGenCliWrappers();
+          return res;
+        })()
       : action === "disconnect"
-        ? deactivateCodexIntegration()
+        ? (() => {
+            const res = deactivateCodexIntegration();
+            uninstallImageGenCliWrappers();
+            return res;
+          })()
         : undefined;
   if (!result) throw new Error(`Unknown route action: ${action}`);
   stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -557,15 +569,64 @@ async function uninstallCommand(args: string[]): Promise<void> {
   }
   if (config && process.platform === "darwin" && !launcherRuntimeStopped) await uninstallService(config);
   uninstallCodexIntegration();
+  uninstallImageGenCliWrappers();
   if (!keepData) rmSync(getConfigDir(), { recursive: true, force: true });
   stdout.write(keepData ? "Uninstalled; private application data was preserved.\n" : "Uninstalled and removed private application data.\n");
+}
+
+async function runImageGenCommand(args: string[]): Promise<void> {
+  if (takeFlag(args, "--help") || takeFlag(args, "-h")) {
+    stdout.write(`Usage:
+  codex-chatgpt-web image-gen generate <PROMPT> [options]
+
+Options:
+  --out PATH            Output file path (default: $CODEX_HOME/generated_images/...)
+  --size SIZE           Image dimensions (1024x1024, 1536x1024, 1024x1536, auto)
+  --quality QUALITY     Image quality (low, medium, high, auto)
+  --base-url URL        Bridge base URL (default: http://127.0.0.1:17841)
+  --token TOKEN         Bearer token (default: reads from ~/.codex/auth.json)
+`);
+    return;
+  }
+
+  const promptOption = takeOption(args, "--prompt");
+  let outPath = takeOption(args, "--out");
+  const outDir = takeOption(args, "--out-dir");
+  const size = takeOption(args, "--size");
+  const quality = takeOption(args, "--quality");
+  const baseUrl = takeOption(args, "--base-url");
+  const token = takeOption(args, "--token");
+
+  if (args[0] === "generate" || args[0] === "edit") {
+    args.shift();
+  }
+
+  const prompt = (promptOption || args.join(" ")).trim();
+  if (!prompt) {
+    throw new Error("Prompt is required and cannot be empty");
+  }
+
+  if (outDir && !outPath) {
+    outPath = join(outDir, `image_${Date.now()}.png`);
+  }
+
+  const result = await generateImage({
+    prompt,
+    outPath,
+    size,
+    quality,
+    baseUrl,
+    token,
+  });
+
+  stdout.write(`${result.path}\n`);
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const home = takeOption(args, "--home");
   if (home) process.env.CODEX_CHATGPT_WEB_HOME = home;
-  if (takeFlag(args, "--help") || takeFlag(args, "-h")) {
+  if (args.length === 0 || (args.length === 1 && (args[0] === "--help" || args[0] === "-h"))) {
     stdout.write(HELP);
     return;
   }
@@ -608,6 +669,7 @@ async function main(): Promise<void> {
     await new Promise<void>(() => {});
   } else if (command === "dev") await runDevCommand(args);
   else if (command === "mcp") await runChatGptMcpMain(args);
+  else if (command === "image-gen") await runImageGenCommand(args);
   else if (command === "admission") {
     const action = args.shift();
     const admission = new SharedCommandAdmission(loadConfig().backgroundTasks?.maxConcurrent ?? 8);

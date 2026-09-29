@@ -12,6 +12,7 @@ export const BRIDGE_TOOL_NAMES = new Set([
   "codex_write_stdin",
   "codex_apply_patch",
   "codex_view_image",
+  "codex_image_generate",
   "codex_read_file",
   "codex_write_file",
   "codex_patch_file",

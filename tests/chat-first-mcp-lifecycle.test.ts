@@ -181,6 +181,7 @@ describe("Chat-First MCP lifecycle", () => {
       expect(listed.tools.map(tool => tool.name).sort()).toEqual([
         "codex_exec",
         "codex_grep",
+        "codex_image_generate",
         "codex_list_dir",
         "codex_patch_file",
         "codex_poll_task",
@@ -202,7 +203,7 @@ describe("Chat-First MCP lifecycle", () => {
         contract: "chat-first",
         sandboxMode: "dangerFullAccess",
       });
-      expect((inventory.structuredContent as { tools: unknown[] }).tools).toHaveLength(9);
+      expect((inventory.structuredContent as { tools: unknown[] }).tools).toHaveLength(10);
 
       const read = await client.callTool({
         name: "codex_read_file",

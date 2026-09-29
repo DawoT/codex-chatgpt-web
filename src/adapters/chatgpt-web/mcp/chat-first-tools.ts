@@ -1,4 +1,5 @@
 import { registerChatFirstTaskTools } from "./chat-first-task-tools";
+import { registerImageTools } from "./image-tools";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { loadConfig } from "../../../config";
@@ -148,6 +149,7 @@ export function registerChatFirstTools(
           { name: "codex_exec", description: "Run a shell command (tests, builds, git) in the workspace. Supports background=true for async execution." },
           { name: "codex_poll_task", description: "Check status, retrieve output logs, wait, or kill a background task launched with codex_exec(background=true)." },
           { name: "codex_wait_tasks", description: "Wait for background tasks to complete and return compact single-line summaries." },
+          { name: "codex_image_generate", description: "Generate an image from a text prompt and save it directly to disk (PNG)." },
         ] : []),
       ],
     }),
@@ -219,6 +221,10 @@ export function registerChatFirstTools(
       scopeFor,
       toolResult: chatFirstToolResult,
       audit: auditMutationOutcome,
+    });
+
+    registerImageTools(server, {
+      scopeFor,
     });
   }
 }
