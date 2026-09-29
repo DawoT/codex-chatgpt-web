@@ -1398,3 +1398,21 @@ test("concurrent native cancellations revoke one generation without failing a du
     home.close();
   }
 });
+
+test("global cancellation selects a pending checkpoint but ignores a rejected one", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-checkpoint-cancel";
+    const turnId = "checkpoint-turn";
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_prepared");
+    expect(home.journal.currentTurnOwners()).toEqual([{ sessionId, generation: 1, turnId }]);
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_rejected");
+    expect(home.journal.currentTurnOwners()).toEqual([]);
+  } finally {
+    home.close();
+  }
+});

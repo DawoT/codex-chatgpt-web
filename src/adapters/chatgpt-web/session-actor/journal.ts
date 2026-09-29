@@ -225,10 +225,26 @@ export class SessionActorJournal {
       generation: number;
       turnId: string;
     }, []>(`
-      SELECT session_id AS sessionId, generation, turn_id AS turnId
-      FROM session_actor
-      WHERE turn_id IS NOT NULL
-      ORDER BY session_id
+      SELECT actor.session_id AS sessionId, actor.generation,
+        actor.turn_id AS turnId
+      FROM session_actor AS actor
+      WHERE actor.turn_id IS NOT NULL AND (
+        EXISTS (
+          SELECT 1 FROM session_operation AS operation
+          WHERE operation.session_id = actor.session_id
+            AND operation.generation = actor.generation
+            AND operation.turn_id = actor.turn_id
+            AND operation.state IN ('intent', 'accepted')
+        )
+        OR EXISTS (
+          SELECT 1 FROM session_compaction AS checkpoint
+          WHERE checkpoint.session_id = actor.session_id
+            AND checkpoint.generation = actor.generation
+            AND checkpoint.turn_id = actor.turn_id
+            AND checkpoint.state IN ('prepared', 'received', 'validated', 'persisted')
+        )
+      )
+      ORDER BY actor.session_id
     `).all();
   }
 

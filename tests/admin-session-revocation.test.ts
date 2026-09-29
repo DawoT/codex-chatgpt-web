@@ -179,3 +179,61 @@ test("admin cancel-turns revokes every active actor generation", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("admin cancel-turns preserves a completed idle actor while revoking pending work", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-admin-idle-cancel-"));
+  const journal = new SessionActorJournal(join(root, "actors", "events.sqlite"));
+  try {
+    const manager = new SessionActorManager(journal, new SessionResultStore(join(root, "actors", "results")));
+    await manager.runBrowserTurn(
+      "namespace/idle",
+      "idle-turn",
+      "browser:idle",
+      async onAccepted => {
+        await onAccepted();
+        return "completed";
+      },
+    );
+    await manager.beginTurn("namespace/active", "active-turn");
+    await manager.actor("namespace/active").dispatch({
+      protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
+      sessionId: "namespace/active",
+      generation: 1,
+      turnId: "active-turn",
+      operationId: "browser:active",
+      producerId: "test:active",
+      producerSequence: 1,
+      type: "operation_intent",
+      operationKind: "browser_send",
+      historyRevision: 0,
+    });
+    const config = defaultConfig("full");
+    const context = {
+      config,
+      startedAt: Date.now(),
+      isDraining: () => false,
+      setDraining: () => {},
+      activity: () => ({}),
+      modelCatalogStats: {
+        successfulModelCatalogRequests: 0,
+        lastSuccessfulModelCatalogRequestAt: null,
+        modelCatalogRequests: 0,
+        lastModelCatalogResult: null,
+      },
+      httpTurns: new HttpTurnCounter(),
+      sessionActorManager: manager,
+      shutdown: () => {},
+    } satisfies AdminRouteContext;
+    const request = new Request("http://127.0.0.1/admin/cancel-turns", {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.controlToken}` },
+    });
+    const response = await handleAdminRoute(request, new URL(request.url), context);
+    expect(response?.status).toBe(200);
+    expect(journal.snapshot("namespace/idle")?.generation).toBe(1);
+    expect(journal.snapshot("namespace/active")?.generation).toBe(2);
+  } finally {
+    journal.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
