@@ -192,7 +192,7 @@ export function createChatGptWebAdapter(
         sessionId,
         identity.turnId,
         `browser:${traceId}`,
-        (onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased) => worker.run({
+        (onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased, onResultReady) => worker.run({
           ...turn,
           onSubmitted: async () => {
             await onAccepted();
@@ -203,6 +203,7 @@ export function createChatGptWebAdapter(
           },
           onSurfaceLeased,
           onSurfaceReleased,
+          onResultReady,
         }),
       );
     };

@@ -496,6 +496,8 @@ export interface BrowserTurn {
   onSurfaceLeased?: (surfaceId: string) => void | Promise<void>;
   /** Confirm a released launcher surface after the host ends the turn. */
   onSurfaceReleased?: (surfaceId: string) => void | Promise<void>;
+  /** Persist the completed browser answer before releasing its surface. */
+  onResultReady?: (text: string) => void | Promise<void>;
   /** One inert Bigger Context stage completed its exact acknowledgement boundary. */
   onMultipartStageAcknowledged?: (stageIndex: number) => void | Promise<void>;
   /** Visible ChatGPT reasoning-summary step titles only; never hidden chain-of-thought. */
@@ -3117,7 +3119,9 @@ export class ChatGptBrowserWorker {
 
     if (this.config.browserHost !== "launcher") {
       try {
-        return await this.runBrowserTurn(turn, undefined, undefined, false, false, releaseInteractive, acquireInteractive);
+        const answer = await this.runBrowserTurn(turn, undefined, undefined, false, false, releaseInteractive, acquireInteractive);
+        await turn.onResultReady?.(answer);
+        return answer;
       } finally {
         releaseInteractive();
       }
@@ -3183,7 +3187,9 @@ export class ChatGptBrowserWorker {
       await turn.onPreparedSelected?.(reused);
       heartbeatTimer = setInterval(sendHeartbeat, LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS);
       heartbeatTimer.unref?.();
-      return await this.runBrowserTurn(turn, surfaceId, undefined, reused, lease.trackUsage === true, releaseInteractive, acquireInteractive);
+      const answer = await this.runBrowserTurn(turn, surfaceId, undefined, reused, lease.trackUsage === true, releaseInteractive, acquireInteractive);
+      await turn.onResultReady?.(answer);
+      return answer;
     } catch (error) {
       originalError = error;
       terminal = error instanceof ChatGptCompactionHandoffAccepted

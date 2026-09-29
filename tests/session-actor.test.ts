@@ -671,3 +671,36 @@ test("browser work claims its leased surface before Send and releases it after t
     home.close();
   }
 });
+
+test("browser answer is durable before the launcher releases its surface", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-A";
+    const answer = await manager.runBrowserTurn(
+      sessionId,
+      "native-turn-1",
+      "browser-1",
+      async (onAccepted, _onTools, onSurfaceLeased, onSurfaceReleased, onResultReady) => {
+        await onSurfaceLeased("surface-A");
+        await onAccepted();
+        await onResultReady("Persisted before release");
+        const ref = results.referenceFor({
+          sessionId,
+          generation: 1,
+          turnId: "native-turn-1",
+          operationId: "browser-1",
+        });
+        expect(results.get(ref).text).toBe("Persisted before release");
+        expect(home.journal.operation(sessionId, 1, "browser-1")?.state).toBe("accepted");
+        await onSurfaceReleased("surface-A");
+        return "Persisted before release";
+      },
+    );
+    expect(answer).toBe("Persisted before release");
+    expect(home.journal.operation(sessionId, 1, "browser-1")?.state).toBe("completed");
+  } finally {
+    home.close();
+  }
+});

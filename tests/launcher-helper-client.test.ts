@@ -46,6 +46,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
           }
           await turn.externalProgress.acknowledgeToolBatch(snapshot.lastToolBatchRevision);
           turn.onTextDelta("observed");
+          await turn.onResultReady?.("observed");
           await turn.onSurfaceReleased?.("a".repeat(32));
           return "observed";
         } finally {
@@ -218,6 +219,9 @@ test("daemon streams browser lifecycle through the real helper process", async (
       onSurfaceLeased: async surfaceId => {
         surfaceEvents.push(`claimed:${surfaceId}`);
       },
+      onResultReady: async text => {
+        surfaceEvents.push(`persisted:${text}`);
+      },
       onSurfaceReleased: async surfaceId => {
         surfaceEvents.push(`released:${surfaceId}`);
       },
@@ -247,6 +251,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
     expect(await third).toBe("observed");
     expect(surfaceEvents).toEqual([
       `claimed:${"a".repeat(32)}`,
+      "persisted:observed",
       `released:${"a".repeat(32)}`,
     ]);
     await expect(progress.waitForToolBatchObservation(revision)).resolves.toBeUndefined();

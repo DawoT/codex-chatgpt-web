@@ -35,6 +35,7 @@ export class SessionActorManager {
       onToolBatchObserved: (requestId: number, revision: number) => Promise<SessionAcknowledgement>,
       onSurfaceLeased: (surfaceId: string) => Promise<void>,
       onSurfaceReleased: (surfaceId: string) => Promise<void>,
+      onResultReady: (text: string) => Promise<void>,
     ) => Promise<string>,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
@@ -145,7 +146,23 @@ export class SessionActorManager {
           throw new Error(`Session actor surface release rejected: ${acknowledgement.status}`);
         }
       };
-      const text = await run(onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased);
+      const onResultReady = async (text: string): Promise<void> => {
+        await onAccepted();
+        this.results!.put({
+          sessionId,
+          generation,
+          turnId: nativeTurnId,
+          operationId,
+          text,
+        });
+      };
+      const text = await run(
+        onAccepted,
+        onToolBatchObserved,
+        onSurfaceLeased,
+        onSurfaceReleased,
+        onResultReady,
+      );
       await onAccepted();
       const resultRef = this.results!.put({
         sessionId,

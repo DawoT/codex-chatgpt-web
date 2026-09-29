@@ -34,6 +34,7 @@ type HelperMessage =
   | { type: "event"; id: string; event: "heartbeat" | "send_activated" | "submitted" | "reasoning" | "commentary" | "text"; text?: string; continuation?: boolean }
   | { type: "event"; id: string; event: "tool_batch_observed"; requestId: number; revision: number }
   | { type: "event"; id: string; event: "surface_ownership"; phase: "leased" | "released"; surfaceId: string }
+  | { type: "event"; id: string; event: "result_ready"; text: string; textSha256: string }
   | { type: "event"; id: string; event: "multipart_stage_acknowledged"; stageIndex: number }
   | { type: "event"; id: string; event: "completion_fence_begin"; requestId: number }
   | { type: "event"; id: string; event: "completion_fence_commit"; requestId: number; revision: number }
@@ -123,6 +124,20 @@ function parseHelperMessage(line: string): HelperMessage {
         event,
         phase: message.phase,
         surfaceId: message.surfaceId,
+      };
+    }
+    if (event === "result_ready") {
+      if (typeof message.text !== "string"
+        || typeof message.textSha256 !== "string"
+        || createHash("sha256").update(message.text).digest("hex") !== message.textSha256) {
+        throw new Error("Launcher browser helper result persistence event is invalid");
+      }
+      return {
+        type: "event",
+        id: message.id,
+        event,
+        text: message.text,
+        textSha256: message.textSha256,
       };
     }
     if (event === "completion_fence_begin") {
@@ -281,6 +296,9 @@ export class LauncherBrowserHelperClient {
       && !this.helperFeatures.has("surface-ownership-ack-v1")) {
       throw new Error("Launcher browser helper lacks surface ownership confirmation; update or restart the launcher");
     }
+    if (turn.onResultReady && !this.helperFeatures.has("result-persistence-ack-v1")) {
+      throw new Error("Launcher browser helper lacks result persistence confirmation; update or restart the launcher");
+    }
     if (turn.onMultipartStageAcknowledged && !this.helperFeatures.has("multipart-stage-ack")) {
       throw new Error(
         "Launcher browser helper does not support multipart acknowledgement forwarding; update or restart the launcher",
@@ -371,6 +389,7 @@ export class LauncherBrowserHelperClient {
             ...(turn.captureLunaCheckpoint ? { captureLunaCheckpoint: true } : {}),
             ...(turn.externalProgress ? { externalProgress: true } : {}),
             ...(turn.onSurfaceLeased && turn.onSurfaceReleased ? { surfaceOwnership: true } : {}),
+            ...(turn.onResultReady ? { resultPersistence: true } : {}),
           },
         })
           // Only mirror once the run frame is on the wire, so the helper never sees progress for a
@@ -557,6 +576,36 @@ export class LauncherBrowserHelperClient {
               id: message.id,
               phase: message.phase,
               surfaceId: message.surfaceId,
+              accepted: true,
+            });
+          },
+          error => this.abortWithLocalFailure(
+            message.id,
+            error instanceof Error ? error : new Error(String(error)),
+            pending,
+          ),
+        ).catch(error => this.abortWithLocalFailure(
+          message.id,
+          error instanceof Error ? error : new Error(String(error)),
+          pending,
+        ));
+      }
+      else if (message.event === "result_ready") {
+        if (!pending.turn.onResultReady) {
+          this.abortWithLocalFailure(
+            message.id,
+            new Error("Launcher browser helper requested unowned result persistence"),
+            pending,
+          );
+          return;
+        }
+        void Promise.resolve().then(() => pending.turn.onResultReady!(message.text)).then(
+          () => {
+            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+            return this.send({
+              type: "result_ready_ack",
+              id: message.id,
+              textSha256: message.textSha256,
               accepted: true,
             });
           },

@@ -23,6 +23,7 @@ import {
 } from "../src/launcher-browser-host";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { LAUNCHER_TURN_START_TIMEOUT_MS } from "../src/launcher-browser/types";
+import { ChatGptBrowserWorker, type BrowserTurn } from "../src/adapters/chatgpt-web/browser-worker";
 
 const roots: string[] = [];
 
@@ -86,6 +87,63 @@ function descriptorFile(
   })}\n`, { mode: 0o600 });
   return path;
 }
+
+test("launcher worker persists its answer before ending and releasing the leased surface", async () => {
+  const events: string[] = [];
+  const surfaceId = "a".repeat(32);
+  const control = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const phase = new URL(request.url).pathname.split("/").at(-1);
+      events.push(phase ?? "unknown");
+      if (phase === "start") {
+        return Response.json({ surfaceId, reused: false, connectorBound: false });
+      }
+      return Response.json({ cancelledByUser: false });
+    },
+  });
+  try {
+    const descriptorPath = descriptorFile(`http://127.0.0.1:${control.port}`);
+    const worker = ChatGptBrowserWorker.forProvider({
+      adapter: "chatgpt-web",
+      baseUrl: `browser://surface-order-${Date.now()}`,
+      chatgptWeb: {
+        browserHost: "launcher",
+        browserHostDescriptorPath: descriptorPath,
+        storageStatePath: join(tmpdir(), "unused-surface-state.json"),
+      },
+    }) as unknown as {
+      runExclusive(turn: BrowserTurn): Promise<string>;
+      runBrowserTurn(): Promise<string>;
+    };
+    worker.runBrowserTurn = async () => {
+      events.push("browser");
+      return "Browser answer";
+    };
+    const answer = await worker.runExclusive({
+      traceId: "abcdef123456",
+      modelId: "gpt-5.6-sol",
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => ({ text: "unused", images: [], release() {} }),
+      onTextDelta() {},
+      onSurfaceLeased: async id => { events.push(`claim:${id}`); },
+      onResultReady: async text => { events.push(`persist:${text}`); },
+      onSurfaceReleased: async id => { events.push(`release:${id}`); },
+    });
+    expect(answer).toBe("Browser answer");
+    expect(events).toEqual([
+      "start",
+      `claim:${surfaceId}`,
+      "browser",
+      "persist:Browser answer",
+      "end",
+      `release:${surfaceId}`,
+    ]);
+  } finally {
+    await control.stop(true);
+  }
+});
 
 test("launcher descriptor is owner-only, loopback-only, and process-bound", () => {
   const path = descriptorFile();

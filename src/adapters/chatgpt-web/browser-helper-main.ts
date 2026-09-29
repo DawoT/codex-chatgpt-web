@@ -1,6 +1,7 @@
 import { validateSkillFiles } from "./skill-attachments";
 import { runtimeIdentity } from "../../runtime-identity";
 import { createInterface } from "node:readline";
+import { createHash } from "node:crypto";
 import { stdin, stderr, stdout } from "node:process";
 import type { CodexProviderConfig } from "../../types";
 import { ChatGptBrowserWorker, closeChatGptBrowserWorkers, type BrowserTurn } from "./browser-worker";
@@ -39,6 +40,7 @@ interface RunMessage {
     captureLunaCheckpoint?: boolean;
     externalProgress?: boolean;
     surfaceOwnership?: boolean;
+    resultPersistence?: boolean;
   };
 }
 
@@ -76,6 +78,7 @@ type InputMessage = RunMessage
   | { type: "prepared_selected_ack"; id: string; prepared: CompiledChatGptWebPrompt }
   | { type: "send_activation_ack"; id: string }
   | { type: "surface_ownership_ack"; id: string; phase: "leased" | "released"; surfaceId: string; accepted: boolean }
+  | { type: "result_ready_ack"; id: string; textSha256: string; accepted: boolean }
   | { type: "tool_batch_observed_ack"; id: string; requestId: number; revision: number; accepted: boolean }
   | { type: "completion_fence_begin_ack"; id: string; requestId: number; revision: number | null }
   | { type: "completion_fence_commit_ack"; id: string; requestId: number; committed: boolean }
@@ -115,6 +118,11 @@ const surfaceOwnershipWaiters = new Map<string, {
   resolve: () => void;
   reject: (error: Error) => void;
 }>();
+const resultReadyWaiters = new Map<string, {
+  textSha256: string;
+  resolve: () => void;
+  reject: (error: Error) => void;
+}>();
 const toolBoundaryWaiters = new Map<string, {
   requestId: number;
   revision: number;
@@ -136,6 +144,21 @@ const completionFenceCommitWaiters = new Map<string, {
 let completionFenceRequestId = 0;
 let shuttingDown = false;
 let shutdownPromise: Promise<void> | undefined;
+
+function confirmResultPersistence(id: string, text: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (resultReadyWaiters.has(id)) {
+      reject(new Error("Browser helper result persistence confirmation is already pending"));
+      return;
+    }
+    const textSha256 = createHash("sha256").update(text).digest("hex");
+    resultReadyWaiters.set(id, { textSha256, resolve, reject });
+    if (!writeProtocol({ type: "event", id, event: "result_ready", text, textSha256 })) {
+      resultReadyWaiters.delete(id);
+      reject(new Error("Browser helper could not persist its result before release"));
+    }
+  });
+}
 
 function confirmSurfaceOwnership(
   id: string,
@@ -175,6 +198,10 @@ function requestShutdown(): Promise<void> {
     waiter.reject(new DOMException("Browser helper is shutting down", "AbortError"));
   }
   surfaceOwnershipWaiters.clear();
+  for (const waiter of resultReadyWaiters.values()) {
+    waiter.reject(new DOMException("Browser helper is shutting down", "AbortError"));
+  }
+  resultReadyWaiters.clear();
   for (const waiter of completionFenceBeginWaiters.values()) {
     waiter.reject(new DOMException("Browser helper is shutting down", "AbortError"));
   }
@@ -332,6 +359,9 @@ async function run(message: RunMessage): Promise<void> {
       onSurfaceLeased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "leased", surfaceId),
       onSurfaceReleased: (surfaceId: string) => confirmSurfaceOwnership(message.id, "released", surfaceId),
     } : {}),
+    ...(message.turn.resultPersistence ? {
+      onResultReady: (text: string) => confirmResultPersistence(message.id, text),
+    } : {}),
     onPreparedSelected: reused => {
       if (!writeProtocol({ type: "event", id: message.id, event: "prepared_selected", reused })) {
         throw new Error("Browser helper could not request prompt selection");
@@ -403,6 +433,9 @@ async function run(message: RunMessage): Promise<void> {
     const surfaceWaiter = surfaceOwnershipWaiters.get(message.id);
     surfaceOwnershipWaiters.delete(message.id);
     surfaceWaiter?.reject(new DOMException("Browser helper turn ended before surface confirmation", "AbortError"));
+    const resultWaiter = resultReadyWaiters.get(message.id);
+    resultReadyWaiters.delete(message.id);
+    resultWaiter?.reject(new DOMException("Browser helper turn ended before result persistence", "AbortError"));
     const beginWaiter = completionFenceBeginWaiters.get(message.id);
     completionFenceBeginWaiters.delete(message.id);
     beginWaiter?.reject(new DOMException("Browser helper turn ended before completion-fence begin", "AbortError"));
@@ -524,6 +557,12 @@ input.on("line", line => {
     surfaceOwnershipWaiters.delete(message.id);
     if (message.accepted) waiter.resolve();
     else waiter.reject(new Error("Daemon rejected launcher surface ownership"));
+  } else if (message.type === "result_ready_ack") {
+    const waiter = resultReadyWaiters.get(message.id);
+    if (!waiter || waiter.textSha256 !== message.textSha256) return;
+    resultReadyWaiters.delete(message.id);
+    if (message.accepted) waiter.resolve();
+    else waiter.reject(new Error("Daemon rejected browser result persistence"));
   } else if (message.type === "tool_batch_observed_ack") {
     const waiter = toolBoundaryWaiters.get(message.id);
     if (!waiter || waiter.requestId !== message.requestId || waiter.revision !== message.revision) return;
@@ -579,6 +618,9 @@ input.on("line", line => {
     const surfaceWaiter = surfaceOwnershipWaiters.get(message.id);
     surfaceOwnershipWaiters.delete(message.id);
     surfaceWaiter?.reject(new DOMException("Browser helper turn aborted before surface confirmation", "AbortError"));
+    const resultWaiter = resultReadyWaiters.get(message.id);
+    resultReadyWaiters.delete(message.id);
+    resultWaiter?.reject(new DOMException("Browser helper turn aborted before result persistence", "AbortError"));
     const beginWaiter = completionFenceBeginWaiters.get(message.id);
     completionFenceBeginWaiters.delete(message.id);
     beginWaiter?.reject(new DOMException("Browser helper turn aborted before completion-fence begin", "AbortError"));
@@ -646,6 +688,7 @@ writeProtocol({
     "tool-boundary-request-ack-v2",
     "session-operation-id-v2",
     "surface-ownership-ack-v1",
+    "result-persistence-ack-v1",
     "completion-fence",
     "multipart-stage-ack",
     "multipart-submission-lifecycle",
