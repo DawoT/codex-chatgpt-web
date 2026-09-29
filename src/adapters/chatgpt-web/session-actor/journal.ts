@@ -243,6 +243,20 @@ export class SessionActorJournal {
             AND checkpoint.turn_id = actor.turn_id
             AND checkpoint.state IN ('prepared', 'received', 'validated', 'persisted')
         )
+        OR (
+          NOT EXISTS (
+            SELECT 1 FROM session_operation AS operation
+            WHERE operation.session_id = actor.session_id
+              AND operation.generation = actor.generation
+              AND operation.turn_id = actor.turn_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM session_compaction AS checkpoint
+            WHERE checkpoint.session_id = actor.session_id
+              AND checkpoint.generation = actor.generation
+              AND checkpoint.turn_id = actor.turn_id
+          )
+        )
       )
       ORDER BY actor.session_id
     `).all();

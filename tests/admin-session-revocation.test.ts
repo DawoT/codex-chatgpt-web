@@ -237,3 +237,52 @@ test("admin cancel-turns preserves a completed idle actor while revoking pending
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("admin cancel-turns revokes an admitted turn before its browser intent exists", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-admin-admitted-cancel-"));
+  const journal = new SessionActorJournal(join(root, "actors", "events.sqlite"));
+  try {
+    const manager = new SessionActorManager(journal);
+    await manager.beginTurn("namespace/admitted", "admitted-turn");
+    const config = defaultConfig("full");
+    const context = {
+      config,
+      startedAt: Date.now(),
+      isDraining: () => false,
+      setDraining: () => {},
+      activity: () => ({}),
+      modelCatalogStats: {
+        successfulModelCatalogRequests: 0,
+        lastSuccessfulModelCatalogRequestAt: null,
+        modelCatalogRequests: 0,
+        lastModelCatalogResult: null,
+      },
+      httpTurns: new HttpTurnCounter(),
+      sessionActorManager: manager,
+      shutdown: () => {},
+    } satisfies AdminRouteContext;
+    const request = new Request("http://127.0.0.1/admin/cancel-turns", {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.controlToken}` },
+    });
+    const response = await handleAdminRoute(request, new URL(request.url), context);
+    expect(response?.status).toBe(200);
+    expect(journal.snapshot("namespace/admitted")?.generation).toBe(2);
+    const staleIntent = await manager.actor("namespace/admitted").dispatch({
+      protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
+      sessionId: "namespace/admitted",
+      generation: 1,
+      turnId: "admitted-turn",
+      operationId: "browser:late",
+      producerId: "test:late",
+      producerSequence: 1,
+      type: "operation_intent",
+      operationKind: "browser_send",
+      historyRevision: 0,
+    });
+    expect(staleIntent).toEqual({ status: "stale_generation", currentGeneration: 2 });
+  } finally {
+    journal.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
