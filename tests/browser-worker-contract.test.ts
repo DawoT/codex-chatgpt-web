@@ -6112,12 +6112,12 @@ test("the bundled helper is adopted only for the packaged runtime layout", () =>
   // recorded for an earlier turn that happened to share the id.
   const helper = readFileSync("src/adapters/chatgpt-web/browser-helper-main.ts", "utf8");
   expect(helper).toContain("const progress = message.turn.externalProgress");
-  expect(helper).toContain("? new ChatGptMirroredTurnProgress(revision => {");
+  expect(helper).toContain("? new ChatGptMirroredTurnProgress((revision) => {");
 
   // A consumer callback must not be retried as though the page could not be read.
   const worker = readFileSync("src/adapters/chatgpt-web/browser-worker.ts", "utf8");
   const heartbeat = worker.indexOf("turn.onHeartbeat?.();");
-  const tryStart = worker.search(/ {7}try \{\r?\n {8}observedThisIteration = false;/);
+  const tryStart = worker.search(/try \{\r?\n\s*observedThisIteration = false;/);
   expect(heartbeat).toBeGreaterThan(0);
   expect(tryStart).toBeGreaterThan(0);
   expect(heartbeat).toBeLessThan(tryStart);
