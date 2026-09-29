@@ -149,7 +149,13 @@ export async function handleAdminRoute(
         { status: 504, errorType: "server_error", code: leaseFailure, retryable: false },
       )
       : chatGptBrowserTabClosedError();
-    await sessionActorManager?.revokeBrowserTrace(traceId);
+    const actorRevoked = await sessionActorManager?.revokeBrowserTrace(traceId);
+    if (sessionActorManager && !actorRevoked) {
+      const owner = chatGptTurnSessions.activeActorOwnerForTrace(traceId);
+      if (owner) {
+        await sessionActorManager.revokeAdmittedTurn(owner.sessionId, owner.turnId, traceId);
+      }
+    }
     // Revoke the owner first. This prevents a compaction callback that observes its retained
     // source being cancelled below from starting a fresh fallback during operator shutdown.
     const compactionCancellation = beginCancelStructuredCompactionTrace(traceId, reason);

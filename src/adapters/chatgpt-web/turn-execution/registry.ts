@@ -264,6 +264,15 @@ export class ChatGptTurnSessions {
     return { cancelled: sessions.length, settlement: Promise.all(sessions.map(session => session.physicalSettlement)).then(() => undefined) };
   }
 
+  activeActorOwnerForTrace(traceId: string): { sessionId: string; turnId: string } | null {
+    const owners = [...this.entries.values()]
+      .filter(session => session.traceId === traceId && session.isActive()
+        && session.ownerKey && session.nativeTurnId)
+      .map(session => ({ sessionId: session.ownerKey!, turnId: session.nativeTurnId! }));
+    if (owners.length > 1) throw new Error("Browser trace has ambiguous active actor ownership");
+    return owners[0] ?? null;
+  }
+
   /**
    * Begin retiring only the browser execution owned by the exact native Codex turn.
    *

@@ -12,6 +12,7 @@ import {
 } from "../src/adapters/chatgpt-web/session-actor";
 import { handleAdminRoute, type AdminRouteContext } from "../src/server/admin-routes";
 import { HttpTurnCounter } from "../src/server/http-turn-counter";
+import { chatGptTurnSessions, ChatGptTextFeed, ChatGptTraceFeed } from "../src/adapters/chatgpt-web/turn-execution";
 
 function nativeSessionId(threadId: string): string {
   const owner = createHash("sha256")
@@ -80,6 +81,64 @@ test("admin cancel-turn revokes only the actor generation owned by its trace", a
     expect(journal.snapshot("namespace/thread-0")?.generation).toBe(2);
     expect(journal.snapshot("namespace/thread-1")?.generation).toBe(1);
   } finally {
+    journal.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("admin cancel-turn revokes an admitted trace before browser intent is recorded", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-admin-trace-admitted-"));
+  const journal = new SessionActorJournal(join(root, "actors", "events.sqlite"));
+  const executionKey = "test:admitted-trace-execution";
+  const sessionId = nativeSessionId("thread-admitted-trace");
+  const traceId = "trace-admitted-A";
+  const session = chatGptTurnSessions.getOrCreate(
+    executionKey,
+    () => ({
+      mode: "read-only",
+      browser: new Promise<string>(() => {}),
+      physicalSettlement: Promise.resolve(),
+      trace: new ChatGptTraceFeed(),
+      text: new ChatGptTextFeed(),
+      cancel: () => {},
+    }),
+    traceId,
+    sessionId,
+    "turn-admitted-A",
+    "thread-admitted-trace",
+  );
+  try {
+    const manager = new SessionActorManager(journal);
+    await manager.beginTurn(sessionId, "turn-admitted-A");
+    await manager.beginTurn(nativeSessionId("thread-B"), "turn-B");
+    const config = defaultConfig("full");
+    const context = {
+      config,
+      startedAt: Date.now(),
+      isDraining: () => false,
+      setDraining: () => {},
+      activity: () => ({}),
+      modelCatalogStats: {
+        successfulModelCatalogRequests: 0,
+        lastSuccessfulModelCatalogRequestAt: null,
+        modelCatalogRequests: 0,
+        lastModelCatalogResult: null,
+      },
+      httpTurns: new HttpTurnCounter(),
+      sessionActorManager: manager,
+      shutdown: () => {},
+    } satisfies AdminRouteContext;
+    const request = new Request("http://127.0.0.1/admin/cancel-turn", {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.controlToken}` },
+      body: JSON.stringify({ traceId }),
+    });
+    const response = await handleAdminRoute(request, new URL(request.url), context);
+    expect(response?.status).toBe(200);
+    expect(journal.snapshot(sessionId)?.generation).toBe(2);
+    expect(journal.snapshot(nativeSessionId("thread-B"))?.generation).toBe(1);
+  } finally {
+    chatGptTurnSessions.retire(executionKey, session);
     journal.close();
     rmSync(root, { recursive: true, force: true });
   }

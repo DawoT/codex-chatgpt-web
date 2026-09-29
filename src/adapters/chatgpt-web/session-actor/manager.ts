@@ -83,6 +83,15 @@ export class SessionActorManager {
     return this.revokeOwner(owner, `revoke:${traceId}`);
   }
 
+  async revokeAdmittedTurn(sessionId: string, nativeTurnId: string, traceId: string): Promise<boolean> {
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot || snapshot.turnId !== nativeTurnId) return false;
+    return this.revokeOwner(
+      { sessionId, generation: snapshot.generation, turnId: nativeTurnId },
+      `revoke:${traceId}`,
+    );
+  }
+
   async revokeNativeTurn(threadId: string, nativeTurnId: string): Promise<number> {
     const owners = this.journal.nativeTurnOwners(
       chatGptNativeThreadOwnershipKey(threadId),
