@@ -24,6 +24,13 @@ const buildCommit = execFileSync("git", ["rev-parse", "HEAD"], {
 if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(buildCommit)) {
   throw new Error("Runtime bundle requires a valid Git build commit");
 }
+const pendingChanges = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+  cwd: root,
+  encoding: "utf8",
+});
+if (pendingChanges.trim()) {
+  throw new Error("Runtime bundle requires a clean source worktree at its build commit");
+}
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
   version?: string;
   packageManager?: string;
