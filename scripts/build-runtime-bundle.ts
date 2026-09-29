@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
@@ -16,6 +17,13 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { VERSION } from "../src/version";
 
 const root = resolve(import.meta.dir, "..");
+const buildCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: root,
+  encoding: "utf8",
+}).trim();
+if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(buildCommit)) {
+  throw new Error("Runtime bundle requires a valid Git build commit");
+}
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
   version?: string;
   packageManager?: string;
@@ -200,6 +208,7 @@ const files = runtimeManifestFiles();
 writeFileSync(join(output, "manifest.json"), `${JSON.stringify({
   schemaVersion: 2,
   appVersion: VERSION,
+  buildCommit,
   bundleId: bundleIdFor(files),
   bunVersion: Bun.version,
   platform: process.platform,

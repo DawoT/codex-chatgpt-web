@@ -6,6 +6,8 @@ import type {
   CodexToolResultMessage,
 } from "../../types";
 import { extractChatGptCompactionSourceRevision } from "./environment";
+import { extractChatGptTurnIdentity } from "./environment";
+import { buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "./compaction-evidence";
 import type { ChatGptBrowserWorker } from "./browser-worker";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
@@ -21,12 +23,15 @@ import type { ChatGptTurnSession } from "./turn-execution";
 import { checkpointRepairPromptFits } from "./compaction-repair";
 import { resolveChatGptWebModelMode } from "./model";
 import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
+import { extractModifiedFilePaths } from "./autonomous-compaction";
 import {
   LATEST_USER_PROMPT_MARKER,
   ORIGINAL_USER_REQUEST_MARKER,
   locateCompactionStateBounds,
   extractStructuredCompactionHandoff,
   formatCompactionStateBlock,
+  parseCompactionState,
+  type CompactionStateBlock,
 } from "../../responses/compaction";
 
 export { LATEST_USER_PROMPT_MARKER, ORIGINAL_USER_REQUEST_MARKER };
@@ -167,28 +172,92 @@ export function canonicalizeCompactionHandoff(
       body = body.slice(0, originalOffset).trimEnd();
     }
     const bounds = locateCompactionStateBounds(body);
+    let state: CompactionStateBlock | null = null;
+    let before = body;
+    let after = "";
+
     if (bounds && !bounds.fenced) {
-      const before = body.slice(0, bounds.startTagStart);
-      let state = body.slice(bounds.startTagStart, bounds.closingStart);
-      if (/^original_request_ref:[^\n]*$/m.test(state)) {
-        state = state.replace(
-          /^original_request_ref:[^\n]*$/m,
-          `original_request_ref: sha256:${digest}`,
-        );
-      } else {
-        state = state.replace(
-          /^(<compaction_state>\s*(?:version:\s*\d+\s*)?)/i,
-          `$1original_request_ref: sha256:${digest}\n`,
-        );
-      }
-      body = before + state + body.slice(bounds.closingStart);
+      before = body.slice(0, bounds.startTagStart).trimEnd();
+      after = body.slice(bounds.endTagEnd).trimStart();
+      state = parseCompactionState(body.slice(bounds.startTagStart, bounds.endTagEnd)) ?? {
+        modifiedFiles: [],
+        blockersOrTestFailures: [],
+        nextActions: [],
+      };
     } else {
       const handoff = extractStructuredCompactionHandoff(body);
-      if (handoff.state) {
-        handoff.state.originalRequestRef = `sha256:${digest}`;
-        if (handoff.state.version === undefined) handoff.state.version = 2;
-        body = [handoff.narrative, formatCompactionStateBlock(handoff.state)].filter(Boolean).join("\n\n");
+      state = handoff.state;
+      if (state) {
+        before = handoff.narrative.trimEnd();
       }
+    }
+
+    if (state) {
+      const detectedFiles = extractModifiedFilePaths(parsed.context.messages);
+      const existingFiles = (state.modifiedFiles ?? []).filter(
+        f => f && f.toLowerCase() !== "none" && f.toLowerCase() !== "- none",
+      );
+      const injectedFiles: string[] = [];
+      for (const f of detectedFiles) {
+        if (!existingFiles.includes(f)) {
+          existingFiles.push(f);
+          injectedFiles.push(f);
+        }
+      }
+      if (injectedFiles.length > 0) {
+        console.info(
+          `[chatgpt-web] [COMPACTION AUTO-HEAL 🟢] Injected ${injectedFiles.length} file(s) into modified_files from patch history:`,
+          injectedFiles,
+        );
+      }
+
+      const activeHypothesis = state.activeHypothesis?.trim()
+        || (originalRequest ? `Complete: ${originalRequest.trim().slice(0, 120)}` : "Complete the requested task.");
+
+      const requirements = (state.requirements && state.requirements.length > 0)
+        ? state.requirements
+        : [{
+            id: "REQ-1",
+            status: "pending" as const,
+            source: originalRequest ? `original user request: ${originalRequest.trim().slice(0, 80)}` : "original user request",
+          }];
+
+      const closureCriteria = (state.closureCriteria && state.closureCriteria.length > 0)
+        ? state.closureCriteria
+        : ["All mission requirements completed and verified"];
+
+      const verifiedAchievements = state.verifiedAchievements ?? [];
+      const decisionsAndInvariants = state.decisionsAndInvariants ?? [];
+
+      const blockersOrTestFailures = (state.blockersOrTestFailures && state.blockersOrTestFailures.length > 0)
+        ? state.blockersOrTestFailures
+        : ["None"];
+
+      const pendingObligations = (state.pendingObligations && state.pendingObligations.length > 0)
+        ? state.pendingObligations
+        : [latestUserPrompt ? `Complete latest turn: ${latestUserPrompt.trim().slice(0, 80)}` : "Continue next actions"];
+
+      let nextActions = (state.nextActions ?? []).map(a => a.trim()).filter(Boolean);
+      if (nextActions.length !== 1) {
+        const action = nextActions[0] || (latestUserPrompt ? `Proceed with: ${latestUserPrompt.trim().slice(0, 80)}` : "Continue with the next planned step");
+        nextActions = [action];
+      }
+
+      const healedState: CompactionStateBlock = {
+        version: 2,
+        originalRequestRef: `sha256:${digest}`,
+        modifiedFiles: existingFiles,
+        activeHypothesis,
+        requirements,
+        closureCriteria,
+        verifiedAchievements,
+        decisionsAndInvariants,
+        blockersOrTestFailures,
+        pendingObligations,
+        nextActions,
+      };
+
+      body = [before, formatCompactionStateBlock(healedState), after].filter(Boolean).join("\n\n");
     }
     return `${body}\n\n${originalAppendix}\n\n${latestAppendix}`;
   }
@@ -366,6 +435,7 @@ export async function requestRetainedCompactionHandoff(
   signal?: AbortSignal,
   timeoutMs = MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
   repairIssues?: readonly string[],
+  repairDraft?: string,
 ): Promise<string> {
   const conversationKey = source.conversationKey();
   if (!conversationKey) throw new Error("The completed ChatGPT source has no retained conversation identity");
@@ -393,9 +463,16 @@ export async function requestRetainedCompactionHandoff(
       }
     }, () => {});
     transaction = await withCompactionAbort(transactionPromise, operationSignal);
+    const allObservations = buildCompactionEvidenceIndex(
+      parsed.context.messages,
+      extractChatGptTurnIdentity(parsed).threadId ?? "",
+    );
+    const observations = repairIssues
+      ? selectCompactionRepairEvidence(allObservations, `${repairIssues.join(" ")} ${repairDraft ?? ""}`, 12)
+      : allObservations.slice(-24);
     const instruction = repairIssues
-      ? structuredCompactionRepairInstruction(transaction, repairIssues)
-      : structuredCompactionHandoffInstruction(transaction);
+      ? structuredCompactionRepairInstruction(transaction, repairIssues, observations)
+      : structuredCompactionHandoffInstruction(transaction, observations);
     if (repairIssues && !checkpointRepairPromptFits(
       instruction,
       parsed.modelId as ChatGptWebBackendModel,

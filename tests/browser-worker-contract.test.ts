@@ -796,6 +796,7 @@ test("two-part saved chats re-prove unchanged effort after the first message cre
     },
   });
   let sends = 0;
+  const submissionPhases: string[] = [];
   const finished = new Error("final send reached with a current effort proof");
   Object.assign(worker, {
     prepareChatSurface: async (_page: unknown, _capture: unknown, saved: boolean) => { expect(saved).toBeTrue(); },
@@ -809,9 +810,10 @@ test("two-part saved chats re-prove unchanged effort after the first message cre
     attachPrompt: async () => {}, attachPromptWithCompactionRetry: async () => {}, attachFiles: async () => {},
     waitForNewAssistantTurn: async () => ({}), waitForMultipartAcknowledgement: async () => {},
     sendAttachedPrompt: async (_page: unknown, _baseline: unknown, _capture: unknown, _signal: unknown,
-      _progress: unknown, lifecycle: { onSendActivated(): Promise<void> }) => {
+      _progress: unknown, lifecycle: { onSendActivated(): Promise<void>; onSubmitted(): Promise<void> }) => {
       await lifecycle.onSendActivated();
       if (++sends === 2) throw finished;
+      await lifecycle.onSubmitted();
       url = savedUrl;
       return "user_turn";
     },
@@ -820,8 +822,11 @@ test("two-part saved chats re-prove unchanged effort after the first message cre
     await expect(worker.runBrowserTurn({
       traceId: "saved_multipart", modelId: CHATGPT_WEB_MODEL_ID, reasoning: "low", capabilities,
       prepare: async () => prepared, onTextDelta() {}, onReasoningSummary() {},
+      onSendActivated: () => { submissionPhases.push("activated"); },
+      onSubmitted: () => { submissionPhases.push("accepted"); },
     }, undefined, page)).rejects.toBe(finished);
     expect(sends).toBe(2);
+    expect(submissionPhases).toEqual(["activated", "accepted", "activated"]);
     expect(selections).toEqual(["https://chatgpt.com/", savedUrl]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

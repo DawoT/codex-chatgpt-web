@@ -1,4 +1,5 @@
 import { validateSkillFiles } from "./skill-attachments";
+import { runtimeIdentity } from "../../runtime-identity";
 import { createInterface } from "node:readline";
 import { stdin, stderr, stdout } from "node:process";
 import type { CodexProviderConfig } from "../../types";
@@ -551,11 +552,14 @@ process.once("SIGTERM", () => {
 // Advertise the optional frames this helper understands so the daemon can negotiate them explicitly.
 writeProtocol({
   type: "ready",
+  protocolVersion: runtimeIdentity.protocolVersion,
+  identity: runtimeIdentity,
   features: [
     "progress",
     "tool-boundary-ack",
     "completion-fence",
     "multipart-stage-ack",
+    "multipart-submission-lifecycle",
     "skill-attachments",
     "mission-headroom",
     "context-pressure-release",

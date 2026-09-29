@@ -1,5 +1,6 @@
 import { COMPACT_PROMPT } from "../../responses/compaction";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
+import type { CompactionEvidenceObservation } from "./compaction-evidence";
 
 export const CODEX_COMPACTION_CONTROL_WIRE_NAME = "codex.control.compaction_handoff";
 export const CODEX_ACTIVE_COMPACTION_REQUEST_MARKER = "CODEX_ACTIVE_COMPACTION_REQUEST";
@@ -64,10 +65,12 @@ export function zeroRiskActiveCompactionToolResultInstruction(toolExecuted: bool
 
 export function structuredCompactionHandoffInstruction(
   transaction: CompactionTransactionHandle,
+  observations: readonly CompactionEvidenceObservation[] = [],
 ): string {
   return [
     "Automatic Codex context compaction has started. Stop ordinary task work and do not call any more work tools.",
     COMPACT_PROMPT,
+    ...compactionEvidenceInstructions(observations),
     ...compactionControlBinding(transaction),
     "After the control call returns submitted=true, call no more tools. The bridge will close this one-purpose Web response after accepting the checkpoint.",
     "If the call is rejected or fails, stop and report its actual error. Do not retry through another tool or claim the summary was submitted without submitted=true.",
@@ -77,14 +80,25 @@ export function structuredCompactionHandoffInstruction(
 export function structuredCompactionRepairInstruction(
   transaction: CompactionTransactionHandle,
   missingInvariants: readonly string[],
+  observations: readonly CompactionEvidenceObservation[] = [],
 ): string {
   return [
     "The previous checkpoint was rejected. Its complete draft remains in this retained conversation.",
     "Repair that draft once. Preserve all requirements, evidence, blockers, decisions, modified files and the original request reference.",
+    "If a claimed result has no completed observation, keep its requirement as pending or blocked and state what evidence is missing. Never drop it to make validation pass.",
     "Missing or invalid items:",
     ...missingInvariants.map(item => `- ${item}`),
+    ...compactionEvidenceInstructions(observations),
     "Submit one complete corrected version 2 <compaction_state> checkpoint. Do not claim a requirement is verified without an observed successful result.",
     ...compactionControlBinding(transaction),
     "After submitted=true, call no more tools.",
   ].join("\n");
+}
+
+function compactionEvidenceInstructions(observations: readonly CompactionEvidenceObservation[]): string[] {
+  if (observations.length === 0) return [];
+  return [
+    "Bridge observation references from this session. Cite a ref in evidenceRefs only when its completed result and command support the exact claim; failed results may explain blockers. Keep evidence text as well:",
+    ...observations.map(observation => JSON.stringify(observation)),
+  ];
 }

@@ -278,7 +278,9 @@ export function createChatGptWebAdapter(
     const submission: NonNullable<ChatGptTurnRuntime["submission"]> = { phase: "prepared" };
     const submissionLifecycle = {
       ...(!parsed._compactionRequest ? {
-        onSendActivated: () => { submission.phase = "send_activated" as const; },
+        onSendActivated: () => {
+          if (submission.phase === "prepared") submission.phase = "send_activated";
+        },
       } : {}),
       onSubmitted: () => {
         if (!parsed._compactionRequest) submission.phase = "accepted";
@@ -508,9 +510,10 @@ export function createChatGptWebAdapter(
           return;
         }
         let environment: ReturnType<typeof extractChatGptTurnEnvironment> | undefined;
-        if (mode.localTools) {
+        if (mode.localTools || parsed._compactionRequest) {
           try {
-            environment = parsed._hostTurn?.environment ?? environmentStore.resolve(parsed);
+            environment = parsed._hostTurn?.environment
+              ?? (mode.localTools ? environmentStore.resolve(parsed) : undefined);
           } catch (error) {
             const identity = extractChatGptTurnIdentity(parsed);
             console.warn(

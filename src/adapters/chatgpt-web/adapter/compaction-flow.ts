@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AdapterEvent, CodexParsedRequest, CodexToolCall } from "../../../types";
+import type { AdapterEvent, CodexParsedRequest } from "../../../types";
 import {
   COMPACT_PROMPT,
   compactionDraftText,
@@ -8,6 +8,7 @@ import {
 } from "../../../responses/compaction";
 import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { acceptedCompactionEpoch } from "../compaction-continuation";
+import { buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "../compaction-evidence";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
 import {
   checkpointCompiledRepairFits,
@@ -49,6 +50,7 @@ import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
 
 const observedRepairDurationsMs: number[] = [];
+const persistedStructuredRunRoots = new WeakMap<Promise<string>, string>();
 
 function logCheckpointValidation(
   summary: string,
@@ -75,37 +77,16 @@ function checkpointText(content: unknown): string {
     : []).join("\n");
 }
 
-function recentRepairObservations(parsed: CodexParsedRequest): Array<{
-  toolCallId: string;
-  toolName: string;
-  isError: boolean;
-  command?: string;
-  output: string;
-  outputSha256?: string;
-}> {
-  return parsed.context.messages.filter(message => message.role === "toolResult")
-    .slice(-4)
-    .map(message => {
-      const output = checkpointText(message.content);
-      const call = parsed.context.messages.find(prior => prior.role === "assistant"
-        && prior.content.some(part => part.type === "toolCall" && part.id === message.toolCallId));
-      const command = call?.role === "assistant"
-        ? call.content.find((part): part is CodexToolCall => part.type === "toolCall"
-          && part.id === message.toolCallId)?.arguments.cmd
-        : undefined;
-      return {
-        toolCallId: message.toolCallId,
-        toolName: message.toolName,
-        isError: message.isError,
-        ...(typeof command === "string" && command.length <= 200 ? { command } : {}),
-        output: output.length <= 1_200
-          ? output
-          : `${output.slice(0, 600)}\n[output excerpt; recover full text from toolCallId]\n${output.slice(-600)}`,
-        ...(output.length > 1_200
-          ? { outputSha256: createHash("sha256").update(output).digest("hex") }
-          : {}),
-      };
-    });
+function compactionSessionId(parsed: CodexParsedRequest): string {
+  return extractChatGptTurnIdentity(parsed).threadId ?? "";
+}
+
+function repairObservations(parsed: CodexParsedRequest, query: string) {
+  return selectCompactionRepairEvidence(
+    buildCompactionEvidenceIndex(parsed.context.messages, compactionSessionId(parsed)),
+    query,
+    12,
+  );
 }
 
 function originalRequestFromCanonicalSummary(summary: string): string {
@@ -191,6 +172,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
   }
 
   if (structuredCompactionRequired) {
+    const compactionNativeIdentity = extractChatGptTurnIdentity(parsed);
+    console.info(
+      `[chatgpt-web] [COMPACTION CANARY 🟡] Starting compaction flow (threadId=${compactionNativeIdentity.threadId ?? "none"}, messages=${parsed.context.messages.length})`,
+    );
     const compactionExecutionKey = `${executionNamespace}:${chatGptTurnExecutionKey(parsed)}`;
     const compactedSourceExecutionKey = `${executionNamespace}:${chatGptCompactionSourceExecutionKey(parsed)}`;
     const handoffTraceId = createHash("sha256")
@@ -202,7 +187,6 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       .digest("hex")
       .slice(0, 12);
     const freshCompactionTraceId = `${handoffTraceId}_${freshConversationPerTurn ? "fresh" : "fallback"}`;
-    const compactionNativeIdentity = extractChatGptTurnIdentity(parsed);
     const revisionScopeKey = JSON.stringify([
       compactionNativeIdentity.threadId,
       compactionNativeIdentity.turnId,
@@ -282,7 +266,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 parsed,
                 rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
               );
-              let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+              let quality = validateCompactionQuality(parsed.context.messages, summary, {
+                requireStructured: true,
+                evidenceSessionId: compactionSessionId(parsed),
+              });
               logCheckpointValidation(summary, quality, false);
               if (!quality.valid && !manualRequest) {
                 const previousCheckpoint = parsed.context.messages.findLast(message => message.role === "user"
@@ -315,8 +302,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   JSON.stringify(otherUserRequests),
                   "Previous mission checkpoint state:",
                   JSON.stringify(priorState ?? {}),
-                  "Recent observed tool results (do not infer success from an error or an excerpt):",
-                  JSON.stringify(recentRepairObservations(parsed)),
+                  "Relevant bridge observations (cite only these references; failed results can explain blockers):",
+                  JSON.stringify(repairObservations(parsed, `${quality.missingInvariants.join(" ")} ${rawSummary}`)),
                   "Rejected draft:",
                   rawSummary,
                   "The previous draft is reference material only. Do not copy this schema or invent evidence.",
@@ -369,7 +356,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                       parsed,
                       repaired.trim() ? repaired : "Empty checkpoint draft",
                     );
-                    quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+                    quality = validateCompactionQuality(parsed.context.messages, summary, {
+                      requireStructured: true,
+                      evidenceSessionId: compactionSessionId(parsed),
+                    });
                     logCheckpointValidation(summary, quality, true);
                   } catch (error) {
                     repairRuntime.cancel(error instanceof Error ? error : new Error(String(error)));
@@ -488,13 +478,19 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               parsed,
               rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
             );
-            let quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+            let quality = validateCompactionQuality(parsed.context.messages, summary, {
+              requireStructured: true,
+              evidenceSessionId: compactionSessionId(parsed),
+            });
             logCheckpointValidation(summary, quality, false);
             if (!quality.valid && !manualRequest && structuredBroker) {
               const probe = structuredCompactionRepairInstruction({
                 token: `control_${"0".repeat(32)}`,
                 handoffId: `handoff_${"0".repeat(32)}`,
-              }, quality.missingInvariants);
+              }, quality.missingInvariants, repairObservations(
+                parsed,
+                `${quality.missingInvariants.join(" ")} ${summary}`,
+              ));
               const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, configuredCapabilities).effort;
               const transportFits = checkpointRepairPromptFits(
                 probe,
@@ -522,6 +518,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     operationSignal,
                     handoffDeadlineAt - Date.now(),
                     quality.missingInvariants,
+                    summary,
                   );
                   repairOutcome = "succeeded";
                 } finally {
@@ -536,7 +533,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   parsed,
                   repaired.trim() ? repaired : "Empty checkpoint draft",
                 );
-                quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+                quality = validateCompactionQuality(parsed.context.messages, summary, {
+                  requireStructured: true,
+                  evidenceSessionId: compactionSessionId(parsed),
+                });
                 logCheckpointValidation(summary, quality, true);
               }
             }
@@ -548,6 +548,21 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 retryable: false,
               });
             }
+            if (operationSignal.aborted) throw operationSignal.reason;
+            try {
+              const persisted = persistTurnCompaction(environment, parsed.context.messages, summary);
+              if (persisted && environment?.cwd && sharedSummary) {
+                persistedStructuredRunRoots.set(sharedSummary, environment.cwd);
+              }
+            } catch {
+              throw new ChatGptWebAdapterError("Context checkpoint could not be persisted; original history remains available", {
+                status: 500,
+                errorType: "server_error",
+                code: "context_checkpoint_persistence_failed",
+                retryable: false,
+              });
+            }
+            if (operationSignal.aborted) throw operationSignal.reason;
             await withAbort(
               preserveFinalResponse
                 ? chatGptTurnSessions.retireConversationPreservingFinalResponse(
@@ -561,7 +576,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             return summary;
           } catch (error) {
             if (repairAttempted || (error instanceof ChatGptWebAdapterError
-              && error.code === "context_checkpoint_validation_failed")) throw error;
+              && (error.code === "context_checkpoint_validation_failed"
+                || error.code === "context_checkpoint_persistence_failed"))) throw error;
             const retainedKey = source?.conversationKey();
             if (!retainedKey) throw error;
             let handoffError = error instanceof Error ? error : new Error(String(error));
@@ -620,6 +636,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       return true;
     }
     const rejectCheckpoint = (reason: string): boolean => {
+      console.warn(`[chatgpt-web] [COMPACTION REJECTED 🔴] validation failed: ${reason}`);
       emit({
         type: "milestone",
         kind: "intervention_required",
@@ -639,19 +656,45 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     };
     let quality: ReturnType<typeof validateCompactionQuality>;
     try {
-      quality = validateCompactionQuality(parsed.context.messages, summary, { requireStructured: true });
+      quality = validateCompactionQuality(parsed.context.messages, summary, {
+        requireStructured: true,
+        evidenceSessionId: compactionSessionId(parsed),
+      });
     } catch {
       return rejectCheckpoint("validator could not inspect the source history");
     }
     if (!quality.valid) return rejectCheckpoint(quality.missingInvariants.join("; "));
-    console.info(`[chatgpt-web] checkpoint_validation valid=true missingCount=0 accepted=true`);
+    let localPersisted: boolean;
     try {
-      persistTurnCompaction(environment, parsed.context.messages, summary);
+      localPersisted = persistedStructuredRunRoots.has(sharedSummary)
+        && persistedStructuredRunRoots.get(sharedSummary) === environment?.cwd
+        ? true
+        : persistTurnCompaction(environment, parsed.context.messages, summary);
     } catch (checkpointError) {
-      console.warn("[chatgpt-web] Failed to record turn checkpoint:", checkpointError);
+      console.error("[chatgpt-web] Failed to persist turn checkpoint:", checkpointError);
+      emit({
+        type: "error",
+        message: "Context checkpoint could not be persisted; original history remains available",
+        status: 500,
+        errorType: "server_error",
+        code: "context_checkpoint_persistence_failed",
+        retryable: false,
+      });
+      return true;
     }
+    console.info(`[chatgpt-web] [COMPACTION ACCEPTED 🟢] Checkpoint verified and accepted! (valid=true missingCount=0 localPersisted=${localPersisted})`);
     const checkpoint = extractStructuredCompactionHandoff(summary).state!;
     for (const achievement of checkpoint.verifiedAchievements ?? []) {
+      if (typeof achievement !== "string") {
+        emit({
+          type: "milestone",
+          kind: "verified_achievement",
+          result: achievement.result,
+          evidence: achievement.evidence,
+          nextStep: checkpoint.nextActions[0]!,
+        });
+        continue;
+      }
       const evidenceMarker = /\bevidence\s*:\s*/i.exec(achievement);
       if (!evidenceMarker) continue;
       const result = achievement.slice(0, evidenceMarker.index).replace(/[\s—–:-]+$/, "").trim();

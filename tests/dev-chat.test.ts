@@ -323,7 +323,15 @@ test("DEV chat attaches its broker to the launcher-owned tunnel without a Respon
     });
     expect(transport.config).toBe(config);
     expect(await callTurnBroker(transport.config.brokerSocketPath, { method: "owner_status" }))
-      .toMatchObject({ protocolVersion: 6 });
+      .toMatchObject({
+        protocolVersion: 6,
+        identity: {
+          protocolVersion: 1,
+          pid: process.pid,
+          generation: expect.any(String),
+          artifactSha256: expect.any(String),
+        },
+      });
     expect(await (await fetch(`http://127.0.0.1:${occupied.port}`)).text()).toBe("normal Codex route");
   } finally {
     await transport?.close();

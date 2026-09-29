@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkspaceState } from "../src/adapters/chatgpt-web/workspace-state";
+import { listTurnCheckpoints } from "../src/adapters/chatgpt-web/autonomous-compaction";
+import { persistTurnCompaction } from "../src/adapters/chatgpt-web/workspace-persistence";
 import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web/index";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
@@ -121,7 +123,13 @@ next_actions:
         freshConversationPerTurn: false, experimentalBiggerContext: false,
         startRuntime: () => { throw new Error("Existing compaction must not start another browser"); },
       } as any);
-      expect(events.at(-1)).toMatchObject({ type: "done" });
+      const persistenceDenied = ["outside-writable", "symlink", "checkpoint-symlink", "state-symlink"].includes(scenario);
+      expect(events.at(-1)).toMatchObject(persistenceDenied
+        ? { type: "error", code: "context_checkpoint_persistence_failed" }
+        : { type: "done" });
+      if (persistenceDenied) {
+        expect(events.some(event => (event as { type?: string }).type === "text_delta")).toBeFalse();
+      }
       expect(existsSync(join(workspace, ".agents", "STATE.md"))).toBe(scenario === "writable");
       expect(existsSync(join(outside, "STATE.md"))).toBeFalse();
       const { readdirSync } = await import("node:fs");
@@ -134,6 +142,26 @@ next_actions:
     }
   });
 }
+
+test("replaying the exact checkpoint does not create a second epoch", () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-checkpoint-replay-"));
+  try {
+    const env = environment(root, {
+      type: "workspaceWrite",
+      writableRoots: [root],
+      networkAccess: false,
+    });
+    const messages = [{ role: "user" as const, content: "Continue this task", timestamp: 1 }];
+    expect(persistTurnCompaction(env, messages, "First checkpoint")).toBeTrue();
+    expect(persistTurnCompaction(env, messages, "First checkpoint")).toBeTrue();
+    expect(listTurnCheckpoints(root)).toHaveLength(1);
+    expect(readWorkspaceState(root)?.customSections?.lastCompactionSummary).toBe("First checkpoint");
+    expect(persistTurnCompaction(env, messages, "Revised checkpoint")).toBeTrue();
+    expect(listTurnCheckpoints(root).map(checkpoint => checkpoint.epoch)).toEqual([2, 1]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("compaction retains one bounded latest summary and other custom sections across state round trips", async () => {
   const { defaultWorkspaceState, writeWorkspaceState } = await import("../src/adapters/chatgpt-web/workspace-state");

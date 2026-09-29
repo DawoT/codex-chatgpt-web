@@ -1,7 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import {
+  RUNTIME_PROTOCOL_VERSION,
+  setObservedHelperDiagnostic,
+  type RuntimeIdentity,
+} from "../../runtime-identity";
 import { notifyLauncherTurn, readLauncherBrowserHostDescriptor } from "../../launcher-browser-host";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import type { CompiledChatGptWebPrompt } from "./prompt";
@@ -24,7 +30,7 @@ interface PendingTurn {
 }
 
 type HelperMessage =
-  | { type: "ready"; features?: string[] }
+  | { type: "ready"; features?: string[]; protocolVersion?: number; identity?: RuntimeIdentity }
   | { type: "event"; id: string; event: "heartbeat" | "send_activated" | "submitted" | "reasoning" | "commentary" | "text"; text?: string; continuation?: boolean }
   | { type: "event"; id: string; event: "tool_batch_observed"; revision: number }
   | { type: "event"; id: string; event: "multipart_stage_acknowledged"; stageIndex: number }
@@ -56,7 +62,29 @@ function parseHelperMessage(line: string): HelperMessage {
       && (!Array.isArray(features) || features.some(feature => typeof feature !== "string"))) {
       throw new Error("Launcher browser helper advertised invalid features");
     }
-    return { type: "ready", ...(features ? { features: features as string[] } : {}) };
+    if (message.protocolVersion !== undefined
+      && (!Number.isSafeInteger(message.protocolVersion) || (message.protocolVersion as number) < 1)) {
+      throw new Error("Launcher browser helper protocol version is invalid");
+    }
+    let identity: RuntimeIdentity | undefined;
+    if (message.identity !== undefined) {
+      const value = message.identity as Record<string, unknown>;
+      if (!value || typeof value !== "object" || Array.isArray(value)
+        || value.protocolVersion !== message.protocolVersion
+        || typeof value.generation !== "string" || !/^[a-f0-9-]{36}$/.test(value.generation)
+        || !Number.isSafeInteger(value.pid) || (value.pid as number) <= 0
+        || (value.buildCommit !== null && (typeof value.buildCommit !== "string" || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(value.buildCommit)))
+        || (value.artifactSha256 !== null && (typeof value.artifactSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.artifactSha256)))) {
+        throw new Error("Launcher browser helper identity is invalid");
+      }
+      identity = value as unknown as RuntimeIdentity;
+    }
+    return {
+      type: "ready",
+      ...(features ? { features: features as string[] } : {}),
+      ...(message.protocolVersion !== undefined ? { protocolVersion: message.protocolVersion as number } : {}),
+      ...(identity ? { identity } : {}),
+    };
   }
   if (typeof message.id !== "string" || !message.id) {
     throw new Error("Launcher browser helper message has no turn identity");
@@ -186,8 +214,20 @@ export class LauncherBrowserHelperClient {
   private readyReject?: (error: Error) => void;
   private readonly pending = new Map<string, PendingTurn>();
   private helperFeatures = new Set<string>();
+  private helperIdentity: RuntimeIdentity | null = null;
+  private helperProtocolStatus: "compatible" | "legacy_unverified" | "disconnected" = "disconnected";
+  private readonly helperDiagnosticOwner = Symbol("launcher-helper-client");
+  private expectedHelperArtifactSha256: string | null = null;
 
   constructor(private readonly config: ResolvedBrowserConfig) {}
+
+  getHelperIdentity(): RuntimeIdentity | null {
+    return this.helperIdentity;
+  }
+
+  getHelperProtocolStatus(): "compatible" | "legacy_unverified" | "disconnected" {
+    return this.helperProtocolStatus;
+  }
 
   /**
    * The helper that shipped with this daemon, when one sits beside its own entrypoint.
@@ -329,6 +369,10 @@ export class LauncherBrowserHelperClient {
     this.ready = undefined;
     this.readyResolve = undefined;
     this.readyReject = undefined;
+    this.helperIdentity = null;
+    this.helperProtocolStatus = "disconnected";
+    this.expectedHelperArtifactSha256 = null;
+    setObservedHelperDiagnostic(this.helperDiagnosticOwner, null);
     for (const id of [...this.pending.keys()]) {
       this.finishWithError(id, new DOMException("Launcher browser helper is closing", "AbortError"));
     }
@@ -346,9 +390,11 @@ export class LauncherBrowserHelperClient {
       return this.ready;
     }
     const descriptor = readLauncherBrowserHostDescriptor(this.config.browserHostDescriptorPath!);
+    const scriptPath = this.config.browserHelperScriptPath ?? this.bundledHelperScript() ?? descriptor.helper.script;
+    this.expectedHelperArtifactSha256 = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
     const child = spawn(
       descriptor.helper.executable,
-      [this.config.browserHelperScriptPath ?? this.bundledHelperScript() ?? descriptor.helper.script],
+      [scriptPath],
       {
         env: {
           ...process.env,
@@ -424,8 +470,33 @@ export class LauncherBrowserHelperClient {
       return;
     }
     if (message.type === "ready") {
+      if (message.protocolVersion !== undefined && message.protocolVersion !== RUNTIME_PROTOCOL_VERSION) {
+        this.handleExit(child, new Error(
+          `Incompatible helper protocol ${message.protocolVersion}; daemon requires ${RUNTIME_PROTOCOL_VERSION}`,
+        ));
+        void this.terminateChild(child, 0).catch(() => {});
+        return;
+      }
+      if (message.protocolVersion !== undefined && !message.identity) {
+        this.handleExit(child, new Error("Versioned launcher browser helper omitted its runtime identity"));
+        void this.terminateChild(child, 0).catch(() => {});
+        return;
+      }
+      if (message.identity && (message.identity.pid !== child.pid
+        || message.identity.artifactSha256 !== this.expectedHelperArtifactSha256)) {
+        this.handleExit(child, new Error("Launcher browser helper artifact hash or process identity disagrees with the launched helper"));
+        void this.terminateChild(child, 0).catch(() => {});
+        return;
+      }
       // Optional frames are sent only when the helper advertises support for them.
       this.helperFeatures = new Set(message.features ?? []);
+      this.helperIdentity = message.identity ?? null;
+      this.helperProtocolStatus = message.identity ? "compatible" : "legacy_unverified";
+      setObservedHelperDiagnostic(this.helperDiagnosticOwner, {
+        pid: child.pid!,
+        protocolStatus: this.helperProtocolStatus,
+        identity: this.helperIdentity,
+      });
       this.readyResolve?.();
       this.readyResolve = undefined;
       this.readyReject = undefined;
@@ -539,6 +610,17 @@ export class LauncherBrowserHelperClient {
             return;
           }
           pending.prepared = prepared;
+          if (prepared.multipart && !this.helperFeatures.has("multipart-submission-lifecycle")) {
+            throw new ChatGptWebAdapterError(
+              "Launcher browser helper lacks the multipart submission lifecycle; update or restart the launcher before retrying",
+              {
+                status: 409,
+                errorType: "invalid_request_error",
+                code: "helper_protocol_incompatible",
+                retryable: false,
+              },
+            );
+          }
           if (prepared.skillFiles?.length && !this.helperFeatures.has("skill-attachments")) {
             throw new Error("Launcher browser helper does not support skill attachments; update or restart the launcher");
           }
@@ -671,6 +753,10 @@ export class LauncherBrowserHelperClient {
 
   private handleExit(child: ChildProcessWithoutNullStreams, error: Error): void {
     if (this.child !== child) return;
+    this.helperIdentity = null;
+    this.helperProtocolStatus = "disconnected";
+    this.expectedHelperArtifactSha256 = null;
+    setObservedHelperDiagnostic(this.helperDiagnosticOwner, null);
     this.readyReject?.(error);
     this.readyReject = undefined;
     this.readyResolve = undefined;

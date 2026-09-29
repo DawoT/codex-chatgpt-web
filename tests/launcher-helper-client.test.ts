@@ -1,6 +1,7 @@
 import { selectedSkillFile } from "../src/adapters/chatgpt-web/skill-attachments";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
@@ -122,6 +123,12 @@ test("daemon streams browser lifecycle through the real helper process", async (
       onLunaCheckpoint: checkpoint => checkpoints.push(checkpoint),
     });
     expect(result).toBe("done");
+    expect(client.getHelperIdentity()).toMatchObject({
+      protocolVersion: 1,
+      pid: expect.any(Number),
+      generation: expect.stringMatching(/^[a-f0-9-]{36}$/),
+      artifactSha256: createHash("sha256").update(readFileSync(helper)).digest("hex"),
+    });
     expect(reasoning).toEqual([
       { text: "Reading project", continuation: false },
       { text: " files", continuation: true },
@@ -249,6 +256,74 @@ test("accepted compaction retires through the helper as completed without hiding
   }
 });
 
+test("a helper without multipart submission lifecycle never receives multipart payload", async () => {
+  const client = new LauncherBrowserHelperClient({
+    appName: "Codex Native",
+    browserHost: "launcher",
+    browserHostDescriptorPath: "/durable/launcher.json",
+    storageStatePath: "/durable/unused-state.json",
+    chromeExecutablePath: "/durable/unused-chrome",
+    turnTimeoutMs: 60_000,
+    headed: true,
+    autoApproveToolCalls: false,
+    useSavedChats: false,
+  });
+  const sent: string[] = [];
+  let released = false;
+  const internal = client as unknown as {
+    child?: unknown;
+    helperFeatures: Set<string>;
+    ensureChild(): Promise<void>;
+    send(message: { type: string; id?: string }): Promise<void>;
+    handleLine(child: unknown, line: string): void;
+  };
+  const child = {};
+  internal.child = child;
+  internal.helperFeatures = new Set(["multipart-stage-ack"]);
+  internal.ensureChild = async () => {};
+  internal.send = async message => {
+    sent.push(message.type);
+    if (message.type === "run") {
+      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
+        type: "event", id: message.id, event: "prepared_selected", reused: false,
+      })));
+    } else if (message.type === "prepared_selected_ack") {
+      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
+        type: "result", id: message.id, text: "legacy helper would submit",
+      })));
+    } else if (message.type === "abort") {
+      queueMicrotask(() => internal.handleLine(child, JSON.stringify({
+        type: "error", id: message.id, message: "helper stopped",
+      })));
+    }
+  };
+
+  const failure = await client.run({
+    traceId: "old-multipart-helper",
+    modelId: "gpt-5.6-sol",
+    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+    prepare: async () => ({
+      text: "commit",
+      images: [],
+      multipart: { parts: ["part one", "part two"], commit: "commit" },
+      release() { released = true; },
+    }),
+    onTextDelta() {},
+  }).catch(error => error);
+  expect(failure).toMatchObject({ code: "helper_protocol_incompatible", retryable: false });
+  expect(failure.message).toContain("multipart submission lifecycle");
+  expect(sent).toEqual(["run", "abort"]);
+  expect(released).toBe(true);
+  await expect(client.run({
+    traceId: "old-inline-helper",
+    modelId: "gpt-5.6-sol",
+    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+    prepare: async () => ({ text: "inline", images: [], release() {} }),
+    onTextDelta() {},
+  })).resolves.toBe("legacy helper would submit");
+  expect(sent).toEqual(["run", "abort", "run", "prepared_selected_ack"]);
+});
+
 test("launcher helper protocol preserves multipart context and the compaction flag", async () => {
   const sent: Record<string, unknown>[] = [];
   const client = new LauncherBrowserHelperClient({
@@ -273,7 +348,7 @@ test("launcher helper protocol preserves multipart context and the compaction fl
   };
   const child = {};
   internal.child = child;
-  internal.helperFeatures = new Set(["checkpoint-markdown-v2"]);
+  internal.helperFeatures = new Set(["checkpoint-markdown-v2", "multipart-submission-lifecycle"]);
   internal.ensureChild = async () => {};
   internal.send = async message => {
     sent.push(message);

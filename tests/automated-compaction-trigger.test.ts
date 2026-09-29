@@ -153,6 +153,109 @@ describe("Sprint Y: Autonomous Memory Compaction & Turn Checkpoints", () => {
   });
 
   describe("validateCompactionQuality (Quality Gate)", () => {
+    it("rejects two active checkpoint blocks instead of accepting the first", () => {
+      const block = `<compaction_state>
+version: 2
+original_request_ref: user turn 1
+modified_files:
+active_hypothesis: Continue bridge.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user turn 1: bridge"}
+closure_criteria:
+- Bridge works
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue bridge
+next_actions:
+- Implement bridge
+</compaction_state>`;
+      const messages: CodexMessage[] = [{ role: "user", content: "Build bridge", timestamp: 1 }];
+      const verdict = validateCompactionQuality(messages, `${block}\n\n${block}`, { requireStructured: true });
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants).toContain("Multiple active compaction state blocks");
+    });
+
+    it("rejects nested checkpoint tags even when the first block looks valid", () => {
+      const summary = `<compaction_state>
+version: 2
+original_request_ref: user turn 1
+modified_files:
+active_hypothesis: Continue bridge.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user turn 1: bridge"}
+closure_criteria:
+- Bridge works
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Continue bridge
+<compaction_state>
+next_actions:
+- Implement bridge
+</compaction_state>
+</compaction_state>`;
+      const verdict = validateCompactionQuality(
+        [{ role: "user", content: "Build bridge", timestamp: 1 }],
+        summary,
+        { requireStructured: true },
+      );
+      expect(verdict.valid).toBe(false);
+      expect(verdict.missingInvariants).toContain("Multiple active compaction state blocks");
+    });
+
+    it("does not count a tag quoted inside requirement source as another active block", () => {
+      const summary = `<compaction_state>
+version: 2
+original_request_ref: user turn 1
+modified_files:
+active_hypothesis: Explain checkpoint syntax.
+requirements:
+- {"id":"REQ-1","status":"pending","source":"user turn 1: document <compaction_state> syntax"}
+closure_criteria:
+- Documentation complete
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+- None
+pending_obligations:
+- Write documentation
+next_actions:
+- Write documentation
+</compaction_state>`;
+      expect(validateCompactionQuality(
+        [{ role: "user", content: "Document checkpoint syntax", timestamp: 1 }],
+        summary,
+        { requireStructured: true },
+      ).valid).toBe(true);
+    });
+
+    it("accepts decorated checkpoint headings after parsing them", () => {
+      const summary = `<compaction_state>
+**version**: 2
+**original\\_request\\_ref**: user turn 1
+**modified\\_files**:
+**active\\_hypothesis**: Continue bridge.
+**requirements**:
+- {"id":"REQ-1","status":"pending","source":"user turn 1: bridge"}
+**closure\\_criteria**:
+- Bridge works
+**verified\\_achievements**:
+**decisions\\_and\\_invariants**:
+**blockers\\_or\\_test\\_failures**:
+- None
+**pending\\_obligations**:
+- Continue bridge
+**next\\_actions**:
+- Implement bridge
+</compaction_state>`;
+      const messages: CodexMessage[] = [{ role: "user", content: "Build bridge", timestamp: 1 }];
+      expect(validateCompactionQuality(messages, summary, { requireStructured: true }).valid).toBe(true);
+    });
     it("ignores checkpoint-shaped examples in ordinary user requests", () => {
       const example = `<compaction_state>
 version: 2

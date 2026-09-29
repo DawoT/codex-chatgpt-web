@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import type { CodexMessage } from "../../types";
 import type { ChatGptTurnEnvironment } from "./environment";
@@ -35,18 +36,23 @@ export function initializeTurnWorkspace(environment: ChatGptTurnEnvironment | un
   if (subagentId) resolveSubagentWorkspace(root, subagentId, true);
 }
 
-export function persistTurnCompaction(environment: ChatGptTurnEnvironment | undefined, messages: readonly CodexMessage[], summary: string): void {
+export function persistTurnCompaction(environment: ChatGptTurnEnvironment | undefined, messages: readonly CodexMessage[], summary: string): boolean {
   const root = writableWorkspace(environment, ["STATE.md", "checkpoints"]);
-  if (!root) return;
-  const nextEpoch = (listTurnCheckpoints(root)[0]?.epoch ?? 0) + 1;
-  saveTurnCheckpoint(root, {
-    epoch: nextEpoch,
-    turnCount: messages.length,
-    stateSnapshot: readWorkspaceState(root),
-    compactSummary: summary,
-    prunedFileReferences: extractReferencedFilePaths(messages),
-  }, undefined, true);
+  if (!root) return false;
+  const sourceHistoryHash = createHash("sha256").update(JSON.stringify(messages)).digest("hex");
+  const latest = listTurnCheckpoints(root)[0];
+  if (latest?.compactSummary !== summary || latest.metadata?.sourceHistoryHash !== sourceHistoryHash) {
+    saveTurnCheckpoint(root, {
+      epoch: (latest?.epoch ?? 0) + 1,
+      turnCount: messages.length,
+      stateSnapshot: readWorkspaceState(root),
+      compactSummary: summary,
+      prunedFileReferences: extractReferencedFilePaths(messages),
+      metadata: { sourceHistoryHash },
+    }, undefined, true);
+  }
   // Recheck immediately before the second write; checkpoint persistence may take time.
   writableWorkspace(environment, ["STATE.md"]);
   mergeCompactionIntoWorkspaceState(root, summary, undefined, true);
+  return true;
 }

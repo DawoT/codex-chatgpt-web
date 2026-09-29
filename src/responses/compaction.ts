@@ -56,6 +56,47 @@ export interface CompactionRequirement {
   status: "pending" | "blocked" | "verified";
   source: string;
   evidence?: string;
+  evidenceRefs?: string[];
+}
+
+export interface CompactionAchievement {
+  result: string;
+  evidence: string;
+  evidenceRefs?: string[];
+}
+
+function checkpointField(line: string): { name: string; value: string } | null {
+  const match = /^(?:[-*]\s+)?(?:#{1,4}\s*)?(?:(\*\*|__)([a-z][a-z_\\-]*)\1|([a-z][a-z_\\-]*))\s*:\s*(.*)$/i.exec(line.trim());
+  return match
+    ? { name: (match[2] ?? match[3])!.replace(/\\_/g, "_").toLowerCase(), value: match[4]! }
+    : null;
+}
+
+/** Field presence is derived from the same syntax accepted by the parser. */
+export function compactionStateFields(summary: string): Set<string> {
+  const bounds = locateCompactionStateBounds(summary);
+  const text = bounds ? summary.slice(bounds.openingEnd, bounds.closingStart) : summary;
+  return new Set(text.split(/\r?\n/).flatMap(line => {
+    const field = checkpointField(line);
+    return field ? [field.name] : [];
+  }));
+}
+
+/** Ignore fenced examples when an active unfenced block exists. */
+export function countActiveCompactionStates(summary: string): number {
+  let rest = summary;
+  let count = 0;
+  const unfenced = locateCompactionStateBounds(summary, { unfencedOnly: true }) !== null;
+  const standaloneOpening = new RegExp(`^\\s*${PERMISSIVE_OPENING_TAG.source}\\s*$`, "i");
+  while (true) {
+    const bounds = locateCompactionStateBounds(rest, { unfencedOnly: unfenced });
+    if (!bounds) break;
+    count += 1;
+    count += rest.slice(bounds.openingEnd, bounds.closingStart)
+      .split(/\r?\n/).filter(line => standaloneOpening.test(line)).length;
+    rest = rest.slice(bounds.endTagEnd);
+  }
+  return count;
 }
 
 export interface CompactionStateBlock {
@@ -65,7 +106,7 @@ export interface CompactionStateBlock {
   activeHypothesis?: string;
   requirements?: CompactionRequirement[];
   closureCriteria?: string[];
-  verifiedAchievements?: string[];
+  verifiedAchievements?: Array<string | CompactionAchievement>;
   decisionsAndInvariants?: string[];
   blockersOrTestFailures: string[];
   pendingObligations?: string[];
@@ -351,7 +392,7 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
   const modifiedFiles: string[] = [];
   const requirements: CompactionRequirement[] = [];
   const closureCriteria: string[] = [];
-  const verifiedAchievements: string[] = [];
+  const verifiedAchievements: Array<string | CompactionAchievement> = [];
   const decisionsAndInvariants: string[] = [];
   const blockersOrTestFailures: string[] = [];
   const pendingObligations: string[] = [];
@@ -371,56 +412,57 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
     | "next_actions"
     | "none" = "none";
 
-  for (let line of lines) {
+  for (const line of lines) {
     if (!line) continue;
-    // Normalize escaped underscores in section headers
-    line = line.replace(/^(?:[-*]\s+)?([a-z_\\-]+:)/i, (_, h) => h.replace(/\\_/g, "_"));
+    const field = checkpointField(line);
+    const name = field?.name;
+    const value = field?.value ?? "";
 
-    if (line.startsWith("version:")) {
+    if (name === "version") {
       currentSection = "none";
-      version = Number(line.slice("version:".length).trim());
+      version = Number(value.trim());
       continue;
     }
-    if (line.startsWith("original_request_ref:")) {
+    if (name === "original_request_ref") {
       currentSection = "none";
-      originalRequestRef = line.slice("original_request_ref:".length).trim();
+      originalRequestRef = value.trim();
       continue;
     }
-    if (line.startsWith("modified_files:")) {
+    if (name === "modified_files") {
       currentSection = "modified_files";
       continue;
     }
-    if (line.startsWith("active_hypothesis:")) {
+    if (name === "active_hypothesis") {
       currentSection = "none";
-      const rest = line.slice("active_hypothesis:".length).trim();
+      const rest = value.trim();
       if (rest) activeHypothesis = rest;
       continue;
     }
-    if (line.startsWith("requirements:")) {
+    if (name === "requirements") {
       currentSection = "requirements";
       continue;
     }
-    if (line.startsWith("closure_criteria:")) {
+    if (name === "closure_criteria") {
       currentSection = "closure_criteria";
       continue;
     }
-    if (line.startsWith("verified_achievements:")) {
+    if (name === "verified_achievements") {
       currentSection = "verified_achievements";
       continue;
     }
-    if (line.startsWith("decisions_and_invariants:")) {
+    if (name === "decisions_and_invariants") {
       currentSection = "decisions_and_invariants";
       continue;
     }
-    if (line.startsWith("blockers_or_test_failures:") || line.startsWith("blockers:")) {
+    if (name === "blockers_or_test_failures" || name === "blockers") {
       currentSection = "blockers";
       continue;
     }
-    if (line.startsWith("pending_obligations:")) {
+    if (name === "pending_obligations") {
       currentSection = "pending_obligations";
       continue;
     }
-    if (line.startsWith("next_actions:") || line.startsWith("next_steps:")) {
+    if (name === "next_actions" || name === "next_steps") {
       currentSection = "next_actions";
       continue;
     }
@@ -442,7 +484,20 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
       } else if (currentSection === "closure_criteria") {
         closureCriteria.push(item);
       } else if (currentSection === "verified_achievements") {
-        verifiedAchievements.push(item);
+        if (item.startsWith("{")) {
+          try {
+            const achievement: unknown = JSON.parse(item);
+            if (achievement && typeof achievement === "object" && !Array.isArray(achievement)) {
+              verifiedAchievements.push(achievement as CompactionAchievement);
+            } else {
+              verifiedAchievements.push(item);
+            }
+          } catch {
+            verifiedAchievements.push(item);
+          }
+        } else {
+          verifiedAchievements.push(item);
+        }
       } else if (currentSection === "decisions_and_invariants") {
         decisionsAndInvariants.push(item);
       } else if (currentSection === "blockers") {
@@ -476,19 +531,22 @@ function parseTaglessCompactionState(summary: string): CompactionStateBlock | nu
   if (PERMISSIVE_OPENING_TAG.test(summary) || PERMISSIVE_CLOSING_TAG.test(summary)) {
     return null;
   }
-  const hasVersion = /(?:^|\n)\s*version:\s*\d+/i.test(summary);
-  const hasRequirements = /(?:^|\n)\s*requirements:/i.test(summary);
-  const hasNextActions = /(?:^|\n)\s*(?:next_actions|next_steps):/i.test(summary);
+  const fields = compactionStateFields(summary);
+  const hasVersion = fields.has("version");
+  const hasRequirements = fields.has("requirements");
+  const hasNextActions = fields.has("next_actions") || fields.has("next_steps");
 
   if (!hasRequirements || !hasNextActions) return null;
   if (!hasVersion) {
-    const structuredHeaders = (summary.match(/(?:^|\n)\s*(?:modified_files|active_hypothesis|closure_criteria|verified_achievements|decisions_and_invariants|blockers_or_test_failures|blockers|pending_obligations):/gi) ?? []).length;
+    const structuredHeaders = [
+      "modified_files", "active_hypothesis", "closure_criteria", "verified_achievements",
+      "decisions_and_invariants", "blockers_or_test_failures", "blockers", "pending_obligations",
+    ].filter(field => fields.has(field)).length;
     if (structuredHeaders < 2) return null;
   }
 
   const parsed = parseCompactionStateLines(summary);
   if (!parsed.requirements?.length || !parsed.nextActions?.length) return null;
-  if (parsed.version === undefined) parsed.version = 2;
   return parsed;
 }
 
@@ -534,7 +592,9 @@ export function formatCompactionStateBlock(block: CompactionStateBlock): string 
   if (block.verifiedAchievements) {
     parts.push("verified_achievements:");
     if (block.verifiedAchievements.length === 0) parts.push("- None");
-    else for (const achievement of block.verifiedAchievements) parts.push(`- ${achievement}`);
+    else for (const achievement of block.verifiedAchievements) {
+      parts.push(`- ${typeof achievement === "string" ? achievement : JSON.stringify(achievement)}`);
+    }
   }
 
   if (block.decisionsAndInvariants) {
@@ -589,13 +649,17 @@ export function extractStructuredCompactionHandoff(summary: string): {
 
   // Tagless structured checkpoint
   const lines = summary.split(/\r?\n/);
-  const structuredHeaderRe = /^(?:version|original_request_ref|modified_files|active_hypothesis|requirements|closure_criteria|verified_achievements|decisions_and_invariants|blockers_or_test_failures|blockers|pending_obligations|next_actions|next_steps):/i;
+  const structuredHeaders = new Set([
+    "version", "original_request_ref", "modified_files", "active_hypothesis", "requirements",
+    "closure_criteria", "verified_achievements", "decisions_and_invariants", "blockers_or_test_failures",
+    "blockers", "pending_obligations", "next_actions", "next_steps",
+  ]);
   let firstStructuredLine = -1;
   let lastStructuredLine = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!.trim();
-    if (structuredHeaderRe.test(line)) {
+    if (structuredHeaders.has(checkpointField(line)?.name ?? "")) {
       if (firstStructuredLine < 0) firstStructuredLine = i;
       lastStructuredLine = i;
     } else if (firstStructuredLine >= 0 && (line.startsWith("- ") || line.startsWith("* "))) {

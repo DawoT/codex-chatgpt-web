@@ -1,6 +1,6 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
 import { mock } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserTurn } from "../src/adapters/chatgpt-web/browser-worker";
@@ -1615,6 +1615,93 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
     expect(releases).toBe(1);
   } finally {
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+    chatGptTurnSessions.clear();
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.each([false, true])("retained handoff persists before retirement and avoids a second write (post-persist path change=%s)", async afterPersist => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-persist-failure-"));
+  const workspace = join(root, "workspace");
+  const outside = join(root, "outside");
+  mkdirSync(join(workspace, ".agents"), { recursive: true });
+  mkdirSync(outside);
+  if (!afterPersist) symlinkSync(outside, join(workspace, ".agents", "checkpoints"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: `browser://persist-failure-${Date.now()}`,
+    chatgptWeb: {
+      browserHost: "launcher",
+      browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root),
+      localToolsEnabled: true,
+      solAvailable: true,
+      extraHighAvailable: true,
+      proAvailable: true,
+    },
+  };
+  const broker = TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!);
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  const sourceRequest = request(false);
+  const namespace = chatGptWebExecutionNamespace(provider);
+  const sourceKey = `${namespace}:${chatGptTurnExecutionKey(sourceRequest)}`;
+  const conversationKey = chatGptConversationKey(sourceRequest, namespace)!;
+  let releases = 0;
+  chatGptTurnSessions.getOrCreate(sourceKey, () => ({
+    mode: "read-only",
+    browser: Promise.resolve("source complete"),
+    physicalSettlement: Promise.resolve(),
+    trace: new ChatGptTraceFeed(),
+    text: new ChatGptTextFeed(),
+    conversationKey,
+    releaseRetainedConversation: async () => {
+      releases += 1;
+      if (afterPersist) {
+        const checkpointDir = join(workspace, ".agents", "checkpoints");
+        expect(readdirSync(checkpointDir)).toHaveLength(1);
+        renameSync(checkpointDir, join(workspace, ".agents", "saved-checkpoints"));
+        symlinkSync(outside, checkpointDir);
+      }
+    },
+    cancel() {},
+  }));
+  await chatGptTurnSessions.find(sourceKey)!.browserOutcome;
+  worker.run = async turn => {
+    const prepared = await turn.prepareResume!();
+    const binding = controlBinding(prepared.text);
+    prepared.release();
+    await callTurnBroker(provider.chatgptWeb!.brokerSocketPath!, {
+      method: "submit_compaction_handoff",
+      token: binding.token,
+      handoffId: binding.handoffId,
+      summary: missionCheckpoint("Valid but unpersistable checkpoint"),
+    });
+    return "submitted";
+  };
+  const compact = request(true);
+  compact._hostTurn = {
+    sessionId: nativeThreadId(),
+    turnId: "turn_compact",
+    environment: {
+      cwd: workspace,
+      roots: [workspace],
+      writableRoots: [workspace],
+      sandboxPolicy: { type: "workspaceWrite", writableRoots: [workspace], networkAccess: false },
+      tools: [],
+    },
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(compact, { headers: new Headers() }, event => events.push(event));
+    expect(events.at(-1)).toMatchObject(afterPersist
+      ? { type: "done", stopReason: "stop" }
+      : { type: "error", code: "context_checkpoint_persistence_failed" });
+    expect(releases).toBe(afterPersist ? 1 : 0);
+    expect(chatGptTurnSessions.findConversationHead(conversationKey)).toBe(afterPersist ? undefined : chatGptTurnSessions.find(sourceKey));
+  } finally {
+    worker.run = originalRun;
     chatGptTurnSessions.clear();
     await broker.close();
     rmSync(root, { recursive: true, force: true });

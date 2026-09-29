@@ -3599,14 +3599,16 @@ export class ChatGptBrowserWorker {
               checkpoint => diagnostics.capture(page, `multipart-${index + 1}-${checkpoint}`),
               turn.abortSignal ? AbortSignal.any([stageSignal, turn.abortSignal]) : stageSignal,
               undefined,
-              { onSubmitted: () => {
+              { onSubmitted: async () => {
                 recordStageUsage?.();
                 recordAcceptedPayload(index);
+                await turn.onSubmitted?.();
               }, onSendActivated: async () => {
                 await this.assertSelectedEffort(page, mode);
                 submissionRejection.begin(page);
                 stageSendActivatedAt = performance.now();
                 console.info(`[chatgpt-web] browser turn ${turn.traceId} multipart_stage=${index + 1} send_phase=activated readyWaitMs=${Math.round(stageSendActivatedAt - stageSendPreparedAt)}`);
+                await turn.onSendActivated?.();
               } },
               undefined,
               launcherObservationRecovery

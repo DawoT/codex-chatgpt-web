@@ -528,6 +528,9 @@ export function bridgeToResponsesSSE(
                 type: "compaction", id: `cmp_${uuid()}`,
                 encrypted_content: encodeCompactionSummary(compactionText),
               };
+              console.info(
+                `[chatgpt-web] [COMPACTION STREAM 🟢] Emitting synthetic compaction item to Codex CLI (chars=${compactionText.length})`,
+              );
               emit("response.output_item.done", { output_index: outputIndex, item });
               finishedItems.push(item as OutputItem);
               outputIndex++;

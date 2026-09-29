@@ -102,6 +102,17 @@ try {
   if (payload.service !== "codex-chatgpt-web" || payload.mode !== "browser-only") {
     throw new Error(`unexpected health payload: ${JSON.stringify(payload)}`);
   }
+  const loadedIdentity = payload.runtime_identity as Record<string, unknown> | undefined;
+  const manifestFiles = manifest.files as Array<{ path: string; sha256: string }>;
+  const expectedCliHash = manifestFiles.find(file => file.path === "app/cli.js")?.sha256;
+  if (!loadedIdentity
+    || loadedIdentity.buildCommit !== manifest.buildCommit
+    || loadedIdentity.artifactSha256 !== expectedCliHash
+    || loadedIdentity.pid !== child.pid
+    || loadedIdentity.protocolVersion !== 1
+    || typeof loadedIdentity.generation !== "string") {
+    throw new Error(`relocated daemon loaded identity does not match its runtime manifest: ${JSON.stringify(loadedIdentity)}`);
+  }
 
   const unauthenticatedModels = await fetch(`http://127.0.0.1:${port}/v1/models`);
   const unauthenticatedModelsBody = await unauthenticatedModels.json() as { error?: { message?: string } };

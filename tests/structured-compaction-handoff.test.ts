@@ -318,4 +318,59 @@ Second paragraph of narrative summary.`;
     expect(handoff.narrative).toBe("Before checkpoint narrative.\n\nAfter checkpoint narrative.");
     expect(handoff.state?.version).toBe(2);
   });
+
+  test("does not invent a version for a tagless legacy checkpoint", () => {
+    const summary = [
+      "modified_files:",
+      "- src/bridge.ts",
+      "requirements:",
+      '- {"id":"REQ-1","status":"pending","source":"user request"}',
+      "closure_criteria:",
+      "- Bridge works",
+      "next_actions:",
+      "- Continue",
+    ].join("\n");
+    expect(parseCompactionState(summary)?.version).toBeUndefined();
+  });
+
+  test("reads decorated field names without changing their values", () => {
+    const summary = [
+      "<compaction_state>",
+      "**version**: 2",
+      "**original\\_request\\_ref**: request-1",
+      "**modified\\_files**:",
+      "- src/a_b.ts",
+      "**active\\_hypothesis**: Preserve `a_b` exactly",
+      "**requirements**:",
+      '- {"id":"REQ-1","status":"pending","source":"keep a_b"}',
+      "**next\\_actions**:",
+      "- Check a_b",
+      "</compaction_state>",
+    ].join("\n");
+    const parsed = parseCompactionState(summary);
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.originalRequestRef).toBe("request-1");
+    expect(parsed?.modifiedFiles).toEqual(["src/a_b.ts"]);
+    expect(parsed?.activeHypothesis).toBe("Preserve `a_b` exactly");
+    expect(parsed?.nextActions).toEqual(["Check a_b"]);
+  });
+
+  test("reads tagless underscore emphasis as one checkpoint", () => {
+    const summary = [
+      "Before state.",
+      "__version__: 2",
+      "__modified_files__:",
+      "- src/bridge.ts",
+      "__requirements__:",
+      '- {"id":"REQ-1","status":"pending","source":"bridge"}',
+      "__closure_criteria__:",
+      "- Bridge works",
+      "__next_actions__:",
+      "- Continue",
+      "After state.",
+    ].join("\n");
+    expect(parseCompactionState(summary)?.version).toBe(2);
+    expect(parseCompactionState(summary)?.modifiedFiles).toEqual(["src/bridge.ts"]);
+    expect(extractStructuredCompactionHandoff(summary).narrative).toBe("Before state.\n\nAfter state.");
+  });
 });

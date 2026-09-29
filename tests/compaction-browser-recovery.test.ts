@@ -21,6 +21,7 @@ test.each([[true, false, true], [false, false, true], [true, true, true], [true,
   let stage = "";
   let released = false;
   let activated = 0;
+  let accepted = 0;
   const frame = {};
   const page = Object.assign(new EventEmitter(), { evaluate: async () => ({}), isClosed: () => false, mainFrame: () => frame });
   const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
@@ -88,6 +89,7 @@ test.each([[true, false, true], [false, false, true], [true, true, true], [true,
       modelFamily: "5.6",
       reasoning: effort,
       onSendActivated: () => { activated += 1; },
+      onSubmitted: () => { accepted += 1; },
       capabilities,
       compaction: !tools,
       externalProgress: progress,
@@ -112,7 +114,8 @@ test.each([[true, false, true], [false, false, true], [true, true, true], [true,
     ]);
     expect(sendBudgets).toEqual(multipart ? Array(6).fill(180_000) : [20_000]);
     expect(released).toBe(true);
-    expect(activated).toBe(1);
+    expect(activated).toBe(multipart ? 6 : 1);
+    expect(accepted).toBe(multipart ? 6 : 1);
     expect(page.listenerCount("request")).toBe(0);
     expect(page.listenerCount("response")).toBe(0);
   } finally {

@@ -5,8 +5,21 @@ import type { ChatGptTurnSession } from "../turn-execution";
 
 export function submittedTurnFailure(session: ChatGptTurnSession, error: unknown): Error {
   const normalized = error instanceof Error ? error : new Error(String(error));
-  if (normalized instanceof ChatGptWebAdapterError) return normalized;
   const phase = session.runtime.submission?.phase;
+  if (normalized instanceof ChatGptWebAdapterError
+    && (!normalized.retryable || !phase || phase === "prepared")) return normalized;
+  if (phase === "prepared" && /^ChatGPT browser stage timed out: (?:send|multipart_stage_\d+_send)$/.test(normalized.message)) {
+    return new ChatGptWebAdapterError(
+      "ChatGPT did not accept the prompt before Send activation. Retry this turn.",
+      {
+        status: 504,
+        errorType: "server_error",
+        code: "chatgpt_submission_not_accepted",
+        retryable: true,
+        cause: normalized,
+      },
+    );
+  }
   if (!phase || phase === "prepared") return normalized;
   const ambiguous = phase === "send_activated";
   return new ChatGptWebAdapterError(

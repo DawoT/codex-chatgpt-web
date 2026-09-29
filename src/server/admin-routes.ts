@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { VERSION } from "../version";
+import { getObservedHelperDiagnostics, runtimeIdentity } from "../runtime-identity";
 import { runtimeMetrics } from "../adapters/chatgpt-web/runtime-metrics";
 import { dispatchAlertWebhook, getDefaultAlertWebhookUrl } from "../adapters/chatgpt-web/alert-webhook";
 import { workspaceFileCache } from "../adapters/chatgpt-web/fast-path-cache";
@@ -67,6 +68,8 @@ export async function handleAdminRoute(
       service: "codex-chatgpt-web",
       hostProtocol: 1,
       version: VERSION,
+      runtime_identity: runtimeIdentity,
+      helper_runtimes: getObservedHelperDiagnostics(),
       mode: config.mode,
       pid: process.pid,
       port: config.port,
@@ -329,7 +332,11 @@ export async function handleAdminRoute(
       janitorStats,
       tunnelStats,
     });
-    return Response.json(body);
+    return Response.json({
+      ...body,
+      runtime_identity: runtimeIdentity,
+      helper_runtimes: getObservedHelperDiagnostics(),
+    });
   }
 
   return undefined;

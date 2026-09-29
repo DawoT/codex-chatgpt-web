@@ -1194,6 +1194,109 @@ describe("ChatGPT outer-native harness v4", () => {
     }
   });
 
+  test("a later multipart Send activation cannot erase an accepted earlier stage", async () => {
+    const provider: CodexProviderConfig = {
+      adapter: "chatgpt-web",
+      baseUrl: `browser://multipart-accepted-stage-${Date.now()}`,
+      chatgptWeb: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+    };
+    const worker = ChatGptBrowserWorker.forProvider(provider);
+    const originalRun = worker.run.bind(worker);
+    let browserStarts = 0;
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+      browserStarts += 1;
+      await turn.onSendActivated?.();
+      await turn.onSubmitted?.();
+      await turn.onSendActivated?.();
+      throw new Error("later multipart stage failed after the first was accepted");
+    };
+
+    try {
+      const request = rawWireRequest(environmentXml);
+      const adapter = createChatGptWebAdapter(provider);
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const events: AdapterEvent[] = [];
+        await adapter.runTurn!(request, { headers: new Headers() }, event => events.push(event));
+        expect(events.at(-1)).toMatchObject({
+          type: "error",
+          code: "chatgpt_submitted_turn_failed",
+          retryable: false,
+        });
+      }
+      expect(browserStarts).toBe(1);
+    } finally {
+      (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+    }
+  });
+
+  test("a Send timeout before activation reports that no prompt was accepted", async () => {
+    const provider: CodexProviderConfig = {
+      adapter: "chatgpt-web",
+      baseUrl: `browser://send-not-accepted-${Date.now()}`,
+      chatgptWeb: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+    };
+    const worker = ChatGptBrowserWorker.forProvider(provider);
+    const originalRun = worker.run.bind(worker);
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async () => {
+      throw new Error("ChatGPT browser stage timed out: send");
+    };
+    try {
+      const events: AdapterEvent[] = [];
+      await createChatGptWebAdapter(provider).runTurn!(
+        rawWireRequest(environmentXml),
+        { headers: new Headers() },
+        event => events.push(event),
+      );
+      expect(events.at(-1)).toMatchObject({
+        type: "error",
+        code: "chatgpt_submission_not_accepted",
+        retryable: true,
+      });
+    } finally {
+      (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+    }
+  });
+
+  for (const phase of ["send_activated", "accepted"] as const) {
+    test(`a retryable upstream error after ${phase} never resubmits the native turn`, async () => {
+      const provider: CodexProviderConfig = {
+        adapter: "chatgpt-web",
+        baseUrl: `browser://retry-after-${phase}-${Date.now()}`,
+        chatgptWeb: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+      };
+      const worker = ChatGptBrowserWorker.forProvider(provider);
+      const originalRun = worker.run.bind(worker);
+      let browserStarts = 0;
+      (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+        browserStarts += 1;
+        await turn.onSendActivated?.();
+        if (phase === "accepted") await turn.onSubmitted?.();
+        throw new ChatGptWebAdapterError("ChatGPT upstream failed", {
+          status: 502,
+          errorType: "server_error",
+          code: "upstream_server_error",
+          retryable: true,
+        });
+      };
+      try {
+        const request = rawWireRequest(environmentXml);
+        const adapter = createChatGptWebAdapter(provider);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const events: AdapterEvent[] = [];
+          await adapter.runTurn!(request, { headers: new Headers() }, event => events.push(event));
+          expect(events.at(-1)).toMatchObject({
+            type: "error",
+            code: phase === "accepted" ? "chatgpt_submitted_turn_failed" : "chatgpt_submission_ambiguous",
+            retryable: false,
+          });
+        }
+        expect(browserStarts).toBe(1);
+      } finally {
+        (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
+      }
+    });
+  }
+
   test("an unclassified browser failure retires its session before the next native retry", async () => {
     const socketPath = brokerTestEndpoint(`cgw-h4-error-retry-${process.pid}-${Date.now()}`);
     const provider: CodexProviderConfig = {
@@ -1265,7 +1368,7 @@ describe("ChatGPT outer-native harness v4", () => {
     }
   });
 
-  test("caps automatic transient-server-error browser sends at three retries for one native turn", async () => {
+  test("caps automatic transient-server-error retries before Send activation", async () => {
     const socketPath = brokerTestEndpoint(`cgw-h4-retry-budget-${process.pid}-${Date.now()}`);
     const provider: CodexProviderConfig = {
       adapter: "chatgpt-web",
@@ -1275,9 +1378,8 @@ describe("ChatGPT outer-native harness v4", () => {
     const worker = ChatGptBrowserWorker.forProvider(provider);
     const originalRun = worker.run.bind(worker);
     let browserStarts = 0;
-    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async () => {
       browserStarts += 1;
-      turn.onSendActivated?.();
       throw new ChatGptWebAdapterError("ChatGPT is temporarily unavailable. Try again in a few minutes.", {
         status: 502,
         errorType: "server_error",

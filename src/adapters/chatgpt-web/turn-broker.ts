@@ -2,6 +2,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { isWindowsPipeEndpoint } from "../../config";
+import { runtimeIdentity } from "../../runtime-identity";
 import { McpTelemetry } from "./mcp-telemetry";
 import { ToolDeliveryLifecycle, type ToolDeliveryPhase } from "./tool-delivery-lifecycle";
 import {
@@ -869,7 +870,11 @@ export class TurnBroker implements TurnBrokerOwner {
       return { submitted: true };
     }
     if (request.method === "owner_status") {
-      return { protocolVersion: 6, acceptingExternalOwners: this.acceptingExternalOwners };
+      return {
+        protocolVersion: 6,
+        identity: runtimeIdentity,
+        acceptingExternalOwners: this.acceptingExternalOwners,
+      };
     }
     if (request.method === "owner_register_alias") {
       if (!request.token) throw new Error("old token is required");
