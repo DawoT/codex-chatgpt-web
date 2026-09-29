@@ -779,3 +779,65 @@ test("a retained surface still present in the launcher blocks a replacement clai
     home.close();
   }
 });
+
+test("manager checkpoint transaction advances history only after a durable valid checkpoint", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+    );
+    const sessionId = "namespace/thread-A";
+    const turnId = "compact-turn";
+    await manager.compactionTransition(sessionId, turnId, "compact-1", "compaction_prepared");
+    await manager.compactionTransition(sessionId, turnId, "compact-1", "compaction_received", "Invalid draft");
+    await manager.compactionTransition(sessionId, turnId, "compact-1", "compaction_rejected");
+    expect(home.journal.snapshot(sessionId)?.historyRevision).toBe(0);
+    await manager.compactionTransition(sessionId, turnId, "compact-2", "compaction_prepared");
+    const received = await manager.compactionTransition(
+      sessionId,
+      turnId,
+      "compact-2",
+      "compaction_received",
+      "Validated checkpoint",
+    );
+    expect(received.status).toBe("accepted");
+    await manager.compactionTransition(sessionId, turnId, "compact-2", "compaction_validated");
+    await manager.compactionTransition(sessionId, turnId, "compact-2", "compaction_persisted");
+    expect(home.journal.snapshot(sessionId)?.historyRevision).toBe(0);
+    await manager.compactionTransition(sessionId, turnId, "compact-2", "compaction_accepted");
+    expect(home.journal.snapshot(sessionId)?.historyRevision).toBe(1);
+    expect(home.journal.snapshot(sessionId)?.compactionEpoch).toBe(1);
+  } finally {
+    home.close();
+  }
+});
+
+test("checkpoint recovery returns only an accepted durable result and never restarts an ambiguous handoff", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-recovery";
+    const turnId = "compact-turn";
+    expect(manager.checkpointRecovery(sessionId, turnId, "checkpoint-1")).toBeNull();
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_prepared");
+    expect(manager.checkpointRecovery(sessionId, turnId, "checkpoint-1")).toEqual({ state: "prepared" });
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_received", "Complete state");
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_validated");
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_persisted");
+    expect(manager.checkpointRecovery(sessionId, turnId, "checkpoint-1")).toEqual({ state: "persisted" });
+    await manager.compactionTransition(sessionId, turnId, "checkpoint-1", "compaction_accepted");
+    home.journal.close();
+    const reopened = new SessionActorJournal(home.path);
+    try {
+      const recovered = new SessionActorManager(reopened, results);
+      expect(recovered.checkpointRecovery(sessionId, turnId, "checkpoint-1"))
+        .toEqual({ state: "accepted", summary: "Complete state" });
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    home.close();
+  }
+});

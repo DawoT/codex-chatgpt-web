@@ -24,7 +24,7 @@ export class SessionActor {
     type: SessionCommand["type"],
     turnId: string,
     operationId: string,
-    fields: Pick<SessionCommand, "historyRevision" | "parentOperationId" | "toolBatchRevision" | "surfaceId"> = {},
+    fields: Pick<SessionCommand, "historyRevision" | "parentOperationId" | "toolBatchRevision" | "surfaceId" | "checkpointRef"> = {},
     expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
     const result = this.tail.then(() => {

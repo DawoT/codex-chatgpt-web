@@ -27,6 +27,68 @@ export class SessionActorManager {
     return this.actor(sessionId).recordLocal("turn_started", nativeTurnId, `turn:${nativeTurnId}`);
   }
 
+  checkpointRecovery(
+    sessionId: string,
+    nativeTurnId: string,
+    operationId: string,
+  ): { state: "accepted"; summary: string } | { state: "prepared" | "received" | "validated" | "persisted" | "rejected" } | null {
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot) return null;
+    const checkpoint = this.journal.compaction(sessionId, snapshot.generation, operationId);
+    if (!checkpoint) return null;
+    if (checkpoint.turnId !== nativeTurnId) {
+      throw new Error("Session actor checkpoint recovery belongs to another turn");
+    }
+    if (checkpoint.state !== "accepted") return { state: checkpoint.state };
+    if (!checkpoint.checkpointRef || !this.results) {
+      throw new Error("Session actor accepted checkpoint has no durable result");
+    }
+    const recovered = this.results.get(checkpoint.checkpointRef);
+    if (recovered.sessionId !== sessionId || recovered.generation !== snapshot.generation
+      || recovered.turnId !== nativeTurnId
+      || recovered.operationId !== `checkpoint:${operationId}`) {
+      throw new Error("Session actor checkpoint recovery identity mismatch");
+    }
+    return { state: "accepted", summary: recovered.text };
+  }
+
+  async compactionTransition(
+    sessionId: string,
+    nativeTurnId: string,
+    operationId: string,
+    phase: "compaction_prepared" | "compaction_received" | "compaction_validated"
+      | "compaction_persisted" | "compaction_accepted" | "compaction_rejected",
+    summary?: string,
+  ): Promise<SessionAcknowledgement> {
+    if (!this.results) throw new Error("Session actor checkpoint result store is unavailable");
+    if (phase === "compaction_prepared") {
+      const admission = await this.beginTurn(sessionId, nativeTurnId);
+      if (admission.status !== "accepted") return admission;
+    }
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot || snapshot.turnId !== nativeTurnId) {
+      throw new Error("Session actor checkpoint turn ownership changed");
+    }
+    let checkpointRef: string | undefined;
+    if (phase === "compaction_received") {
+      if (summary === undefined) throw new Error("Session actor checkpoint summary is required");
+      checkpointRef = this.results.put({
+        sessionId,
+        generation: snapshot.generation,
+        turnId: nativeTurnId,
+        operationId: `checkpoint:${operationId}`,
+        text: summary,
+      });
+    }
+    return this.actor(sessionId).recordLocal(
+      phase,
+      nativeTurnId,
+      operationId,
+      checkpointRef ? { checkpointRef } : {},
+      snapshot.generation,
+    );
+  }
+
   async runBrowserTurn(
     sessionId: string,
     nativeTurnId: string,

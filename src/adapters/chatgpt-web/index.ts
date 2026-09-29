@@ -592,6 +592,7 @@ export function createChatGptWebAdapter(
             retryKey,
             environment,
             startRuntime,
+            sessionActorManager: dependencies.sessionActorManager,
           });
           if (handled) return;
         }

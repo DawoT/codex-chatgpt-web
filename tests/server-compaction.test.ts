@@ -7,10 +7,11 @@ import { COMPACT_PROMPT, SUMMARY_PREFIX, decodeCompactionSummary, encodeCompacti
 import { compactRequest, responseRequest as respond } from "../src/server";
 import type { CodexProviderConfig } from "../src/types";
 import { extractChatGptTurnEnvironment, extractChatGptTurnIdentity, extractChatGptTurnUserRevision } from "../src/adapters/chatgpt-web/environment";
-import { chatGptCompactionSourceExecutionKey, chatGptTurnExecutionKey } from "../src/adapters/chatgpt-web/turn-execution";
+import { chatGptCompactionSourceExecutionKey, chatGptThreadOwnershipKey, chatGptTurnExecutionKey } from "../src/adapters/chatgpt-web/turn-execution";
 import { parseRequest } from "../src/responses/parser";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
-import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
+import { chatGptWebExecutionNamespace, createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
+import { SessionActorJournal, SessionActorManager, SessionResultStore } from "../src/adapters/chatgpt-web/session-actor";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import { defaultBrokerEndpoint } from "../src/config";
 
@@ -19,6 +20,12 @@ const summary = "The repository was inspected. Continue by implementing the boun
 
 test("HTTP /responses runs a real fresh checkpoint repair without manually appending the compact prompt", async () => {
   const root = mkdtempSync(join(process.platform === "win32" ? process.env.TEMP! : "/tmp", "cgw-http-repair-"));
+  const actorJournal = new SessionActorJournal(join(root, "actors", "events.sqlite"));
+  const sessionActorManager = new SessionActorManager(
+    actorJournal,
+    new SessionResultStore(join(root, "actors", "results")),
+  );
+  let actorSessionId: string | undefined;
   const config = defaultConfig("full");
   config.browserHost = "launcher";
   config.browserHostDescriptorPath = join(root, "launcher.json");
@@ -51,6 +58,7 @@ test("HTTP /responses runs a real fresh checkpoint repair without manually appen
       method: "POST",
       body: JSON.stringify(body),
     }), config, provider => {
+      actorSessionId = `${chatGptWebExecutionNamespace(provider)}:${chatGptThreadOwnershipKey(parseRequest(body))}`;
       worker = ChatGptBrowserWorker.forProvider(provider);
       originalRun = worker.run.bind(worker);
       worker.run = async () => {
@@ -75,7 +83,7 @@ next_actions:
 - Continue with the next step
 </compaction_state>`;
       };
-      return createChatGptWebAdapter(provider);
+      return createChatGptWebAdapter(provider, { sessionActorManager });
     });
     expect(browserMessages).toBe(2);
     expect(response.status).toBe(200);
@@ -88,9 +96,12 @@ next_actions:
     expect(result.output[0]?.type).toBe("compaction");
     expect(decodeCompactionSummary(result.output[0]?.encrypted_content ?? ""))
       .toContain("Recovered checkpoint");
+    expect(actorJournal.snapshot(actorSessionId!)?.compactionEpoch).toBe(1);
+    expect(actorJournal.snapshot(actorSessionId!)?.historyRevision).toBe(1);
   } finally {
     if (worker && originalRun) worker.run = originalRun;
     await TurnBroker.forSocket(config.brokerSocketPath).close();
+    actorJournal.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

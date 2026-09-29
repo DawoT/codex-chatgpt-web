@@ -206,6 +206,19 @@ export class SessionActorJournal {
     `).get(sessionId);
   }
 
+  compaction(
+    sessionId: string,
+    generation: number,
+    operationId: string,
+  ): (CompactionRow & { turnId: string }) | null {
+    return this.database.query<CompactionRow & { turnId: string }, [string, number, string]>(`
+      SELECT turn_id AS turnId, state, history_revision AS historyRevision,
+        checkpoint_ref AS checkpointRef
+      FROM session_compaction
+      WHERE session_id = ? AND generation = ? AND operation_id = ?
+    `).get(sessionId, generation, operationId);
+  }
+
   findLocalTransition(
     sessionId: string,
     generation: number,

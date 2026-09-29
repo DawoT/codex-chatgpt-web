@@ -3,10 +3,12 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
-import { createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
+import { chatGptWebExecutionNamespace, createChatGptWebAdapter } from "../src/adapters/chatgpt-web";
 import { listTurnCheckpoints } from "../src/adapters/chatgpt-web/autonomous-compaction";
 import { extractChatGptTurnEnvironment, extractChatGptTurnUserRevision } from "../src/adapters/chatgpt-web/environment";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
+import { SessionActorJournal, SessionActorManager, SessionResultStore } from "../src/adapters/chatgpt-web/session-actor";
+import { chatGptThreadOwnershipKey } from "../src/adapters/chatgpt-web/turn-execution";
 import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
 import { decodeCompactionSummary } from "../src/responses/compaction";
 import { parseRequest } from "../src/responses/parser";
@@ -221,18 +223,25 @@ for (const outcome of ["accepted", "rejected"] as const) {
   test(`replaying the exact HTTP ${outcome} compact does not resubmit the browser`, async () => {
     const root = mkdtempSync(join(tmpdir(), "cgw-roundtrip-replay-"));
     const { body, config, workspace } = fixture(root);
+    const actorJournal = new SessionActorJournal(join(root, "actors", "events.sqlite"));
+    const sessionActorManager = new SessionActorManager(
+      actorJournal,
+      new SessionResultStore(join(root, "actors", "results")),
+    );
+    let actorSessionId: string | undefined;
     let worker: ChatGptBrowserWorker | undefined;
     let originalRun: ChatGptBrowserWorker["run"] | undefined;
     let browserRuns = 0;
     const factory: Parameters<typeof responseRequest>[2] = provider => {
       provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
+      actorSessionId = `${chatGptWebExecutionNamespace(provider)}:${chatGptThreadOwnershipKey(parseRequest(body))}`;
       worker = ChatGptBrowserWorker.forProvider(provider);
       if (!originalRun) originalRun = worker.run.bind(worker);
       worker.run = async () => {
         browserRuns += 1;
         return outcome === "accepted" ? checkpoint() : "There is no checkpoint.";
       };
-      return createChatGptWebAdapter(provider);
+      return createChatGptWebAdapter(provider, { sessionActorManager });
     };
     try {
       const first = await post(body, config, factory);
@@ -246,6 +255,10 @@ for (const outcome of ["accepted", "rejected"] as const) {
       expect(firstResult.status).toBe(outcome === "accepted" ? "completed" : "failed");
       expect(secondResult.status).toBe(firstResult.status);
       expect(browserRuns).toBe(firstRuns);
+      expect(actorJournal.snapshot(actorSessionId!)?.historyRevision)
+        .toBe(outcome === "accepted" ? 1 : 0);
+      expect(actorJournal.snapshot(actorSessionId!)?.compactionEpoch)
+        .toBe(outcome === "accepted" ? 1 : 0);
       if (outcome === "accepted") {
         expect(firstResult.output?.[0]?.type).toBe("compaction");
         expect(secondResult.output?.[0]?.type).toBe("compaction");
@@ -260,6 +273,7 @@ for (const outcome of ["accepted", "rejected"] as const) {
     } finally {
       if (worker && originalRun) worker.run = originalRun;
       await TurnBroker.forSocket(config.brokerSocketPath).close();
+      actorJournal.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
