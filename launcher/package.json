@@ -40,7 +40,9 @@
   },
   "overrides": {
     "@xmldom/xmldom": "0.8.15",
-    "fast-uri": "3.1.6"
+    "fast-uri": "3.1.8",
+    "undici@6": "6.28.1",
+    "undici@7": "7.29.1"
   },
   "build": {
     "appId": "dev.codexwebgpt.launcher",
