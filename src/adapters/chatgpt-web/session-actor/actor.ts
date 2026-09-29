@@ -20,6 +20,19 @@ export class SessionActor {
     return result;
   }
 
+  /**
+   * Resolves when the command queue has been observed quiet: everything
+   * dispatched before this call has been journaled or rejected, and nothing
+   * new was queued while draining.
+   */
+  async quiesce(): Promise<void> {
+    for (;;) {
+      const tail = this.tail;
+      await tail;
+      if (this.tail === tail) return;
+    }
+  }
+
   recordLocal(
     type: SessionCommand["type"],
     turnId: string,

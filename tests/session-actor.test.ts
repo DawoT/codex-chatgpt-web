@@ -1486,3 +1486,60 @@ test("recoverUncertainOperations abandons unrecoverable uncertain operations reg
   }
 });
 
+
+test("dispose drains queued commands, evicts the mailbox, and the next actor rebuilds over the same journal", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(home.journal);
+    const sessionId = "namespace/thread-dispose";
+    await manager.beginTurn(sessionId, "turn-1");
+    expect(manager.has(sessionId)).toBe(true);
+
+    const actor = manager.actor(sessionId);
+    const pending = actor.dispatch(command(sessionId, 1, "operation_intent", {
+      operationId: "send-dispose-1",
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    const drained = manager.dispose(sessionId);
+    const first = await pending;
+    expect(first.status).toBe("accepted");
+    await drained;
+    expect(manager.has(sessionId)).toBe(false);
+
+    // The rebuilt mailbox works over the same journal: the duplicate operation id
+    // replays the persisted acknowledgement instead of double-applying it.
+    const rebuilt = manager.actor(sessionId);
+    expect(rebuilt).not.toBe(actor);
+    const replay = await rebuilt.dispatch(command(sessionId, 1, "operation_intent", {
+      operationId: "send-dispose-1",
+      operationKind: "browser_send",
+      historyRevision: 0,
+    }));
+    expect(replay).toEqual(first);
+  } finally {
+    home.close();
+  }
+});
+
+test("dispose of an unknown session is a no-op and concurrent disposes evict exactly once", async () => {
+  const home = fixture();
+  try {
+    const manager = new SessionActorManager(home.journal);
+    await manager.dispose("namespace/thread-unknown");
+    expect(manager.has("namespace/thread-unknown")).toBe(false);
+
+    const sessionId = "namespace/thread-race";
+    await manager.beginTurn(sessionId, "turn-1");
+    await Promise.all([manager.dispose(sessionId), manager.dispose(sessionId)]);
+    expect(manager.has(sessionId)).toBe(false);
+
+    const replacement = manager.actor(sessionId);
+    expect(manager.has(sessionId)).toBe(true);
+    await Promise.all([manager.dispose(sessionId), manager.dispose(sessionId)]);
+    expect(manager.has(sessionId)).toBe(false);
+    expect(manager.actor(sessionId)).not.toBe(replacement);
+  } finally {
+    home.close();
+  }
+});

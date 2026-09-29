@@ -25,6 +25,24 @@ export class SessionActorManager {
     return actor;
   }
 
+  /** True while the manager caches an in-memory mailbox for the session. */
+  has(sessionId: string): boolean {
+    return this.actors.has(sessionId);
+  }
+
+  /**
+   * Drop the in-memory mailbox once its queued commands have drained. The WAL
+   * journal keeps owning session state, so the next actor(sessionId) rebuilds
+   * an equivalent mailbox over the same history. The identity check keeps a
+   * mailbox created by a concurrent actor(sessionId) call from being deleted.
+   */
+  async dispose(sessionId: string): Promise<void> {
+    const actor = this.actors.get(sessionId);
+    if (!actor) return;
+    await actor.quiesce();
+    if (this.actors.get(sessionId) === actor) this.actors.delete(sessionId);
+  }
+
   beginTurn(sessionId: string, nativeTurnId: string): Promise<SessionAcknowledgement> {
     return this.actor(sessionId).recordLocal("turn_started", nativeTurnId, `turn:${nativeTurnId}`);
   }
@@ -108,7 +126,12 @@ export class SessionActorManager {
     const owners = this.journal.currentTurnOwners();
     let revoked = 0;
     for (const owner of owners) {
-      if (await this.revokeOwner(owner, `revoke-all:${owner.generation}`)) revoked += 1;
+      if (await this.revokeOwner(owner, `revoke-all:${owner.generation}`)) {
+        revoked += 1;
+        // Global cancellation ends these sessions; evict their mailboxes once
+        // quiet so the in-memory map cannot grow with every cancelled session.
+        void this.dispose(owner.sessionId);
+      }
     }
     return revoked;
   }
