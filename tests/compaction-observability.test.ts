@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import {
   checkpointIssueCodes,
+  checkpointStructuralDiagnostic,
   logCompactionEvent,
 } from "../src/adapters/chatgpt-web/compaction-observability";
 
@@ -69,4 +70,30 @@ test("unknown diagnostic text is reduced to an allowlisted code", () => {
     logger.mockRestore();
   }
   expect(lines[0]).not.toContain("/private/secret");
+});
+
+test("invalid checkpoint diagnostics expose recognized structure without paths or requirement text", () => {
+  const draft = `<compaction_state>
+version: 2
+modified_files:
+- /private/customer/project.ts
+requirements:
+- {"id":"SECRET-123","status":"pending","source":"private instruction"}
+</compaction_state>`;
+  expect(checkpointStructuralDiagnostic(draft)).toMatchObject({
+    openingTags: 1,
+    closingTags: 1,
+    version: 2,
+    recognizedFields: ["version", "modified_files", "requirements"],
+    requirementCount: 1,
+    modifiedFileCount: 1,
+  });
+  const encoded = JSON.stringify(checkpointStructuralDiagnostic(draft));
+  expect(encoded).not.toContain("/private/customer");
+  expect(encoded).not.toContain("SECRET-123");
+});
+
+test("checkpoint field diagnosis ignores narrative lines outside the state block", () => {
+  const draft = `requirements: quoted user request\n<compaction_state>\nversion: 2\nnext_actions:\n- Continue\n</compaction_state>`;
+  expect(checkpointStructuralDiagnostic(draft).recognizedFields).toEqual(["version", "next_actions"]);
 });

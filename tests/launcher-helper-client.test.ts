@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
 import { LauncherBrowserHelperClient } from "../src/adapters/chatgpt-web/launcher-helper-client";
 import type { BrowserTurn, ResolvedBrowserConfig } from "../src/adapters/chatgpt-web/browser-worker";
+import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
 import { LAUNCHER_BROWSER_HOST_KIND, LAUNCHER_BROWSER_IDLE_URL } from "../src/launcher-browser-host";
 
 const roots: string[] = [];
@@ -21,9 +22,34 @@ test("daemon streams browser lifecycle through the real helper process", async (
   writeFileSync(helper, `
     import { ChatGptBrowserWorker } from ${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url).href)};
     // Substitute only the browser. Both sides of the production IPC protocol run unchanged.
+    let previousText;
     ChatGptBrowserWorker.prototype.run = async function(turn) {
       if (this.config.useSavedChats !== true) throw new Error("Saved chat preference lost in helper IPC");
       if (turn.modelFamily !== "5.6") throw new Error("Pinned model family lost in helper IPC");
+      if (turn.traceId === "abcdef123459") {
+        if (!previousText) {
+          previousText = turn.onTextDelta;
+          return "first";
+        }
+        previousText("stale");
+        turn.onTextDelta("current");
+        return "second";
+      }
+      if (turn.traceId === "abcdef123458") {
+        await turn.onPreparedSelected(false);
+        const prepared = await turn.prepare();
+        try {
+          let snapshot = turn.externalProgress.snapshot();
+          while (snapshot.lastToolBatchRevision === 0) {
+            snapshot = await turn.externalProgress.waitForChange(snapshot.revision, turn.abortSignal);
+          }
+          await turn.externalProgress.acknowledgeToolBatch(snapshot.lastToolBatchRevision);
+          turn.onTextDelta("observed");
+          return "observed";
+        } finally {
+          prepared.release();
+        }
+      }
       if (turn.traceId === "abcdef123457") {
         if (this.contextPressureByConversation.has(turn.conversationKey)) throw new Error("Released conversation pressure survived in helper");
         return "released";
@@ -124,7 +150,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
     });
     expect(result).toBe("done");
     expect(client.getHelperIdentity()).toMatchObject({
-      protocolVersion: 1,
+      protocolVersion: 2,
       pid: expect.any(Number),
       generation: expect.stringMatching(/^[a-f0-9-]{36}$/),
       artifactSha256: createHash("sha256").update(readFileSync(helper)).digest("hex"),
@@ -159,6 +185,55 @@ test("daemon streams browser lifecycle through the real helper process", async (
       prepare: async () => ({ text: "inspect", images: [], release() {} }),
       onTextDelta() {},
     })).toBe("released");
+    const progress = new ChatGptExternalTurnProgress();
+    const originalAcknowledge = progress.acknowledgeToolBatch.bind(progress);
+    let releaseAcknowledgement!: () => void;
+    const acknowledgementGate = new Promise<void>(resolve => { releaseAcknowledgement = resolve; });
+    let markAcknowledgementRequested!: () => void;
+    const acknowledgementRequested = new Promise<void>(resolve => { markAcknowledgementRequested = resolve; });
+    progress.acknowledgeToolBatch = async revision => {
+      markAcknowledgementRequested();
+      await acknowledgementGate;
+      await originalAcknowledge(revision);
+    };
+    let markPrepared!: () => void;
+    const thirdPrepared = new Promise<void>(resolve => { markPrepared = resolve; });
+    const third = client.run({
+      traceId: "abcdef123458",
+      modelId: "gpt-5.6-sol",
+      modelFamily: "5.6",
+      capabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => {
+        markPrepared();
+        return { text: "inspect", images: [], release() {} };
+      },
+      externalProgress: progress,
+      completionFence: { begin: async () => 0, commit: async () => true },
+      onTextDelta() {},
+    });
+    await thirdPrepared;
+    const revision = progress.recordToolBatch(1);
+    await acknowledgementRequested;
+    const early = await Promise.race([
+      third.then(() => true),
+      new Promise<boolean>(resolve => setTimeout(() => resolve(false), 50)),
+    ]);
+    expect(early).toBeFalse();
+    releaseAcknowledgement();
+    expect(await third).toBe("observed");
+    await expect(progress.waitForToolBatchObservation(revision)).resolves.toBeUndefined();
+    const repeatedDeltas: string[] = [];
+    const repeatedTurn = () => ({
+      traceId: "abcdef123459",
+      modelId: "gpt-5.6-sol",
+      modelFamily: "5.6" as const,
+      capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      prepare: async () => ({ text: "inspect", images: [], release() {} }),
+      onTextDelta: (delta: string) => repeatedDeltas.push(delta),
+    });
+    expect(await client.run(repeatedTurn())).toBe("first");
+    expect(await client.run(repeatedTurn())).toBe("second");
+    expect(repeatedDeltas).toEqual(["current"]);
   } finally {
     await client.close();
   }
@@ -279,7 +354,7 @@ test("a helper without multipart submission lifecycle never receives multipart p
   };
   const child = {};
   internal.child = child;
-  internal.helperFeatures = new Set(["multipart-stage-ack"]);
+  internal.helperFeatures = new Set(["session-operation-id-v2", "multipart-stage-ack"]);
   internal.ensureChild = async () => {};
   internal.send = async message => {
     sent.push(message.type);
@@ -348,7 +423,7 @@ test("launcher helper protocol preserves multipart context and the compaction fl
   };
   const child = {};
   internal.child = child;
-  internal.helperFeatures = new Set(["checkpoint-markdown-v2", "multipart-submission-lifecycle"]);
+  internal.helperFeatures = new Set(["session-operation-id-v2", "checkpoint-markdown-v2", "multipart-submission-lifecycle"]);
   internal.ensureChild = async () => {};
   internal.send = async message => {
     sent.push(message);
@@ -418,10 +493,12 @@ test("an abort dispatched during run submission cannot overtake the run frame", 
   });
   const internal = client as unknown as {
     ensureChild(): Promise<void>;
+    helperFeatures: Set<string>;
     send(message: { type: string; id?: string }): Promise<void>;
     finishWithError(id: string, error: Error): void;
   };
   internal.ensureChild = async () => {};
+  internal.helperFeatures = new Set(["session-operation-id-v2"]);
   internal.send = async message => {
     messages.push(message.type);
     if (message.type === "run") controller.abort();
@@ -470,7 +547,7 @@ test("a stale helper cannot accept a fresh compaction before checkpoint Markdown
     send(message: { type: string }): Promise<void>;
   };
   internal.ensureChild = async () => {};
-  internal.helperFeatures = new Set(["multipart-stage-ack", "skill-attachments"]);
+  internal.helperFeatures = new Set(["session-operation-id-v2", "multipart-stage-ack", "skill-attachments"]);
   internal.send = async message => {
     sent.push(message.type);
     throw new Error("A stale helper was allowed to receive the compaction turn");
@@ -552,12 +629,14 @@ test("an older helper cannot silently drop selected skill files and releases the
   });
   const internal = client as unknown as {
     child: unknown;
+    helperFeatures: Set<string>;
     ensureChild(): Promise<void>;
     send(message: Record<string, unknown>): Promise<void>;
     handleLine(child: unknown, line: string): void;
   };
   const child = {};
   internal.child = child;
+  internal.helperFeatures = new Set(["session-operation-id-v2"]);
   internal.ensureChild = async () => {};
   const sent: string[] = [];
   internal.send = async message => {

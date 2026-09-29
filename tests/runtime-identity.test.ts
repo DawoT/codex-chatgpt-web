@@ -37,7 +37,7 @@ afterEach(() => {
 test("health diagnostics identify the running daemon generation and loaded artifact", async () => {
   const body = await healthDiagnostics();
   const identity = body.runtime_identity as Record<string, unknown>;
-  expect(identity.protocolVersion).toBe(1);
+  expect(identity.protocolVersion).toBe(2);
   expect(identity.pid).toBe(process.pid);
   expect(identity.generation).toMatch(/^[a-f0-9-]{36}$/);
   expect(identity.artifactSha256).toBe(
@@ -46,16 +46,16 @@ test("health diagnostics identify the running daemon generation and loaded artif
   expect((await healthDiagnostics()).runtime_identity.generation).toBe(identity.generation);
 });
 
-function helperClient(frame: Record<string, unknown> | "identified" | "tampered"): LauncherBrowserHelperClient {
+function helperClient(frame: Record<string, unknown> | "identified" | "tampered" | "previous"): LauncherBrowserHelperClient {
   const root = mkdtempSync(join(tmpdir(), "runtime-identity-helper-"));
   roots.push(root);
   const helper = join(root, "helper.cjs");
-  const helperSource = frame === "identified" || frame === "tampered"
+  const helperSource = frame === "identified" || frame === "tampered" || frame === "previous"
     ? `
 const { createHash, randomUUID } = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const identity = {
-  protocolVersion: 1,
+  protocolVersion: ${frame === "previous" ? 1 : 2},
   buildCommit: null,
   artifactSha256: ${frame === "tampered"
     ? JSON.stringify("0".repeat(64))
@@ -63,7 +63,7 @@ const identity = {
   generation: randomUUID(),
   pid: process.pid,
 };
-process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, identity, features: [] }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: identity.protocolVersion, identity, features: [] }) + "\\n");
 process.stdin.resume();
 `
     : `
@@ -105,6 +105,16 @@ process.stdin.resume();
 
 test("a helper with an incompatible protocol is rejected at ready", async () => {
   const client = helperClient({ type: "ready", protocolVersion: 99, features: [] });
+  try {
+    await expect((client as unknown as { ensureChild(): Promise<void> }).ensureChild())
+      .rejects.toThrow(/incompatible helper protocol/i);
+  } finally {
+    await client.close();
+  }
+});
+
+test("a helper from the previous IPC generation cannot start a new session", async () => {
+  const client = helperClient("previous");
   try {
     await expect((client as unknown as { ensureChild(): Promise<void> }).ensureChild())
       .rejects.toThrow(/incompatible helper protocol/i);
@@ -181,7 +191,7 @@ test("a matching build manifest supplies its commit while the artifact hash come
 });
 
 test("a versioned helper cannot omit its identity", async () => {
-  const client = helperClient({ type: "ready", protocolVersion: 1, features: [] });
+  const client = helperClient({ type: "ready", protocolVersion: 2, features: [] });
   try {
     await expect((client as unknown as { ensureChild(): Promise<void> }).ensureChild())
       .rejects.toThrow(/identity/i);

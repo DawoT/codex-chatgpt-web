@@ -19,6 +19,7 @@ import { compileChatGptWebPrompt, formatChatGptWebMultipartCommit, formatChatGpt
 import { estimateCompiledChatGptWebInputTokens } from "../src/adapters/chatgpt-web/input-tokens";
 import { estimateTokens } from "../src/lib/token-estimate";
 import { chatGptHtmlToMarkdown } from "../src/adapters/chatgpt-web/markdown";
+import { interactiveBrowserTurnMutex } from "../src/adapters/chatgpt-web/browser-mutex";
 
 function personalizedTemporaryChatRole(
   _role: string,
@@ -281,6 +282,61 @@ test("browser turns run concurrently up to the five-tab limit", async () => {
     releases.get(traceId)?.();
   }
   await Promise.all([...active.slice(1), sixth]);
+});
+
+test("a second browser turn prepares and sends while the first awaits acceptance", async () => {
+  const events: string[] = [];
+  let markFirstSent!: () => void;
+  const firstSent = new Promise<void>(resolve => { markFirstSent = resolve; });
+  let finishFirst!: () => void;
+  const firstAcceptance = new Promise<void>(resolve => { finishFirst = resolve; });
+  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    config: { browserHost: "managed-chrome" },
+    activeRuns: new Map(),
+    runBrowserTurn: async (
+      turn: { traceId: string; prepare: () => Promise<unknown> },
+      _surface: unknown,
+      _page: unknown,
+      _reused: unknown,
+      _trackUsage: unknown,
+      releaseInteractive: () => void,
+      acquireInteractive: () => Promise<void>,
+    ) => {
+      await turn.prepare();
+      await acquireInteractive();
+      events.push(`${turn.traceId}:sent`);
+      if (turn.traceId === "actor-a") markFirstSent();
+      releaseInteractive();
+      if (turn.traceId === "actor-a") await firstAcceptance;
+      return turn.traceId;
+    },
+  }) as ChatGptBrowserWorker;
+  const turn = (traceId: string) => ({
+    traceId,
+    modelId: "chatgpt-web/high",
+    capabilities: { localToolsEnabled: false, solAvailable: true, extraHighAvailable: true, proAvailable: true },
+    prepare: async () => {
+      events.push(`${traceId}:prepared`);
+      return { text: traceId, images: [], release() {} };
+    },
+    onTextDelta() {},
+  });
+  const first = worker.run(turn("actor-a"));
+  try {
+    await firstSent;
+    const second = worker.run(turn("actor-b"));
+    expect(await second).toBe("actor-b");
+    expect(events).toEqual([
+      "actor-a:prepared",
+      "actor-a:sent",
+      "actor-b:prepared",
+      "actor-b:sent",
+    ]);
+  } finally {
+    finishFirst();
+    await first;
+    expect(interactiveBrowserTurnMutex.isLocked()).toBeFalse();
+  }
 });
 
 test("browser turns have no absolute deadline unless one is explicitly configured", () => {
@@ -766,6 +822,67 @@ test("Bigger Context send activation keeps the outer stage budget instead of res
   )).resolves.toBe("user_turn");
   expect(pressOptions).toMatchObject({ noWaitAfter: true, timeout: 0 });
   expect(pressOptions?.signal).toBeInstanceOf(AbortSignal);
+});
+
+test("physical Send releases browser focus before semantic acceptance settles", async () => {
+  const worker = ChatGptBrowserWorker.forProvider({
+    adapter: "chatgpt-web",
+    baseUrl: `browser://physical-send-${Date.now()}-${Math.random()}`,
+    chatgptWeb: {
+      storageStatePath: `/tmp/physical-send-${Date.now()}-${Math.random()}.json`,
+    },
+  }) as unknown as {
+    activeComposer(page: Page): Promise<unknown>;
+    waitForSubmissionAcceptedWithRecovery(): Promise<string>;
+    sendAttachedPrompt(...args: unknown[]): Promise<string>;
+  };
+  let accept!: (evidence: string) => void;
+  const acceptance = new Promise<string>(resolve => { accept = resolve; });
+  const sendButton = {
+    waitFor: async () => {},
+    isEnabled: async () => true,
+    press: async () => {},
+  };
+  worker.activeComposer = async () => ({
+    locator: () => ({ getByTestId: () => sendButton }),
+  });
+  worker.waitForSubmissionAcceptedWithRecovery = () => acceptance;
+  const page = {
+    isClosed: () => false,
+    locator: () => ({
+      filter() { return this; },
+      last() { return this; },
+      isVisible: async () => false,
+    }),
+  } as unknown as Page;
+  const firstLock = await interactiveBrowserTurnMutex.acquire("physical-send-a");
+  let physicallyReleased = false;
+  const send = worker.sendAttachedPrompt(
+    page,
+    {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    () => {
+      physicallyReleased = true;
+      firstLock.release();
+    },
+  );
+  try {
+    const secondLock = await interactiveBrowserTurnMutex.acquire("physical-send-b");
+    expect(physicallyReleased).toBeTrue();
+    secondLock.release();
+    accept("user_turn");
+    expect(await send).toBe("user_turn");
+  } finally {
+    firstLock.release();
+    accept("user_turn");
+    await send;
+  }
 });
 
 test("two-part saved chats re-prove unchanged effort after the first message creates the conversation URL", async () => {
@@ -4313,7 +4430,7 @@ test("the launcher helper transport carries MCP progress into the out-of-process
   // If progress stops crossing that boundary the worker silently observes "never live" and cancels
   // turns whose tool calls are still completing, so both ends of the transport are asserted here.
   expect(client).toContain("forwardProgress");
-  expect(client).toMatch(/type: "progress", id: turn\.traceId, snapshot/);
+  expect(client).toMatch(/type: "progress", id: operationId, snapshot/);
   expect(helper).toMatch(/message\.type === "progress"/);
   expect(helper).toContain("ChatGptMirroredTurnProgress");
   expect(helper).toMatch(/externalProgress: progress/);
@@ -4467,7 +4584,7 @@ test("the daemon prefers the browser helper that shipped beside its own entrypoi
 
   // Belt and braces: negotiate the frame, and never treat an unrecognised frame as a run.
   expect(client).toContain('this.helperFeatures.has("progress")');
-  expect(client).toContain('this.helperFeatures.has("tool-boundary-ack")');
+  expect(client).toContain('this.helperFeatures.has("tool-boundary-request-ack-v2")');
   expect(client).toContain('this.helperFeatures.has("completion-fence")');
   expect(helper).toMatch(/message\.type === "run"/);
   expect(helper).toContain("Browser helper received an unsupported message type");

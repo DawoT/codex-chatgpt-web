@@ -1,4 +1,41 @@
 import { runtimeIdentity } from "../../runtime-identity";
+import { extractStructuredCompactionHandoff, inspectCompactionStateFormat } from "../../responses/compaction";
+
+const CHECKPOINT_FIELDS = new Set([
+  "version",
+  "original_request_ref",
+  "modified_files",
+  "active_hypothesis",
+  "requirements",
+  "closure_criteria",
+  "verified_achievements",
+  "decisions_and_invariants",
+  "blockers_or_test_failures",
+  "pending_obligations",
+  "next_actions",
+]);
+
+/** Reports only allowlisted structure; no checkpoint values or source paths leave this function. */
+export function checkpointStructuralDiagnostic(draft: string) {
+  const opening = /<compaction_state(?:\s[^>]*)?>/i.exec(draft);
+  const closing = opening ? /<\/compaction_state\s*>/i.exec(draft.slice(opening.index + opening[0].length)) : null;
+  const fieldText = opening
+    ? draft.slice(opening.index + opening[0].length,
+      closing ? opening.index + opening[0].length + closing.index : undefined)
+    : draft;
+  const recognizedFields = [...new Set(fieldText.split(/\r?\n/).flatMap(line => {
+    const name = /^\s*([a-z_]+)\s*:/i.exec(line)?.[1]?.toLowerCase();
+    return name && CHECKPOINT_FIELDS.has(name) ? [name] : [];
+  }))];
+  const state = extractStructuredCompactionHandoff(draft).state;
+  return {
+    ...inspectCompactionStateFormat(draft),
+    recognizedFields,
+    version: state?.version ?? null,
+    requirementCount: state?.requirements?.length ?? 0,
+    modifiedFileCount: state?.modifiedFiles.length ?? 0,
+  };
+}
 
 export type CompactionPhase =
   | "prepared"

@@ -121,7 +121,7 @@ test("lifecycle telemetry keeps each phase on the same trace and call ID", async
     expect(records.every(record => record.brokerCallId === callId)).toBe(true);
     expect(records.every(record => record.metadata?.scope === "broker_tool_lifecycle")).toBe(true);
     expect(records.every(record => record.metadata?.process_generation === records[0]?.metadata?.process_generation)).toBe(true);
-    expect(records.every(record => record.metadata?.protocol_version === 1)).toBe(true);
+    expect(records.every(record => record.metadata?.protocol_version === 2)).toBe(true);
     expect(records.every(record => typeof record.metadata?.artifact_sha256 === "string")).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -157,7 +157,7 @@ test("a stalled browser boundary times out and revokes the pending MCP call", as
     const progress = new ChatGptExternalTurnProgress();
     const revision = progress.recordToolBatch(1);
     const started = performance.now();
-    await expect(progress.waitForToolBatchObservation(revision, undefined, 30))
+    await expect(progress.waitForToolBatchObservation(revision, undefined, 20, undefined, 30))
       .rejects.toMatchObject({ code: "chatgpt_tool_boundary_observation_timeout" });
     expect(performance.now() - started).toBeLessThan(1_000);
     broker.revoke(token);

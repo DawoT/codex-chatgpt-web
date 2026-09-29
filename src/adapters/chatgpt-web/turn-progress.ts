@@ -23,9 +23,11 @@ interface ToolBatchObservationWaiter {
   signal?: AbortSignal;
   onAbort?: () => void;
   timeout?: ReturnType<typeof setTimeout>;
+  diagnosticTimer?: ReturnType<typeof setTimeout>;
 }
 
 export const CHATGPT_TOOL_BATCH_OBSERVATION_TIMEOUT_MS = 10_000;
+export const CHATGPT_TOOL_BATCH_TRANSPORT_DEADLINE_MS = 45_000;
 
 export class ChatGptToolBoundaryObservationTimeoutError extends ChatGptWebAdapterError {
   constructor(timeoutMs: number) {
@@ -152,6 +154,7 @@ export class ChatGptExternalTurnProgress extends ChatGptTurnProgressBroadcaster 
       this.toolBatchObservationWaiters.delete(waiter);
       if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
       if (waiter.timeout) clearTimeout(waiter.timeout);
+      if (waiter.diagnosticTimer) clearTimeout(waiter.diagnosticTimer);
       waiter.resolve();
     }
   }
@@ -160,10 +163,15 @@ export class ChatGptExternalTurnProgress extends ChatGptTurnProgressBroadcaster 
     revision: number,
     signal?: AbortSignal,
     timeoutMs = CHATGPT_TOOL_BATCH_OBSERVATION_TIMEOUT_MS,
+    onSlowObservation?: () => void,
+    deadlineMs = CHATGPT_TOOL_BATCH_TRANSPORT_DEADLINE_MS,
   ): Promise<void> {
     this.assertToolBatchRevision(revision);
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       throw new Error("ChatGPT tool-boundary observation timeout must be positive and finite");
+    }
+    if (!Number.isFinite(deadlineMs) || deadlineMs <= 0 || deadlineMs < timeoutMs) {
+      throw new Error("ChatGPT tool-boundary transport deadline must be finite and at least the diagnostic threshold");
     }
     if (this.retirementError) return Promise.reject(this.retirementError);
     if (this.observedToolBatchRevision >= revision) return Promise.resolve();
@@ -176,15 +184,24 @@ export class ChatGptExternalTurnProgress extends ChatGptTurnProgressBroadcaster 
         waiter.onAbort = () => {
           this.toolBatchObservationWaiters.delete(waiter);
           if (waiter.timeout) clearTimeout(waiter.timeout);
+          if (waiter.diagnosticTimer) clearTimeout(waiter.diagnosticTimer);
           reject(new DOMException("ChatGPT tool-boundary observation aborted", "AbortError"));
         };
         signal.addEventListener("abort", waiter.onAbort, { once: true });
       }
+      waiter.diagnosticTimer = setTimeout(() => {
+        try {
+          onSlowObservation?.();
+        } catch {
+          // Diagnostics cannot settle or revoke a tool boundary.
+        }
+      }, timeoutMs);
       waiter.timeout = setTimeout(() => {
         this.toolBatchObservationWaiters.delete(waiter);
         if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
-        reject(new ChatGptToolBoundaryObservationTimeoutError(timeoutMs));
-      }, timeoutMs);
+        if (waiter.diagnosticTimer) clearTimeout(waiter.diagnosticTimer);
+        reject(new ChatGptToolBoundaryObservationTimeoutError(deadlineMs));
+      }, deadlineMs);
       this.toolBatchObservationWaiters.add(waiter);
     });
   }
@@ -206,6 +223,7 @@ export class ChatGptExternalTurnProgress extends ChatGptTurnProgressBroadcaster 
     for (const waiter of this.toolBatchObservationWaiters) {
       if (waiter.signal && waiter.onAbort) waiter.signal.removeEventListener("abort", waiter.onAbort);
       if (waiter.timeout) clearTimeout(waiter.timeout);
+      if (waiter.diagnosticTimer) clearTimeout(waiter.diagnosticTimer);
       waiter.reject(error);
     }
     this.toolBatchObservationWaiters.clear();

@@ -84,7 +84,7 @@ import {
   resolveChatGptWebTransportLimits,
 } from "../../chatgpt-web-models";
 import { LauncherBrowserHelperClient } from "./launcher-helper-client";
-import { interactiveBrowserTurnMutex } from "./browser-mutex";
+import { interactiveBrowserTurnMutex, type InteractiveBrowserTurnLock } from "./browser-mutex";
 import { assertChatGptModelFamily, selectChatGptModelFamily } from "./model-selection";
 import { MAX_CHATGPT_BROWSER_TABS } from "./concurrency";
 import {
@@ -2133,6 +2133,7 @@ export class ChatGptBrowserWorker {
     completionTracker?: ChatGptCompletionTracker,
     recoverObservation?: ChatGptObservationRecovery,
     requireConnector = false,
+    onPhysicalSendComplete?: () => void,
   ): Promise<ChatGptSubmissionEvidence> {
     const composer = await this.activeComposer(page);
     const composerForm = composer.locator("xpath=ancestor::form[1]");
@@ -2165,14 +2166,18 @@ export class ChatGptBrowserWorker {
     }
     const initialToolBatchRevision = externalProgress?.snapshot().lastToolBatchRevision ?? 0;
     await submissionLifecycle?.onSendActivated?.();
-    await sendButton.press("Enter", {
-      noWaitAfter: true,
-      signal: abortSignal,
-      // runStage owns the operation budget. A second Locator timeout would silently collapse the
-      // 180-second Bigger Context budget back to the ordinary 20 seconds after Enter has already
-      // submitted the message; semantic submission evidence below remains the authority.
-      timeout: 0,
-    });
+    try {
+      await sendButton.press("Enter", {
+        noWaitAfter: true,
+        signal: abortSignal,
+        // runStage owns the operation budget. A second Locator timeout would silently collapse the
+        // 180-second Bigger Context budget back to the ordinary 20 seconds after Enter has already
+        // submitted the message; semantic submission evidence below remains the authority.
+        timeout: 0,
+      });
+    } finally {
+      onPhysicalSendComplete?.();
+    }
     const evidence = await this.waitForSubmissionAcceptedWithRecovery(
       page,
       baseline,
@@ -3091,18 +3096,19 @@ export class ChatGptBrowserWorker {
   private async runExclusive(turn: BrowserTurn): Promise<string> {
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
 
-    const interactiveLock = await interactiveBrowserTurnMutex.acquire(turn.traceId, turn.abortSignal);
-    let interactiveReleased = false;
+    let interactiveLock: InteractiveBrowserTurnLock | undefined;
+    const acquireInteractive = async () => {
+      if (interactiveLock) return;
+      interactiveLock = await interactiveBrowserTurnMutex.acquire(turn.traceId, turn.abortSignal);
+    };
     const releaseInteractive = () => {
-      if (!interactiveReleased) {
-        interactiveReleased = true;
-        interactiveLock.release();
-      }
+      interactiveLock?.release();
+      interactiveLock = undefined;
     };
 
     if (this.config.browserHost !== "launcher") {
       try {
-        return await this.runBrowserTurn(turn, undefined, undefined, false, false, releaseInteractive);
+        return await this.runBrowserTurn(turn, undefined, undefined, false, false, releaseInteractive, acquireInteractive);
       } finally {
         releaseInteractive();
       }
@@ -3164,7 +3170,7 @@ export class ChatGptBrowserWorker {
       await turn.onPreparedSelected?.(reused);
       heartbeatTimer = setInterval(sendHeartbeat, LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS);
       heartbeatTimer.unref?.();
-      return await this.runBrowserTurn(turn, surfaceId, undefined, reused, lease.trackUsage === true, releaseInteractive);
+      return await this.runBrowserTurn(turn, surfaceId, undefined, reused, lease.trackUsage === true, releaseInteractive, acquireInteractive);
     } catch (error) {
       originalError = error;
       terminal = error instanceof ChatGptCompactionHandoffAccepted
@@ -3212,6 +3218,7 @@ export class ChatGptBrowserWorker {
     reuseConversation = false,
     trackUsage = false,
     onInteractiveSettled?: () => void,
+    acquireInteractive?: () => Promise<void>,
   ): Promise<string> {
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
     if ((turn.externalProgress !== undefined) !== (turn.completionFence !== undefined)) {
@@ -3503,6 +3510,7 @@ export class ChatGptBrowserWorker {
           + ` maxStageMessageTokens=${maxStageMessageTokens} maxStageChars=${maxStageChars}`,
         );
       }
+      await acquireInteractive?.();
       if (!reuseConversation) {
         await this.runStage(
           turn.traceId,
@@ -3563,6 +3571,7 @@ export class ChatGptBrowserWorker {
       if (prepared.multipart && multipartStages && multipartTransactionId && multipartFinalPrompt) {
         for (let index = 0; index < multipartStages.length; index += 1) {
           const stage = multipartStages[index]!;
+          if (index > 0) await acquireInteractive?.();
           // Each acknowledgement can replace the picker controls. Establish a fresh model/effort
           // proof for the next physical submission, retaining family selection and usage evidence.
           if (index > 0) mode = await this.runStage(
@@ -3618,6 +3627,8 @@ export class ChatGptBrowserWorker {
                   return recovered;
                 }
                 : undefined,
+              false,
+              onInteractiveSettled,
             ),
           );
           console.info(`[chatgpt-web] browser turn ${turn.traceId} multipart_stage=${index + 1} send_phase=accepted activationMs=${stageSendActivatedAt === undefined ? "unobserved" : Math.round(performance.now() - stageSendActivatedAt)}`);
@@ -3667,6 +3678,7 @@ export class ChatGptBrowserWorker {
           await diagnostics.capture(page, `multipart-stage-${index + 1}-acknowledged`);
           await turn.onMultipartStageAcknowledged?.(index + 1);
         }
+        await acquireInteractive?.();
         // The first saved message changes / to /c/<id>. Re-prove the selection on
         // that conversation even when staging and final effort are identical.
         if (mode.effort !== requestedMode.effort || (mode.selection && mode.selection.url !== page.url())) {
@@ -3793,6 +3805,7 @@ export class ChatGptBrowserWorker {
             }
             : undefined,
           mode.localTools,
+          onInteractiveSettled,
         ),
       );
       console.info(`[chatgpt-web] browser turn ${turn.traceId} send_phase=accepted activationMs=${finalSendActivatedAt === undefined ? "unobserved" : Math.round(performance.now() - finalSendActivatedAt)}`);

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -32,7 +32,7 @@ interface PendingTurn {
 type HelperMessage =
   | { type: "ready"; features?: string[]; protocolVersion?: number; identity?: RuntimeIdentity }
   | { type: "event"; id: string; event: "heartbeat" | "send_activated" | "submitted" | "reasoning" | "commentary" | "text"; text?: string; continuation?: boolean }
-  | { type: "event"; id: string; event: "tool_batch_observed"; revision: number }
+  | { type: "event"; id: string; event: "tool_batch_observed"; requestId: number; revision: number }
   | { type: "event"; id: string; event: "multipart_stage_acknowledged"; stageIndex: number }
   | { type: "event"; id: string; event: "completion_fence_begin"; requestId: number }
   | { type: "event"; id: string; event: "completion_fence_commit"; requestId: number; revision: number }
@@ -98,10 +98,17 @@ function parseHelperMessage(line: string): HelperMessage {
       return { type: "event", id: message.id, event, stageIndex: message.stageIndex as number };
     }
     if (event === "tool_batch_observed") {
-      if (!Number.isSafeInteger(message.revision) || (message.revision as number) <= 0) {
-        throw new Error("Launcher browser helper tool-boundary revision is invalid");
+      if (!Number.isSafeInteger(message.revision) || (message.revision as number) <= 0
+        || !Number.isSafeInteger(message.requestId) || (message.requestId as number) <= 0) {
+        throw new Error("Launcher browser helper tool-boundary operation is invalid");
       }
-      return { type: "event", id: message.id, event, revision: message.revision as number };
+      return {
+        type: "event",
+        id: message.id,
+        event,
+        requestId: message.requestId as number,
+        revision: message.revision as number,
+      };
     }
     if (event === "completion_fence_begin") {
       if (!Number.isSafeInteger(message.requestId) || (message.requestId as number) <= 0) {
@@ -252,12 +259,15 @@ export class LauncherBrowserHelperClient {
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
     await this.ensureChild();
     if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
+    if (!this.helperFeatures.has("session-operation-id-v2")) {
+      throw new Error("Launcher browser helper does not support isolated operation identities; update or restart the launcher");
+    }
     if (turn.onMultipartStageAcknowledged && !this.helperFeatures.has("multipart-stage-ack")) {
       throw new Error(
         "Launcher browser helper does not support multipart acknowledgement forwarding; update or restart the launcher",
       );
     }
-    if (turn.externalProgress && !this.helperFeatures.has("tool-boundary-ack")) {
+    if (turn.externalProgress && !this.helperFeatures.has("tool-boundary-request-ack-v2")) {
       throw new Error(
         "Launcher browser helper does not support causal Codex tool-boundary acknowledgement; update or restart the launcher",
       );
@@ -274,30 +284,31 @@ export class LauncherBrowserHelperClient {
       throw new Error("Launcher browser helper does not support the checkpoint Markdown protocol; update or restart the launcher");
     }
     return await new Promise<string>((resolveResult, rejectResult) => {
-        if (this.pending.has(turn.traceId)) {
+        if ([...this.pending.values()].some(pending => pending.turn.traceId === turn.traceId)) {
           rejectResult(new Error(`Duplicate launcher browser turn: ${turn.traceId}`));
           return;
         }
+        const operationId = randomUUID();
         const pending: PendingTurn = { turn, resolve: resolveResult, reject: rejectResult };
-        this.pending.set(turn.traceId, pending);
+        this.pending.set(operationId, pending);
         if (turn.abortSignal) {
           const abortListener = () => {
             if (!pending.sent) {
               this.finishWithError(
-                turn.traceId,
+                operationId,
                 new DOMException("ChatGPT web turn aborted", "AbortError"),
               );
               return;
             }
             void this.send({
               type: "abort",
-              id: turn.traceId,
+              id: operationId,
               ...(turn.abortSignal?.reason instanceof ChatGptCompactionHandoffAccepted
                 ? { reason: "compaction_handoff_accepted" }
                 : {}),
             }).catch(error => {
               this.finishWithError(
-                turn.traceId,
+                operationId,
                 error instanceof Error ? error : new Error(String(error)),
               );
             });
@@ -316,7 +327,7 @@ export class LauncherBrowserHelperClient {
         pending.progressForwarding = progressForwarding;
         void this.send({
           type: "run",
-          id: turn.traceId,
+          id: operationId,
           config: {
             appName: this.config.appName,
             browserHostDescriptorPath: this.config.browserHostDescriptorPath!,
@@ -345,9 +356,9 @@ export class LauncherBrowserHelperClient {
           // Only mirror once the run frame is on the wire, so the helper never sees progress for a
           // turn it has not been told about and cannot accumulate state for unknown ids.
           .then(() => {
-            if (!progressForwarding.signal.aborted) this.forwardProgress(turn, progressForwarding.signal);
+            if (!progressForwarding.signal.aborted) this.forwardProgress(turn, operationId, progressForwarding.signal);
           })
-          .catch(error => this.finishWithError(turn.traceId, error instanceof Error ? error : new Error(String(error))));
+          .catch(error => this.finishWithError(operationId, error instanceof Error ? error : new Error(String(error))));
       });
   }
 
@@ -516,7 +527,28 @@ export class LauncherBrowserHelperClient {
           );
           return;
         }
-        void progress.acknowledgeToolBatch(message.revision).catch(error => this.abortWithLocalFailure(
+        void progress.acknowledgeToolBatch(message.revision).then(
+          () => {
+            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+            return this.send({
+              type: "tool_batch_observed_ack",
+              id: message.id,
+              requestId: message.requestId,
+              revision: message.revision,
+              accepted: true,
+            });
+          },
+          () => {
+            if (this.pending.get(message.id) !== pending || pending.localFailure) return;
+            return this.send({
+              type: "tool_batch_observed_ack",
+              id: message.id,
+              requestId: message.requestId,
+              revision: message.revision,
+              accepted: false,
+            });
+          },
+        ).catch(error => this.abortWithLocalFailure(
           message.id,
           error instanceof Error ? error : new Error(String(error)),
           pending,
@@ -701,7 +733,7 @@ export class LauncherBrowserHelperClient {
    * The browser worker runs out of process, so without this the worker sees no external progress
    * and cancels turns whose tool calls are still completing.
    */
-  private forwardProgress(turn: BrowserTurn, stop: AbortSignal): void {
+  private forwardProgress(turn: BrowserTurn, operationId: string, stop: AbortSignal): void {
     const progress = turn.externalProgress;
     if (!progress) return;
     if (!this.helperFeatures.has("progress")) {
@@ -717,7 +749,7 @@ export class LauncherBrowserHelperClient {
         const snapshot = await progress.waitForChange(revision, stop);
         revision = snapshot.revision;
         if (stop.aborted) return;
-        await this.send({ type: "progress", id: turn.traceId, snapshot });
+        await this.send({ type: "progress", id: operationId, snapshot });
       }
     })().catch(error => {
       // Ending, aborting, or losing the helper stops the mirror by design and is not a fault.
@@ -767,7 +799,7 @@ export class LauncherBrowserHelperClient {
       if (!pending) continue;
       void notifyLauncherTurn(this.config.browserHostDescriptorPath!, {
         phase: "end",
-        traceId: id,
+        traceId: pending.turn.traceId,
         helperPid: child.pid!,
         status: "failed",
         message: "Launcher browser helper exited before completing the turn",

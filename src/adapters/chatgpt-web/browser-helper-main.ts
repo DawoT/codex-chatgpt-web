@@ -74,6 +74,7 @@ type InputMessage = RunMessage
   | MaintenanceMessage
   | { type: "prepared_selected_ack"; id: string; prepared: CompiledChatGptWebPrompt }
   | { type: "send_activation_ack"; id: string }
+  | { type: "tool_batch_observed_ack"; id: string; requestId: number; revision: number; accepted: boolean }
   | { type: "completion_fence_begin_ack"; id: string; requestId: number; revision: number | null }
   | { type: "completion_fence_commit_ack"; id: string; requestId: number; committed: boolean }
   | { type: "progress"; id: string; snapshot: ChatGptExternalTurnProgressSnapshot }
@@ -106,6 +107,14 @@ const sendActivationWaiters = new Map<string, {
   resolve: () => void;
   reject: (error: Error) => void;
 }>();
+const toolBoundaryWaiters = new Map<string, {
+  requestId: number;
+  revision: number;
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+}>();
+let toolBoundaryRequestId = 0;
 const completionFenceBeginWaiters = new Map<string, {
   requestId: number;
   resolve: (revision: number | undefined) => void;
@@ -160,7 +169,8 @@ function requestShutdown(): Promise<void> {
 }
 
 async function run(message: RunMessage): Promise<void> {
-  if (!/^[A-Za-z0-9_-]{6,128}$/.test(message.id) || message.id !== message.turn.traceId) {
+  if (!/^[a-f0-9-]{36}$/.test(message.id)
+    || !/^[A-Za-z0-9_-]{6,128}$/.test(message.turn.traceId)) {
     throw new Error("Browser helper turn identity is invalid");
   }
   if (abortControllers.has(message.id)) throw new Error(`Browser helper turn already exists: ${message.id}`);
@@ -214,9 +224,27 @@ async function run(message: RunMessage): Promise<void> {
   // inheriting revisions recorded for an earlier turn that happened to share the id.
   const progress = message.turn.externalProgress
     ? new ChatGptMirroredTurnProgress(revision => {
-      if (!writeProtocol({ type: "event", id: message.id, event: "tool_batch_observed", revision })) {
-        throw new Error("Browser helper could not acknowledge the observed Codex tool boundary");
+      const existing = toolBoundaryWaiters.get(message.id);
+      if (existing) {
+        if (existing.revision !== revision) {
+          throw new Error("Browser helper cannot observe another tool batch before its prior confirmation");
+        }
+        return existing.promise;
       }
+      toolBoundaryRequestId += 1;
+      const requestId = toolBoundaryRequestId;
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<void>((accept, deny) => {
+        resolve = accept;
+        reject = deny;
+      });
+      toolBoundaryWaiters.set(message.id, { requestId, revision, promise, resolve, reject });
+      if (!writeProtocol({ type: "event", id: message.id, event: "tool_batch_observed", requestId, revision })) {
+        toolBoundaryWaiters.delete(message.id);
+        reject(new Error("Browser helper could not request the observed Codex tool boundary"));
+      }
+      return promise;
     })
     : undefined;
   if (progress) turnProgress.set(message.id, progress);
@@ -344,6 +372,9 @@ async function run(message: RunMessage): Promise<void> {
     const commitWaiter = completionFenceCommitWaiters.get(message.id);
     completionFenceCommitWaiters.delete(message.id);
     commitWaiter?.reject(new DOMException("Browser helper turn ended before completion-fence commit", "AbortError"));
+    const toolBoundaryWaiter = toolBoundaryWaiters.get(message.id);
+    toolBoundaryWaiters.delete(message.id);
+    toolBoundaryWaiter?.reject(new DOMException("Browser helper turn ended before tool-boundary confirmation", "AbortError"));
     abortControllers.delete(message.id);
     turnProgress.delete(message.id);
   }
@@ -450,6 +481,12 @@ input.on("line", line => {
     }
     sendActivationWaiters.delete(message.id);
     waiter.resolve();
+  } else if (message.type === "tool_batch_observed_ack") {
+    const waiter = toolBoundaryWaiters.get(message.id);
+    if (!waiter || waiter.requestId !== message.requestId || waiter.revision !== message.revision) return;
+    toolBoundaryWaiters.delete(message.id);
+    if (message.accepted === true) waiter.resolve();
+    else waiter.reject(new Error("Daemon rejected the observed Codex tool boundary"));
   } else if (message.type === "completion_fence_begin_ack") {
     if (!Number.isSafeInteger(message.requestId) || message.requestId <= 0
       || (message.revision !== null && (!Number.isSafeInteger(message.revision) || message.revision < 0))) {
@@ -502,6 +539,9 @@ input.on("line", line => {
     const commitWaiter = completionFenceCommitWaiters.get(message.id);
     completionFenceCommitWaiters.delete(message.id);
     commitWaiter?.reject(new DOMException("Browser helper turn aborted before completion-fence commit", "AbortError"));
+    const toolBoundaryWaiter = toolBoundaryWaiters.get(message.id);
+    toolBoundaryWaiters.delete(message.id);
+    toolBoundaryWaiter?.reject(new DOMException("Browser helper turn aborted before tool-boundary confirmation", "AbortError"));
   }
   else if (message.type === "release_context_pressure") {
     if (!/^[a-f0-9]{64}$/.test(message.conversationKey)) {
@@ -557,6 +597,8 @@ writeProtocol({
   features: [
     "progress",
     "tool-boundary-ack",
+    "tool-boundary-request-ack-v2",
+    "session-operation-id-v2",
     "completion-fence",
     "multipart-stage-ack",
     "multipart-submission-lifecycle",

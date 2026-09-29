@@ -736,6 +736,13 @@ export function createChatGptWebAdapter(
                       await externalProgress.waitForToolBatchObservation(
                         revision,
                         toolWaitAbort.signal,
+                        undefined,
+                        () => console.warn(JSON.stringify({
+                          event: "tool_batch_observation_slow",
+                          traceId,
+                          revision,
+                          thresholdMs: 10_000,
+                        })),
                       );
                     }
                     externalProgress.assertToolBatchActive(revision);

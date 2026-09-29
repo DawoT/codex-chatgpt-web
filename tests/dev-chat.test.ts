@@ -326,7 +326,7 @@ test("DEV chat attaches its broker to the launcher-owned tunnel without a Respon
       .toMatchObject({
         protocolVersion: 6,
         identity: {
-          protocolVersion: 1,
+          protocolVersion: 2,
           pid: process.pid,
           generation: expect.any(String),
           artifactSha256: expect.any(String),

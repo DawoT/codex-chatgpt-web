@@ -3982,15 +3982,33 @@ test("tool-boundary observation fails closed before the MCP request deadline", a
   const revision = progress.recordToolBatch(1, 1_000);
 
   const error = await Promise.race([
-    progress.waitForToolBatchObservation(revision, undefined, 20).then(() => undefined, failure => failure),
+    progress.waitForToolBatchObservation(revision, undefined, 20, undefined, 30).then(() => undefined, failure => failure),
     Bun.sleep(200).then(() => new Error("tool-boundary observation did not enforce its own deadline")),
   ]);
 
   expect(error).toBeInstanceOf(ChatGptWebAdapterError);
   expect((error as ChatGptWebAdapterError).code).toBe("chatgpt_tool_boundary_observation_timeout");
-  expect(String(error)).toContain("ChatGPT did not observe Codex tool boundary within 20ms");
+  expect(String(error)).toContain("ChatGPT did not observe Codex tool boundary within 30ms");
 
   expect(progress.snapshot().activeToolCalls).toBe(1);
+});
+
+test("a slow tool-boundary observation diagnoses the delay and accepts a later acknowledgement", async () => {
+  const progress = new ChatGptExternalTurnProgress();
+  const revision = progress.recordToolBatch(1);
+  const delays: number[] = [];
+  const observation = progress.waitForToolBatchObservation(
+    revision,
+    undefined,
+    10,
+    () => delays.push(revision),
+    200,
+  );
+  await Bun.sleep(30);
+  expect(delays).toEqual([revision]);
+  expect(progress.snapshot().activeToolCalls).toBe(1);
+  await progress.acknowledgeToolBatch(revision);
+  await expect(observation).resolves.toBeUndefined();
 });
 
 test("mirrored turn progress ignores replayed frames and rejects malformed ones", async () => {

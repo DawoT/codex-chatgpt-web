@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 
-export const RUNTIME_PROTOCOL_VERSION = 1;
+export const RUNTIME_PROTOCOL_VERSION = 2;
 
 export interface RuntimeIdentity {
   protocolVersion: number;

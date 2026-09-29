@@ -4,11 +4,10 @@ import {
   COMPACT_PROMPT,
   compactionDraftText,
   extractStructuredCompactionHandoff,
-  inspectCompactionStateFormat,
 } from "../../../responses/compaction";
 import { type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { acceptedCompactionEpoch } from "../compaction-continuation";
-import { checkpointIssueCodes, logCompactionEvent, type CompactionRoute } from "../compaction-observability";
+import { checkpointIssueCodes, checkpointStructuralDiagnostic, logCompactionEvent, type CompactionRoute } from "../compaction-observability";
 import { buildCompactionEvidenceIndex, selectCompactionRepairEvidence } from "../compaction-evidence";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../adapter-error";
 import {
@@ -59,7 +58,7 @@ function logCheckpointValidation(
   repaired: boolean,
   traceId: string,
 ): void {
-  const format = inspectCompactionStateFormat(compactionDraftText(summary));
+  const format = checkpointStructuralDiagnostic(compactionDraftText(summary));
   const missingState = !format.usableUnfencedBlock;
   console.info(`[chatgpt-web] checkpoint_validation ${JSON.stringify({
     valid: quality.valid,
