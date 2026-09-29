@@ -108,9 +108,11 @@ for (const scenario of ["accepted", "repaired", "invalid", "persistence-failure"
         originalRun = worker.run.bind(worker);
         worker.run = async () => {
           browserRuns += 1;
-          return scenario === "invalid" || (scenario === "repaired" && browserRuns === 1)
-            ? "The task is done."
-            : checkpoint();
+          if (scenario === "invalid") return "The task is done.";
+          if (scenario === "repaired" && browserRuns === 1) {
+            return "<compaction_state>\nversion: 2\n<compaction_state>\nrequirements:\n- missing source\n</compaction_state>";
+          }
+          return checkpoint();
         };
         return createChatGptWebAdapter(provider);
       });
@@ -516,6 +518,128 @@ test("contradictory sandbox metadata cannot authorize HTTP checkpoint persistenc
     expect(browserRuns).toBe(0);
     expect(existsSync(join(workspace, ".agents"))).toBeFalse();
   } finally {
+    if (worker && originalRun) worker.run = originalRun;
+    await TurnBroker.forSocket(config.brokerSocketPath).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const stream of [false, true]) {
+  test(`tagged but invalid draft and repair fail safely over HTTP (stream=${stream})`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "cgw-roundtrip-invalid-repair-"));
+    const { body, config, workspace } = fixture(root);
+    config.experimentalFreshConversationPerTurn = false;
+    const invalidDraft = `<compaction_state>
+modified_files:
+active_hypothesis: Continue the original task.
+requirements:
+- {"id":"REQ bad","status":"pending","source":"${requestText}"}
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+pending_obligations:
+next_actions:
+- Continue with the next step
+</compaction_state>`;
+    const invalidRepair = `<compaction_state>
+modified_files:
+active_hypothesis: Continue the original task.
+requirements:
+- {"id":"REQ bad","status":"pending","source":"${requestText}"}
+closure_criteria:
+- Finish the task
+verified_achievements:
+decisions_and_invariants:
+blockers_or_test_failures:
+pending_obligations:
+next_actions:
+- Continue with the next step
+</compaction_state>`;
+    let worker: ChatGptBrowserWorker | undefined;
+    let originalRun: ChatGptBrowserWorker["run"] | undefined;
+    let browserRuns = 0;
+    let repairPrompt = "";
+    const factory: Parameters<typeof responseRequest>[2] = provider => {
+      provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
+      worker = ChatGptBrowserWorker.forProvider(provider);
+      if (!originalRun) originalRun = worker.run.bind(worker);
+      worker.run = async turn => {
+        browserRuns += 1;
+        if (browserRuns === 1) return invalidDraft;
+        const prepared = await turn.prepare();
+        repairPrompt = prepared.text;
+        prepared.release();
+        return invalidRepair;
+      };
+      return createChatGptWebAdapter(provider);
+    };
+    try {
+      const first = await post({ ...body, stream }, config, factory);
+      const payload = stream ? await first.text() : JSON.stringify(await first.json());
+      expect(payload).toContain("context_checkpoint_validation_failed");
+      expect(payload).not.toContain('"type":"compaction"');
+      expect(repairPrompt).toContain("Checkpoint requires mission checklist version 2");
+      expect(repairPrompt).toContain("Missing original request reference");
+      expect(repairPrompt).toContain("Mission requirement has an invalid stable ID");
+      expect(repairPrompt).toContain(requestText);
+      expect(browserRuns).toBe(2);
+      expect(listTurnCheckpoints(workspace)).toHaveLength(0);
+      const statePath = join(workspace, ".agents", "STATE.md");
+      if (existsSync(statePath)) {
+        expect(readFileSync(statePath, "utf8")).not.toContain("REQ bad");
+      }
+
+      const replay = await post({ ...body, stream }, config, factory);
+      const replayPayload = stream ? await replay.text() : JSON.stringify(await replay.json());
+      expect(replayPayload).toContain("context_checkpoint_validation_failed");
+      expect(replayPayload).not.toContain('"type":"compaction"');
+      expect(browserRuns).toBe(2);
+      expect(listTurnCheckpoints(workspace)).toHaveLength(0);
+    } finally {
+      if (worker && originalRun) worker.run = originalRun;
+      await TurnBroker.forSocket(config.brokerSocketPath).close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("HTTP handoff timeout and exact replay never persist a late browser result", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-roundtrip-timeout-"));
+  const { body, config, workspace } = fixture(root);
+  let worker: ChatGptBrowserWorker | undefined;
+  let originalRun: ChatGptBrowserWorker["run"] | undefined;
+  let browserRuns = 0;
+  let releaseBrowser!: (value: string) => void;
+  const browserResult = new Promise<string>(resolve => { releaseBrowser = resolve; });
+  const factory: Parameters<typeof responseRequest>[2] = provider => {
+    provider.chatgptWeb!.threadEnvironmentStatePath = join(root, "thread-environments.json");
+    provider.chatgptWeb!.turnTimeoutMs = 25;
+    worker = ChatGptBrowserWorker.forProvider(provider);
+    if (!originalRun) originalRun = worker.run.bind(worker);
+    worker.run = async () => {
+      browserRuns += 1;
+      return browserResult;
+    };
+    return createChatGptWebAdapter(provider);
+  };
+  try {
+    const first = await post(body, config, factory);
+    const firstResult = await first.json() as { status: string; output?: Array<{ type: string }>; error?: { code?: string } };
+    expect(firstResult.status).toBe("failed");
+    expect(firstResult.error?.code).toBe("compaction_handoff_timeout");
+    expect(firstResult.output?.some(item => item.type === "compaction")).not.toBeTrue();
+
+    const replay = await post(body, config, factory);
+    const replayResult = await replay.json() as typeof firstResult;
+    expect(replayResult.status).toBe("failed");
+    expect(replayResult.error?.code).toBe("compaction_handoff_timeout");
+    expect(browserRuns).toBe(1);
+
+    releaseBrowser(checkpoint());
+    await Bun.sleep(10);
+    expect(listTurnCheckpoints(workspace)).toHaveLength(0);
+  } finally {
+    releaseBrowser(checkpoint());
     if (worker && originalRun) worker.run = originalRun;
     await TurnBroker.forSocket(config.brokerSocketPath).close();
     rmSync(root, { recursive: true, force: true });

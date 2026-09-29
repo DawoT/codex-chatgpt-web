@@ -12,7 +12,12 @@ import {
   type CompactionRequirement,
 } from "../../responses/compaction";
 import { evaluateMissionHeadroom } from "./mission-headroom";
-import { buildCompactionEvidenceIndex, completedExecutionStatus } from "./compaction-evidence";
+import {
+  buildCompactionEvidenceIndex,
+  completedExecutionStatus,
+  executionResultText,
+  hasReportedTestFailures,
+} from "./compaction-evidence";
 import {
   type WorkspaceState,
   readWorkspaceState,
@@ -417,7 +422,7 @@ export function validateCompactionQuality(
         && (!requiresTestExecution || /^(?:(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|pytest\b|node\s+--test\b)/i.test(directCommand))
         && (!requiresDeployment || deploymentCommand)
         && completedExecutionStatus(content, message.isError) === "succeeded"
-        && !/\b\d+\s+fail(?:ed)?\b/i.test(content);
+        && !hasReportedTestFailures(executionResultText(content));
     }
     return false;
   });

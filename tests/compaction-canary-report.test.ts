@@ -47,3 +47,25 @@ test("mixed build identity cannot certify a durable canary", () => {
   ]);
   expect(report).toMatchObject({ durableCompleted: 0, mixedBuildTraces: 1 });
 });
+
+test("a completed browser draft and repair with repeated validation failures count as one rejected canary", () => {
+  const report = summarizeCompactionCanaryLines([
+    event("incident", "prepared", { route: "fallback", outcome: "pending" }),
+    event("incident", "received", { route: "fallback", attempt: 1 }),
+    event("incident", "validated", { route: "fallback", attempt: 1, outcome: "rejected" }),
+    event("incident", "repair_started", { route: "fallback", attempt: 2, outcome: "pending" }),
+    event("incident", "received", { route: "fallback", attempt: 2 }),
+    event("incident", "validated", { route: "fallback", attempt: 2, outcome: "rejected" }),
+    event("incident", "failed", { route: "fallback", outcome: "rejected", reasonCode: "context_checkpoint_validation_failed" }),
+    event("incident", "failed", { route: "unknown", outcome: "rejected", reasonCode: "context_checkpoint_validation_failed" }),
+  ]);
+  expect(report).toMatchObject({
+    traces: 1,
+    rejected: 1,
+    failed: 0,
+    incomplete: 0,
+    durableCompleted: 0,
+    deliveredWithoutLocalPersistence: 0,
+    fallbackDurableCompleted: 0,
+  });
+});

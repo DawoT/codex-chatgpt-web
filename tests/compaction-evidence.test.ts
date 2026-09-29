@@ -49,6 +49,27 @@ test("evidence references bind a completed result to its session", () => {
   expect(foreign.missingInvariants.some(issue => issue.includes("REQ-1") && issue.includes("reference"))).toBe(true);
 });
 
+test("Bun test output with zero failures proves completion, but a nonzero failure does not", () => {
+  const withResult = (failures: number): CodexMessage[] => messages.map(message => message.role === "toolResult"
+    ? { ...message, content: JSON.stringify({ exit_code: 0, output: `2 pass\n${failures} fail` }) }
+    : message);
+  const passed = withResult(0);
+  const passedRef = buildCompactionEvidenceIndex(passed, "session-a")[0]!.ref;
+  expect(buildCompactionEvidenceIndex(passed, "session-a")[0]!.status).toBe("succeeded");
+  expect(validateCompactionQuality(passed, checkpoint(passedRef), {
+    requireStructured: true,
+    evidenceSessionId: "session-a",
+  }).valid).toBe(true);
+
+  const failed = withResult(1);
+  const failedRef = buildCompactionEvidenceIndex(failed, "session-a")[0]!.ref;
+  expect(buildCompactionEvidenceIndex(failed, "session-a")[0]!.status).toBe("failed");
+  expect(validateCompactionQuality(failed, checkpoint(failedRef), {
+    requireStructured: true,
+    evidenceSessionId: "session-a",
+  }).valid).toBe(false);
+});
+
 test("a started command or a different result cannot support the referenced claim", () => {
   const running: CodexMessage[] = [messages[0]!, messages[1]!, {
     role: "toolResult",
@@ -72,6 +93,67 @@ test("a started session remains unfinished even when its output embeds exit_code
   const running = messages.map(message => message.role === "toolResult"
     ? { ...message, content: '{"session_id":42,"exit_code":0,"output":"2 pass"}' } : message);
   expect(buildCompactionEvidenceIndex(running, "session-a")).toEqual([]);
+});
+
+test("completed polling inherits its original test command and failed polling cannot verify it", () => {
+  const polled = (exitCode: number): CodexMessage[] => [
+    messages[0]!,
+    messages[1]!,
+    {
+      role: "toolResult",
+      toolCallId: "call_test",
+      toolName: "exec_command",
+      content: JSON.stringify({ session_id: 42, output: "Tests are still running" }),
+      isError: false,
+      timestamp: 3,
+    },
+    {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "call_poll", name: "write_stdin", arguments: { session_id: 42, chars: "" } }],
+      timestamp: 4,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "call_poll",
+      toolName: "write_stdin",
+      content: JSON.stringify({ exit_code: exitCode, output: exitCode === 0 ? "2 pass\n0 fail" : "1 fail" }),
+      isError: exitCode !== 0,
+      timestamp: 5,
+    },
+  ];
+  const completed = polled(0);
+  const observations = buildCompactionEvidenceIndex(completed, "session-a");
+  expect(observations).toHaveLength(1);
+  expect(observations[0]?.toolName).toBe("write_stdin");
+  expect(observations[0]?.ref).toBe("obs_f16f1f795aaadf5b9a45d589");
+  expect(validateCompactionQuality(completed, checkpoint(observations[0]!.ref), {
+    requireStructured: true,
+    evidenceSessionId: "session-a",
+  }).valid).toBeTrue();
+
+  const failed = polled(1);
+  const failedObservation = buildCompactionEvidenceIndex(failed, "session-a")[0]!;
+  expect(failedObservation.status).toBe("failed");
+  expect(validateCompactionQuality(failed, checkpoint(failedObservation.ref), {
+    requireStructured: true,
+    evidenceSessionId: "session-a",
+  }).valid).toBeFalse();
+
+  const contradictory = completed.map(message => message.role === "toolResult" && message.toolName === "write_stdin"
+    ? { ...message, content: JSON.stringify({ exit_code: 0, output: "1 fail" }) }
+    : message);
+  expect(buildCompactionEvidenceIndex(contradictory, "session-a")[0]?.status).toBe("failed");
+
+  const wrongSession = completed.map(message => message.role === "assistant"
+    && message.content.some(part => part.type === "toolCall" && part.name === "write_stdin")
+    ? { ...message, content: [{ type: "toolCall" as const, id: "call_poll", name: "write_stdin", arguments: { session_id: 43, chars: "" } }] }
+    : message);
+  const wrongObservation = buildCompactionEvidenceIndex(wrongSession, "session-a")[0]!;
+  expect(wrongObservation.command).toBeUndefined();
+  expect(validateCompactionQuality(wrongSession, checkpoint(wrongObservation.ref), {
+    requireStructured: true,
+    evidenceSessionId: "session-a",
+  }).valid).toBeFalse();
 });
 
 test("conflicting execution envelopes cannot certify a completed test", () => {

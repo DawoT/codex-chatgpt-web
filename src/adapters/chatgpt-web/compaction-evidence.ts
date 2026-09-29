@@ -33,20 +33,59 @@ export function completedExecutionStatus(
   return Number.isSafeInteger(exitCode) ? Number(exitCode) === 0 ? "succeeded" : "failed" : null;
 }
 
+/** Inspect the decoded command output, not JSON escape sequences in its transport envelope. */
+export function executionResultText(output: string): string {
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const value = (parsed as Record<string, unknown>).output;
+      return typeof value === "string" ? value : "";
+    }
+  } catch {
+    return output;
+  }
+  return "";
+}
+
+export function hasReportedTestFailures(output: string): boolean {
+  return /\b[1-9]\d*\s+fail(?:ed)?\b/i.test(output);
+}
+
+function startedExecutionSessionId(output: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const sessionId = (parsed as Record<string, unknown>).session_id;
+    return Number.isSafeInteger(sessionId) ? sessionId as number : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildCompactionEvidenceIndex(
   messages: readonly CodexMessage[],
   sessionId: string,
 ): CompactionEvidenceObservation[] {
   if (!sessionId.trim()) return [];
-  const calls = new Map<string, { name: string; command?: string }>();
+  // Polling inherits the command for classification; existing evidence refs hash only
+  // the command supplied on that exact tool call.
+  const calls = new Map<string, { name: string; command?: string; referenceCommand?: string }>();
+  const startedSessions = new Map<number, string>();
   const observations: CompactionEvidenceObservation[] = [];
   for (const [messageIndex, message] of messages.entries()) {
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type !== "toolCall") continue;
+        const referenceCommand = typeof part.arguments.cmd === "string" ? part.arguments.cmd : undefined;
+        let command = referenceCommand;
+        if (!command && ["write_stdin", "codex_write_stdin"].includes(part.name)
+          && Number.isSafeInteger(part.arguments.session_id)) {
+          command = startedSessions.get(part.arguments.session_id as number);
+        }
         calls.set(part.id, {
           name: part.name,
-          ...(typeof part.arguments.cmd === "string" ? { command: part.arguments.cmd } : {}),
+          ...(command ? { command } : {}),
+          ...(referenceCommand ? { referenceCommand } : {}),
         });
       }
       continue;
@@ -57,16 +96,23 @@ export function buildCompactionEvidenceIndex(
     const output = typeof message.content === "string"
       ? message.content
       : message.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
+    if (["exec_command", "codex_exec"].includes(message.toolName) && !message.isError && call.command) {
+      const startedSessionId = startedExecutionSessionId(output);
+      if (startedSessionId !== undefined) startedSessions.set(startedSessionId, call.command);
+    }
     const patch = ["apply_patch", "codex_apply_patch"].includes(message.toolName);
     const execution = ["exec_command", "codex_exec", "write_stdin", "codex_write_stdin"].includes(message.toolName);
     if (!patch && !execution) continue;
     const executionStatus = execution ? completedExecutionStatus(output, message.isError) : null;
     if (execution && !executionStatus) continue;
     if (patch && !message.isError && !/^Success\./m.test(output)) continue;
-    const status = executionStatus ?? (message.isError ? "failed" : "succeeded");
+    const testCommand = /^(?:bun|npm|pnpm|yarn|cargo|go)\s+test\b|^pytest\b/i.test(call.command?.trim() ?? "");
+    const status = execution && testCommand && hasReportedTestFailures(executionResultText(output))
+      ? "failed"
+      : executionStatus ?? (message.isError ? "failed" : "succeeded");
     const ref = `obs_${createHash("sha256")
       .update(sessionId).update("\0").update(message.toolCallId).update("\0")
-      .update(message.toolName).update("\0").update(call.command ?? "").update("\0")
+      .update(message.toolName).update("\0").update(call.referenceCommand ?? "").update("\0")
       .update(status).update("\0").update(output).digest("hex").slice(0, 24)}`;
     observations.push({
       ref,
