@@ -5091,7 +5091,7 @@ test("stopped-thinking detection recognizes localized UI without matching respon
   const { createWindow } = require("@mixmark-io/domino") as {
     createWindow(html: string): { document: Document; NodeFilter: typeof NodeFilter };
   };
-  const worker = readFileSync("src/adapters/chatgpt-web/browser-worker.ts", "utf8");
+  const worker = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
   const source = worker.split("const stoppedThinkingVisible = (() => {")[1]?.split("})();")[0];
   if (!source) throw new Error("Stopped-thinking predicate is missing");
   const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(
@@ -5287,10 +5287,12 @@ test("browser DOM health fails closed on a vanished or empty ChatGPT response", 
 });
 
 test("stalled-turn diagnostics record DOM metrics without response or overlay content", () => {
-  const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
-  const start = workerSource.indexOf("private async stalledTurnDiagnostic");
-  const end = workerSource.indexOf("private async runExclusive", start);
-  const diagnosticSource = workerSource.slice(start, end);
+  const observerSource = readFileSync(
+    new URL("../src/adapters/chatgpt-web/browser/response-observer.ts", import.meta.url),
+    "utf8",
+  );
+  const start = observerSource.indexOf("async stalledTurnDiagnostic(");
+  const diagnosticSource = observerSource.slice(start);
   expect(diagnosticSource).toContain("textChars:");
   expect(diagnosticSource).toContain("htmlChars:");
   expect(diagnosticSource).not.toContain("innerText.trim()");
@@ -5468,6 +5470,7 @@ test("visible Stop suspends missing-response health until generation stops", () 
 
 test("an accepted turn survives internal observation faults instead of being torn down", () => {
   const worker = readFileSync("src/adapters/chatgpt-web/browser-worker.ts", "utf8");
+  const responseObserver = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
 
   // A TypeError while reading the page is a defect in this worker, not evidence about ChatGPT.
   // Failing the turn on one loses an accepted ChatGPT turn that is never resent.
@@ -5481,7 +5484,7 @@ test("an accepted turn survives internal observation faults instead of being tor
   expect(CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS).toBeGreaterThan(CHATGPT_RESPONSE_DOM_GRACE_MS);
 
   // Chain-of-thought containment is commentary regardless of document position.
-  expect(worker).toContain("candidate.closest('[data-testid^=\"cot-v5\"]') !== null");
+  expect(responseObserver).toContain("candidate.closest('[data-testid^=\"cot-v5\"]') !== null");
 });
 
 test("stale MCP progress stops suppressing DOM health without penalising long active turns", () => {
@@ -5596,11 +5599,11 @@ test("the shipped commentary classifier separates answer Markdown from reasoning
       body: { querySelectorAll: (selector: string) => ArrayLike<HTMLElement> };
     };
   };
-  const worker = readFileSync("src/adapters/chatgpt-web/browser-worker.ts", "utf8");
+  const worker = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
   const source = worker
     .split("// CHATGPT_COMMENTARY_CLASSIFIER_BEGIN")[1]
     ?.split("// CHATGPT_COMMENTARY_CLASSIFIER_END")[0];
-  if (!source) throw new Error("commentary classifier sentinels are missing from browser-worker.ts");
+  if (!source) throw new Error("commentary classifier sentinels are missing from response-observer.ts");
   const javascript = source.replace(/:\s*HTMLElement\[\]/g, "").replace(/\):\s*\{[^}]*\}\s*=>/, ") =>");
   const selectChatGptAnswerRoots = new Function(`${javascript}; return selectChatGptAnswerRoots;`)() as (
     roots: unknown[],
@@ -5670,9 +5673,9 @@ test("embedded chart hydration cannot replace Markdown answer content with rende
     createDocument(html: string): { body: HTMLElement };
     createWindow(): { HTMLElement: unknown; Node: unknown };
   };
-  const worker = readFileSync("src/adapters/chatgpt-web/browser-worker.ts", "utf8");
+  const worker = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
   const source = worker.split("// CHATGPT_MARKDOWN_CONTENT_BEGIN")[1]?.split("// CHATGPT_MARKDOWN_CONTENT_END")[0];
-  if (!source) throw new Error("Markdown content projection is missing from browser-worker.ts");
+  if (!source) throw new Error("Markdown content projection is missing from response-observer.ts");
   const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(source);
   const window = createWindow();
   const { contentFor, textFor } = new Function(
