@@ -4,22 +4,13 @@ import { join } from "node:path";
 import { type Browser, type BrowserContext, chromium, type Locator, type Page } from "playwright-core";
 import { loginVerificationMarkerPath } from "../../browser-login";
 import {
-  assertAuthenticatedChatGptPage,
-  assertNewChatPage,
   CHATGPT_ASSISTANT_TURN_SELECTOR,
   CHATGPT_STOP_BUTTON_SELECTOR,
   CHATGPT_USER_TURN_SELECTOR,
   chatGptAssistantTurnSelector,
-  chatGptNewChatUrl,
   detectChatGptAccountCapabilities,
 } from "../../chatgpt-session";
-import {
-  atomicWriteFile,
-  CHATGPT_CONNECTOR_NAME,
-  DEV_CHATGPT_CONNECTOR_NAME,
-  getConfigDir,
-  LEGACY_CHATGPT_CONNECTOR_NAMES,
-} from "../../config";
+import { atomicWriteFile, CHATGPT_CONNECTOR_NAME, getConfigDir } from "../../config";
 import {
   connectLauncherBrowserHost,
   LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS,
@@ -38,6 +29,12 @@ import {
   chatGptRetainedConversationUnavailableError,
   chatGptStoppedThinkingError,
 } from "./adapter-error";
+import {
+  type ChatGptComposerControllerHost,
+  type ChatGptConnectorAttemptBudget,
+  ChatGptConnectorCatalogStaleError,
+  ComposerController,
+} from "./browser/composer-controller";
 import { ChatGptBrowserContextPressure, ChatGptPageDomObserver } from "./browser/context-pressure";
 import {
   ChatGptModelControls,
@@ -120,7 +117,6 @@ export {
 
 import {
   browserStageTimeouts,
-  CHATGPT_COMPOSER_DOCUMENT_END_KEY,
   CHATGPT_MIN_OPERATIONAL_VIEWPORT,
   CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
   CHATGPT_RESPONSE_DOM_GRACE_MS,
@@ -146,12 +142,7 @@ export {
   settleChatGptUi,
 } from "./browser/personalization";
 
-import {
-  ChatGptPersistentBrowserStateError,
-  chatGptConnectorUnavailableError,
-  ensureChatGptPersonalizedConnectorAccess,
-  settleChatGptUi,
-} from "./browser/personalization";
+import { ChatGptPersistentBrowserStateError, settleChatGptUi } from "./browser/personalization";
 
 export {
   CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX,
@@ -175,8 +166,6 @@ import {
   CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
   ChatGptPromptAttachmentIntegrityError,
   ChatGptSubmissionRejectionObserver,
-  dismissAllChatGptOverlays,
-  dismissChatGptTemporaryChatOnboarding,
   resolveChatGptToolConfirmation,
   throwIfChatGptRateLimitDialog,
   throwIfChatGptSessionFailureAlert,
@@ -218,7 +207,6 @@ import {
   type ChatGptSubmissionEvidence,
   ChatGptTurnDomHealthTracker,
   ChatGptVisibleTraceTracker,
-  chatGptConnectorAttachmentMode,
   chatGptExternalProgressSuppressesDomHealth,
   chatGptNewTurnIdentity,
   chatGptReboundTurnIdentity,
@@ -244,12 +232,7 @@ export {
   setChatGptThinkMode,
 } from "./browser/payloads";
 
-import {
-  assertChatGptPromptAttachments,
-  chatGptPromptFilePayloads,
-  insertPlainTextIntoComposer,
-  setChatGptThinkMode,
-} from "./browser/payloads";
+import { assertChatGptPromptAttachments } from "./browser/payloads";
 
 export {
   type ResolvedBrowserConfig,
@@ -280,6 +263,12 @@ export {
 import { promptEquivalentPrefixLength, promptTextEquivalent } from "./browser/prompt-equivalence";
 
 export {
+  type ChatGptClearComposerOptions,
+  chatGptActiveComposer,
+  chatGptClearComposerState,
+} from "./browser/composer";
+export { MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS } from "./browser/composer-controller";
+export {
   CHATGPT_ATTACHMENT_INPUT_SELECTOR,
   CHATGPT_MENTION_MENU_ROWS_SELECTOR,
   type ChatGptConnectorMentionFailureOptions,
@@ -290,43 +279,10 @@ export {
   chatGptSelectedConnectorControl,
 } from "./browser/connectors";
 
-import {
-  CHATGPT_ATTACHMENT_INPUT_SELECTOR,
-  CHATGPT_MENTION_MENU_ROWS_SELECTOR,
-  chatGptConnectorIsSelected,
-  chatGptConnectorMentionFailure,
-  chatGptConnectorMentionRowTitles,
-  chatGptRowIsHighlighted,
-  chatGptSelectedConnectorControl,
-} from "./browser/connectors";
-
-export {
-  type ChatGptClearComposerOptions,
-  chatGptActiveComposer,
-  chatGptClearComposerState,
-} from "./browser/composer";
-
-import { chatGptActiveComposer, chatGptClearComposerState, chatGptReuseCleanConnector } from "./browser/composer";
-export const MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS = 3;
-const CHATGPT_CONNECTOR_MENTION_QUERY = "@codex";
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
 const CHATGPT_SMOKE_TEXT = "Reply with exactly: CODEX WEB GPT READY";
 const CHATGPT_SMOKE_EXPECTED = "CODEX WEB GPT READY";
 export const CHATGPT_SEND_ENABLE_GRACE_MS = 5_000;
-
-class ChatGptConnectorCatalogStaleError extends Error {
-  constructor(
-    readonly appName: string,
-    readonly triggerAttempts: number,
-  ) {
-    super(`ChatGPT connector catalog is missing ${JSON.stringify(appName)}`);
-    this.name = "ChatGptConnectorCatalogStaleError";
-  }
-}
-
-interface ChatGptConnectorAttemptBudget {
-  triggerAttempts: number;
-}
 
 async function waitForOperationalChatGptViewport(page: Page, signal?: AbortSignal): Promise<void> {
   try {
@@ -466,10 +422,12 @@ export class ChatGptBrowserWorker {
 
   private constructor(private readonly config: ResolvedBrowserConfig) {}
 
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: lent to ComposerController through the borrowed `this` dispatch
   private promptTextEquivalent(expected: string, observed: string): boolean {
     return promptTextEquivalent(expected, observed);
   }
 
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: lent to ComposerController through the borrowed `this` dispatch
   private promptEquivalentPrefixLength(expected: string, observed: string): number {
     return promptEquivalentPrefixLength(expected, observed);
   }
@@ -730,7 +688,12 @@ export class ChatGptBrowserWorker {
   }
 
   private async activeComposer(page: Page, timeoutMs = 30_000, abortSignal?: AbortSignal): Promise<Locator> {
-    return chatGptActiveComposer(page, timeoutMs, abortSignal);
+    return ComposerController.prototype.activeComposer.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      timeoutMs,
+      abortSignal,
+    );
   }
 
   /** Prepare a new conversation; account inspection still uses an empty Temporary Chat. */
@@ -739,93 +702,12 @@ export class ChatGptBrowserWorker {
     captureDiagnostic?: (checkpoint: string) => Promise<void>,
     useSavedChats = false,
   ): Promise<Locator> {
-    // Launcher verification refreshes its owned page before attaching Playwright so a newly added
-    // connector is present in the catalog. Navigating again here destroys that freshly hydrated
-    // document and made the first verification race a second SPA bootstrap. A leased turn starts on
-    // about:blank and therefore still performs exactly one navigation through this same method.
-    const targetUrl = chatGptNewChatUrl(useSavedChats);
-    const existingTurnsPresent =
-      page.url() === targetUrl &&
-      (await (async () => {
-        try {
-          const u = page.locator(CHATGPT_USER_TURN_SELECTOR);
-          const a = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
-          const userCount = typeof u?.count === "function" ? await u.count().catch(() => 0) : 0;
-          const assistantCount = typeof a?.count === "function" ? await a.count().catch(() => 0) : 0;
-          return userCount > 0 || assistantCount > 0;
-        } catch {
-          return false;
-        }
-      })());
-    if (page.url() !== targetUrl || existingTurnsPresent) {
-      await page.goto(targetUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: 60_000,
-      });
-      await captureDiagnostic?.(
-        useSavedChats ? "saved-chat-navigation-complete" : "temporary-chat-navigation-complete",
-      );
-    }
-    const initialDismissed = await dismissAllChatGptOverlays(page, { captureDiagnostic }).catch(() => 0);
-    if (initialDismissed > 0) {
-      await captureDiagnostic?.("overlays-dismissed-before-composer");
-    }
-    // A failed page read is not evidence of an expired login. Preserve the actual
-    // observation error; the authenticated-session check below owns login failures.
-    const composer = await this.activeComposer(page);
-    const postDismissed = await dismissAllChatGptOverlays(page, { captureDiagnostic }).catch(() => 0);
-    if (postDismissed > 0 || (!useSavedChats && (await dismissChatGptTemporaryChatOnboarding(page)))) {
-      await captureDiagnostic?.("temporary-chat-onboarding-dismissed");
-    }
-    await captureDiagnostic?.("composer-ready");
-    await throwIfChatGptSessionFailureAlert(page);
-    await assertAuthenticatedChatGptPage(page);
-    await assertNewChatPage(page, useSavedChats);
-    await captureDiagnostic?.("session-verified");
-    if (typeof page.evaluate === "function") {
-      await page
-        .evaluate(() => {
-          try {
-            const desc = Object.getOwnPropertyDescriptor(Document.prototype, "title");
-            if (desc?.set && !(desc.set as { __clamped?: boolean }).__clamped) {
-              const originalSet = desc.set;
-              const clampedSet = function (this: Document, value: string) {
-                const clamped = typeof value === "string" && value.length > 200 ? `${value.slice(0, 197)}...` : value;
-                return originalSet.call(this, clamped);
-              };
-              (clampedSet as { __clamped?: boolean }).__clamped = true;
-              Object.defineProperty(document, "title", {
-                get: desc.get,
-                set: clampedSet,
-                configurable: true,
-              });
-            }
-            const clampTitleElement = () => {
-              const titleEl = document.querySelector("title");
-              if (titleEl && (titleEl.textContent?.length ?? 0) > 200) {
-                titleEl.textContent = `${titleEl.textContent!.slice(0, 197)}...`;
-              }
-            };
-            clampTitleElement();
-            const globalAny = globalThis as unknown as { __TITLE_OBSERVER_ATTACHED__?: boolean };
-            if (!globalAny.__TITLE_OBSERVER_ATTACHED__) {
-              globalAny.__TITLE_OBSERVER_ATTACHED__ = true;
-              const titleObserver = new MutationObserver(() => clampTitleElement());
-              const target = document.querySelector("title") || document.head;
-              if (target) {
-                titleObserver.observe(target, { childList: true, characterData: true, subtree: true });
-              }
-            }
-            for (const el of document.querySelectorAll('[contenteditable="true"], textarea')) {
-              el.setAttribute("spellcheck", "false");
-              el.setAttribute("autocorrect", "off");
-              el.setAttribute("autocapitalize", "off");
-            }
-          } catch {}
-        })
-        .catch(() => {});
-    }
-    return composer;
+    return ComposerController.prototype.prepareChatSurface.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      captureDiagnostic,
+      useSavedChats,
+    );
   }
 
   private async waitForTurnDomMutation(page: Page, timeoutMs = 250): Promise<void> {
@@ -1162,32 +1044,35 @@ export class ChatGptBrowserWorker {
   }
 
   private async assertPromptAttached(page: Page, prompt: string, abortSignal?: AbortSignal): Promise<void> {
-    const deadline = Date.now() + 10_000;
-    let observed = "";
-    while (Date.now() < deadline) {
-      throwIfPromptAttachmentAborted(abortSignal);
-      observed = await this.attachedPromptText(page, abortSignal);
-      throwIfPromptAttachmentAborted(abortSignal);
-      if (this.promptTextEquivalent(prompt, observed)) return;
-      await withBrowserTurnAbort(new Promise((resolveSleep) => setTimeout(resolveSleep, 200)), abortSignal);
-    }
-    throwIfPromptAttachmentAborted(abortSignal);
-    const commonPrefix = this.promptEquivalentPrefixLength(prompt, observed);
-    throw new ChatGptPromptAttachmentIntegrityError(
-      `ChatGPT composer did not preserve the complete prompt (expectedChars=${prompt.length}, actualChars=${observed.length}, commonPrefixChars=${commonPrefix})`,
+    return ComposerController.prototype.assertPromptAttached.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      prompt,
+      abortSignal,
     );
   }
 
   private selectedConnectorControl(composer: Locator): Locator {
-    return chatGptSelectedConnectorControl(composer, this.config.appName);
+    return ComposerController.prototype.selectedConnectorControl.call(
+      this as unknown as ChatGptComposerControllerHost,
+      composer,
+    );
   }
 
   private async connectorIsSelected(composer: Locator, abortSignal?: AbortSignal): Promise<boolean> {
-    return chatGptConnectorIsSelected(composer, this.config.appName, abortSignal);
+    return ComposerController.prototype.connectorIsSelected.call(
+      this as unknown as ChatGptComposerControllerHost,
+      composer,
+      abortSignal,
+    );
   }
 
   private async connectorMentionRowTitles(menuRows: Locator, abortSignal?: AbortSignal): Promise<string[]> {
-    return chatGptConnectorMentionRowTitles(menuRows, abortSignal);
+    return ComposerController.prototype.connectorMentionRowTitles.call(
+      this as unknown as ChatGptComposerControllerHost,
+      menuRows,
+      abortSignal,
+    );
   }
 
   private async connectorMentionFailure(
@@ -1196,25 +1081,20 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
     page?: Page,
   ): Promise<string> {
-    return chatGptConnectorMentionFailure(menuRows, triggerAttempts, {
-      appName: this.config?.appName,
+    return ComposerController.prototype.connectorMentionFailure.call(
+      this as unknown as ChatGptComposerControllerHost,
+      menuRows,
+      triggerAttempts,
       abortSignal,
       page,
-      fetchRowTitles:
-        typeof this?.connectorMentionRowTitles === "function"
-          ? (rows, signal) => this.connectorMentionRowTitles(rows, signal)
-          : undefined,
-    });
+    );
   }
 
   private async clearChatGptComposerState(page: Page): Promise<void> {
-    return chatGptClearComposerState(page, {
-      appName: this.config?.appName,
-      activeComposer:
-        typeof this?.activeComposer === "function" ? (p, t, s) => this.activeComposer(p, t, s) : undefined,
-      connectorIsSelected:
-        typeof this?.connectorIsSelected === "function" ? (c, s) => this.connectorIsSelected(c, s) : undefined,
-    });
+    return ComposerController.prototype.clearChatGptComposerState.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+    );
   }
 
   private async selectConnector(
@@ -1225,232 +1105,15 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
     hasExistingTurns = false,
   ): Promise<Locator> {
-    const capture = async (checkpoint: string): Promise<void> => {
-      throwIfPromptAttachmentAborted(abortSignal);
-      await withBrowserTurnAbort(captureDiagnostic?.(checkpoint) ?? Promise.resolve(), abortSignal);
-      throwIfPromptAttachmentAborted(abortSignal);
-    };
-    let composer: Locator;
-    const menuRows = page.locator(CHATGPT_MENTION_MENU_ROWS_SELECTOR);
-    const appResult = menuRows.filter({
-      has: page.getByText(this.config.appName, { exact: true }),
-    });
-    const pageUrl = page.url();
-    const isTemporaryChat = Boolean(
-      pageUrl && new URL(pageUrl, "https://chatgpt.com").searchParams.get("temporary-chat") === "true",
+    return ComposerController.prototype.selectConnector.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      captureDiagnostic,
+      catalogRefreshAvailable,
+      attemptBudget,
+      abortSignal,
+      hasExistingTurns,
     );
-    if (isTemporaryChat && !hasExistingTurns)
-      await ensureChatGptPersonalizedConnectorAccess(
-        page,
-        capture,
-        async (personalizationSignal) => {
-          let proofResult: boolean | undefined;
-          let proofError: unknown;
-          try {
-            composer = await this.activeComposer(page, 30_000, personalizationSignal);
-            await composer.fill("", {
-              signal: personalizationSignal,
-              timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-            });
-            if (typeof page?.bringToFront === "function") {
-              await page.bringToFront().catch(() => {});
-            }
-            await composer.focus({
-              signal: personalizationSignal,
-              timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-            });
-            await withBrowserTurnAbort(settleChatGptUi(), personalizationSignal);
-            await composer.pressSequentially(CHATGPT_CONNECTOR_MENTION_QUERY, {
-              delay: 25,
-              signal: personalizationSignal,
-              timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-            });
-            await capture("personalization-proof-mention-triggered");
-            try {
-              await appResult.waitFor({ state: "visible", timeout: 2_500, signal: personalizationSignal });
-              proofResult = true;
-              await capture("personalization-proof-menu-visible");
-            } catch (error) {
-              if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
-              proofResult = false;
-              await capture("personalization-proof-menu-missing");
-              const mention = await composer.evaluate(
-                (element) => ({
-                  text:
-                    element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement
-                      ? element.value
-                      : (element.textContent ?? ""),
-                  focused: element === document.activeElement,
-                }),
-                undefined,
-                { timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS, signal: personalizationSignal },
-              );
-              if (mention.text !== CHATGPT_CONNECTOR_MENTION_QUERY) {
-                throw new ChatGptPromptAttachmentIntegrityError(
-                  `ChatGPT did not preserve the connector mention (expectedChars=${CHATGPT_CONNECTOR_MENTION_QUERY.length}, actualChars=${mention.text.length}, focused=${mention.focused})`,
-                );
-              }
-            }
-          } catch (error) {
-            proofError = error;
-          }
-          try {
-            if (typeof this.clearChatGptComposerState === "function") {
-              await this.clearChatGptComposerState(page);
-            }
-          } catch (cleanupError) {
-            throw new ChatGptPersistentBrowserStateError(
-              proofError !== undefined ? [proofError, cleanupError] : [cleanupError],
-              "ChatGPT connector proof did not leave a verified empty composer",
-            );
-          }
-          if (proofError !== undefined) throw proofError;
-          return proofResult === true;
-        },
-        abortSignal,
-      );
-    try {
-      composer = await this.activeComposer(page, 30_000, abortSignal);
-      if (await this.connectorIsSelected(composer, abortSignal)) {
-        const reusable = await chatGptReuseCleanConnector(
-          page,
-          {
-            readPrompt: (p, signal) => this.attachedPromptText(p, signal),
-            clear: (p) => this.clearChatGptComposerState(p),
-          },
-          abortSignal,
-        );
-        if (reusable) {
-          await capture("connector-already-selected");
-          return composer;
-        }
-        composer = await this.activeComposer(page, 30_000, abortSignal);
-      }
-      await composer.fill("", { signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-
-      let firstMenuCaptured = false;
-      while (attemptBudget.triggerAttempts < MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS) {
-        attemptBudget.triggerAttempts += 1;
-        composer = await this.activeComposer(page, 30_000, abortSignal);
-        await composer.fill("", { signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-        if (typeof page?.bringToFront === "function") {
-          await page.bringToFront().catch(() => {});
-        }
-        await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-        await withBrowserTurnAbort(settleChatGptUi(), abortSignal);
-        await composer.pressSequentially(CHATGPT_CONNECTOR_MENTION_QUERY, {
-          delay: 25,
-          signal: abortSignal,
-          timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-        });
-        if (!firstMenuCaptured) {
-          firstMenuCaptured = true;
-          await capture("connector-mention-triggered");
-        }
-        try {
-          await appResult.waitFor({
-            state: "visible",
-            timeout: 2_500,
-            signal: abortSignal,
-          });
-          await capture("connector-menu-visible");
-          break;
-        } catch (error) {
-          if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
-          const visibleRows = await this.connectorMentionRowTitles(menuRows, abortSignal);
-          const knownIdentityMismatch =
-            this.config.appName === CHATGPT_CONNECTOR_NAME &&
-            (visibleRows.includes(DEV_CHATGPT_CONNECTOR_NAME) ||
-              LEGACY_CHATGPT_CONNECTOR_NAMES.some((name) => visibleRows.includes(name)));
-          if (knownIdentityMismatch) {
-            await capture("connector-menu-missing");
-            throw chatGptConnectorUnavailableError(
-              await this.connectorMentionFailure(menuRows, attemptBudget.triggerAttempts, abortSignal, page),
-            );
-          }
-          if (
-            catalogRefreshAvailable &&
-            visibleRows.length > 0 &&
-            !visibleRows.includes(this.config.appName) &&
-            attemptBudget.triggerAttempts < MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS
-          ) {
-            throw new ChatGptConnectorCatalogStaleError(this.config.appName, attemptBudget.triggerAttempts);
-          }
-          if (attemptBudget.triggerAttempts >= MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS) {
-            await capture("connector-menu-missing");
-            throw chatGptConnectorUnavailableError(
-              await this.connectorMentionFailure(menuRows, attemptBudget.triggerAttempts, abortSignal, page),
-            );
-          }
-        }
-      }
-      const exactResultCount = await withBrowserTurnAbort(
-        withChatGptBrowserObservationTimeout(appResult.count()),
-        abortSignal,
-      );
-      if (exactResultCount !== 1) {
-        throw chatGptConnectorUnavailableError(
-          `ChatGPT connector menu did not expose one exact ${JSON.stringify(this.config.appName)} row` +
-            ` after ${attemptBudget.triggerAttempts} complete mention trigger attempt(s)`,
-        );
-      }
-      // Hidden launcher maintenance keeps a 1x1 Chromium viewport, so pointer activation cannot
-      // reach this menu. Require the exact row to own ChatGPT's keyboard highlight first;
-      // otherwise move the menu highlight until it does. Keep
-      // focus on the composer, activate through the menu's real keyboard owner, then prove the exact
-      // selected connector pill below.
-      const rowHighlighted = async () =>
-        chatGptRowIsHighlighted(appResult, abortSignal, CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS);
-      if (!(await rowHighlighted())) {
-        const visibleRowCount = await withBrowserTurnAbort(
-          withChatGptBrowserObservationTimeout(menuRows.filter({ visible: true }).count()),
-          abortSignal,
-        );
-        for (let step = 0; step < visibleRowCount && !(await rowHighlighted()); step += 1) {
-          await composer.press("ArrowDown", {
-            signal: abortSignal,
-            timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-          });
-        }
-      }
-      if (!(await rowHighlighted())) {
-        throw new Error(`ChatGPT connector menu could not highlight ${JSON.stringify(this.config.appName)}`);
-      }
-      await composer.press("Enter", {
-        signal: abortSignal,
-        timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-      });
-      await capture("connector-choice-activated");
-      // Selecting a connector replaces the Lexical composer subtree. Resolve the active composer
-      // again instead of returning the pre-selection locator, otherwise the real turn can focus a
-      // detached/hidden editor even though verification just succeeded.
-      const selectedComposer = await this.activeComposer(page, 30_000, abortSignal);
-      const selectedConnector = this.selectedConnectorControl(selectedComposer);
-      await selectedConnector.waitFor({
-        state: "visible",
-        timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-        signal: abortSignal,
-      });
-      if (!(await this.connectorIsSelected(selectedComposer, abortSignal))) {
-        throw new Error(
-          `ChatGPT composer did not select ${JSON.stringify(this.config?.appName ?? CHATGPT_CONNECTOR_NAME)} connector`,
-        );
-      }
-      await capture("connector-selected");
-      return selectedComposer;
-    } catch (error) {
-      try {
-        if (typeof this.clearChatGptComposerState === "function") {
-          await this.clearChatGptComposerState(page);
-        }
-      } catch (cleanupError) {
-        throw new ChatGptPersistentBrowserStateError(
-          [error, cleanupError],
-          "ChatGPT connector selection failed and its composer state could not be cleared",
-        );
-      }
-      throw error;
-    }
   }
 
   private async attachPrompt(
@@ -1464,108 +1127,18 @@ export class ChatGptBrowserWorker {
     reuseConnector = false,
     requireThink = false,
   ): Promise<void> {
-    prompt = prompt.replace(/\r\n|\r/g, "\n");
-    throwIfPromptAttachmentAborted(abortSignal);
-    await throwIfChatGptRateLimitDialog(page);
-    throwIfPromptAttachmentAborted(abortSignal);
-    const connectorMode = chatGptConnectorAttachmentMode(localTools, reuseConnector);
-    let composerMutationStarted = false;
-    try {
-      if (connectorMode === "none") {
-        const composer = await this.activeComposer(page, 30_000, abortSignal);
-        // Playwright's multiline fill maps through an input action that ChatGPT's Lexical editor can
-        // collapse to the first paragraph on the launcher-owned Electron surface. Clear separately,
-        // then transport the complete text through the browser's plain-text editing command.
-        composerMutationStarted = true;
-        await composer.fill("", { signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-        await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-        if (requireThink) {
-          await setChatGptThinkMode(composer.locator("xpath=ancestor::form[1]"), true, captureDiagnostic, abortSignal);
-        }
-        await this.insertPromptText(page, prompt, abortSignal);
-        await this.assertPromptAttached(page, prompt, abortSignal);
-        return;
-      }
-      let selectedComposer: Locator;
-      if (connectorMode === "retained") {
-        const composer = await this.activeComposer(page, 30_000, abortSignal);
-        const alreadyBound =
-          this.connectorIsSelected !== undefined && (await this.connectorIsSelected(composer, abortSignal));
-        const cleanBinding =
-          alreadyBound &&
-          (await chatGptReuseCleanConnector(
-            page,
-            {
-              readPrompt: (p, signal) => this.attachedPromptText(p, signal),
-              clear: async (p) => {
-                composerMutationStarted = true;
-                await this.clearChatGptComposerState(p);
-              },
-            },
-            abortSignal,
-          ));
-        let userTurnCount = 0;
-        try {
-          if (typeof page?.locator === "function") {
-            const userTurns = page.locator(CHATGPT_USER_TURN_SELECTOR);
-            if (userTurns && typeof userTurns.count === "function") {
-              userTurnCount = await userTurns.count().catch(() => 0);
-            }
-          }
-        } catch {
-          userTurnCount = 0;
-        }
-        selectedComposer = cleanBinding
-          ? composer
-          : await this.selectConnector(
-              page,
-              captureDiagnostic,
-              catalogRefreshAvailable,
-              connectorAttemptBudget,
-              abortSignal,
-              userTurnCount > 0,
-            );
-      } else {
-        selectedComposer = await this.selectConnector(
-          page,
-          captureDiagnostic,
-          catalogRefreshAvailable,
-          connectorAttemptBudget,
-          abortSignal,
-        );
-      }
-      // selectConnector owns and rolls back every mutation until it returns. From this point the
-      // attachment owns the selected pill and prompt text as one transaction.
-      composerMutationStarted = true;
-      if (requireThink) {
-        await setChatGptThinkMode(
-          selectedComposer.locator("xpath=ancestor::form[1]"),
-          true,
-          captureDiagnostic,
-          abortSignal,
-        );
-      }
-      await selectedComposer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-      await selectedComposer.press(CHATGPT_COMPOSER_DOCUMENT_END_KEY, {
-        signal: abortSignal,
-        timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
-      });
-      await this.insertPromptText(page, ` ${prompt}`, abortSignal);
-      await this.assertPromptAttached(page, prompt, abortSignal);
-    } catch (error) {
-      if (!composerMutationStarted || error instanceof ChatGptPersistentBrowserStateError) throw error;
-      try {
-        if (typeof this.clearChatGptComposerState === "function") {
-          await this.clearChatGptComposerState(page);
-        }
-      } catch (cleanupError) {
-        throw new ChatGptPersistentBrowserStateError(
-          [error, cleanupError],
-          "ChatGPT prompt attachment failed and its composer state could not be cleared",
-        );
-      }
-      throw error;
-    }
+    return ComposerController.prototype.attachPrompt.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      prompt,
+      localTools,
+      captureDiagnostic,
+      abortSignal,
+      catalogRefreshAvailable,
+      connectorAttemptBudget,
+      reuseConnector,
+      requireThink,
+    );
   }
 
   private async waitForSubmissionAcceptedWithRecovery(
@@ -1870,37 +1443,12 @@ export class ChatGptBrowserWorker {
   }
 
   private async insertPromptText(page: Page, text: string, abortSignal?: AbortSignal): Promise<void> {
-    throwIfPromptAttachmentAborted(abortSignal);
-    const composer = await this.activeComposer(page, 30_000, abortSignal);
-    await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-    if (typeof page.keyboard?.insertText === "function") {
-      const isProseMirror = await composer.evaluate(
-        (el) =>
-          el.classList.contains("ProseMirror") ||
-          (el.getAttribute("role") === "textbox" && !el.hasAttribute("data-lexical-editor")),
-      );
-      if (isProseMirror) {
-        await page.keyboard.insertText(text);
-        return;
-      }
-    }
-    // CDP Input.insertText is interpreted as live typing by ChatGPT's Lexical plugins. On a large
-    // JSON transport it can turn literal Markdown backticks into rich code nodes, remove the
-    // delimiters from textContent, and leave the next insertion outside the intended block. The
-    // browser's plain-text editing command updates the same focused contenteditable atomically
-    // without running those Markdown shortcuts. Exact readback below remains the authority.
-    const inserted = await composer.evaluate(insertPlainTextIntoComposer, text, {
-      timeout: 20_000,
-      signal: abortSignal,
-    });
-    throwIfPromptAttachmentAborted(abortSignal);
-    if (!inserted) {
-      if (typeof page.keyboard?.insertText === "function") {
-        await page.keyboard.insertText(text);
-      } else {
-        throw new ChatGptPromptAttachmentIntegrityError("ChatGPT composer rejected the plain-text editing command");
-      }
-    }
+    return ComposerController.prototype.insertPromptText.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      text,
+      abortSignal,
+    );
   }
 
   private async verifyConnectorExclusive(traceId = `verify_${randomUUID().replaceAll("-", "")}`): Promise<string> {
@@ -1980,55 +1528,11 @@ export class ChatGptBrowserWorker {
   }
 
   private async attachFiles(page: Page, prompt: CompiledChatGptWebPrompt): Promise<void> {
-    const files = chatGptPromptFilePayloads(prompt);
-    if (files.length === 0) return;
-    const composer = await this.activeComposer(page);
-    const composerForm = composer.locator("xpath=ancestor::form[1]");
-    const input = page.locator(CHATGPT_ATTACHMENT_INPUT_SELECTOR);
-    await input.waitFor({ state: "attached", timeout: 20_000 });
-    await input.setInputFiles(files);
-    try {
-      await Promise.all(
-        files.map((file) => {
-          const byRole = composerForm.getByRole("group", { name: file.name, exact: true });
-          const target =
-            typeof byRole?.or === "function" && typeof composerForm.locator === "function"
-              ? byRole.or(
-                  composerForm.locator(
-                    `.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(file.name)}]`,
-                  ),
-                )
-              : byRole;
-          return target.waitFor({ state: "visible", timeout: 60_000 });
-        }),
-      );
-    } catch {
-      const alerts = (
-        await page
-          .locator('[role="alert"]')
-          .allInnerTexts()
-          .catch(() => [])
-      )
-        .map((text) => text.replace(/\s+/g, " ").trim())
-        .filter(Boolean);
-      throw new Error(
-        `ChatGPT did not accept all prompt attachments${alerts.length > 0 ? `: ${alerts.join(" | ")}` : ""}`,
-      );
-    }
-    const send =
-      (typeof composerForm.locator === "function"
-        ? composerForm
-            .locator(
-              '[data-testid="send-button"], button[type="submit"]:not([aria-haspopup="menu"]), button[aria-label*="Enviar" i], button[aria-label*="Send" i]',
-            )
-            .first()
-        : undefined) ?? composerForm.getByTestId("send-button");
-    const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
-      if (await send.isEnabled().catch(() => false)) return;
-      await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
-    }
-    throw new Error("ChatGPT accepted the prompt attachments but did not make the message ready to send");
+    return ComposerController.prototype.attachFiles.call(
+      this as unknown as ChatGptComposerControllerHost,
+      page,
+      prompt,
+    );
   }
 
   private async responseDomSnapshot(
