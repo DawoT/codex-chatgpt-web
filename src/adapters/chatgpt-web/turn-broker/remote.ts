@@ -4,6 +4,7 @@ import { callTurnBroker } from "./client";
 import { assertSurfaceNonce } from "./helpers";
 import type { BrokerToolRequest, BrokerToolResult, TurnBrokerOwner } from "./types";
 import type { ToolDeliveryPhase } from "../tool-delivery-lifecycle";
+import { TurnBrokerProtocolError, TurnBrokerStateError } from "./errors";
 
 /**
  * Outer-harness client for a broker already owned by the live launcher runtime. It lets a
@@ -28,14 +29,14 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       );
     }
     if (status.protocolVersion !== 6) {
-      throw new Error(`Unsupported DEV turn-owner protocol version: ${String(status.protocolVersion)}`);
+      throw new TurnBrokerProtocolError(`Unsupported DEV turn-owner protocol version: ${String(status.protocolVersion)}`);
     }
     if (runtimeIdentity.buildCommit !== null
       && status.identity?.buildCommit !== runtimeIdentity.buildCommit) {
-      throw new Error(`Broker build does not match owner build ${runtimeIdentity.buildCommit}`);
+      throw new TurnBrokerProtocolError(`Broker build does not match owner build ${runtimeIdentity.buildCommit}`);
     }
     if (status.acceptingExternalOwners !== true) {
-      throw new Error("The running launcher runtime is draining and is not accepting DEV chat turns");
+      throw new TurnBrokerStateError("The running launcher runtime is draining and is not accepting DEV chat turns");
     }
   }
 
@@ -54,7 +55,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       activityId,
     });
     if (typeof response.touched !== "boolean") {
-      throw new Error("DEV turn owner received an invalid activity touch result");
+      throw new TurnBrokerProtocolError("DEV turn owner received an invalid activity touch result");
     }
     return response.touched;
   }
@@ -75,7 +76,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       ...(predecessorToken ? { previousToken: predecessorToken } : {}),
     });
     if (typeof response.token !== "string" || !response.token.startsWith("turn_")) {
-      throw new Error("DEV turn owner received an invalid broker token");
+      throw new TurnBrokerProtocolError("DEV turn owner received an invalid broker token");
     }
     return response.token;
   }
@@ -98,7 +99,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       ...(predecessorToken ? { previousToken: predecessorToken } : {}),
     });
     if (typeof response.token !== "string" || !response.token.startsWith("request_")) {
-      throw new Error("DEV Zero Risk turn owner received an invalid broker request id");
+      throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid broker request id");
     }
     return response.token;
   }
@@ -117,7 +118,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       surfaceNonce,
     });
     if (response.confirmed !== true || typeof response.duplicate !== "boolean") {
-      throw new Error("DEV Zero Risk turn owner received an invalid Sent confirmation result");
+      throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid Sent confirmation result");
     }
     return { confirmed: true, duplicate: response.duplicate };
   }
@@ -137,7 +138,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
         || (request.freeform
           ? typeof request.input !== "string"
           : !request.arguments || typeof request.arguments !== "object" || Array.isArray(request.arguments));
-    })) throw new Error("DEV turn owner received an invalid tool batch");
+    })) throw new TurnBrokerProtocolError("DEV turn owner received an invalid tool batch");
     return response.requests as BrokerToolRequest[];
   }
 
@@ -172,7 +173,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       null,
       signal,
     );
-    if (response.started !== true) throw new Error("DEV Zero Risk turn owner received an invalid start result");
+    if (response.started !== true) throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid start result");
   }
 
   async waitForSafeCompletion(token: string, signal?: AbortSignal): Promise<string> {
@@ -183,7 +184,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       signal,
     );
     if (typeof response.finalAnswer !== "string" || response.finalAnswer.trim().length === 0) {
-      throw new Error("DEV Zero Risk turn owner received an invalid completion result");
+      throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid completion result");
     }
     return response.finalAnswer;
   }
@@ -195,7 +196,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       toolResult: queuedResult,
     }, null);
     if (!Number.isSafeInteger(response.interrupted) || Number(response.interrupted) < 0) {
-      throw new Error("DEV Zero Risk turn owner received an invalid compaction interrupt count");
+      throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid compaction interrupt count");
     }
     return Number(response.interrupted);
   }
@@ -206,7 +207,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       token,
     });
     if (!Number.isSafeInteger(response.count) || Number(response.count) < 0) {
-      throw new Error("DEV Zero Risk turn owner received an invalid compaction delivery count");
+      throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid compaction delivery count");
     }
     return Number(response.count);
   }
@@ -218,7 +219,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     });
     if (response.revision === null) return undefined;
     if (!Number.isSafeInteger(response.revision) || (response.revision as number) < 0) {
-      throw new Error("DEV turn owner received an invalid completion fence revision");
+      throw new TurnBrokerProtocolError("DEV turn owner received an invalid completion fence revision");
     }
     return response.revision as number;
   }
@@ -230,7 +231,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       revision,
     });
     if (typeof response.committed !== "boolean") {
-      throw new Error("DEV turn owner received an invalid completion fence result");
+      throw new TurnBrokerProtocolError("DEV turn owner received an invalid completion fence result");
     }
     return response.committed;
   }
@@ -242,7 +243,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       null,
       signal,
     );
-    if (response.retired !== true) throw new Error("DEV turn owner received an invalid retirement result");
+    if (response.retired !== true) throw new TurnBrokerProtocolError("DEV turn owner received an invalid retirement result");
   }
 
   async revoke(token: string, _reason?: Error): Promise<void> {

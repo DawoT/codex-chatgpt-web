@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ChatGptTurnEnvironment } from "../environment";
 import { namespacedToolName } from "../../../types";
+import { TurnBrokerProtocolError, TurnBrokerRequestError } from "./errors";
 
 export const MAX_BROKER_LINE_CHARS = 67_108_864;
 export const MAX_RETIRED_TURN_HANDLES = 64;
@@ -61,7 +62,7 @@ export function environmentIdentity(environment: ChatGptTurnEnvironment): string
 }
 
 export function ownerEnvironment(value: unknown): ChatGptTurnEnvironment {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("turn owner environment is invalid");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TurnBrokerProtocolError("turn owner environment is invalid");
   const environment = value as Partial<ChatGptTurnEnvironment>;
   const paths = (candidate: unknown): candidate is string[] => Array.isArray(candidate)
     && (candidate.length > 0 || environment.execution === "host-only")
@@ -78,16 +79,16 @@ export function ownerEnvironment(value: unknown): ChatGptTurnEnvironment {
     || !Array.isArray(environment.tools)
     || environment.tools.some(tool => !tool || typeof tool.name !== "string" || typeof tool.description !== "string"
       || !tool.parameters || typeof tool.parameters !== "object" || Array.isArray(tool.parameters))) {
-    throw new Error("turn owner environment is invalid");
+    throw new TurnBrokerProtocolError("turn owner environment is invalid");
   }
   if (environment.execution === "host-only") {
     const names = new Set<string>();
     for (const tool of environment.tools!) {
       if (!tool.name || (tool.namespace !== undefined && typeof tool.namespace !== "string")) {
-        throw new Error("host-only tool identity is invalid");
+        throw new TurnBrokerProtocolError("host-only tool identity is invalid");
       }
       const name = namespacedToolName(tool.namespace, tool.name);
-      if (names.has(name)) throw new Error("host-only tool identities must be unique");
+      if (names.has(name)) throw new TurnBrokerProtocolError("host-only tool identities must be unique");
       names.add(name);
     }
   }
@@ -96,7 +97,7 @@ export function ownerEnvironment(value: unknown): ChatGptTurnEnvironment {
 
 export function assertSurfaceNonce(value: unknown): asserts value is string {
   if (typeof value !== "string" || !/^[A-Za-z0-9_-]{20,256}$/.test(value)) {
-    throw new Error("Zero Risk local browser binding is invalid");
+    throw new TurnBrokerRequestError("Zero Risk local browser binding is invalid");
   }
 }
 
