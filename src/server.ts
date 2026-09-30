@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createChatGptWebAdapter } from "./adapters/chatgpt-web";
 import { closeChatGptBrowserWorkers } from "./adapters/chatgpt-web/browser-worker";
 import { CircuitBreaker } from "./adapters/chatgpt-web/circuit-breaker";
@@ -15,9 +16,10 @@ import { chatGptTurnSessions } from "./adapters/chatgpt-web/turn-execution";
 import { formatErrorResponse } from "./bridge";
 import { readCodexModelContextOverride, readCodexSubagentProtocol } from "./codex-integration";
 import type { AppConfig } from "./config";
-import { getConfigDir, providerConfig } from "./config";
-import { readLauncherBrowserHostDescriptor } from "./launcher-browser-host";
+import { expandUserPath, getConfigDir, providerConfig } from "./config";
+import { readLauncherBrowserHostDescriptor, releaseLauncherSurface } from "./launcher-browser-host";
 import type { NativeFetch, NativeImageEndpoint } from "./native-passthrough";
+import { processRunning } from "./process";
 import { flushResponseState } from "./responses/state";
 import { type AdminRouteContext, handleAdminRoute } from "./server/admin-routes";
 import { HostHttpRoutes } from "./server/host-routes";
@@ -76,11 +78,55 @@ export function startServer(
   const actorResults = sessionActorEnabled ? new SessionResultStore(join(actorDirectory, "results")) : undefined;
   const actorJournal = sessionActorEnabled ? new SessionActorJournal(join(actorDirectory, "events.sqlite")) : undefined;
   const actorManager = actorJournal
-    ? new SessionActorManager(actorJournal, actorResults, (surfaceId) => {
-        const descriptorPath = config.browserHostDescriptorPath;
-        if (!descriptorPath) throw new Error("Session actor requires a launcher descriptor for surface reconciliation");
-        return !Object.hasOwn(readLauncherBrowserHostDescriptor(descriptorPath).surfaceTargets, surfaceId);
-      })
+    ? new SessionActorManager(
+        actorJournal,
+        actorResults,
+        async (surfaceId) => {
+          const descriptorPath = config.browserHostDescriptorPath;
+          if (!descriptorPath)
+            throw new Error("Session actor requires a launcher descriptor for surface reconciliation");
+          try {
+            const descriptor = readLauncherBrowserHostDescriptor(descriptorPath);
+            if (!Object.hasOwn(descriptor.surfaceTargets, surfaceId)) return true;
+            const targetId = descriptor.surfaceTargets[surfaceId];
+            if (targetId) {
+              try {
+                const response = await fetch(`${descriptor.endpoint}/json`);
+                if (response.ok) {
+                  const targets = (await response.json()) as Array<{ id: string }>;
+                  if (!targets.some((t) => t.id === targetId)) {
+                    return true;
+                  }
+                }
+              } catch {}
+            }
+            return false;
+          } catch (error) {
+            const resolvedPath = resolve(expandUserPath(descriptorPath));
+            if (!existsSync(resolvedPath)) return true;
+            try {
+              const raw = JSON.parse(readFileSync(resolvedPath, "utf8"));
+              if (raw && typeof raw === "object" && typeof raw.pid === "number" && !processRunning(raw.pid)) {
+                return true;
+              }
+            } catch {}
+            throw error;
+          }
+        },
+        async (surfaceId) => {
+          const descriptorPath = config.browserHostDescriptorPath;
+          if (!descriptorPath) return false;
+          try {
+            await releaseLauncherSurface(descriptorPath, surfaceId);
+            return true;
+          } catch (error) {
+            console.warn(
+              `[server] failed to release revoked launcher surface ${surfaceId}: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return false;
+          }
+        },
+      )
     : undefined;
   actorManager?.recoverUncertainOperations();
 

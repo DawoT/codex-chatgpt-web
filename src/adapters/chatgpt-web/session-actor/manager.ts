@@ -14,6 +14,7 @@ export class SessionActorManager {
     readonly journal: SessionActorJournal,
     private readonly results?: SessionResultStore,
     private readonly surfaceIsGone?: (surfaceId: string) => boolean | Promise<boolean>,
+    private readonly releaseSurface?: (surfaceId: string) => Promise<boolean> | boolean,
   ) {}
 
   actor(sessionId: string): SessionActor {
@@ -111,7 +112,18 @@ export class SessionActorManager {
 
   private async reconcileRevokedSurfaces(sessionId: string): Promise<void> {
     for (const owner of this.journal.revokedSurfaces(sessionId)) {
-      if (!this.surfaceIsGone || !(await this.surfaceIsGone(owner.surfaceId))) {
+      let gone = this.surfaceIsGone ? await this.surfaceIsGone(owner.surfaceId) : true;
+      if (!gone && this.releaseSurface) {
+        try {
+          await this.releaseSurface(owner.surfaceId);
+        } catch (error) {
+          console.warn(
+            `[session-actor] failed to release revoked surface ${owner.surfaceId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        gone = this.surfaceIsGone ? await this.surfaceIsGone(owner.surfaceId) : true;
+      }
+      if (!gone) {
         throw new Error("Session actor revoked surface is still present and cannot be replaced");
       }
       const acknowledgement = await this.actor(sessionId).recordLocal(
@@ -130,6 +142,16 @@ export class SessionActorManager {
     owner: { sessionId: string; generation: number; turnId: string },
     operationId: string,
   ): Promise<boolean> {
+    const priorSurface = this.journal.surfaceForSession(owner.sessionId, owner.generation);
+    if (priorSurface && this.releaseSurface) {
+      try {
+        await this.releaseSurface(priorSurface);
+      } catch (error) {
+        console.warn(
+          `[session-actor] failed to release surface ${priorSurface} on revocation: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
     let acknowledgement: SessionAcknowledgement;
     try {
       acknowledgement = await this.actor(owner.sessionId).recordLocal(
@@ -598,7 +620,18 @@ export class SessionActorManager {
         }
         const priorSurface = this.journal.surfaceForSession(sessionId, generation);
         if (priorSurface && priorSurface !== surfaceId) {
-          if (!this.surfaceIsGone || !(await this.surfaceIsGone(priorSurface))) {
+          let priorGone = this.surfaceIsGone ? await this.surfaceIsGone(priorSurface) : true;
+          if (!priorGone && this.releaseSurface) {
+            try {
+              await this.releaseSurface(priorSurface);
+            } catch (error) {
+              console.warn(
+                `[session-actor] failed to release prior surface ${priorSurface}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            priorGone = this.surfaceIsGone ? await this.surfaceIsGone(priorSurface) : true;
+          }
+          if (!priorGone) {
             throw new Error("Session actor retained surface still owns this session");
           }
           const release = await actor.recordLocal(

@@ -946,6 +946,102 @@ test("restart reconciles a revoked surface only after its browser target is gone
   }
 });
 
+test("manager automatically releases revoked surface via releaseSurface hook before admitting turn", async () => {
+  const home = fixture();
+  try {
+    const sessionId = "namespace/thread-surface-auto-release";
+    const actor = new SessionActor(home.journal, sessionId);
+    await actor.recordLocal("turn_started", "turn-1", "turn:turn-1");
+    await actor.recordLocal("surface_claimed", "turn-1", "claim-old", { surfaceId: "surface-revoked-tab" });
+    await actor.recordLocal("generation_revoked", "turn-1", "revoke-old");
+
+    const presentSurfaces = new Set(["surface-revoked-tab"]);
+    const releasedSurfaces: string[] = [];
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+      (surfaceId) => !presentSurfaces.has(surfaceId),
+      (surfaceId) => {
+        releasedSurfaces.push(surfaceId);
+        presentSurfaces.delete(surfaceId);
+        return true;
+      },
+    );
+
+    // Initial check: revoked surface is still present in launcher
+    expect(presentSurfaces.has("surface-revoked-tab")).toBe(true);
+    expect(home.journal.surfaceOwner("surface-revoked-tab")).toEqual({ sessionId, generation: 1 });
+
+    // When new turn runs, manager should invoke releaseSurface, reconcile, and admit turn without throwing
+    const answer = await manager.runBrowserTurn(
+      sessionId,
+      "turn-2",
+      "browser:turn-2",
+      async (onAccepted, _onTools, onSurfaceLeased, onSurfaceReleased) => {
+        expect(releasedSurfaces).toEqual(["surface-revoked-tab"]);
+        expect(presentSurfaces.has("surface-revoked-tab")).toBe(false);
+        expect(home.journal.surfaceOwner("surface-revoked-tab")).toBeNull();
+        await onSurfaceLeased("surface-new-tab");
+        await onAccepted();
+        await onSurfaceReleased("surface-new-tab");
+        return "healed and executed";
+      },
+    );
+
+    expect(answer).toBe("healed and executed");
+    expect(releasedSurfaces).toEqual(["surface-revoked-tab"]);
+  } finally {
+    home.close();
+  }
+});
+
+test("manager proactively calls releaseSurface during revokeBrowserTrace", async () => {
+  const home = fixture();
+  try {
+    const sessionId = "namespace/thread-proactive-revoke";
+    const presentSurfaces = new Set(["surface-active"]);
+    const releasedSurfaces: string[] = [];
+    const manager = new SessionActorManager(
+      home.journal,
+      new SessionResultStore(join(dirname(home.path), "results")),
+      (surfaceId) => !presentSurfaces.has(surfaceId),
+      (surfaceId) => {
+        releasedSurfaces.push(surfaceId);
+        presentSurfaces.delete(surfaceId);
+        return true;
+      },
+    );
+
+    const actor = manager.actor(sessionId);
+    await manager.beginTurn(sessionId, "turn-1");
+    await actor.recordLocal("surface_claimed", "turn-1", "claim-1", { surfaceId: "surface-active" });
+    await actor.dispatch(
+      command(sessionId, 1, "operation_intent", {
+        turnId: "turn-1",
+        operationId: "browser:trace-123",
+        operationKind: "browser_send",
+        historyRevision: 0,
+      }),
+    );
+    await actor.dispatch(
+      command(sessionId, 2, "operation_accepted", {
+        turnId: "turn-1",
+        operationId: "browser:trace-123",
+      }),
+    );
+
+    expect(home.journal.surfaceOwner("surface-active")).toEqual({ sessionId, generation: 1 });
+
+    // Revoking the trace should proactively release the surface
+    const revoked = await manager.revokeBrowserTrace("trace-123");
+    expect(revoked).toBe(true);
+    expect(releasedSurfaces).toEqual(["surface-active"]);
+    expect(presentSurfaces.has("surface-active")).toBe(false);
+  } finally {
+    home.close();
+  }
+});
+
 test("a missing retained surface is reconciled before its session claims a replacement", async () => {
   const home = fixture();
   try {

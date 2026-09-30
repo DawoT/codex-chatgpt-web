@@ -129,3 +129,51 @@ export async function releaseLauncherRetainedConversation(
     clearTimeout(timer);
   }
 }
+
+export async function releaseLauncherSurface(
+  descriptorPath: string,
+  surfaceId: string,
+  timeoutMs = LAUNCHER_TURN_END_TIMEOUT_MS,
+): Promise<number> {
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(surfaceId)) {
+    throw new Error("Launcher surface id is invalid");
+  }
+  const descriptor = readLauncherBrowserHostDescriptor(descriptorPath);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${descriptor.control.endpoint}/v1/turn/release`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${descriptor.control.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ surfaceId }),
+      signal: controller.signal,
+    });
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (response.ok && Number.isSafeInteger(body.released) && Number(body.released) >= 0) {
+      return Number(body.released);
+    }
+    const targetId = descriptor.surfaceTargets[surfaceId];
+    if (targetId) {
+      try {
+        const cdpClose = await fetch(`${descriptor.endpoint}/json/close/${targetId}`);
+        if (cdpClose.ok) return 1;
+      } catch {}
+    }
+    const detail = typeof body.error === "string" ? `: ${body.error}` : "";
+    throw new Error(`HTTP ${response.status}${detail}`);
+  } catch (error) {
+    const targetId = descriptor.surfaceTargets?.[surfaceId];
+    if (targetId) {
+      try {
+        const cdpClose = await fetch(`${descriptor.endpoint}/json/close/${targetId}`);
+        if (cdpClose.ok) return 1;
+      } catch {}
+    }
+    throw new Error(`Launcher surface release failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}

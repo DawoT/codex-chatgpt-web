@@ -14,4 +14,18 @@ function releaseRetainedConversation(host, conversationKey) {
   return retained.length;
 }
 
-module.exports = { releaseRetainedConversation };
+function releaseRetainedSurface(host, surfaceId) {
+  const matching = [...host.turnTabs.values()].filter((tab) => tab.surfaceId === surfaceId);
+  for (const tab of matching) {
+    host.removeTurnTab(tab, true);
+    host.logger.info("browser.tab_released", {
+      tabId: tab.id,
+      traceId: tab.traceId,
+      status: tab.status,
+      reason: "retained_surface_released",
+    });
+  }
+  return matching.length;
+}
+
+module.exports = { releaseRetainedConversation, releaseRetainedSurface };

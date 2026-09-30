@@ -849,6 +849,11 @@ class BrowserHost {
       if (parsed.protocol === "https:" || parsed.protocol === "http:") void shell.openExternal(parsed.toString());
       return { action: "deny" };
     });
+    contents.on("destroyed", () => {
+      if (this.turnTabs.get(tab.id) === tab) {
+        this.removeTurnTab(tab, false);
+      }
+    });
     const blockAuthenticationNavigation = (event, url) => {
       if (!allowedAuthUrl(url)) return;
       event.preventDefault();

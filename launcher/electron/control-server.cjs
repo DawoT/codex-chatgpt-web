@@ -1,6 +1,6 @@
 const { createServer } = require("node:http");
 const { randomBytes, timingSafeEqual } = require("node:crypto");
-const { releaseRetainedConversation } = require("./retained-turn-release.cjs");
+const { releaseRetainedConversation, releaseRetainedSurface } = require("./retained-turn-release.cjs");
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_MANUAL_START_BODY_BYTES = 3 * 1024 * 1024;
@@ -154,11 +154,25 @@ class BrowserControlServer {
         return;
       }
       if (isTurnRelease) {
-        if (typeof body?.conversationKey !== "string" || !/^[a-f0-9]{64}$/.test(body.conversationKey)) {
-          throw new Error("conversationKey is invalid");
+        let released = 0;
+        if (typeof body?.surfaceId === "string") {
+          if (!/^[A-Za-z0-9_-]{20,64}$/.test(body.surfaceId)) {
+            throw new Error("surfaceId is invalid");
+          }
+          released = releaseRetainedSurface(host, body.surfaceId);
+          this.logger.info("browser.retained_surface_released", { surfaceId: body.surfaceId, released });
+        } else if (typeof body?.conversationKey === "string") {
+          if (!/^[a-f0-9]{64}$/.test(body.conversationKey)) {
+            throw new Error("conversationKey is invalid");
+          }
+          released = releaseRetainedConversation(host, body.conversationKey);
+          this.logger.info("browser.retained_conversation_released", {
+            conversationKey: body.conversationKey,
+            released,
+          });
+        } else {
+          throw new Error("conversationKey or surfaceId is invalid");
         }
-        const released = releaseRetainedConversation(host, body.conversationKey);
-        this.logger.info("browser.retained_conversation_released", { released });
         writeJson(response, 200, { ok: true, released });
         return;
       }

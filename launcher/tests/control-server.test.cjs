@@ -713,6 +713,59 @@ test("browser control server releases only ready tabs for an authenticated conve
   }
 });
 
+test("browser control server releases tabs for an authenticated surface id", async () => {
+  const ready = {
+    id: "surface-tab",
+    traceId: "surface-trace",
+    surfaceId: "a".repeat(32),
+    status: "ready",
+  };
+  const removed = [];
+  const releaseEvents = [];
+  const host = {
+    turnTabs: new Map([[ready.id, ready]]),
+    logger: { info: (event, detail) => releaseEvents.push([event, detail]) },
+    removeTurnTab(tab, abortRunning) {
+      assert.equal(abortRunning, true);
+      removed.push(tab.id);
+      this.turnTabs.delete(tab.id);
+    },
+  };
+  const server = await new BrowserControlServer({
+    logger: { info() {}, warn() {} },
+    getBrowserHost: () => host,
+    getPreferences: () => ({}),
+  }).start();
+  const descriptor = server.descriptor();
+  try {
+    const response = await fetch(`${descriptor.endpoint}/v1/turn/release`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${descriptor.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ surfaceId: "a".repeat(32) }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, released: 1 });
+    assert.deepEqual(removed, ["surface-tab"]);
+    assert.equal(host.turnTabs.size, 0);
+    assert.deepEqual(releaseEvents, [
+      [
+        "browser.tab_released",
+        {
+          tabId: "surface-tab",
+          traceId: "surface-trace",
+          status: "ready",
+          reason: "retained_surface_released",
+        },
+      ],
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
 test("browser control server rejects malformed retained-conversation contracts", async () => {
   const server = await new BrowserControlServer({
     logger: { info() {}, warn() {} },
