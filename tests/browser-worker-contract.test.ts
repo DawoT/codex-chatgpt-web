@@ -12,6 +12,7 @@ import {
   ChatGptPageDomObserver,
 } from "../src/adapters/chatgpt-web/browser/context-pressure";
 import type { ChatGptResponseDomSnapshot } from "../src/adapters/chatgpt-web/browser/dom-trackers";
+import { ChatGptModelControls } from "../src/adapters/chatgpt-web/browser/model-controls";
 import { ResponseObserver } from "../src/adapters/chatgpt-web/browser/response-observer";
 import { interactiveBrowserTurnMutex } from "../src/adapters/chatgpt-web/browser-mutex";
 import {
@@ -3678,27 +3679,24 @@ test("Luna-only browser turns verify selector absence instead of opening an effo
     getByRole: () => ({ filter: () => ({ count: async () => 0 }) }),
   };
   const composer = { locator: () => composerForm };
-  const selectModelAndEffort = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectModelAndEffort(
-        page: unknown,
-        modelId: string,
-        reasoning: string,
-        capabilities: {
-          localToolsEnabled: boolean;
-          solAvailable: boolean;
-          extraHighAvailable: boolean;
-          proAvailable: boolean;
-        },
-        captureDiagnostic: (checkpoint: string) => Promise<void>,
-      ): Promise<{ displayLabel: string; uiEffortIndex: number | null }>;
-    }
-  ).selectModelAndEffort;
+  const selectModelAndEffort = new ChatGptModelControls({
+    activeComposer: async () => composer as never,
+  }) as unknown as {
+    selectModelAndEffort(
+      page: unknown,
+      modelId: string,
+      reasoning: string,
+      capabilities: {
+        localToolsEnabled: boolean;
+        solAvailable: boolean;
+        extraHighAvailable: boolean;
+        proAvailable: boolean;
+      },
+      captureDiagnostic: (checkpoint: string) => Promise<void>,
+    ): Promise<{ displayLabel: string; uiEffortIndex: number | null }>;
+  };
 
-  const mode = await selectModelAndEffort.call(
-    {
-      activeComposer: async () => composer,
-    },
+  const mode = await selectModelAndEffort.selectModelAndEffort(
     {
       locator: () => hiddenDialog,
     },
@@ -4324,26 +4322,23 @@ test("effort selection stops as soon as ChatGPT reports an expired session", asy
     waitFor: async () => await neverVisible,
     isVisible: async () => false,
   };
-  const selectModelAndEffort = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectModelAndEffort(
-        page: unknown,
-        modelId: string,
-        reasoning: string,
-        capabilities: {
-          localToolsEnabled: boolean;
-          solAvailable: boolean;
-          extraHighAvailable: boolean;
-          proAvailable: boolean;
-        },
-      ): Promise<unknown>;
-    }
-  ).selectModelAndEffort;
+  const selectModelAndEffort = new ChatGptModelControls({
+    activeComposer: async () => composer as never,
+  }) as unknown as {
+    selectModelAndEffort(
+      page: unknown,
+      modelId: string,
+      reasoning: string,
+      capabilities: {
+        localToolsEnabled: boolean;
+        solAvailable: boolean;
+        extraHighAvailable: boolean;
+        proAvailable: boolean;
+      },
+    ): Promise<unknown>;
+  };
 
-  const selection = selectModelAndEffort.call(
-    {
-      activeComposer: async () => composer,
-    },
+  const selection = selectModelAndEffort.selectModelAndEffort(
     {
       locator: (selector: string) => (selector.includes('[role="alert"]') ? sessionAlert : hiddenDialog),
     },
@@ -4427,26 +4422,23 @@ test("effort menu waiting stops when ChatGPT reports an expired session", async 
     waitFor: async () => await neverVisible,
     isVisible: async () => false,
   };
-  const selectModelAndEffort = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectModelAndEffort(
-        page: unknown,
-        modelId: string,
-        reasoning: string,
-        capabilities: {
-          localToolsEnabled: boolean;
-          solAvailable: boolean;
-          extraHighAvailable: boolean;
-          proAvailable: boolean;
-        },
-      ): Promise<unknown>;
-    }
-  ).selectModelAndEffort;
+  const selectModelAndEffort = new ChatGptModelControls({
+    activeComposer: async () => composer as never,
+  }) as unknown as {
+    selectModelAndEffort(
+      page: unknown,
+      modelId: string,
+      reasoning: string,
+      capabilities: {
+        localToolsEnabled: boolean;
+        solAvailable: boolean;
+        extraHighAvailable: boolean;
+        proAvailable: boolean;
+      },
+    ): Promise<unknown>;
+  };
 
-  const selection = selectModelAndEffort.call(
-    {
-      activeComposer: async () => composer,
-    },
+  const selection = selectModelAndEffort.selectModelAndEffort(
     {
       locator: (selector: string) => {
         if (selector.includes('[role="alert"]')) return sessionAlert;

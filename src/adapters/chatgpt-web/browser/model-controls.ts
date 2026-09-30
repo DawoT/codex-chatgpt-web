@@ -48,19 +48,19 @@ function chatGptModelControlUnavailableAdapterError(diagnostic: string, detail?:
 }
 
 /**
- * Dispatch surface the model/effort selection methods rely on through their `this`.
- * The bodies keep the original open recursion (`this.activeComposer(...)`,
- * `this.assertSelectedEffort(...)`), so hosts that stub or override one member keep steering
- * every internal call.
+ * Dependencies the model/effort selection borrows from the worker, injected as a late-bound
+ * function: the active-composer resolver. The worker supplies a lambda closing over `this`, so
+ * stubs installed on the worker instance or on `ChatGptBrowserWorker.prototype` keep steering
+ * every internal call. Effort re-verification stays an ordinary internal method call.
  */
-export interface ChatGptModelControlsHost {
+export interface ChatGptModelControlsDeps {
   activeComposer(page: Page, timeoutMs?: number, abortSignal?: AbortSignal): Promise<Locator>;
-  assertSelectedEffort(page: Page, mode: SelectedChatGptWebModelMode, verifyFamily?: boolean): Promise<void>;
 }
 
 export class ChatGptModelControls {
+  constructor(private readonly deps: ChatGptModelControlsDeps) {}
+
   async selectModelAndEffort(
-    this: ChatGptModelControlsHost,
     page: Page,
     modelId: string,
     reasoning: string | undefined,
@@ -70,7 +70,7 @@ export class ChatGptModelControls {
     modelFamily?: "5.6" | "6",
   ): Promise<SelectedChatGptWebModelMode> {
     const mode = resolveChatGptWebModelMode(modelId, reasoning, capabilities);
-    const composer = await this.activeComposer(page);
+    const composer = await this.deps.activeComposer(page);
     const composerForm = composer.locator("xpath=ancestor::form[1]");
     const uiEffortIndex = mode.uiEffortIndex;
     if (uiEffortIndex === null) {
@@ -255,14 +255,9 @@ export class ChatGptModelControls {
     return selectedMode;
   }
 
-  async assertSelectedEffort(
-    this: ChatGptModelControlsHost,
-    page: Page,
-    mode: SelectedChatGptWebModelMode,
-    verifyFamily = true,
-  ): Promise<void> {
+  async assertSelectedEffort(page: Page, mode: SelectedChatGptWebModelMode, verifyFamily = true): Promise<void> {
     if (!mode.selection) return;
-    const composer = await this.activeComposer(page);
+    const composer = await this.deps.activeComposer(page);
     const controls = composer
       .locator("xpath=ancestor::form[1]")
       .locator(CHATGPT_EFFORT_CONTROL_SELECTOR)

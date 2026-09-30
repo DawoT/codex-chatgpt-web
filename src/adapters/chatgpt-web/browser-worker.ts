@@ -35,11 +35,7 @@ import {
 } from "./browser/composer-controller";
 import { ChatGptBrowserContextPressure, ChatGptPageDomObserver } from "./browser/context-pressure";
 import { waitForChatGptDomRevision, waitForChatGptDomSettle } from "./browser/dom-signal";
-import {
-  ChatGptModelControls,
-  type ChatGptModelControlsHost,
-  type SelectedChatGptWebModelMode,
-} from "./browser/model-controls";
+import { ChatGptModelControls, type SelectedChatGptWebModelMode } from "./browser/model-controls";
 import { extractAttachedPromptText } from "./browser/prompt-readback";
 import { ResponseObserver } from "./browser/response-observer";
 import {
@@ -347,11 +343,14 @@ export class ChatGptBrowserWorker {
 
   private get session(): BrowserSession {
     if (!this.sessionState) this.sessionState = { maintenanceTail: Promise.resolve() };
-    return (this.sessionInstance ??= new BrowserSession({
-      config: this.config,
-      state: this.sessionState,
-      activeRuns: this.activeRuns ?? new Map(),
-    }));
+    if (!this.sessionInstance) {
+      this.sessionInstance = new BrowserSession({
+        config: this.config,
+        state: this.sessionState,
+        activeRuns: this.activeRuns ?? new Map(),
+      });
+    }
+    return this.sessionInstance;
   }
 
   private get browser(): Browser | undefined {
@@ -368,10 +367,23 @@ export class ChatGptBrowserWorker {
 
   private responseObserverInstance?: ResponseObserver;
   private get responseObserver(): ResponseObserver {
-    return (this.responseObserverInstance ??= new ResponseObserver({
-      pageDomObserver: this.pageDomObserver,
-      getContextPressure: (page, conversationKey) => this.getContextPressure(page, conversationKey),
-    }));
+    if (!this.responseObserverInstance) {
+      this.responseObserverInstance = new ResponseObserver({
+        pageDomObserver: this.pageDomObserver,
+        getContextPressure: (page, conversationKey) => this.getContextPressure(page, conversationKey),
+      });
+    }
+    return this.responseObserverInstance;
+  }
+
+  private modelControlsInstance?: ChatGptModelControls;
+  private get modelControls(): ChatGptModelControls {
+    if (!this.modelControlsInstance) {
+      this.modelControlsInstance = new ChatGptModelControls({
+        activeComposer: (page, timeoutMs, abortSignal) => this.activeComposer(page, timeoutMs, abortSignal),
+      });
+    }
+    return this.modelControlsInstance;
   }
 
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
@@ -556,8 +568,7 @@ export class ChatGptBrowserWorker {
     trackUsage = false,
     modelFamily?: "5.6" | "6",
   ): Promise<SelectedChatGptWebModelMode> {
-    return ChatGptModelControls.prototype.selectModelAndEffort.call(
-      this as unknown as ChatGptModelControlsHost,
+    return this.modelControls.selectModelAndEffort(
       page,
       modelId,
       reasoning,
@@ -573,12 +584,7 @@ export class ChatGptBrowserWorker {
     mode: SelectedChatGptWebModelMode,
     verifyFamily = true,
   ): Promise<void> {
-    return ChatGptModelControls.prototype.assertSelectedEffort.call(
-      this as unknown as ChatGptModelControlsHost,
-      page,
-      mode,
-      verifyFamily,
-    );
+    return this.modelControls.assertSelectedEffort(page, mode, verifyFamily);
   }
 
   private async activeComposer(page: Page, timeoutMs = 30_000, abortSignal?: AbortSignal): Promise<Locator> {
