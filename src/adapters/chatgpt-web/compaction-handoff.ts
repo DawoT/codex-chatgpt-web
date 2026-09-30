@@ -639,6 +639,7 @@ export async function requestRetainedCompactionHandoff(
       }
     }
     const prepare = async () => ({ text: instruction, images: [], release: () => {} });
+    let accumulatedText = "";
     browser = worker.run({
       traceId,
       modelId: parsed.modelId,
@@ -652,10 +653,20 @@ export async function requestRetainedCompactionHandoff(
       conversationKey,
       requireRetainedConversation: true,
       abortSignal: browserAbort.signal,
-      onTextDelta: () => {},
+      onTextDelta: (delta) => {
+        accumulatedText += delta;
+      },
     });
     const handoff = broker.waitForCompactionHandoff(transaction.token, operationSignal);
-    const browserWithoutHandoff = browser.then<never>(() => {
+    const browserWithoutHandoff = browser.then<string>((browserOutput) => {
+      const candidateText = (browserOutput || accumulatedText || "").trim();
+      const bounds = locateCompactionStateBounds(candidateText);
+      if (bounds || candidateText.includes("<compaction_state>") || candidateText.includes("compaction_state")) {
+        console.info(
+          `[chatgpt-web] compaction_retained_text_rescue: Rescued compaction checkpoint from assistant text output (chars=${candidateText.length})`,
+        );
+        return autoHealCompactionHandoff(parsed, candidateText);
+      }
       // The control handler accepts the summary before replying to ChatGPT. A fully
       // settled response without that receipt cannot become a successful checkpoint.
       throw new ChatGptWebAdapterError(
