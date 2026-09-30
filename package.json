@@ -29,7 +29,6 @@
     "dev:launcher": "bun run src/cli.ts dev launcher",
     "dev:chat": "bun run src/cli.ts dev chat",
     "test": "bun test ./tests",
-    "test:coverage": "bun test ./tests --coverage",
     "audit": "bun audit",
     "audit:dogfood": "bun run scripts/dogfood-audit.ts",
     "prune:sessions": "bun run scripts/prune-codex-rollouts.ts",
