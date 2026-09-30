@@ -2319,7 +2319,7 @@ export class ChatGptBrowserWorker {
             continue;
           }
 
-          const currentDomChars = contextPressure.snapshot().domChars ?? 0;
+          const currentDomChars = contextPressure.snapshot().observedDomChars ?? 0;
           const activeTools = turn.externalProgress?.snapshot().activeToolCalls ?? 0;
           const responseProbeTimeoutMs = resolveAdaptiveObservationProbeTimeoutMs(currentDomChars, activeTools);
           let snapshot: ChatGptResponseDomSnapshot;
@@ -2460,6 +2460,7 @@ export class ChatGptBrowserWorker {
               completionReady,
               externalToolCallsInFlight,
               externalProgressLive,
+              yieldRecommended: contextPressure.calculateRisk().yieldRecommended,
             });
             if (decision.changed) {
               turnEvents.publish({ type: "phase_changed", source: "host", from: decision.from, to: decision.phase });

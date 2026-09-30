@@ -722,6 +722,7 @@ async function main(): Promise<void> {
     }
   } else if (command === "serve") {
     assertNoArgs(args);
+    installImageGenCliWrappers();
     const config = loadConfig();
     const server = startServer(config);
     stdout.write(

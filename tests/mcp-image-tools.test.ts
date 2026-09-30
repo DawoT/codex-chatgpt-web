@@ -13,8 +13,9 @@ describe("MCP Image Tools", () => {
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   const samplePngBuffer = Buffer.from(samplePngBase64, "base64");
 
-  test("registers codex_image_generate in MCP server and BRIDGE_TOOL_NAMES", async () => {
+  test("registers codex_image_generate and image_gen in MCP server and BRIDGE_TOOL_NAMES", async () => {
     expect(BRIDGE_TOOL_NAMES.has("codex_image_generate")).toBe(true);
+    expect(BRIDGE_TOOL_NAMES.has("image_gen")).toBe(true);
 
     const server = new McpServer({ name: "test-server", version: "1.0.0" });
     registerImageTools(server, {
@@ -29,9 +30,12 @@ describe("MCP Image Tools", () => {
 
     const listed = await client.listTools();
     const imageTool = listed.tools.find((t) => t.name === "codex_image_generate");
+    const imageGenTool = listed.tools.find((t) => t.name === "image_gen");
 
     expect(imageTool).toBeDefined();
     expect(imageTool!.description).toContain("Generate an image");
+    expect(imageGenTool).toBeDefined();
+    expect(imageGenTool!.description).toContain("Generate an image");
 
     const schema = imageTool!.inputSchema as Record<string, any>;
     expect(schema.properties.prompt).toBeDefined();
@@ -74,6 +78,54 @@ describe("MCP Image Tools", () => {
       name: "codex_image_generate",
       arguments: {
         prompt: "A beautiful landscape",
+        out_path: outPath,
+        size: "1024x1024",
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(existsSync(outPath)).toBe(true);
+    expect(readFileSync(outPath)).toEqual(samplePngBuffer);
+
+    const textContent = (result.content as Array<{ type: string; text?: string }>).find((c) => c.type === "text");
+    expect(textContent?.text).toContain(outPath);
+
+    await client.close();
+    await server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("executes image_gen alias and saves image file", async () => {
+    const tempDir = join(tmpdir(), `mcp-image-alias-test-${Date.now()}`);
+    mkdirSync(tempDir, { recursive: true });
+    const outPath = join(tempDir, "alias_output.png");
+
+    const mockFetch = async (): Promise<Response> => {
+      return new Response(
+        JSON.stringify({
+          created: 1727500000,
+          data: [{ b64_json: samplePngBase64 }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const server = new McpServer({ name: "test-server", version: "1.0.0" });
+    registerImageTools(server, {
+      token: "test-token",
+      fetchImpl: mockFetch as any,
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const result = await client.callTool({
+      name: "image_gen",
+      arguments: {
+        prompt: "A pottery vase with Warpa iconography",
         out_path: outPath,
         size: "1024x1024",
       },

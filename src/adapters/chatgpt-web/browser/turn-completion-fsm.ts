@@ -23,6 +23,8 @@ export interface ChatGptTurnCompletionObservation {
   externalToolCallsInFlight: boolean;
   /** Recent MCP activity proves ChatGPT is still executing although the DOM is quiet or hidden. */
   externalProgressLive: boolean;
+  /** Advisory notice that graceful yielding/compaction is recommended based on context pressure. */
+  yieldRecommended?: boolean;
 }
 
 export type ChatGptTurnCompletionAction =

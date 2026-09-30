@@ -84,6 +84,7 @@ describe("Sprint 1: Event-Driven DOM Liveness & Dynamic Probe Horizon", () => {
   describe("External progress suppression of DOM timeout faults", () => {
     test("suppresses DOM timeout when tool calls are in flight", () => {
       const progress = {
+        revision: 1,
         activeToolCalls: 1,
         lastDeliveredCallId: "call_test_123",
         lastCompletedCallId: undefined,
