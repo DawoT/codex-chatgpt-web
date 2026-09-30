@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
 import {
+  autoHealCompactionBlock,
   COMPACT_PROMPT,
   type CompactionRequirement,
   type CompactionStateBlock,
@@ -171,7 +172,11 @@ function freeformCompactionState(parsed: CodexParsedRequest, summary: string, di
   };
 }
 
-export function canonicalizeCompactionHandoff(parsed: CodexParsedRequest, summary: string): string {
+export function canonicalizeCompactionHandoff(
+  parsed: CodexParsedRequest,
+  summary: string,
+  options?: { autoHeal?: boolean },
+): string {
   const normalized = summary.trim();
   if (!normalized) throw new Error("ChatGPT returned an empty structured compaction handoff");
   const latestUserPrompt = userPromptText(extractChatGptCompactionSourceRevision(parsed).content);
@@ -187,7 +192,7 @@ export function canonicalizeCompactionHandoff(parsed: CodexParsedRequest, summar
     }
     body = normalized.slice(0, latestOffset).trimEnd();
   }
-  body = normalizeCompactionStateBlock(body);
+  body = options?.autoHeal ? autoHealCompactionBlock(body) : normalizeCompactionStateBlock(body);
 
   const previous = parsed.context.messages.filter(
     (message) => message.role === "user" && message.origin === "compaction_summary",
@@ -265,27 +270,28 @@ export function canonicalizeCompactionHandoff(parsed: CodexParsedRequest, summar
 
     const fields = compactionStateFields(body);
     const completeDraft =
-      !bounds?.fenced &&
-      (bounds !== null || !/^ {0,3}(?:`{3,}|~{3,})/m.test(body)) &&
-      state?.version === 2 &&
-      countActiveCompactionStates(body) <= 1 &&
-      state.activeHypothesis?.trim() &&
-      state.requirements?.length &&
-      countCompactionRequirementItems(body) === state.requirements.length &&
-      state.closureCriteria?.length &&
-      state.nextActions.length === 1 &&
-      [
-        "version",
-        "modified_files",
-        "active_hypothesis",
-        "requirements",
-        "closure_criteria",
-        "verified_achievements",
-        "decisions_and_invariants",
-        "pending_obligations",
-        "next_actions",
-      ].every((field) => fields.has(field)) &&
-      (fields.has("blockers_or_test_failures") || fields.has("blockers"));
+      options?.autoHeal ||
+      (!bounds?.fenced &&
+        (bounds !== null || !/^ {0,3}(?:`{3,}|~{3,})/m.test(body)) &&
+        state?.version === 2 &&
+        countActiveCompactionStates(body) <= 1 &&
+        state.activeHypothesis?.trim() &&
+        state.requirements?.length &&
+        countCompactionRequirementItems(body) === state.requirements.length &&
+        state.closureCriteria?.length &&
+        state.nextActions.length === 1 &&
+        [
+          "version",
+          "modified_files",
+          "active_hypothesis",
+          "requirements",
+          "closure_criteria",
+          "verified_achievements",
+          "decisions_and_invariants",
+          "pending_obligations",
+          "next_actions",
+        ].every((field) => fields.has(field)) &&
+        (fields.has("blockers_or_test_failures") || fields.has("blockers")));
 
     // Only normalize a complete, explicitly versioned draft. Missing fields,
     // conflicting IDs and extra actions must remain visible to validation/repair.
@@ -311,13 +317,78 @@ export function canonicalizeCompactionHandoff(parsed: CodexParsedRequest, summar
         );
       }
 
+      let nextActions = state.nextActions ?? [];
+      if (options?.autoHeal && nextActions.length > 1) {
+        nextActions = [nextActions.join("; ")];
+      }
+
+      let healedRequirements = state.requirements;
+      if (options?.autoHeal && healedRequirements) {
+        const seenIds = new Set<string>();
+        healedRequirements = healedRequirements.map((req, idx) => {
+          let id = req.id;
+          if (!id || !/^[-A-Za-z0-9_]+$/.test(id) || seenIds.has(id)) {
+            id = `REQ-${(idx + 1).toString().padStart(3, "0")}`;
+            let counter = 1;
+            while (seenIds.has(id)) {
+              id = `REQ-${(idx + 1).toString().padStart(3, "0")}-${counter++}`;
+            }
+          }
+          seenIds.add(id);
+          const source = req.source?.trim() ? req.source.trim() : "User request";
+          let status = req.status;
+          if (!["pending", "blocked", "verified"].includes(status)) {
+            status = "pending";
+          }
+          if (status === "verified" && !req.evidence?.trim()) {
+            status = "pending";
+          }
+          return {
+            ...req,
+            id,
+            status,
+            source,
+          };
+        });
+      }
+
+      let healedAchievements = state.verifiedAchievements ?? [];
+      const healedDecisions = [...(state.decisionsAndInvariants ?? [])];
+      if (options?.autoHeal) {
+        const retainedAchievements: Array<string | CompactionAchievement> = [];
+        for (const item of healedAchievements) {
+          const evidenceStr =
+            typeof item === "string" ? /\bevidence\s*:\s*(.+)$/i.exec(item)?.[1]?.trim() : item.evidence;
+          const hasEvidenceInMessages = Boolean(
+            evidenceStr &&
+              evidenceStr.length >= 8 &&
+              parsed.context.messages.some((msg) => {
+                const text = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+                return text.toLowerCase().includes(evidenceStr.toLowerCase());
+              }),
+          );
+          if (hasEvidenceInMessages) {
+            retainedAchievements.push(item);
+          } else {
+            const note = typeof item === "string" ? item : item.result;
+            if (note && !healedDecisions.some((d) => d.toLowerCase().includes(note.toLowerCase()))) {
+              healedDecisions.push(note);
+            }
+          }
+        }
+        healedAchievements = retainedAchievements;
+      }
+
       const canonicalState: CompactionStateBlock = {
         ...state,
+        version: state.version ?? 2,
         originalRequestRef: `sha256:${digest}`,
-        modifiedFiles: existingFiles,
-        verifiedAchievements: state.verifiedAchievements ?? [],
-        decisionsAndInvariants: state.decisionsAndInvariants ?? [],
+        modifiedFiles: existingFiles.length > 0 ? existingFiles : ["None"],
+        ...(healedRequirements ? { requirements: healedRequirements } : {}),
+        verifiedAchievements: healedAchievements,
+        decisionsAndInvariants: healedDecisions,
         pendingObligations: state.pendingObligations ?? [],
+        nextActions: nextActions.length > 0 ? nextActions : ["Continue pending requirements."],
       };
 
       body = [before, formatCompactionStateBlock(canonicalState), after].filter(Boolean).join("\n\n");
@@ -325,6 +396,10 @@ export function canonicalizeCompactionHandoff(parsed: CodexParsedRequest, summar
     return `${body}\n\n${originalAppendix}\n\n${latestAppendix}`;
   }
   return `${body}\n\n${latestAppendix}`;
+}
+
+export function autoHealCompactionHandoff(parsed: CodexParsedRequest, summary: string): string {
+  return canonicalizeCompactionHandoff(parsed, summary, { autoHeal: true });
 }
 
 function currentToolResults(

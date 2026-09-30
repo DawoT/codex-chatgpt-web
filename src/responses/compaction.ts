@@ -90,29 +90,51 @@ function outsideInlineCode(line: string, index: number): boolean {
  * unescaping markdown-escaped field names/underscores, and separating inline list bullets.
  */
 export function normalizeCompactionStateBlock(raw: string): string {
-  const openRegex = /<compaction(?:_|\\_)state(?:\s[^>]*)?>/gi;
-  let openMatch: RegExpExecArray | null = null;
-  while ((openMatch = openRegex.exec(raw)) !== null) {
-    if (outsideInlineCode(raw, openMatch.index)) break;
+  let text = raw;
+
+  // Unfencing: If raw contains no unfenced <compaction_state>, but has a fenced <compaction_state>,
+  // strip enclosing code fence backticks around the compaction state block unless explicitly an example.
+  if (locateCompactionStateBounds(text, { unfencedOnly: true }) === null) {
+    const fencedBounds = locateCompactionStateBounds(text);
+    if (fencedBounds) {
+      const beforeTag = text.slice(0, fencedBounds.startTagStart);
+      const afterTag = text.slice(fencedBounds.endTagEnd);
+      const isExample = /(?:^|\n)\s*Example(?:\s+only)?\s*:\s*(?:```|~~~)?\s*$/i.test(beforeTag.trimEnd());
+      if (!isExample) {
+        const strippedBefore = beforeTag.replace(/(?:^|\n)[ \t]*(?:```|~~~)[^\n]*\s*$/, "\n");
+        const strippedAfter = afterTag.replace(/^\s*(?:```|~~~)[ \t]*(?:\n|$)/, "\n");
+        if (strippedBefore !== beforeTag || strippedAfter !== afterTag) {
+          text = `${strippedBefore.trimEnd()}\n\n${text.slice(fencedBounds.startTagStart, fencedBounds.endTagEnd)}\n\n${strippedAfter.trimStart()}`;
+        }
+      }
+    }
   }
-  if (!openMatch) return raw;
+
+  const openRegex = /<compaction(?:_|\\_)state(?:\s[^>]*)?>/gi;
+  let openMatch = openRegex.exec(text);
+  while (openMatch !== null) {
+    if (outsideInlineCode(text, openMatch.index)) break;
+    openMatch = openRegex.exec(text);
+  }
+  if (!openMatch) return text;
 
   const closeRegex = /<\/compaction(?:_|\\_)state\s*>/gi;
   closeRegex.lastIndex = openMatch.index + openMatch[0].length;
-  let closeMatch: RegExpExecArray | null = null;
-  while ((closeMatch = closeRegex.exec(raw)) !== null) {
-    if (outsideInlineCode(raw, closeMatch.index)) break;
+  let closeMatch = closeRegex.exec(text);
+  while (closeMatch !== null) {
+    if (outsideInlineCode(text, closeMatch.index)) break;
+    closeMatch = closeRegex.exec(text);
   }
-  if (!closeMatch) return raw;
+  if (!closeMatch) return text;
 
   const openTag = openMatch[0];
   const closeTag = closeMatch[0];
   const openIdx = openMatch.index;
   const closeIdx = closeMatch.index;
 
-  const before = raw.slice(0, openIdx);
-  let inner = raw.slice(openIdx + openTag.length, closeIdx);
-  const after = raw.slice(closeIdx + closeTag.length);
+  const before = text.slice(0, openIdx);
+  let inner = text.slice(openIdx + openTag.length, closeIdx);
+  const after = text.slice(closeIdx + closeTag.length);
 
   inner = inner.replace(/\\_/g, "_");
 
@@ -152,6 +174,62 @@ export function normalizeCompactionStateBlock(raw: string): string {
   const suffix = after ? (after.startsWith("\n") ? after : `\n${after}`) : "";
 
   return `${prefix}<compaction_state>\n${cleanInner}\n</compaction_state>${suffix}`;
+}
+
+/**
+ * Auto-heals common model omissions in compaction blocks:
+ * defaults version: 2 if omitted, supplies missing empty sections (pending_obligations, blockers, etc.),
+ * and coalesces multiple next_actions into a single canonical entry.
+ */
+export function autoHealCompactionBlock(raw: string): string {
+  const normalized = normalizeCompactionStateBlock(raw);
+  const bounds = locateCompactionStateBounds(normalized);
+  if (!bounds) return normalized;
+
+  let inner = normalized.slice(bounds.openingEnd, bounds.closingStart);
+
+  // 1. Version defaulting
+  if (!/(?:^|\n)\s*version\s*:\s*\d+/i.test(inner)) {
+    inner = `version: 2\n${inner}`;
+  }
+
+  // 2. Auto-complete missing empty sections
+  if (!/(?:^|\n)\s*blockers(?:_or_test_failures)?\s*:/i.test(inner)) {
+    inner = `${inner}\nblockers_or_test_failures:\n- None`;
+  }
+  if (!/(?:^|\n)\s*pending_obligations\s*:/i.test(inner)) {
+    inner = `${inner}\npending_obligations:\n- None`;
+  }
+  if (!/(?:^|\n)\s*decisions_and_invariants\s*:/i.test(inner)) {
+    inner = `${inner}\ndecisions_and_invariants:\n- None`;
+  }
+  if (!/(?:^|\n)\s*verified_achievements\s*:/i.test(inner)) {
+    inner = `${inner}\nverified_achievements:\n- None`;
+  }
+  if (!/(?:^|\n)\s*modified_files\s*:/i.test(inner)) {
+    inner = `${inner}\nmodified_files:\n- None`;
+  }
+
+  // 3. Coalesce multiple next_actions
+  const nextActionsMatch = /(?:^|\n)\s*next_actions?\s*:\s*\n((?:\s*[-*•]\s+[^\n]+(?:\n|$))+)/i.exec(inner);
+  if (nextActionsMatch) {
+    const rawActionsBlock = nextActionsMatch[1]!;
+    const actionLines = rawActionsBlock
+      .split(/\r?\n/)
+      .map((l) => /^\s*[-*•]\s+(.+)$/.exec(l)?.[1]?.trim())
+      .filter((l): l is string => Boolean(l && l.toLowerCase() !== "none" && l.toLowerCase() !== "- none"));
+    if (actionLines.length > 1) {
+      const coalesced = `- ${actionLines.join("; ")}`;
+      inner = inner.replace(nextActionsMatch[0], `\nnext_actions:\n${coalesced}\n`);
+    }
+  }
+
+  const before = normalized.slice(0, bounds.startTagStart);
+  const after = normalized.slice(bounds.endTagEnd);
+  const prefix = before ? (before.endsWith("\n") ? before : `${before}\n`) : "";
+  const suffix = after ? (after.startsWith("\n") ? after : `\n${after}`) : "";
+
+  return `${prefix}<compaction_state>\n${inner.trim()}\n</compaction_state>${suffix}`;
 }
 
 function checkpointField(line: string): { name: string; value: string } | null {
@@ -436,6 +514,82 @@ export function inspectCompactionStateFormat(summary: string): {
   };
 }
 
+const COMPACTION_TOP_LEVEL_SECTIONS = new Set([
+  "version",
+  "original_request_ref",
+  "modified_files",
+  "active_hypothesis",
+  "requirements",
+  "closure_criteria",
+  "verified_achievements",
+  "decisions_and_invariants",
+  "blockers_or_test_failures",
+  "blockers",
+  "pending_obligations",
+  "next_actions",
+  "next_steps",
+]);
+
+function parseRequirementItem(raw: string): CompactionRequirement | null {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return null;
+    } catch {
+      // not valid JSON array
+    }
+  }
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const obj = parsed as Record<string, unknown>;
+        return {
+          id: typeof obj.id === "string" ? obj.id : "",
+          status: obj.status === "verified" || obj.status === "blocked" ? obj.status : "pending",
+          source: typeof obj.source === "string" ? obj.source : trimmed,
+          ...(typeof obj.evidence === "string" ? { evidence: obj.evidence } : {}),
+          ...(Array.isArray(obj.evidenceRefs) ? { evidenceRefs: obj.evidenceRefs as string[] } : {}),
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  const idMatch = /(?:^|\s|\b)id\s*:\s*([^\n,]+)/i.exec(trimmed);
+  let id = idMatch ? idMatch[1]!.trim().replace(/^['"]|['"]$/g, "") : "";
+  if (!id) {
+    const inlineIdMatch = /^\[?(REQ[-_A-Za-z0-9]+)\]?/i.exec(trimmed);
+    if (inlineIdMatch) {
+      id = inlineIdMatch[1]!;
+    }
+  }
+
+  const statusMatch = /(?:^|\s|\b)status\s*:\s*(pending|blocked|verified)/i.exec(trimmed);
+  const status: "pending" | "blocked" | "verified" = statusMatch
+    ? (statusMatch[1]!.toLowerCase() as "pending" | "blocked" | "verified")
+    : "pending";
+
+  const sourceMatch = /(?:^|\s|\b)source\s*:\s*([^\n]+)/i.exec(trimmed);
+  let source = sourceMatch ? sourceMatch[1]!.trim().replace(/^['"]|['"]$/g, "") : "";
+  if (!source) {
+    source = trimmed;
+  }
+
+  const evidenceMatch = /(?:^|\s|\b)evidence\s*:\s*([^\n]+)/i.exec(trimmed);
+  const evidence = evidenceMatch ? evidenceMatch[1]!.trim().replace(/^['"]|['"]$/g, "") : undefined;
+
+  return {
+    id,
+    status,
+    source,
+    ...(evidence ? { evidence } : {}),
+  };
+}
+
 function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
   const lines = rawBlock.split(/\r?\n/).map((line) => line.trim());
 
@@ -450,6 +604,24 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
   let activeHypothesis: string | undefined;
   let version: number | undefined;
   let originalRequestRef: string | undefined;
+
+  let hasPendingObligationsSection = false;
+  let hasDecisionsSection = false;
+  let hasVerifiedAchievementsSection = false;
+  let hasClosureCriteriaSection = false;
+  let hasRequirementsSection = false;
+  let currentRequirementLines: string[] = [];
+
+  const flushRequirement = () => {
+    if (currentRequirementLines.length > 0) {
+      const fullText = currentRequirementLines.join("\n").trim();
+      currentRequirementLines = [];
+      if (fullText && fullText.toLowerCase() !== "none" && fullText.toLowerCase() !== "none.") {
+        const parsed = parseRequirementItem(fullText);
+        if (parsed) requirements.push(parsed);
+      }
+    }
+  };
 
   let currentSection:
     | "modified_files"
@@ -468,53 +640,64 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
     const name = field?.name;
     const value = field?.value ?? "";
 
-    if (name === "version") {
-      currentSection = "none";
-      version = Number(value.trim());
-      continue;
-    }
-    if (name === "original_request_ref") {
-      currentSection = "none";
-      originalRequestRef = value.trim();
-      continue;
-    }
-    if (name === "modified_files") {
-      currentSection = "modified_files";
-      continue;
-    }
-    if (name === "active_hypothesis") {
-      currentSection = "none";
-      const rest = value.trim();
-      if (rest) activeHypothesis = rest;
-      continue;
-    }
-    if (name === "requirements") {
-      currentSection = "requirements";
-      continue;
-    }
-    if (name === "closure_criteria") {
-      currentSection = "closure_criteria";
-      continue;
-    }
-    if (name === "verified_achievements") {
-      currentSection = "verified_achievements";
-      continue;
-    }
-    if (name === "decisions_and_invariants") {
-      currentSection = "decisions_and_invariants";
-      continue;
-    }
-    if (name === "blockers_or_test_failures" || name === "blockers") {
-      currentSection = "blockers";
-      continue;
-    }
-    if (name === "pending_obligations") {
-      currentSection = "pending_obligations";
-      continue;
-    }
-    if (name === "next_actions" || name === "next_steps") {
-      currentSection = "next_actions";
-      continue;
+    if (name && COMPACTION_TOP_LEVEL_SECTIONS.has(name)) {
+      if (currentSection === "requirements") {
+        flushRequirement();
+      }
+
+      if (name === "version") {
+        currentSection = "none";
+        version = Number(value.trim());
+        continue;
+      }
+      if (name === "original_request_ref") {
+        currentSection = "none";
+        originalRequestRef = value.trim();
+        continue;
+      }
+      if (name === "modified_files") {
+        currentSection = "modified_files";
+        continue;
+      }
+      if (name === "active_hypothesis") {
+        currentSection = "none";
+        const rest = value.trim();
+        if (rest) activeHypothesis = rest;
+        continue;
+      }
+      if (name === "requirements") {
+        currentSection = "requirements";
+        hasRequirementsSection = true;
+        continue;
+      }
+      if (name === "closure_criteria") {
+        currentSection = "closure_criteria";
+        hasClosureCriteriaSection = true;
+        continue;
+      }
+      if (name === "verified_achievements") {
+        currentSection = "verified_achievements";
+        hasVerifiedAchievementsSection = true;
+        continue;
+      }
+      if (name === "decisions_and_invariants") {
+        currentSection = "decisions_and_invariants";
+        hasDecisionsSection = true;
+        continue;
+      }
+      if (name === "blockers_or_test_failures" || name === "blockers") {
+        currentSection = "blockers";
+        continue;
+      }
+      if (name === "pending_obligations") {
+        currentSection = "pending_obligations";
+        hasPendingObligationsSection = true;
+        continue;
+      }
+      if (name === "next_actions" || name === "next_steps") {
+        currentSection = "next_actions";
+        continue;
+      }
     }
 
     if (line.startsWith("- ") || line.startsWith("* ")) {
@@ -523,14 +706,8 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
       if (currentSection === "modified_files") {
         modifiedFiles.push(item);
       } else if (currentSection === "requirements") {
-        try {
-          const parsed: unknown = JSON.parse(item);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            requirements.push(parsed as CompactionRequirement);
-          }
-        } catch {
-          requirements.push({ id: "", status: "pending", source: item });
-        }
+        flushRequirement();
+        currentRequirementLines.push(item);
       } else if (currentSection === "closure_criteria") {
         closureCriteria.push(item);
       } else if (currentSection === "verified_achievements") {
@@ -557,22 +734,26 @@ function parseCompactionStateLines(rawBlock: string): CompactionStateBlock {
       } else if (currentSection === "next_actions") {
         nextActions.push(item);
       }
+    } else if (currentSection === "requirements" && currentRequirementLines.length > 0) {
+      currentRequirementLines.push(line);
     } else {
       currentSection = "none";
     }
   }
+
+  flushRequirement();
 
   return {
     ...(version !== undefined ? { version } : {}),
     ...(originalRequestRef ? { originalRequestRef } : {}),
     modifiedFiles,
     ...(activeHypothesis ? { activeHypothesis } : {}),
-    ...(version !== undefined || requirements.length > 0 ? { requirements } : {}),
-    ...(version !== undefined || closureCriteria.length > 0 ? { closureCriteria } : {}),
-    ...(verifiedAchievements.length > 0 ? { verifiedAchievements } : {}),
-    ...(decisionsAndInvariants.length > 0 ? { decisionsAndInvariants } : {}),
+    ...(version !== undefined || hasRequirementsSection || requirements.length > 0 ? { requirements } : {}),
+    ...(version !== undefined || hasClosureCriteriaSection || closureCriteria.length > 0 ? { closureCriteria } : {}),
+    ...(hasVerifiedAchievementsSection || verifiedAchievements.length > 0 ? { verifiedAchievements } : {}),
+    ...(hasDecisionsSection || decisionsAndInvariants.length > 0 ? { decisionsAndInvariants } : {}),
     blockersOrTestFailures,
-    ...(pendingObligations.length > 0 ? { pendingObligations } : {}),
+    ...(hasPendingObligationsSection || pendingObligations.length > 0 ? { pendingObligations } : {}),
     nextActions,
   };
 }
@@ -608,15 +789,13 @@ export function countCompactionRequirementItems(summary: string): number {
   let count = 0;
   for (const line of text.split(/\r?\n/)) {
     const field = checkpointField(line);
-    if (field) {
+    if (field && COMPACTION_TOP_LEVEL_SECTIONS.has(field.name)) {
       inRequirements = field.name === "requirements";
       continue;
     }
     if (!inRequirements || !line.trim()) continue;
     const item = /^\s*[-*]\s+(.+)$/.exec(line)?.[1]?.trim();
-    if (!item) {
-      inRequirements = false;
-    } else if (item.toLowerCase() !== "none" && item.toLowerCase() !== "none.") {
+    if (item && item.toLowerCase() !== "none" && item.toLowerCase() !== "none.") {
       count += 1;
     }
   }
