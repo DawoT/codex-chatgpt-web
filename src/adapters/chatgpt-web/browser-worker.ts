@@ -1515,8 +1515,9 @@ export class ChatGptBrowserWorker {
       surfaceId = lease.surfaceId;
       reused = lease.reused === true;
       if (!surfaceId) throw new Error("Launcher did not lease a browser tab for the ChatGPT turn");
-      await turn.onSurfaceLeased?.(surfaceId);
-      surfaceClaimed = true;
+      // Arm the heartbeat before any user callback runs: onSurfaceLeased/onPreparedSelected can
+      // take arbitrarily long, and the launcher revokes a surface that stops receiving
+      // heartbeats, so slow callbacks must not burn the liveness budget.
       const sendHeartbeat = () => {
         if (heartbeatInFlight) return;
         heartbeatInFlight = true;
@@ -1541,6 +1542,10 @@ export class ChatGptBrowserWorker {
             heartbeatInFlight = false;
           });
       };
+      heartbeatTimer = setInterval(sendHeartbeat, LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS);
+      heartbeatTimer.unref?.();
+      await turn.onSurfaceLeased?.(surfaceId);
+      surfaceClaimed = true;
       if (turn.requireRetainedConversation && !reused) {
         throw chatGptRetainedConversationUnavailableError();
       }
@@ -1548,8 +1553,6 @@ export class ChatGptBrowserWorker {
         throw new Error("Launcher reused a ChatGPT conversation without a continuation prompt");
       }
       await turn.onPreparedSelected?.(reused);
-      heartbeatTimer = setInterval(sendHeartbeat, LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS);
-      heartbeatTimer.unref?.();
       const answer = await this.runBrowserTurn(
         turn,
         surfaceId,
