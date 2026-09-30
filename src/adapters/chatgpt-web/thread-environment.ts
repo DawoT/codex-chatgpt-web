@@ -302,10 +302,24 @@ export class ChatGptThreadEnvironmentStore {
     if (this.loaded) return;
     this.loaded = true;
     if (!this.path || !existsSync(this.path)) return;
-    const parsed = JSON.parse(readFileSync(this.path, "utf8")) as Partial<StoredThreadEnvironmentFile>;
-    const rawThreads = record(parsed.threads);
-    if (parsed.version !== 1 || !rawThreads) {
-      throw new Error(`Invalid ChatGPT thread environment store: ${this.path}`);
+    let parsed: Partial<StoredThreadEnvironmentFile>;
+    try {
+      parsed = JSON.parse(readFileSync(this.path, "utf8")) as Partial<StoredThreadEnvironmentFile>;
+    } catch {
+      console.warn(`[chatgpt-web] corrupt thread environment store reset: ${this.path}`);
+      this.threads.clear();
+      this.persist();
+      return;
+    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.keys(parsed).length === 0) {
+      return;
+    }
+    const rawThreads = record(parsed?.threads);
+    if (parsed?.version !== 1 || !rawThreads) {
+      console.warn(`[chatgpt-web] invalid thread environment store reset: ${this.path}`);
+      this.threads.clear();
+      this.persist();
+      return;
     }
     const cutoff = this.now() - THREAD_ENVIRONMENT_TTL_MS;
     const entries = Object.entries(rawThreads)
