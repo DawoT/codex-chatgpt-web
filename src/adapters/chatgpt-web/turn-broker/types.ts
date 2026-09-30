@@ -68,6 +68,7 @@ export interface TurnChannel {
   compactionRequested: boolean;
   compactionResult?: BrokerToolResult;
   compactionDeliveryCount: number;
+  completedToolsCount?: number;
   safe?: SafeTurnControl;
   /** Every MCP request owns a lease from token claim until its handler has settled (claimedAt). */
   activities: Map<string, number>;

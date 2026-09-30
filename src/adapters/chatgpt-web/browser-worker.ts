@@ -102,7 +102,7 @@ export async function closeChatGptBrowserWorkers(): Promise<void> {
   }
 }
 
-export {
+import {
   browserStageTimeouts,
   CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
   CHATGPT_COMPLETION_ACTION_GRACE_MS,
@@ -119,21 +119,7 @@ export {
   connectAfterClosingBrowserConnection,
   MAX_CHATGPT_BROWSER_PAGE_REBINDS,
   remainingStageBudgetMs,
-  throwIfPromptAttachmentAborted,
-  withBrowserTurnAbort,
-  withChatGptBrowserObservationTimeout,
-} from "./browser/suspension-clock";
-
-import {
-  browserStageTimeouts,
-  CHATGPT_MIN_OPERATIONAL_VIEWPORT,
-  CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
-  CHATGPT_RESPONSE_DOM_GRACE_MS,
-  ChatGptBrowserObservationTimeoutError,
-  type ChatGptSuspensionClock,
-  chatGptSuspensionClock,
-  connectAfterClosingBrowserConnection,
-  MAX_CHATGPT_BROWSER_PAGE_REBINDS,
+  resolveAdaptiveObservationProbeTimeoutMs,
   throwIfPromptAttachmentAborted,
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
@@ -165,6 +151,28 @@ export {
   chatGptUnavailableProDetail,
   ensureChatGptPersonalizedConnectorAccess,
 } from "./browser/personalization";
+export {
+  browserStageTimeouts,
+  CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
+  CHATGPT_COMPLETION_ACTION_GRACE_MS,
+  CHATGPT_COMPLETION_SETTLE_MS,
+  CHATGPT_COMPOSER_DOCUMENT_END_KEY,
+  CHATGPT_COMPOSER_SELECT_ALL_KEY,
+  CHATGPT_EMPTY_RESPONSE_GRACE_MS,
+  CHATGPT_MIN_OPERATIONAL_VIEWPORT,
+  CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
+  CHATGPT_RESPONSE_DOM_GRACE_MS,
+  ChatGptBrowserObservationTimeoutError,
+  ChatGptSuspensionClock,
+  chatGptSuspensionClock,
+  connectAfterClosingBrowserConnection,
+  MAX_CHATGPT_BROWSER_PAGE_REBINDS,
+  remainingStageBudgetMs,
+  resolveAdaptiveObservationProbeTimeoutMs,
+  throwIfPromptAttachmentAborted,
+  withBrowserTurnAbort,
+  withChatGptBrowserObservationTimeout,
+};
 
 import {
   CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
@@ -1764,6 +1772,7 @@ export class ChatGptBrowserWorker {
           });
         }
       }
+      contextPressure.recordTokens(estimatedInputTokens);
       if (!turn.compaction && turn.pendingMissionRequirements && contextPressure.snapshot().compactionRequired) {
         throw chatGptContextCompactionRequiredError("ChatGPT page observation remains slow after same-page recovery.");
       }
@@ -2201,7 +2210,24 @@ export class ChatGptBrowserWorker {
         }
       };
       const recoverStalledResponsePage = async (error: ChatGptBrowserObservationTimeoutError): Promise<void> => {
+        const currentProgress = turn.externalProgress?.snapshot();
+        const currentProgressLive = chatGptExternalProgressSuppressesDomHealth(currentProgress, Date.now());
+        const currentCallsInFlight = chatGptExternalToolCallsAreInFlight(currentProgress);
+        if (currentProgressLive || currentCallsInFlight) {
+          console.warn(
+            `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while external progress is active; deferring without rebind or failure`,
+          );
+          await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
+          return;
+        }
         if (!launcherSurfaceId) {
+          if (!page.isClosed()) {
+            console.warn(
+              `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out on non-launcher surface; page still open, retrying with brief backoff`,
+            );
+            await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_500));
+            return;
+          }
           throw new ChatGptWebAdapterError(
             "ChatGPT browser DOM observation timed out and this page has no recovery lease",
             {
@@ -2293,7 +2319,9 @@ export class ChatGptBrowserWorker {
             continue;
           }
 
-          const responseProbeTimeoutMs = (turn.externalProgress?.snapshot().activeToolCalls ?? 0) > 0 ? 3_000 : 6_000;
+          const currentDomChars = contextPressure.snapshot().domChars ?? 0;
+          const activeTools = turn.externalProgress?.snapshot().activeToolCalls ?? 0;
+          const responseProbeTimeoutMs = resolveAdaptiveObservationProbeTimeoutMs(currentDomChars, activeTools);
           let snapshot: ChatGptResponseDomSnapshot;
           try {
             snapshot = await withChatGptBrowserObservationTimeout(
@@ -2302,6 +2330,16 @@ export class ChatGptBrowserWorker {
             );
           } catch (error) {
             if (!(error instanceof ChatGptBrowserObservationTimeoutError)) throw error;
+            const currentProgress = turn.externalProgress?.snapshot();
+            const currentProgressLive = chatGptExternalProgressSuppressesDomHealth(currentProgress, Date.now());
+            const currentCallsInFlight = chatGptExternalToolCallsAreInFlight(currentProgress);
+            if (currentProgressLive || currentCallsInFlight) {
+              console.warn(
+                `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe exceeded ${responseProbeTimeoutMs}ms but external tool calls are active; suppressing false timeout and deferring observation`,
+              );
+              await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
+              continue;
+            }
             await recoverStalledResponsePage(error);
             continue;
           }
@@ -2329,9 +2367,9 @@ export class ChatGptBrowserWorker {
                 .last()
                 .isVisible()
                 .catch(() => false);
-              if (!currentCallsInFlight && (currentProgressLive || isRunning)) {
+              if (currentCallsInFlight || currentProgressLive || isRunning) {
                 console.warn(
-                  `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation is active; continuing observation without rebind`,
+                  `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or tools are active; continuing observation without rebind`,
                 );
                 await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
                 continue;
@@ -2356,6 +2394,7 @@ export class ChatGptBrowserWorker {
           ) {
             completionTracker.observeToolBatch(externalProgressSnapshot.lastToolBatchRevision, snapshot.visibleText);
             await turn.externalProgress.acknowledgeToolBatch(externalProgressSnapshot.lastToolBatchRevision);
+            contextPressure.recordToolCallCompleted();
           }
           const externalProgressLive = chatGptExternalProgressSuppressesDomHealth(externalProgressSnapshot, Date.now());
           const externalToolCallsInFlight = chatGptExternalToolCallsAreInFlight(externalProgressSnapshot);

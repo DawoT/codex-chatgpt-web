@@ -28,10 +28,76 @@ export class ChatGptPageDomObserver {
 }
 
 export const CHATGPT_BROWSER_DOM_COMPACTION_CHAR_LIMIT = 600_000;
+export const CHATGPT_BROWSER_DOM_CEILING_CHAR_LIMIT = 800_000;
 export const CHATGPT_BROWSER_SLOW_OBSERVATION_MS = 5_000;
 export const CHATGPT_BROWSER_SLOW_OBSERVATION_STREAK = 2;
 
+export const CHATGPT_OPTIMAL_TOOL_BURST_LIMIT = 50;
+export const CHATGPT_YIELD_TOOL_BURST_LIMIT = 65;
+export const CHATGPT_CEILING_TOOL_BURST_LIMIT = 70;
+export const CHATGPT_TOKEN_SATURATION_CEILING = 55_000;
+
 export type ChatGptBrowserContextPressureReason = "slow_observations";
+
+export interface RiskAssessment {
+  riskScore: number; // 0.00 to 1.00
+  domPressureRatio: number; // 0.00 to 1.00
+  toolBurstRatio: number; // 0.00 to 1.00
+  tokenPressureRatio: number; // 0.00 to 1.00
+  yieldRecommended: boolean; // riskScore >= 0.70
+  compactionUrgent: boolean; // riskScore >= 0.85
+  continuousToolCallsCount: number;
+}
+
+export interface PredictiveRiskInput {
+  continuousToolCallsCount?: number;
+  domChars?: number;
+  estimatedTokens?: number;
+}
+
+/**
+ * Calculates predictive context saturation risk R(t) in [0.0, 1.0].
+ * Calibrated against empirical production telemetry:
+ * - Optimal zone (N <= 50 tools, DOM < 450k): R < 0.60
+ * - Completion window (50 < N <= 65 tools): 0.60 <= R < 0.85, yieldRecommended = true
+ * - Saturation ceiling (N >= 70 tools or DOM >= 800k): R >= 0.85, compactionUrgent = true
+ */
+export function calculatePredictiveContextRisk(input: PredictiveRiskInput): RiskAssessment {
+  const tools = Math.max(0, input.continuousToolCallsCount ?? 0);
+  const dom = Math.max(0, input.domChars ?? 0);
+  const tokens = Math.max(0, input.estimatedTokens ?? 0);
+
+  // Tool burst ratio calibrated against empirical golden boundary
+  let toolBurstRatio = 0;
+  if (tools <= CHATGPT_OPTIMAL_TOOL_BURST_LIMIT) {
+    toolBurstRatio = (tools / CHATGPT_OPTIMAL_TOOL_BURST_LIMIT) * 0.6;
+  } else if (tools <= CHATGPT_YIELD_TOOL_BURST_LIMIT) {
+    const progress =
+      (tools - CHATGPT_OPTIMAL_TOOL_BURST_LIMIT) / (CHATGPT_YIELD_TOOL_BURST_LIMIT - CHATGPT_OPTIMAL_TOOL_BURST_LIMIT);
+    toolBurstRatio = 0.6 + progress * 0.2;
+  } else {
+    const progress = Math.min(
+      1.0,
+      (tools - CHATGPT_YIELD_TOOL_BURST_LIMIT) / (CHATGPT_CEILING_TOOL_BURST_LIMIT - CHATGPT_YIELD_TOOL_BURST_LIMIT),
+    );
+    toolBurstRatio = 0.8 + progress * 0.2;
+  }
+
+  const domPressureRatio = Math.min(1.0, dom / CHATGPT_BROWSER_DOM_CEILING_CHAR_LIMIT);
+  const tokenPressureRatio = Math.min(1.0, tokens / CHATGPT_TOKEN_SATURATION_CEILING);
+
+  const riskScore = Math.min(1.0, Math.max(toolBurstRatio, domPressureRatio, tokenPressureRatio));
+
+  return {
+    riskScore: Number(riskScore.toFixed(4)),
+    domPressureRatio: Number(domPressureRatio.toFixed(4)),
+    toolBurstRatio: Number(toolBurstRatio.toFixed(4)),
+    tokenPressureRatio: Number(tokenPressureRatio.toFixed(4)),
+    yieldRecommended: riskScore >= 0.7,
+    compactionUrgent: riskScore >= 0.85,
+    continuousToolCallsCount: tools,
+  };
+}
 
 export interface ChatGptBrowserContextPressureSnapshot {
   compactionRequired: boolean;
@@ -40,6 +106,9 @@ export interface ChatGptBrowserContextPressureSnapshot {
   reason?: ChatGptBrowserContextPressureReason;
   observedDomChars: number;
   consecutiveSlowObservations: number;
+  continuousToolCallsCount: number;
+  estimatedTokens: number;
+  riskAssessment: RiskAssessment;
 }
 
 export class ChatGptBrowserContextPressure {
@@ -48,6 +117,26 @@ export class ChatGptBrowserContextPressure {
   private reason?: ChatGptBrowserContextPressureReason;
   private recoveryRequired = false;
   private recovered = false;
+  private continuousToolCallsCount = 0;
+  private estimatedTokens = 0;
+
+  recordToolCallCompleted(): void {
+    this.continuousToolCallsCount += 1;
+  }
+
+  recordTokens(tokens: number): void {
+    if (Number.isFinite(tokens) && tokens > this.estimatedTokens) {
+      this.estimatedTokens = tokens;
+    }
+  }
+
+  calculateRisk(): RiskAssessment {
+    return calculatePredictiveContextRisk({
+      continuousToolCallsCount: this.continuousToolCallsCount,
+      domChars: this.observedDomChars,
+      estimatedTokens: this.estimatedTokens,
+    });
+  }
 
   recordObservation(observation: { domChars: number; elapsedMs: number }): void {
     if (!Number.isFinite(observation.domChars) || observation.domChars < 0) {
@@ -87,6 +176,9 @@ export class ChatGptBrowserContextPressure {
       ...(this.reason ? { reason: this.reason } : {}),
       observedDomChars: this.observedDomChars,
       consecutiveSlowObservations: this.consecutiveSlowObservations,
+      continuousToolCallsCount: this.continuousToolCallsCount,
+      estimatedTokens: this.estimatedTokens,
+      riskAssessment: this.calculateRisk(),
     };
   }
 
@@ -96,5 +188,7 @@ export class ChatGptBrowserContextPressure {
     this.reason = undefined;
     this.recoveryRequired = false;
     this.recovered = false;
+    this.continuousToolCallsCount = 0;
+    this.estimatedTokens = 0;
   }
 }

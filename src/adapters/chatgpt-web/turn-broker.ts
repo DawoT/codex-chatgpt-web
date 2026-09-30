@@ -48,6 +48,7 @@ import type {
   TurnBrokerOwner,
   TurnChannel,
 } from "./turn-broker/types";
+import { injectGracefulYieldNoticeIfRecommended } from "./turn-broker/yield-notice";
 
 export { callTurnBroker, TurnBrokerTimeoutError } from "./turn-broker/client";
 export { RemoteTurnBroker } from "./turn-broker/remote";
@@ -203,6 +204,7 @@ export class TurnBroker implements TurnBrokerOwner {
       waiters: new Set(),
       compactionRequested: false,
       compactionDeliveryCount: 0,
+      completedToolsCount: 0,
       activities: new Map(),
       completedActivities: new Set(),
       activityRevision: 0,
@@ -366,10 +368,12 @@ export class TurnBroker implements TurnBrokerOwner {
       result.isError === true,
       invocation.observedStarted,
     );
+    channel.completedToolsCount = (channel.completedToolsCount ?? 0) + 1;
+    const finalResult = injectGracefulYieldNoticeIfRecommended(result, channel.completedToolsCount);
     console.info(
-      `[chatgpt-web] broker trace=${channel.traceId} completed call=${callId.slice(0, 17)} pending=${channel.invocations.size}`,
+      `[chatgpt-web] broker trace=${channel.traceId} completed call=${callId.slice(0, 17)} count=${channel.completedToolsCount} pending=${channel.invocations.size}`,
     );
-    invocation.resolve(result);
+    invocation.resolve(finalResult);
   }
 
   recordToolLifecyclePhase(token: string, callId: string, phase: ToolDeliveryPhase, evidence?: string): void {

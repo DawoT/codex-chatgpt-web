@@ -75,9 +75,59 @@ export function remainingStageBudgetMs(timeoutMs: number, elapsedMs: number, sus
   return Math.max(250, timeoutMs - awakeMs);
 }
 
+export const CHATGPT_BROWSER_OBSERVATION_BASE_PROBE_TIMEOUT_MS = 6_000;
+export const CHATGPT_BROWSER_OBSERVATION_MAX_PROBE_TIMEOUT_MS = 30_000;
+export const CATASTROPHIC_SILENCE_THRESHOLD_MS = 90_000;
+
 export const CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS =
   Number(process.env.CODEX_CHATGPT_BROWSER_PROBE_TIMEOUT_MS) || 5_000;
 export const MAX_CHATGPT_BROWSER_PAGE_REBINDS = 2;
+
+export interface MultiChannelLivenessSnapshot {
+  lastBrokerEventAt?: number;
+  lastDomMutationAt?: number;
+  lastNetworkChunkAt?: number;
+  activeToolCalls?: number;
+  inFlightCalls?: boolean;
+}
+
+/**
+ * Multi-channel event-driven liveness evaluation.
+ * A turn is conclusively alive if:
+ * 1. Tool calls are actively in flight or activeToolCalls > 0.
+ * 2. Any channel (Broker MCP, DOM Mutation, Network Chunk) emitted an event within the silence threshold.
+ * Catastrophic failure is only declared after complete multi-channel silence (>90s).
+ */
+export function isMultiChannelLivenessActive(
+  snapshot: MultiChannelLivenessSnapshot,
+  now = Date.now(),
+  silenceThresholdMs = CATASTROPHIC_SILENCE_THRESHOLD_MS,
+): boolean {
+  if ((snapshot.activeToolCalls ?? 0) > 0 || snapshot.inFlightCalls) {
+    return true;
+  }
+  const lastEvent = Math.max(
+    snapshot.lastBrokerEventAt ?? 0,
+    snapshot.lastDomMutationAt ?? 0,
+    snapshot.lastNetworkChunkAt ?? 0,
+  );
+  if (lastEvent === 0) return true;
+  return now - lastEvent < silenceThresholdMs;
+}
+
+/**
+ * Calculates adaptive probe timeout horizon based on HTML DOM character size.
+ * T_probe(chars) = max(6000, min(30000, 6000 + floor(chars / 50)))
+ */
+export function resolveAdaptiveObservationProbeTimeoutMs(domChars: number, _activeToolCalls = 0): number {
+  const chars = Math.max(0, Number.isFinite(domChars) ? domChars : 0);
+  const baseMs = Math.max(
+    CHATGPT_BROWSER_OBSERVATION_BASE_PROBE_TIMEOUT_MS,
+    CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
+  );
+  const dynamicMs = baseMs + Math.floor(chars / 50);
+  return Math.min(CHATGPT_BROWSER_OBSERVATION_MAX_PROBE_TIMEOUT_MS, dynamicMs);
+}
 
 export class ChatGptBrowserObservationTimeoutError extends Error {
   constructor(timeoutMs: number) {
