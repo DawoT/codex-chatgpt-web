@@ -1479,7 +1479,7 @@ test("a failed stale-browser disconnect prevents the replacement connection", as
 
 test("closing the launcher page is an immediate terminal turn error", async () => {
   const responseDomSnapshot = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    ResponseObserver.prototype as unknown as {
       responseDomSnapshot(responseTurn: unknown): Promise<unknown>;
     }
   ).responseDomSnapshot;
@@ -5157,7 +5157,7 @@ function responseSnapshotHarness(html: string) {
   const root = window.document.getElementById("current") ?? window.document.body;
   const runInScope = (callback: Function, ...args: unknown[]) =>
     runInContext(`(${callback.toString()})`, context)(...args);
-  const observer = Object.assign(new ResponseObserver(), {
+  const observer = new ResponseObserver({
     pageDomObserver: new ChatGptPageDomObserver(),
     getContextPressure: () => ({ recordObservation() {} }) as unknown as ChatGptBrowserContextPressure,
   });
@@ -5384,7 +5384,7 @@ test("stalled-turn diagnostics record DOM metrics without response or overlay co
       `<div data-testid="streaming-status" aria-label="${statusLabel}">Working</div></div>`,
   );
   try {
-    const observer = Object.assign(new ResponseObserver(), {
+    const observer = new ResponseObserver({
       pageDomObserver: new ChatGptPageDomObserver(),
       getContextPressure: () => ({ recordObservation() {} }) as unknown as ChatGptBrowserContextPressure,
     });

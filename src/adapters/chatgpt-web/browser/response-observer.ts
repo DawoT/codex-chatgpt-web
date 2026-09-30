@@ -15,19 +15,20 @@ import {
 import { CHATGPT_DOM_REVISION_ATTRIBUTES } from "./submission-observer";
 
 /**
- * Dispatch surface the response observation methods rely on through their `this`.
- * The worker owns the shared state (`pageDomObserver`, the per-page context-pressure cache) and
- * lends it to the borrowed prototype dispatch, so stubs installed on the worker instance or on
+ * Dependencies the response observer borrows from the worker, injected as late-bound members:
+ * the shared page DOM observer and the worker's per-page context-pressure resolver. The worker
+ * supplies lambdas closing over `this`, so stubs installed on the worker instance or on
  * `ChatGptBrowserWorker.prototype` keep steering every internal call.
  */
-export interface ChatGptResponseObserverHost {
+export interface ResponseObserverDeps {
   readonly pageDomObserver: ChatGptPageDomObserver;
   getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure;
 }
 
 export class ResponseObserver {
+  constructor(private readonly deps: ResponseObserverDeps) {}
+
   async responseDomSnapshot(
-    this: ChatGptResponseObserverHost,
     responseTurn: Locator,
     cache?: ChatGptResponseDomCache,
   ): Promise<ChatGptResponseDomSnapshot> {
@@ -623,13 +624,13 @@ export class ResponseObserver {
       .map(stripChatGptTraceControlSuffix)
       .filter((block) => block.text.length > 0 && !isChatGptTraceControl(block));
     const observationPage = responseTurn.page();
-    await this.pageDomObserver.measure(observationPage, Boolean(observed.snapshot), observationStarted, () =>
-      this.getContextPressure(observationPage),
+    await this.deps.pageDomObserver.measure(observationPage, Boolean(observed.snapshot), observationStarted, () =>
+      this.deps.getContextPressure(observationPage),
     );
     return snapshot;
   }
 
-  async stalledTurnDiagnostic(this: ChatGptResponseObserverHost, page: Page, responseTurn: Locator): Promise<string> {
+  async stalledTurnDiagnostic(page: Page, responseTurn: Locator): Promise<string> {
     const responseState = (await responseTurn.count())
       ? await responseTurn.evaluate((element) => {
           const root = element as HTMLElement;

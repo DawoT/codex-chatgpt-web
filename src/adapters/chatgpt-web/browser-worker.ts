@@ -41,7 +41,7 @@ import {
   type SelectedChatGptWebModelMode,
 } from "./browser/model-controls";
 import { extractAttachedPromptText } from "./browser/prompt-readback";
-import { type ChatGptResponseObserverHost, ResponseObserver } from "./browser/response-observer";
+import { ResponseObserver } from "./browser/response-observer";
 import {
   type ChatGptSubmissionBaseline,
   type ChatGptSubmissionDomCache,
@@ -337,7 +337,6 @@ export class ChatGptBrowserWorker {
   private readonly activeRuns = new Map<string, Promise<string>>();
   private readonly contextPressureByConversation = new Map<string, ChatGptBrowserContextPressure>();
   private readonly contextPressureByPage = new WeakMap<Page, ChatGptBrowserContextPressure>();
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: lent to ResponseObserver through the borrowed `this` dispatch
   private readonly pageDomObserver = new ChatGptPageDomObserver();
   /**
    * Per-turn event buses of the most recent turns, kept for diagnostics and tests. Buses are
@@ -365,6 +364,14 @@ export class ChatGptBrowserWorker {
 
   private get maintenanceTail(): Promise<void> {
     return this.sessionState?.maintenanceTail ?? Promise.resolve();
+  }
+
+  private responseObserverInstance?: ResponseObserver;
+  private get responseObserver(): ResponseObserver {
+    return (this.responseObserverInstance ??= new ResponseObserver({
+      pageDomObserver: this.pageDomObserver,
+      getContextPressure: (page, conversationKey) => this.getContextPressure(page, conversationKey),
+    }));
   }
 
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
@@ -1353,19 +1360,11 @@ export class ChatGptBrowserWorker {
     responseTurn: Locator,
     cache?: ChatGptResponseDomCache,
   ): Promise<ChatGptResponseDomSnapshot> {
-    return ResponseObserver.prototype.responseDomSnapshot.call(
-      this as unknown as ChatGptResponseObserverHost,
-      responseTurn,
-      cache,
-    );
+    return this.responseObserver.responseDomSnapshot(responseTurn, cache);
   }
 
   private async stalledTurnDiagnostic(page: Page, responseTurn: Locator): Promise<string> {
-    return ResponseObserver.prototype.stalledTurnDiagnostic.call(
-      this as unknown as ChatGptResponseObserverHost,
-      page,
-      responseTurn,
-    );
+    return this.responseObserver.stalledTurnDiagnostic(page, responseTurn);
   }
 
   private async runExclusive(turn: BrowserTurn): Promise<string> {
