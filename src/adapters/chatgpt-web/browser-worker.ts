@@ -86,6 +86,107 @@ import { skillFileTokens } from "./skill-attachments";
 import type { ChatGptTurnProgressReader } from "./turn-progress";
 import { chatGptExternalToolCallsAreInFlight } from "./turn-progress";
 
+export {
+  absentResponseDomSnapshot,
+  assertChatGptWebInputWithinLimits,
+  assertChatGptWebMultipartInputWithinLimits,
+  browserDiagnosticCheckpoint,
+  browserStageTimeouts,
+  CHATGPT_ATTACHMENT_INPUT_SELECTOR,
+  CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT,
+  CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
+  CHATGPT_COMPLETION_ACTION_GRACE_MS,
+  CHATGPT_COMPLETION_SETTLE_MS,
+  CHATGPT_COMPOSER_DOCUMENT_END_KEY,
+  CHATGPT_COMPOSER_SELECT_ALL_KEY,
+  CHATGPT_EMPTY_RESPONSE_GRACE_MS,
+  CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS,
+  CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS,
+  CHATGPT_MENTION_MENU_ROWS_SELECTOR,
+  CHATGPT_MIN_OPERATIONAL_VIEWPORT,
+  CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
+  CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX,
+  CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX,
+  CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX,
+  CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX,
+  CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS,
+  CHATGPT_PERSONALIZATION_CLEANUP_TIMEOUT_MS,
+  CHATGPT_PERSONALIZATION_PREFLIGHT_TIMEOUT_MS,
+  CHATGPT_RESPONSE_DOM_GRACE_MS,
+  CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
+  CHATGPT_TOOL_IN_FLIGHT_CEILING_MS,
+  CHATGPT_UI_SETTLE_MS,
+  ChatGptBrowserDiagnostics,
+  ChatGptBrowserObservationTimeoutError,
+  type ChatGptClearComposerOptions,
+  ChatGptCompletionTracker,
+  type ChatGptConnectorAttachmentMode,
+  type ChatGptConnectorMentionFailureOptions,
+  ChatGptPendingToolEvidenceTracker,
+  type ChatGptPersonalizationPreflight,
+  ChatGptPromptAttachmentIntegrityError,
+  type ChatGptResponseDomCache,
+  type ChatGptResponseDomSnapshot,
+  type ChatGptSubmissionEvidence,
+  ChatGptSubmissionRejectionObserver,
+  ChatGptSuspensionClock,
+  type ChatGptTextScope,
+  ChatGptTurnDomHealthTracker,
+  type ChatGptVisibleTraceBlock,
+  type ChatGptVisibleTraceEvent,
+  ChatGptVisibleTraceTracker,
+  chatGptActiveComposer,
+  chatGptClearComposerState,
+  chatGptConnectorAttachmentMode,
+  chatGptConnectorIsSelected,
+  chatGptConnectorMentionFailure,
+  chatGptConnectorMentionRowTitles,
+  chatGptConnectorUnavailableError,
+  chatGptExternalProgressSuppressesDomHealth,
+  chatGptImageFilePayloads,
+  chatGptNewTurnIdentity,
+  chatGptPromptFilePayloads,
+  chatGptReboundTurnIdentity,
+  chatGptRowIsHighlighted,
+  chatGptSelectedConnectorControl,
+  chatGptSubmissionEvidence,
+  chatGptSuspensionClock,
+  chatGptTurnIdentityLocatorSelector,
+  chatGptTurnIsComplete,
+  chatGptUnavailableProDetail,
+  connectAfterClosingBrowserConnection,
+  type DismissOverlaysOptions,
+  dismissAllChatGptOverlays,
+  dismissChatGptTemporaryChatOnboarding,
+  ensureChatGptPersonalizedConnectorAccess,
+  insertPlainTextIntoComposer,
+  isChatGptTraceControl,
+  MAX_CHATGPT_BROWSER_PAGE_REBINDS,
+  MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS,
+  normalizePromptForComparison,
+  promptCodeUnitEquivalent,
+  promptEquivalentPrefixLength,
+  promptTextEquivalent,
+  promptUnitsEquivalent,
+  pruneBrowserDiagnostics,
+  type ResolvedBrowserConfig,
+  redactChatGptUiDiagnostic,
+  remainingStageBudgetMs,
+  resolveAdaptiveObservationProbeTimeoutMs,
+  resolveBrowserConfig,
+  resolveChatGptToolConfirmation,
+  resolveChatGptWebMultipartStagingMode,
+  sanitizeChatGptBrowserDiagnosticState,
+  setChatGptThinkMode,
+  stripChatGptTraceControlSuffix,
+  throwIfChatGptRateLimitDialog,
+  throwIfChatGptSessionFailureAlert,
+  throwIfChatGptTerminalErrorAlert,
+  throwIfPromptAttachmentAborted,
+  withBrowserTurnAbort,
+  withChatGptBrowserObservationTimeout,
+} from "./browser";
+export { MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS } from "./browser/composer-controller";
 export { MAX_CHATGPT_BROWSER_TABS } from "./concurrency";
 
 const workers = new Map<string, ChatGptBrowserWorker>();
@@ -104,193 +205,51 @@ export async function closeChatGptBrowserWorkers(): Promise<void> {
   }
 }
 
+import { type ResolvedBrowserConfig, resolveBrowserConfig } from "./browser/config";
+import { ChatGptBrowserDiagnostics, redactChatGptUiDiagnostic } from "./browser/diagnostics";
+
+import {
+  ChatGptCompletionTracker,
+  type ChatGptResponseDomCache,
+  type ChatGptResponseDomSnapshot,
+  type ChatGptSubmissionEvidence,
+  ChatGptTurnDomHealthTracker,
+  ChatGptVisibleTraceTracker,
+  chatGptExternalProgressSuppressesDomHealth,
+  MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS,
+} from "./browser/dom-trackers";
+import {
+  CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
+  ChatGptPromptAttachmentIntegrityError,
+  ChatGptSubmissionRejectionObserver,
+  resolveChatGptToolConfirmation,
+  throwIfChatGptRateLimitDialog,
+  throwIfChatGptSessionFailureAlert,
+  throwIfChatGptTerminalErrorAlert,
+} from "./browser/overlays";
+import { assertChatGptPromptAttachments } from "./browser/payloads";
+import { promptEquivalentPrefixLength, promptTextEquivalent } from "./browser/prompt-equivalence";
+import {
+  assertChatGptWebInputWithinLimits,
+  assertChatGptWebMultipartInputWithinLimits,
+  resolveChatGptWebMultipartStagingMode,
+} from "./browser/staging-limits";
 import {
   browserStageTimeouts,
-  CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
-  CHATGPT_COMPLETION_ACTION_GRACE_MS,
-  CHATGPT_COMPLETION_SETTLE_MS,
-  CHATGPT_COMPOSER_DOCUMENT_END_KEY,
-  CHATGPT_COMPOSER_SELECT_ALL_KEY,
-  CHATGPT_EMPTY_RESPONSE_GRACE_MS,
   CHATGPT_MIN_OPERATIONAL_VIEWPORT,
   CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
   CHATGPT_RESPONSE_DOM_GRACE_MS,
   ChatGptBrowserObservationTimeoutError,
-  ChatGptSuspensionClock,
+  type ChatGptSuspensionClock,
   chatGptSuspensionClock,
   connectAfterClosingBrowserConnection,
   isMultiChannelLivenessActive,
   MAX_CHATGPT_BROWSER_PAGE_REBINDS,
-  remainingStageBudgetMs,
   resolveAdaptiveObservationProbeTimeoutMs,
   throwIfPromptAttachmentAborted,
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
 } from "./browser/suspension-clock";
-
-export {
-  CHATGPT_OVERLAY_CONFIRM_BUTTON_TEXT_REGEX,
-  CHATGPT_OVERLAY_DESTRUCTIVE_TEXT_REGEX,
-  CHATGPT_OVERLAY_DISMISS_BUTTON_TEXT_REGEX,
-  CHATGPT_OVERLAY_SAFE_DISMISS_BUTTON_TEXT_REGEX,
-  CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
-  ChatGptPromptAttachmentIntegrityError,
-  ChatGptSubmissionRejectionObserver,
-  type ChatGptTextScope,
-  type DismissOverlaysOptions,
-  dismissAllChatGptOverlays,
-  dismissChatGptTemporaryChatOnboarding,
-  resolveChatGptToolConfirmation,
-  throwIfChatGptRateLimitDialog,
-  throwIfChatGptSessionFailureAlert,
-  throwIfChatGptTerminalErrorAlert,
-} from "./browser/overlays";
-export {
-  CHATGPT_PERSONALIZATION_CLEANUP_TIMEOUT_MS,
-  CHATGPT_PERSONALIZATION_PREFLIGHT_TIMEOUT_MS,
-  CHATGPT_UI_SETTLE_MS,
-  type ChatGptPersonalizationPreflight,
-  chatGptConnectorUnavailableError,
-  chatGptUnavailableProDetail,
-  ensureChatGptPersonalizedConnectorAccess,
-} from "./browser/personalization";
-export {
-  browserStageTimeouts,
-  CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
-  CHATGPT_COMPLETION_ACTION_GRACE_MS,
-  CHATGPT_COMPLETION_SETTLE_MS,
-  CHATGPT_COMPOSER_DOCUMENT_END_KEY,
-  CHATGPT_COMPOSER_SELECT_ALL_KEY,
-  CHATGPT_EMPTY_RESPONSE_GRACE_MS,
-  CHATGPT_MIN_OPERATIONAL_VIEWPORT,
-  CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
-  CHATGPT_RESPONSE_DOM_GRACE_MS,
-  ChatGptBrowserObservationTimeoutError,
-  ChatGptSuspensionClock,
-  chatGptSuspensionClock,
-  connectAfterClosingBrowserConnection,
-  MAX_CHATGPT_BROWSER_PAGE_REBINDS,
-  remainingStageBudgetMs,
-  resolveAdaptiveObservationProbeTimeoutMs,
-  throwIfPromptAttachmentAborted,
-  withBrowserTurnAbort,
-  withChatGptBrowserObservationTimeout,
-};
-
-import {
-  CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
-  ChatGptPromptAttachmentIntegrityError,
-  ChatGptSubmissionRejectionObserver,
-  resolveChatGptToolConfirmation,
-  throwIfChatGptRateLimitDialog,
-  throwIfChatGptSessionFailureAlert,
-  throwIfChatGptTerminalErrorAlert,
-} from "./browser/overlays";
-
-export {
-  absentResponseDomSnapshot,
-  CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS,
-  CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS,
-  CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS,
-  CHATGPT_TOOL_IN_FLIGHT_CEILING_MS,
-  ChatGptCompletionTracker,
-  type ChatGptConnectorAttachmentMode,
-  ChatGptPendingToolEvidenceTracker,
-  type ChatGptResponseDomCache,
-  type ChatGptResponseDomSnapshot,
-  type ChatGptSubmissionEvidence,
-  ChatGptTurnDomHealthTracker,
-  type ChatGptVisibleTraceBlock,
-  type ChatGptVisibleTraceEvent,
-  ChatGptVisibleTraceTracker,
-  chatGptConnectorAttachmentMode,
-  chatGptExternalProgressSuppressesDomHealth,
-  chatGptNewTurnIdentity,
-  chatGptReboundTurnIdentity,
-  chatGptSubmissionEvidence,
-  chatGptTurnIdentityLocatorSelector,
-  chatGptTurnIsComplete,
-  isChatGptTraceControl,
-  MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS,
-  stripChatGptTraceControlSuffix,
-} from "./browser/dom-trackers";
-
-import {
-  ChatGptCompletionTracker,
-  type ChatGptResponseDomCache,
-  type ChatGptResponseDomSnapshot,
-  type ChatGptSubmissionEvidence,
-  ChatGptTurnDomHealthTracker,
-  ChatGptVisibleTraceTracker,
-  chatGptExternalProgressSuppressesDomHealth,
-  MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS,
-} from "./browser/dom-trackers";
-
-export {
-  browserDiagnosticCheckpoint,
-  CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT,
-  ChatGptBrowserDiagnostics,
-  pruneBrowserDiagnostics,
-  redactChatGptUiDiagnostic,
-  sanitizeChatGptBrowserDiagnosticState,
-} from "./browser/diagnostics";
-
-import { ChatGptBrowserDiagnostics, redactChatGptUiDiagnostic } from "./browser/diagnostics";
-
-export {
-  chatGptImageFilePayloads,
-  chatGptPromptFilePayloads,
-  insertPlainTextIntoComposer,
-  normalizePromptForComparison,
-  setChatGptThinkMode,
-} from "./browser/payloads";
-
-import { assertChatGptPromptAttachments } from "./browser/payloads";
-
-export {
-  type ResolvedBrowserConfig,
-  resolveBrowserConfig,
-} from "./browser/config";
-
-import { type ResolvedBrowserConfig, resolveBrowserConfig } from "./browser/config";
-
-export {
-  assertChatGptWebInputWithinLimits,
-  assertChatGptWebMultipartInputWithinLimits,
-  resolveChatGptWebMultipartStagingMode,
-} from "./browser/staging-limits";
-
-import {
-  assertChatGptWebInputWithinLimits,
-  assertChatGptWebMultipartInputWithinLimits,
-  resolveChatGptWebMultipartStagingMode,
-} from "./browser/staging-limits";
-
-export {
-  promptCodeUnitEquivalent,
-  promptEquivalentPrefixLength,
-  promptTextEquivalent,
-  promptUnitsEquivalent,
-} from "./browser/prompt-equivalence";
-
-import { promptEquivalentPrefixLength, promptTextEquivalent } from "./browser/prompt-equivalence";
-
-export {
-  type ChatGptClearComposerOptions,
-  chatGptActiveComposer,
-  chatGptClearComposerState,
-} from "./browser/composer";
-export { MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS } from "./browser/composer-controller";
-export {
-  CHATGPT_ATTACHMENT_INPUT_SELECTOR,
-  CHATGPT_MENTION_MENU_ROWS_SELECTOR,
-  type ChatGptConnectorMentionFailureOptions,
-  chatGptConnectorIsSelected,
-  chatGptConnectorMentionFailure,
-  chatGptConnectorMentionRowTitles,
-  chatGptRowIsHighlighted,
-  chatGptSelectedConnectorControl,
-} from "./browser/connectors";
 
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
 const CHATGPT_SMOKE_TEXT = "Reply with exactly: CODEX WEB GPT READY";
