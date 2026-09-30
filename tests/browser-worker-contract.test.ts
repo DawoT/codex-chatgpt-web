@@ -4,9 +4,14 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
-import type { Page } from "playwright-core";
+import type { Locator, Page } from "playwright-core";
 import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter-error";
-import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
+import {
+  type ChatGptBrowserContextPressure,
+  ChatGptPageDomObserver,
+} from "../src/adapters/chatgpt-web/browser/context-pressure";
+import type { ChatGptResponseDomSnapshot } from "../src/adapters/chatgpt-web/browser/dom-trackers";
+import { ResponseObserver } from "../src/adapters/chatgpt-web/browser/response-observer";
 import { interactiveBrowserTurnMutex } from "../src/adapters/chatgpt-web/browser-mutex";
 import {
   assertChatGptWebInputWithinLimits,
@@ -73,7 +78,6 @@ import {
   ChatGptExternalTurnProgress,
   chatGptExternalToolCallsAreInFlight,
 } from "../src/adapters/chatgpt-web/turn-progress";
-import { CHATGPT_STOPPED_THINKING_LABELS } from "../src/adapters/chatgpt-web/ui-labels";
 import { parseChatGptEffortSliderState } from "../src/chatgpt-session";
 import {
   CHATGPT_CONNECTOR_NAME,
@@ -5087,36 +5091,115 @@ test("Stopped thinking is an explicit upstream error, not a user cancellation or
   expect(error.message).not.toContain("5 seconds");
 });
 
-test("stopped-thinking detection recognizes localized UI without matching response content", () => {
+/**
+ * Drives the real `ResponseObserver` observation pipeline against a synthetic domino DOM inside a
+ * `node:vm` context — the same technique the worker-prototype fixtures use. The commentary
+ * classifier, Markdown projection and stopped-thinking detection all ship inside the
+ * `page.evaluate` callback of `responseDomSnapshot`, so calling the real method through a fake
+ * locator is how the exact shipped code executes without pinning its source text.
+ */
+function responseSnapshotHarness(html: string) {
   const { createWindow } = require("@mixmark-io/domino") as {
-    createWindow(html: string): { document: Document; NodeFilter: typeof NodeFilter };
+    createWindow(html: string): {
+      document: Document;
+      HTMLElement: typeof HTMLElement;
+      Element: typeof Element;
+      Node: typeof Node;
+      NodeFilter: typeof NodeFilter;
+    };
   };
-  const worker = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
-  const source = worker.split("const stoppedThinkingVisible = (() => {")[1]?.split("})();")[0];
-  if (!source) throw new Error("Stopped-thinking predicate is missing");
-  const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(
-    `function detect(root, options, document, NodeFilter, renderedInDom, overlapsRenderedAnswer, overlapsCommentary) { ${source} }`,
+  const window = createWindow(html);
+  const originalInnerText = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "innerText");
+  // Domino has no layout engine; observed answer text reads through textContent instead.
+  Object.defineProperty(window.HTMLElement.prototype, "innerText", {
+    configurable: true,
+    get() {
+      return this.textContent;
+    },
+  });
+  // Domino collections predate iterable DOM collections; supply that browser API in the fixture.
+  const prototypes = [window.document.querySelectorAll(".markdown"), window.document.body.children].map(
+    Object.getPrototypeOf,
   );
-  const detect = new Function(`${javascript}; return detect;`)();
-  const stopped = (html: string): boolean => {
-    const window = createWindow(
+  for (const prototype of prototypes)
+    Object.defineProperty(prototype, Symbol.iterator, {
+      configurable: true,
+      value: Array.prototype[Symbol.iterator],
+    });
+  // Domino predates the ParentNode.append convenience API that the snapshot's inline-run flush
+  // uses; supply it the same way (domino prototypes are shared across windows, so restore it).
+  const elementPrototype = window.Element.prototype as unknown as { append?: unknown };
+  const originalAppend = elementPrototype.append;
+  if (typeof originalAppend !== "function")
+    elementPrototype.append = function append(this: { appendChild: (node: unknown) => unknown }, ...nodes: unknown[]) {
+      for (const node of nodes) this.appendChild(node);
+    };
+  const evaluationErrors: string[] = [];
+  const context = createContext({
+    document: window.document,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    NodeFilter: window.NodeFilter,
+    performance: { timeOrigin: 1 },
+    getComputedStyle: (element: { style?: { display?: string; visibility?: string; opacity?: string } }) => ({
+      display: element.style?.display || "block",
+      visibility: element.style?.visibility || "visible",
+      opacity: element.style?.opacity || "1",
+    }),
+    MutationObserver: class {
+      observe() {}
+    },
+  });
+  const root = window.document.getElementById("current") ?? window.document.body;
+  const runInScope = (callback: Function, ...args: unknown[]) =>
+    runInContext(`(${callback.toString()})`, context)(...args);
+  const observer = Object.assign(new ResponseObserver(), {
+    pageDomObserver: new ChatGptPageDomObserver(),
+    getContextPressure: () => ({ recordObservation() {} }) as unknown as ChatGptBrowserContextPressure,
+  });
+  const harness = {
+    window,
+    root,
+    evaluationErrors,
+    runInScope,
+    responseTurn: {
+      count: async () => 1,
+      evaluate: async (callback: Function, options: unknown) => {
+        try {
+          return runInScope(callback, root, options);
+        } catch (error) {
+          evaluationErrors.push((error as Error).stack ?? String(error));
+          throw error;
+        }
+      },
+      page: () => ({ isClosed: () => false, evaluate: async () => undefined }),
+    },
+    snapshot: async (): Promise<ChatGptResponseDomSnapshot> =>
+      observer.responseDomSnapshot(harness.responseTurn as unknown as Locator),
+    dispose() {
+      for (const prototype of prototypes) delete prototype[Symbol.iterator];
+      if (typeof originalAppend !== "function") delete elementPrototype.append;
+      else elementPrototype.append = originalAppend;
+      if (originalInnerText) Object.defineProperty(window.HTMLElement.prototype, "innerText", originalInnerText);
+      else delete (window.HTMLElement.prototype as { innerText?: unknown }).innerText;
+    },
+  };
+  return harness;
+}
+
+test("stopped-thinking detection recognizes localized UI without matching response content", async () => {
+  const stopped = async (html: string): Promise<boolean> => {
+    const harness = responseSnapshotHarness(
       `<article id="old"><button>已停止思考</button></article><article id="current">${html}</article>`,
     );
-    const root = window.document.getElementById("current")!;
-    const overlaps = (selector: string) => (candidate: HTMLElement) =>
-      Array.from(root.querySelectorAll(selector)).some(
-        (content) => content.contains(candidate) || candidate.contains(content),
-      );
-    return detect(
-      root,
-      { stoppedThinkingLabels: CHATGPT_STOPPED_THINKING_LABELS },
-      window.document,
-      window.NodeFilter,
-      (element: HTMLElement) =>
-        element.style.display !== "none" && element.style.visibility !== "hidden" && element.style.opacity !== "0",
-      overlaps(".answer"),
-      overlaps(".commentary"),
-    );
+    try {
+      const snapshot = await harness.snapshot();
+      expect(harness.evaluationErrors).toEqual([]);
+      return snapshot.stoppedThinkingVisible;
+    } finally {
+      harness.dispose();
+    }
   };
   // Independent observed labels include distinct Simplified/Traditional Chinese and Japanese.
   for (const label of [
@@ -5129,25 +5212,25 @@ test("stopped-thinking detection recognizes localized UI without matching respon
     "Réflexion interrompue",
     "생각 중지됨",
   ]) {
-    expect(stopped(`<div data-streaming-response-status><button>${label}</button></div>`)).toBeTrue();
-    expect(stopped(`<button aria-label="  ${label}  ">Status</button>`)).toBeTrue();
+    expect(await stopped(`<div data-streaming-response-status><button>${label}</button></div>`)).toBeTrue();
+    expect(await stopped(`<button aria-label="  ${label}  ">Status</button>`)).toBeTrue();
     for (const html of [
-      `<div class="answer"><p>${label}</p></div>`,
-      `<div class="commentary"><p>${label}</p></div>`,
+      `<div class="markdown"><p>${label}</p></div>`,
+      `<div data-streaming-response-status><div class="markdown"><p>${label}</p></div></div>`,
       `<pre><code>${label}</code></pre>`,
       `<blockquote>${label}</blockquote>`,
-      `<div class="answer"><button aria-label="${label}">quoted</button></div>`,
+      `<div class="markdown"><button aria-label="${label}">quoted</button></div>`,
       `<div style="display:none"><button aria-label="${label}">${label}</button></div>`,
       `<button style="visibility:hidden">${label}</button>`,
       `<div style="opacity:0"><button>${label}</button></div>`,
       `<button>"${label}"</button>`,
     ])
-      expect(stopped(html)).toBeFalse();
+      expect(await stopped(html)).toBeFalse();
   }
-  expect(stopped("<button>Stopped\n  thinking</button>")).toBeTrue();
-  expect(stopped('<div class="answer">Current answer</div>')).toBeFalse();
-  expect(stopped("<button>Thinking</button>")).toBeFalse();
-  expect(stopped("<button>Stop thinking</button>")).toBeFalse();
+  expect(await stopped("<button>Stopped\n  thinking</button>")).toBeTrue();
+  expect(await stopped('<div class="markdown">Current answer</div>')).toBeFalse();
+  expect(await stopped("<button>Thinking</button>")).toBeFalse();
+  expect(await stopped("<button>Stop thinking</button>")).toBeFalse();
 });
 
 test("visible DOM trace keeps a complete action phrase instead of a nested count", () => {
@@ -5286,19 +5369,82 @@ test("browser DOM health fails closed on a vanished or empty ChatGPT response", 
   expect(missingCompletionAction.update(completedWithoutMarker, 1_750)).toContain("DOM may have changed");
 });
 
-test("stalled-turn diagnostics record DOM metrics without response or overlay content", () => {
-  const observerSource = readFileSync(
-    new URL("../src/adapters/chatgpt-web/browser/response-observer.ts", import.meta.url),
-    "utf8",
+test("stalled-turn diagnostics record DOM metrics without response or overlay content", async () => {
+  const responseSentence = "Assistant answer body that must never reach the diagnostics artifact";
+  const statusLabel = "Confidential streaming status label";
+  const buttonLabel = "Confidential action button label";
+  const dialogLabel = "Confidential overlay dialog title";
+  const harness = responseSnapshotHarness(
+    `<div role="alert" aria-label="${dialogLabel}" data-testid="overlay-alert"><span>Dialog body</span></div>` +
+      `<div id="current"><p>${responseSentence}</p>` +
+      `<button aria-label="${buttonLabel}">Press</button>` +
+      `<div data-testid="streaming-status" aria-label="${statusLabel}">Working</div></div>`,
   );
-  const start = observerSource.indexOf("async stalledTurnDiagnostic(");
-  const diagnosticSource = observerSource.slice(start);
-  expect(diagnosticSource).toContain("textChars:");
-  expect(diagnosticSource).toContain("htmlChars:");
-  expect(diagnosticSource).not.toContain("innerText.trim()");
-  expect(diagnosticSource).toContain('innerText ?? candidate.textContent ?? ""');
-  expect(diagnosticSource).not.toMatch(/\btext:\s*(?:root|candidate)\.innerText/);
-  expect(diagnosticSource).not.toMatch(/\bariaLabel:\s*candidate\.getAttribute/);
+  try {
+    const observer = Object.assign(new ResponseObserver(), {
+      pageDomObserver: new ChatGptPageDomObserver(),
+      getContextPressure: () => ({ recordObservation() {} }) as unknown as ChatGptBrowserContextPressure,
+    });
+    // A page-wide scan, as in production: the overlay locator runs against the whole document.
+    const overlays = Array.from(
+      harness.window.document.querySelectorAll('[role="dialog"], [role="alert"], [role="status"]'),
+    );
+    const page = {
+      locator: (_selector: string) => ({
+        evaluateAll: async (callback: Function) => harness.runInScope(callback, overlays),
+      }),
+    } as unknown as Page;
+
+    const diagnostic = await observer.stalledTurnDiagnostic(page, harness.responseTurn as unknown as Locator);
+    const payload = JSON.parse(diagnostic) as {
+      response: {
+        textChars: number;
+        htmlChars: number;
+        descriptors: Array<{
+          tag: string;
+          role: string | null;
+          testId: string | null;
+          ariaLabelChars: number;
+          titleChars: number;
+          textChars: number;
+        }>;
+      };
+      overlays: Array<{ role: string | null; testId: string | null; ariaLabelChars: number; textChars: number }>;
+    };
+    // Char counts and safe structural keys only — never the rendered text or accessibility labels.
+    expect(payload.response.textChars).toBe(`${responseSentence}PressWorking`.length);
+    expect(payload.response.htmlChars).toBe(harness.root.innerHTML.length);
+    expect(payload.response.descriptors).toEqual([
+      {
+        tag: "button",
+        role: null,
+        testId: null,
+        ariaLabelChars: buttonLabel.length,
+        titleChars: 0,
+        textChars: "Press".length,
+      },
+      {
+        tag: "div",
+        role: null,
+        testId: "streaming-status",
+        ariaLabelChars: statusLabel.length,
+        titleChars: 0,
+        textChars: "Working".length,
+      },
+    ]);
+    expect(payload.overlays).toEqual([
+      { role: "alert", testId: "overlay-alert", ariaLabelChars: dialogLabel.length, textChars: "Dialog body".length },
+    ]);
+    for (const content of [responseSentence, statusLabel, buttonLabel, dialogLabel, "Dialog body"])
+      expect(diagnostic).not.toContain(content);
+
+    // With no response turn left in the DOM the response half is empty rather than crash-prone.
+    const emptyTurn = { count: async () => 0 } as unknown as Locator;
+    const emptyPayload = JSON.parse(await observer.stalledTurnDiagnostic(page, emptyTurn)) as unknown;
+    expect(emptyPayload).toMatchObject({ response: { text: "", descriptors: [] } });
+  } finally {
+    harness.dispose();
+  }
 });
 
 test("browser send accepts only new logical turns or generation, not remounted history", () => {
@@ -5468,9 +5614,8 @@ test("visible Stop suspends missing-response health until generation stops", () 
   expect(tracker.update({ ...running, running: false }, 11_100)).toContain("did not create a response DOM");
 });
 
-test("an accepted turn survives internal observation faults instead of being torn down", () => {
+test("an accepted turn survives internal observation faults instead of being torn down", async () => {
   const worker = readFileSync("src/adapters/chatgpt-web/browser-worker.ts", "utf8");
-  const responseObserver = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
 
   // A TypeError while reading the page is a defect in this worker, not evidence about ChatGPT.
   // Failing the turn on one loses an accepted ChatGPT turn that is never resent.
@@ -5483,8 +5628,19 @@ test("an accepted turn survives internal observation faults instead of being tor
   // hold an undeadlined turn open forever.
   expect(CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS).toBeGreaterThan(CHATGPT_RESPONSE_DOM_GRACE_MS);
 
-  // Chain-of-thought containment is commentary regardless of document position.
-  expect(responseObserver).toContain("candidate.closest('[data-testid^=\"cot-v5\"]') !== null");
+  // Chain-of-thought containment is commentary regardless of document position: a reasoning root
+  // that precedes every status container would otherwise read as the answer through position alone.
+  const harness = responseSnapshotHarness(
+    '<div id="current"><div data-testid="cot-v5-block"><div class="markdown">THINKING</div></div>' +
+      '<div class="markdown">ANSWER</div></div>',
+  );
+  try {
+    const snapshot = await harness.snapshot();
+    expect(harness.evaluationErrors).toEqual([]);
+    expect(snapshot.visibleText).toBe("ANSWER");
+  } finally {
+    harness.dispose();
+  }
 });
 
 test("stale MCP progress stops suppressing DOM health without penalising long active turns", () => {
@@ -5589,50 +5745,30 @@ test("multipart observation surfaces Stopped thinking on its first observation e
   expect(acknowledged).toBeFalse();
 });
 
-test("the shipped commentary classifier separates answer Markdown from reasoning in a real DOM", () => {
-  // The classifier runs inside page.evaluate, so it cannot be imported. Extract and execute the
-  // exact shipped source so the test covers the code that actually runs.
-  // domino ships without module typings; it is already present as a turndown dependency and is
-  // the only DOM implementation available to this suite.
-  const { createDocument } = require("@mixmark-io/domino") as {
-    createDocument: (html: string) => {
-      body: { querySelectorAll: (selector: string) => ArrayLike<HTMLElement> };
-    };
-  };
-  const worker = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
-  const source = worker
-    .split("// CHATGPT_COMMENTARY_CLASSIFIER_BEGIN")[1]
-    ?.split("// CHATGPT_COMMENTARY_CLASSIFIER_END")[0];
-  if (!source) throw new Error("commentary classifier sentinels are missing from response-observer.ts");
-  const javascript = source.replace(/:\s*HTMLElement\[\]/g, "").replace(/\):\s*\{[^}]*\}\s*=>/, ") =>");
-  const selectChatGptAnswerRoots = new Function(`${javascript}; return selectChatGptAnswerRoots;`)() as (
-    roots: unknown[],
-    statuses: unknown[],
-  ) => { answerRoots: Array<{ textContent: string }> };
-
-  const answerFor = (html: string): string => {
-    const document = createDocument(`<body>${html}</body>`);
-    // domino's NodeList is array-like rather than iterable.
-    const roots = Array.from(document.body.querySelectorAll(".markdown")).filter(
-      (candidate) => !candidate.parentElement?.closest(".markdown"),
-    );
-    const statuses = Array.from(document.body.querySelectorAll("[data-streaming-response-status]"));
-    return selectChatGptAnswerRoots(roots, statuses)
-      .answerRoots.map((root) => (root.textContent ?? "").trim())
-      .filter(Boolean)
-      .join(" | ");
+test("the shipped commentary classifier separates answer Markdown from reasoning in a real DOM", async () => {
+  // The classifier ships inside the `page.evaluate` callback of `responseDomSnapshot`, so the real
+  // observation pipeline runs here against a synthetic domino DOM (see responseSnapshotHarness).
+  const answerFor = async (html: string): Promise<string> => {
+    const harness = responseSnapshotHarness(`<div id="current">${html}</div>`);
+    try {
+      const snapshot = await harness.snapshot();
+      expect(harness.evaluationErrors).toEqual([]);
+      return snapshot.visibleText;
+    } finally {
+      harness.dispose();
+    }
   };
 
   // Commentary that precedes the live status, and commentary nested inside one, stay excluded.
   expect(
-    answerFor(
+    await answerFor(
       '<div class="markdown">COMMENTARY</div>' +
         "<div data-streaming-response-status>live</div>" +
         '<div class="markdown">ANSWER</div>',
     ),
   ).toBe("ANSWER");
   expect(
-    answerFor(
+    await answerFor(
       '<div data-streaming-response-status><div class="markdown">NESTED</div></div>' +
         '<div class="markdown">ANSWER</div>',
     ),
@@ -5640,7 +5776,7 @@ test("the shipped commentary classifier separates answer Markdown from reasoning
 
   // Reasoning rendered inside a chain-of-thought component is commentary wherever it sits.
   expect(
-    answerFor(
+    await answerFor(
       "<div data-streaming-response-status>s1</div>" +
         '<div data-testid="cot-v5-block"><div class="markdown">THINKING</div></div>' +
         '<div class="markdown">ANSWER</div>',
@@ -5649,51 +5785,51 @@ test("the shipped commentary classifier separates answer Markdown from reasoning
 
   // A later status container must not hide answer text that appears before it in the DOM.
   expect(
-    answerFor(
+    await answerFor(
       "<div data-streaming-response-status>s1</div>" +
         '<div class="markdown">ANSWER</div>' +
         "<div data-streaming-response-status>s2</div>",
     ),
   ).toBe("ANSWER");
   expect(
-    answerFor(
+    await answerFor(
       "<div data-streaming-response-status>s1</div>" +
         '<div class="markdown">PART ONE</div>' +
         "<div data-streaming-response-status>s2</div>" +
         '<div class="markdown">PART TWO</div>',
     ),
-  ).toBe("PART ONE | PART TWO");
+  ).toBe("PART ONE\n\nPART TWO");
 
   // A turn with no status container at all is entirely answer.
-  expect(answerFor('<div class="markdown">ONLY ANSWER</div>')).toBe("ONLY ANSWER");
+  expect(await answerFor('<div class="markdown">ONLY ANSWER</div>')).toBe("ONLY ANSWER");
 });
 
-test("embedded chart hydration cannot replace Markdown answer content with renderer UI", () => {
-  const { createDocument, createWindow } = require("@mixmark-io/domino") as {
-    createDocument(html: string): { body: HTMLElement };
-    createWindow(): { HTMLElement: unknown; Node: unknown };
-  };
-  const worker = readFileSync("src/adapters/chatgpt-web/browser/response-observer.ts", "utf8");
-  const source = worker.split("// CHATGPT_MARKDOWN_CONTENT_BEGIN")[1]?.split("// CHATGPT_MARKDOWN_CONTENT_END")[0];
-  if (!source) throw new Error("Markdown content projection is missing from response-observer.ts");
-  const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(source);
-  const window = createWindow();
-  const { contentFor, textFor } = new Function(
-    "HTMLElement",
-    "Node",
-    `${javascript}; return { contentFor: chatGptMarkdownContent, textFor: markdownText };`,
-  )(window.HTMLElement, window.Node) as {
-    contentFor(root: HTMLElement): HTMLElement;
-    textFor(root: HTMLElement): string;
-  };
+test("embedded chart hydration cannot replace Markdown answer content with renderer UI", async () => {
+  // The Markdown projection ships inside the `page.evaluate` callback of `responseDomSnapshot`;
+  // drive it through the real observation pipeline against a synthetic domino DOM.
   const prose = '<p data-start="0" data-end="20">Keep 正在加载图表… literally.</p>';
   const code = '<pre data-start="22" data-end="80"><code class="language-vega-lite">{"mark":"line"}</code></pre>';
   const tail = '<ol start="3"><li><p>Actual answer</p></li></ol><span>Inline tail</span>';
   const expected = chatGptHtmlToMarkdown(prose + code + tail);
+  const snapshotOf = async (bodyHtml: string): Promise<ChatGptResponseDomSnapshot> => {
+    const harness = responseSnapshotHarness(`<div id="current"><div class="markdown">${bodyHtml}</div></div>`);
+    try {
+      // The projection works on a cloned root; the observed DOM must come out untouched.
+      const originalHtml = harness.root.innerHTML;
+      const snapshot = await harness.snapshot();
+      expect(harness.evaluationErrors).toEqual([]);
+      expect(harness.root.innerHTML).toBe(originalHtml);
+      return snapshot;
+    } finally {
+      harness.dispose();
+    }
+  };
+  const projectedHtml = (snapshot: ChatGptResponseDomSnapshot) =>
+    snapshot.markdownSegments.map((segment) => segment.html).join("");
   // The chart wrapper, busy state, status row and preview pane are taken from real DEV DOM.
   // Exercise two locales and a terminal preview error without making text a widget selector.
   for (const label of ["Creating chart", "正在加载图表…", "Preview failed"]) {
-    const before = createDocument(
+    const before = await snapshotOf(
       prose +
         code +
         '<button><span class="sr-only">Copy</span></button>' +
@@ -5701,10 +5837,8 @@ test("embedded chart hydration cannot replace Markdown answer content with rende
         `<section><div role="status">${label}</div></section></div></span>` +
         `<div data-start="82" data-end="150"><div data-code-block-preview-pane="vega-lite">${label}</div></div>` +
         tail,
-    ).body;
-    const original = before.innerHTML;
-    const projected = contentFor(before);
-    const after = createDocument(
+    );
+    const after = await snapshotOf(
       prose +
         code +
         '<button><span class="sr-only">Copied</span></button>' +
@@ -5712,21 +5846,23 @@ test("embedded chart hydration cannot replace Markdown answer content with rende
         "<button>Chart options</button><svg><text>0369Day 1Day 2</text></svg></div></span>" +
         '<div data-start="82" data-end="150"><div data-code-block-preview-pane="vega-lite"><iframe title="Preview"></iframe></div></div>' +
         tail,
-    ).body;
-    const hydrated = contentFor(after);
-    expect(projected.innerHTML).toBe(hydrated.innerHTML);
-    expect(projected.textContent).toBe(hydrated.textContent);
-    expect(textFor(projected)).toBe(textFor(hydrated));
-    expect(chatGptHtmlToMarkdown(projected.innerHTML)).toBe(expected);
-    expect(before.innerHTML).toBe(original);
-    expect(projected.querySelector("pre")?.getAttribute("data-start")).toBe("22");
+    );
+    expect(JSON.stringify(before.markdownSegments)).toBe(JSON.stringify(after.markdownSegments));
+    expect(chatGptHtmlToMarkdown(projectedHtml(before))).toBe(expected);
+    const preSegment = before.markdownSegments.find((segment) => segment.tag === "pre");
+    // ChatGPT's source ranges survive the projection for append-only resume.
+    expect(preSegment?.html).toContain('data-start="22"');
+    expect(preSegment?.sourceStart).toBe(22);
   }
-  const text = (html: string) => textFor(contentFor(createDocument(html).body));
-  expect(text("<p>A<br>B</p>")).not.toBe(text("<p>AB</p>"));
-  expect(text("<pre><code>one\n\ntwo</code></pre>")).not.toBe(text("<pre><code>one\ntwo</code></pre>"));
-  expect(text("<div>A</div><div>B</div>")).toBe(text("<section><div>A</div><div>B</div></section>"));
+  const text = async (html: string) => {
+    const snapshot = await snapshotOf(html);
+    return snapshot.markdownSegments.map((segment) => segment.text).join("\n");
+  };
+  expect(await text("<p>A<br>B</p>")).not.toBe(await text("<p>AB</p>"));
+  expect(await text("<pre><code>one\n\ntwo</code></pre>")).not.toBe(await text("<pre><code>one\ntwo</code></pre>"));
+  expect(await text("<div>A</div><div>B</div>")).toBe(await text("<section><div>A</div><div>B</div></section>"));
 
-  const files = createDocument(
+  const files = await snapshotOf(
     '<p>Report: <span data-state="closed">' +
       '<button class="behavior-btn entity-underline" href="https://wrong.example/download" aria-label="Download">' +
       "<svg><text>File icon</text></svg>report.pdf<span hidden>Hidden</span></button></span> " +
@@ -5734,13 +5870,11 @@ test("embedded chart hydration cannot replace Markdown answer content with rende
       '<button>Copy</button><button class="entity-underline">Retry</button>' +
       '<button class="behavior-btn entity-underline" hidden>hidden.pdf</button>' +
       '<span aria-hidden="true"><button class="behavior-btn entity-underline">also-hidden.pdf</button></span></p>',
-  ).body;
-  const originalFiles = files.innerHTML;
-  const projectedFiles = contentFor(files);
-  expect(chatGptHtmlToMarkdown(projectedFiles.innerHTML)).toBe("Report: report.pdf report.pdf");
-  expect(textFor(projectedFiles)).toBe("Report: report.pdf report.pdf");
-  expect(projectedFiles.querySelectorAll("button, a, svg").length).toBe(0);
-  expect(files.innerHTML).toBe(originalFiles);
+  );
+  const projectedFiles = projectedHtml(files);
+  expect(chatGptHtmlToMarkdown(projectedFiles)).toBe("Report: report.pdf report.pdf");
+  expect(files.markdownSegments.map((segment) => segment.text).join("\n")).toBe("Report: report.pdf report.pdf");
+  for (const tag of ["<button", "<a ", "<svg"]) expect(projectedFiles).not.toContain(tag);
 });
 
 test("proven MCP progress vetoes completion, not only the health verdicts", () => {
