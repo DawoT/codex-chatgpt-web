@@ -30,12 +30,31 @@ export function modelCatalogFailure(stage: ModelCatalogFailure["stage"], error: 
   return { stage, ...(typeof code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(code) ? { code } : {}) };
 }
 
+/**
+ * Mutable cache bucket passed by server.ts into modelsRequest.
+ * Holds the last successfully augmented catalog body (JSON string) and its ETag.
+ * Scoped to a single server instance so it is naturally per-config.
+ */
+export interface ModelCatalogCache {
+  body?: string;
+  etag?: string;
+}
+
+function buildStaleResponse(cache: ModelCatalogCache): Response {
+  const headers = new Headers();
+  headers.set("content-type", "application/json");
+  headers.set("x-catalog-stale", "true");
+  if (cache.etag) headers.set("etag", cache.etag);
+  return new Response(cache.body, { status: 200, headers });
+}
+
 export async function modelsRequest(
   req: Request,
   config: AppConfig,
   fetchUpstream?: NativeFetch,
   contextOverride?: () => CodexModelContextOverride | undefined,
   onFailure?: (failure: ModelCatalogFailure) => void,
+  cache?: ModelCatalogCache,
 ): Promise<Response> {
   let upstream: Response;
   let sent = false;
@@ -45,7 +64,10 @@ export async function modelsRequest(
       return (fetchUpstream ?? fetchNativeCodex)(input);
     });
   } catch (error) {
-    onFailure?.(modelCatalogFailure(sent ? "transport" : "request", error));
+    const failure = modelCatalogFailure(sent ? "transport" : "request", error);
+    onFailure?.(failure);
+    // Serve stale catalog if available — prevents 502 from leaving CLI model-less
+    if (cache?.body) return buildStaleResponse(cache);
     return formatErrorResponse(502, "upstream_error", error instanceof Error ? error.message : String(error));
   }
   if (!upstream.ok) {
@@ -60,10 +82,16 @@ export async function modelsRequest(
     return formatErrorResponse(502, "invalid_response_error", error instanceof Error ? error.message : String(error));
   }
   const body = JSON.stringify(catalog);
+  const etag = `W/"${createHash("sha256").update(body).digest("base64url")}"`;
+  // Update cache on every success
+  if (cache) {
+    cache.body = body;
+    cache.etag = etag;
+  }
   const headers = new Headers(upstream.headers);
   headers.delete("content-encoding");
   headers.delete("content-length");
   headers.set("content-type", "application/json");
-  headers.set("etag", `W/"${createHash("sha256").update(body).digest("base64url")}"`);
+  headers.set("etag", etag);
   return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers });
 }

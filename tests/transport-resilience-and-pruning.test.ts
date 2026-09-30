@@ -126,12 +126,18 @@ describe("Sprint AC: Transport Resilience & Session Store Pruning", () => {
           },
         });
         expect(res.status).toBe(426);
-        expect(res.headers.get("upgrade")).toBe("HTTP/1.1");
+        // RFC 7230 §6.7: Upgrade header lists the protocol the server supports.
+        // Corrected from the prior wrong value "HTTP/1.1" to "websocket".
+        expect(res.headers.get("upgrade")).toBe("websocket");
         expect(res.headers.get("connection")).toBe("Upgrade");
         expect(res.headers.get("sec-websocket-version")).toBe("13");
         expect(res.headers.get("x-responses-transport")).toBe("sse-required");
-        const bodyText = await res.text();
-        expect(bodyText).toContain("Responses WebSocket transport is not enabled");
+        // Body is now a structured JSON error envelope for CLI compatibility.
+        expect(res.headers.get("content-type")).toMatch(/application\/json/);
+        const body = (await res.json()) as { error: { type: string; code: string; message: string } };
+        expect(body.error.type).toBe("invalid_request_error");
+        expect(body.error.code).toBe("websocket_not_supported");
+        expect(body.error.message).toContain("SSE");
       } finally {
         server.stop(true);
       }

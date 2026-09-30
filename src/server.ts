@@ -31,6 +31,7 @@ import {
   type NativeCodexTurnIdentity,
 } from "./server/http-turn-counter";
 import {
+  type ModelCatalogCache,
   type ModelCatalogFailure,
   modelCatalogClient,
   modelCatalogFailure,
@@ -54,6 +55,7 @@ export type {
   HttpStreamFailureEvidence,
   HttpStreamFailureReporter,
   HttpTrackedEndpoint,
+  ModelCatalogCache,
   ModelCatalogFailure,
   NativeCodexTurnIdentity,
   ResponseRequestOptions,
@@ -210,6 +212,9 @@ export function startServer(
     status: number;
     failure?: ModelCatalogFailure;
   } | null = null;
+  // Stale-while-revalidate cache: serves last successful catalog body when upstream times out.
+  // Keyed to this server instance so it is already scoped by config lifetime.
+  const modelCatalogCache: ModelCatalogCache = {};
   const httpTurns = new HttpTurnCounter();
   const hostRoutes = new HostHttpRoutes(config, httpTurns, adapterFactory, undefined, undefined, actorManager);
 
@@ -360,6 +365,7 @@ export function startServer(
                 (value) => {
                   failure = value;
                 },
+                modelCatalogCache,
               );
               if (response.ok) {
                 successfulModelCatalogRequests += 1;
@@ -385,11 +391,25 @@ export function startServer(
         }
 
         if (req.method === "GET" && url.pathname === "/v1/responses") {
-          return new Response("Responses WebSocket transport is not enabled on this local route", {
+          // RFC 7230 §6.7: Upgrade header must list the protocol the server requires.
+          // "websocket" is the correct value; "HTTP/1.1" was wrong and prevented the
+          // Codex CLI from parsing the structured error body below.
+          // The JSON body is an OpenAI-compatible error envelope so the CLI can surface
+          // an actionable message instead of a confusing downstream model error.
+          const wsErrorBody = JSON.stringify({
+            error: {
+              type: "invalid_request_error",
+              code: "websocket_not_supported",
+              message:
+                "Responses WebSocket transport is not supported on this local bridge. " +
+                "Use SSE instead: POST /v1/responses with { stream: true }.",
+            },
+          });
+          return new Response(wsErrorBody, {
             status: 426,
             headers: {
-              "content-type": "text/plain; charset=utf-8",
-              upgrade: "HTTP/1.1",
+              "content-type": "application/json",
+              upgrade: "websocket",
               connection: "Upgrade",
               "sec-websocket-version": "13",
               "x-responses-transport": "sse-required",
