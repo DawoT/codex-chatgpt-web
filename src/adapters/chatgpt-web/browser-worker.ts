@@ -880,17 +880,11 @@ export class ChatGptBrowserWorker {
   ): Promise<ChatGptSubmissionEvidence> {
     const composer = await this.activeComposer(page);
     const composerForm = composer.locator("xpath=ancestor::form[1]");
-    // TODO(sprint-3): remove after harness adoption — the contract-test fakes still hand-roll
-    // composer forms with only getByTestId("send-button") (no .locator), so the fallback below
-    // cannot be dropped until those tests adopt tests/fixtures/browser-fakes.ts.
-    const sendButton =
-      (typeof composerForm.locator === "function"
-        ? composerForm
-            .locator(
-              '[data-testid="send-button"], button[type="submit"]:not([aria-haspopup="menu"]), button[aria-label*="Enviar" i], button[aria-label*="Send" i]',
-            )
-            .first()
-        : undefined) ?? composerForm.getByTestId("send-button");
+    const sendButton = composerForm
+      .locator(
+        '[data-testid="send-button"], button[type="submit"]:not([aria-haspopup="menu"]), button[aria-label*="Enviar" i], button[aria-label*="Send" i]',
+      )
+      .first();
     await sendButton.waitFor({ state: "visible", timeout: browserStageTimeouts.send });
     await waitForChatGptDomSettle(page, { signal: abortSignal, horizonMs: 250 });
     const sendEnableDeadline = Date.now() + CHATGPT_SEND_ENABLE_GRACE_MS;
@@ -1592,7 +1586,6 @@ export class ChatGptBrowserWorker {
         multipartTransactionId,
         multipartStages,
         multipartFinalPrompt,
-        selectedMessages,
         browserPayload,
         estimatedInputTokens,
         maxMessageChars,
