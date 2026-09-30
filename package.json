@@ -33,6 +33,7 @@
     "audit:dogfood": "bun run scripts/dogfood-audit.ts",
     "prune:sessions": "bun run scripts/prune-codex-rollouts.ts",
     "check-version": "bun run scripts/check-version.ts",
+    "check:refactor-gates": "bun run scripts/check-refactor-gates.ts",
     "typecheck": "bun x --no-install --bun tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
