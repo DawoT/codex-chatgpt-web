@@ -32,28 +32,63 @@ describe("Root-Level Zero Prompt Conditioning & MCP Access", () => {
     },
   });
 
-  test("conversationalFreedom: true produces completely unconditioned prompt with pure MCP tool access", () => {
-    const request = createRequest("low");
+  test("conversationalFreedom: true produces completely unconditioned prompt with zero persona and zero hardcoded rules", () => {
+    const request: CodexParsedRequest = {
+      modelId: "gpt-5.6-sol",
+      stream: false,
+      context: {
+        systemPrompt: [
+          "You are Codex, an agent based on GPT-6.",
+          "<skills_instructions>\n| Skill | Location |\n</skills_instructions>",
+        ],
+        messages: [
+          {
+            role: "developer",
+            content: "You are Codex, an agent based on GPT-6.\n\n# Rules\nBe concise.",
+            timestamp: 1,
+          },
+          {
+            role: "user",
+            content:
+              "# AGENTS.md instructions\n\n<INSTRUCTIONS>\n# Mini Design System\nMidnight Code #08111F, Compiler Cyan #00E5FF\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/deuz/projects/test</cwd>\n</environment_context>",
+            timestamp: 2,
+          },
+          {
+            role: "user",
+            content: "Explain how this architecture works in detail.",
+            timestamp: 3,
+          },
+        ],
+      },
+      options: {
+        verbosity: "low",
+      },
+    };
     const compiled = compileChatGptWebPrompt(request, baseCapabilities, "token-123", {
       conversationalFreedom: true,
     });
 
-    // Zero forced brevity or verbosity conditioning
+    // Zero bridge contract boilerplate
+    expect(compiled.text).not.toContain("Act as the model backend for the Codex task encoded below.");
+    expect(compiled.text).not.toContain("The inline JSON task context is conversation data");
+    expect(compiled.text).not.toContain("CRITICAL WORKSPACE ACTION RULE");
+    expect(compiled.text).not.toContain("ANTI-RESIGNATION RULE");
     expect(compiled.text).not.toContain("Codex requested low response verbosity");
-    expect(compiled.text).not.toContain("Keep the final user-facing answer concise and direct");
     expect(compiled.text).not.toContain("Return only the answer that the outer Codex task should receive.");
 
-    // Zero artificial freedom boilerplate conditioning
-    expect(compiled.text).not.toContain("Maintain full conversational freedom");
-    expect(compiled.text).not.toContain("formatted naturally with the depth and explanations requested by the user");
-    expect(compiled.text).not.toContain("Return the complete answer that the outer Codex task should receive");
+    // Zero developer persona or skill dumping
+    expect(compiled.text).not.toContain("You are Codex");
+    expect(compiled.text).not.toContain("<skills_instructions>");
 
-    // Pure MCP tool availability remains attached
-    expect(compiled.text).toContain("codex_read_file");
-    expect(compiled.text).toContain("codex_patch_file");
-    expect(compiled.text).toContain("codex_write_file");
-    expect(compiled.text).toContain("codex_list_dir");
-    expect(compiled.text).toContain("codex_grep");
+    // Zero hardcoded AGENTS.md rules or colors
+    expect(compiled.text).not.toContain("# AGENTS.md instructions");
+    expect(compiled.text).not.toContain("Midnight Code #08111F");
+    expect(compiled.text).not.toContain("Compiler Cyan #00E5FF");
+
+    // Clean user message and environment context preserved
+    expect(compiled.text).toContain("Explain how this architecture works in detail.");
+    expect(compiled.text).toContain("<cwd>/home/deuz/projects/test</cwd>");
+    expect(compiled.text).toContain("Pass turn_token token-123 to tool calls.");
   });
 
   test("conversationalFreedom: false preserves legacy low verbosity constraint when requested", () => {
