@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,4 +67,48 @@ test("a prompt prepared before staging fails still gets released", async () => {
   ).runBrowserTurn.bind(worker);
   await expect(runBrowserTurn(turn)).rejects.toThrow(/trace id is invalid/i);
   expect(released).toBe(1);
+});
+
+test("worker close cleans up browser state even when the launcher helper refuses to terminate", async () => {
+  const consoleErrors: unknown[][] = [];
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    consoleErrors.push(args);
+  });
+  try {
+    const browserCloses: number[] = [];
+    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+      launcherHelper: {
+        close: async () => {
+          throw new Error("refused termination");
+        },
+      },
+      activeRuns: new Map(),
+      maintenanceTail: Promise.resolve(),
+      browser: {
+        close: async () => {
+          browserCloses.push(1);
+        },
+      },
+      context: { marker: true },
+      page: { marker: true },
+      managedBrowserReady: Promise.resolve({ browser: {}, context: {} }),
+      contextPressureByConversation: new Map([["conv-key", {}]]),
+    }) as unknown as ChatGptBrowserWorker;
+
+    await worker.close();
+
+    const field = (name: string) => (worker as unknown as Record<string, unknown>)[name];
+    expect(browserCloses).toHaveLength(1);
+    expect(field("browser")).toBeUndefined();
+    expect(field("context")).toBeUndefined();
+    expect(field("page")).toBeUndefined();
+    expect(field("managedBrowserReady")).toBeUndefined();
+    expect((field("contextPressureByConversation") as Map<string, unknown>).size).toBe(0);
+    expect(field("launcherHelper")).toBeUndefined();
+    expect(
+      consoleErrors.some((args) => args.some((arg) => typeof arg === "string" && arg.includes("refused termination"))),
+    ).toBeTrue();
+  } finally {
+    consoleErrorSpy.mockRestore();
+  }
 });

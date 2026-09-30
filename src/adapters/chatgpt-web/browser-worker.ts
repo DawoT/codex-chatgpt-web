@@ -506,7 +506,15 @@ export class ChatGptBrowserWorker {
     if (this.launcherHelper) {
       const helper = this.launcherHelper;
       this.launcherHelper = undefined;
-      await helper.close();
+      try {
+        await helper.close();
+      } catch (error) {
+        // A refused helper termination must not skip the browser disconnect and state cleanup
+        // below; the failure is surfaced here and shutdown still completes.
+        console.error(
+          `[chatgpt-web] ChatGPT browser helper failed to close: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
     await Promise.allSettled([...this.activeRuns.values()]);
     await this.maintenanceTail;
