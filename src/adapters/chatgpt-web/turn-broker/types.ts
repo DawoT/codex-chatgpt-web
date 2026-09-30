@@ -58,6 +58,7 @@ export interface SafeTurnControl {
 
 export interface TurnChannel {
   traceId: string;
+  threadId?: string;
   externalOwner: boolean;
   environment: PendingTurn;
   bindingId?: string;
@@ -135,6 +136,7 @@ export interface BrokerRequest {
   surfaceNonce?: string;
   finalAnswer?: string;
   contract?: "native" | "safe";
+  threadId?: string;
 }
 
 export interface BrokerResponse {
@@ -151,6 +153,7 @@ export interface TurnBrokerOwner {
     externalOwner?: boolean,
     handlePrefix?: string,
     predecessorToken?: string,
+    threadId?: string,
   ): Promise<string>;
   registerSafe(
     environment: ChatGptTurnEnvironment,
@@ -159,6 +162,7 @@ export interface TurnBrokerOwner {
     traceId?: string,
     externalOwner?: boolean,
     predecessorToken?: string,
+    threadId?: string,
   ): Promise<string>;
   registerAlias?(oldToken: string, newToken: string): void | Promise<void>;
   touchActivity?(token: string, activityId: string): boolean | Promise<boolean>;

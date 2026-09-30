@@ -68,6 +68,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     _externalOwner?: boolean,
     _handlePrefix?: string,
     predecessorToken?: string,
+    threadId?: string,
   ): Promise<string> {
     const response = await callTurnBroker<{ token?: unknown }>(this.socketPath, {
       method: "owner_register",
@@ -75,6 +76,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       ...(ttlMs !== undefined ? { ttlMs } : {}),
       ...(traceId !== "unknown" ? { traceId } : {}),
       ...(predecessorToken ? { previousToken: predecessorToken } : {}),
+      ...(threadId ? { threadId } : {}),
     });
     if (typeof response.token !== "string" || !response.token.startsWith("turn_")) {
       throw new TurnBrokerProtocolError("DEV turn owner received an invalid broker token");
@@ -89,6 +91,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
     traceId = "unknown",
     _externalOwner?: boolean,
     predecessorToken?: string,
+    threadId?: string,
   ): Promise<string> {
     assertSurfaceNonce(surfaceNonce);
     const response = await callTurnBroker<{ token?: unknown }>(this.socketPath, {
@@ -98,6 +101,7 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       ...(ttlMs !== undefined ? { ttlMs } : {}),
       ...(traceId !== "unknown" ? { traceId } : {}),
       ...(predecessorToken ? { previousToken: predecessorToken } : {}),
+      ...(threadId ? { threadId } : {}),
     });
     if (typeof response.token !== "string" || !response.token.startsWith("request_")) {
       throw new TurnBrokerProtocolError("DEV Zero Risk turn owner received an invalid broker request id");

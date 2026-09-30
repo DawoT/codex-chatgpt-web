@@ -16,6 +16,7 @@ import {
 } from "./turn-broker/errors";
 import {
   assertSurfaceNonce,
+  DEFAULT_INTER_TURN_GRACE_WAIT_MS,
   environmentIdentity,
   errorOf,
   handleFingerprint,
@@ -68,10 +69,14 @@ export async function closeTurnBrokers(): Promise<void> {
 }
 
 export class TurnBroker implements TurnBrokerOwner {
-  static forSocket(path: string, activityLivenessMs = MAX_ACTIVITY_LIVENESS_MS): TurnBroker {
+  static forSocket(
+    path: string,
+    activityLivenessMs = MAX_ACTIVITY_LIVENESS_MS,
+    interTurnGraceWaitMs = DEFAULT_INTER_TURN_GRACE_WAIT_MS,
+  ): TurnBroker {
     let broker = brokers.get(path);
     if (!broker) {
-      broker = new TurnBroker(path, activityLivenessMs);
+      broker = new TurnBroker(path, activityLivenessMs, interTurnGraceWaitMs);
       brokers.set(path, broker);
     }
     return broker;
@@ -90,6 +95,10 @@ export class TurnBroker implements TurnBrokerOwner {
   private readonly tokenAliases = new Map<string, string>();
   private readonly traceActiveTokens = new Map<string, string>();
   private readonly traceTokens = new Map<string, string[]>();
+  private readonly threadActiveTokens = new Map<string, string>();
+  private readonly threadTokens = new Map<string, string[]>();
+  private readonly retiredTokenThreads = new Map<string, string>();
+  private readonly threadSuccessorWaiters = new Map<string, Set<(token: string) => void>>();
   private acceptingExternalOwners = true;
   private server?: Server;
   private startPromise?: Promise<void>;
@@ -98,6 +107,7 @@ export class TurnBroker implements TurnBrokerOwner {
   private constructor(
     readonly socketPath: string,
     private readonly activityLivenessMs = MAX_ACTIVITY_LIVENESS_MS,
+    private readonly interTurnGraceWaitMs = DEFAULT_INTER_TURN_GRACE_WAIT_MS,
   ) {}
 
   /**
@@ -167,6 +177,33 @@ export class TurnBroker implements TurnBrokerOwner {
         }
       }
     }
+    // 3. Thread lineage lookup: if this token was associated with a thread, check active token
+    const threadId = directChannel?.threadId ?? this.retiredTokenThreads.get(token);
+    if (threadId && threadId !== "unknown") {
+      const activeToken = this.threadActiveTokens.get(threadId);
+      if (activeToken) {
+        const activeChannel = this.channels.get(activeToken);
+        if (
+          activeChannel &&
+          activeChannel.environment.execution !== "host-only" &&
+          !activeChannel.completionCommitted
+        ) {
+          this.registerAlias(token, activeToken);
+          return { resolvedToken: activeToken, channel: activeChannel };
+        }
+      }
+      const allForThread = this.threadTokens.get(threadId);
+      if (allForThread) {
+        for (let i = allForThread.length - 1; i >= 0; i--) {
+          const cand = allForThread[i];
+          const candChannel = this.channels.get(cand);
+          if (candChannel && candChannel.environment.execution !== "host-only" && !candChannel.completionCommitted) {
+            this.registerAlias(token, cand);
+            return { resolvedToken: cand, channel: candChannel };
+          }
+        }
+      }
+    }
     return undefined;
   }
 
@@ -177,6 +214,7 @@ export class TurnBroker implements TurnBrokerOwner {
     externalOwner = false,
     handlePrefix = "turn",
     predecessorToken?: string,
+    threadId?: string,
   ): Promise<string> {
     if (environment.execution !== undefined) environment = ownerEnvironment(environment);
     if (predecessorToken && (environment.execution === "host-only" || predecessorToken.startsWith("host_"))) {
@@ -193,6 +231,7 @@ export class TurnBroker implements TurnBrokerOwner {
     const token = opaqueId(environment.execution === "host-only" ? `host_${handlePrefix}` : handlePrefix);
     const channel: TurnChannel = {
       traceId,
+      ...(threadId ? { threadId } : {}),
       externalOwner,
       environment: {
         ...environment,
@@ -224,8 +263,19 @@ export class TurnBroker implements TurnBrokerOwner {
       list.push(token);
       this.traceTokens.set(traceId, list);
     }
+    if (threadId && threadId !== "unknown" && environment.execution !== "host-only") {
+      this.threadActiveTokens.set(threadId, token);
+      const list = this.threadTokens.get(threadId) ?? [];
+      list.push(token);
+      this.threadTokens.set(threadId, list);
+      const waiters = this.threadSuccessorWaiters.get(threadId);
+      if (waiters) {
+        for (const waiter of waiters) waiter(token);
+        this.threadSuccessorWaiters.delete(threadId);
+      }
+    }
     console.info(
-      `[chatgpt-web] broker trace=${traceId} registered tokenHash=${handleFingerprint(token)}${predecessorToken ? ` predecessor=${handleFingerprint(predecessorToken)}` : ""}`,
+      `[chatgpt-web] broker trace=${traceId} registered tokenHash=${handleFingerprint(token)}${predecessorToken ? ` predecessor=${handleFingerprint(predecessorToken)}` : ""}${threadId ? ` threadId=${threadId}` : ""}`,
     );
     return token;
   }
@@ -237,9 +287,18 @@ export class TurnBroker implements TurnBrokerOwner {
     traceId = "unknown",
     externalOwner = false,
     predecessorToken?: string,
+    threadId?: string,
   ): Promise<string> {
     assertSurfaceNonce(surfaceNonce);
-    const token = await this.register(environment, ttlMs, traceId, externalOwner, "request", predecessorToken);
+    const token = await this.register(
+      environment,
+      ttlMs,
+      traceId,
+      externalOwner,
+      "request",
+      predecessorToken,
+      threadId,
+    );
     const channel = this.channels.get(token);
     if (!channel) throw new TurnBrokerStateError("Zero Risk turn registration was revoked before initialization");
     channel.safe = {
@@ -612,6 +671,18 @@ export class TurnBroker implements TurnBrokerOwner {
       rejectSafeWaiters(channel.safe.completionWaiters, reason);
     }
     this.retire(this.retiredTokens, token, channel.traceId);
+    if (channel.threadId && channel.environment.execution !== "host-only") {
+      this.retire(this.retiredTokenThreads, token, channel.threadId);
+      if (this.threadActiveTokens.get(channel.threadId) === token) {
+        this.threadActiveTokens.delete(channel.threadId);
+      }
+      const threadLineage = this.threadTokens.get(channel.threadId);
+      if (threadLineage) {
+        const index = threadLineage.indexOf(token);
+        if (index >= 0) threadLineage.splice(index, 1);
+        if (threadLineage.length === 0) this.threadTokens.delete(channel.threadId);
+      }
+    }
     // Lineage that routes into this token would fail closed anyway (its channel is gone), but
     // leaving it behind keeps the singleton's maps growing for the process lifetime and lets a
     // stale alias chain hop through the revoked handle instead of failing closed here.
@@ -661,6 +732,10 @@ export class TurnBroker implements TurnBrokerOwner {
     this.tokenAliases.clear();
     this.traceActiveTokens.clear();
     this.traceTokens.clear();
+    this.threadActiveTokens.clear();
+    this.threadTokens.clear();
+    this.retiredTokenThreads.clear();
+    this.threadSuccessorWaiters.clear();
     const server = this.server;
     const socketIdentity = this.socketIdentity;
     this.socketIdentity = undefined;
@@ -887,6 +962,52 @@ export class TurnBroker implements TurnBrokerOwner {
     }
   }
 
+  private waitForThreadSuccessor(
+    threadId: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    const active = this.threadActiveTokens.get(threadId);
+    if (active) {
+      const channel = this.channels.get(active);
+      if (channel && channel.environment.execution !== "host-only" && !channel.completionCommitted) {
+        return Promise.resolve(active);
+      }
+    }
+    if (signal?.aborted) return Promise.resolve(undefined);
+    return new Promise<string | undefined>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let cleanup: (() => void) | undefined;
+      const waiter = (token: string) => {
+        if (timer) clearTimeout(timer);
+        cleanup?.();
+        resolve(token);
+      };
+      let waiters = this.threadSuccessorWaiters.get(threadId);
+      if (!waiters) {
+        waiters = new Set();
+        this.threadSuccessorWaiters.set(threadId, waiters);
+      }
+      waiters.add(waiter);
+      const onAbort = () => {
+        if (timer) clearTimeout(timer);
+        cleanup?.();
+        resolve(undefined);
+      };
+      cleanup = () => {
+        const current = this.threadSuccessorWaiters.get(threadId);
+        current?.delete(waiter);
+        if (current && current.size === 0) this.threadSuccessorWaiters.delete(threadId);
+        if (signal) signal.removeEventListener("abort", onAbort);
+      };
+      if (signal) signal.addEventListener("abort", onAbort, { once: true });
+      timer = setTimeout(() => {
+        cleanup?.();
+        resolve(undefined);
+      }, timeoutMs);
+    });
+  }
+
   private async dispatch(request: BrokerRequest, socketSignal?: AbortSignal): Promise<unknown> {
     this.prune();
     if (request.method === "safe_start") {
@@ -943,9 +1064,15 @@ export class TurnBroker implements TurnBrokerOwner {
       if (request.traceId !== undefined && !/^[A-Za-z0-9_-]{6,128}$/.test(request.traceId)) {
         throw new TurnBrokerProtocolError("turn owner trace id is invalid");
       }
-      return this.register(environment, request.ttlMs, request.traceId, true, "turn", request.previousToken).then(
-        (token) => ({ token }),
-      );
+      return this.register(
+        environment,
+        request.ttlMs,
+        request.traceId,
+        true,
+        "turn",
+        request.previousToken,
+        request.threadId,
+      ).then((token) => ({ token }));
     }
     if (request.method === "owner_register_safe") {
       const environment = ownerEnvironment(request.environment);
@@ -960,6 +1087,7 @@ export class TurnBroker implements TurnBrokerOwner {
         request.traceId,
         true,
         request.previousToken,
+        request.threadId,
       ).then((token) => ({ token }));
     }
     if (request.method === "owner_update") {
@@ -1040,9 +1168,21 @@ export class TurnBroker implements TurnBrokerOwner {
       if (typeof token !== "string" || token.length === 0) {
         throw new Error(contract === "safe" ? "request id is required" : "turn token is required");
       }
-      const resolved = this.resolveActiveToken(token);
+      let resolved = this.resolveActiveToken(token);
       let activeChannel = resolved?.channel;
-      const effectiveToken = resolved?.resolvedToken ?? token;
+      let effectiveToken = resolved?.resolvedToken ?? token;
+      if (!activeChannel && !token.startsWith("host_") && contract !== "safe") {
+        const direct = this.channels.get(token);
+        const threadId = direct?.threadId ?? this.retiredTokenThreads.get(token);
+        if (threadId && threadId !== "unknown" && this.interTurnGraceWaitMs > 0) {
+          const successorToken = await this.waitForThreadSuccessor(threadId, this.interTurnGraceWaitMs, socketSignal);
+          if (successorToken) {
+            resolved = this.resolveActiveToken(token);
+            activeChannel = resolved?.channel;
+            effectiveToken = resolved?.resolvedToken ?? token;
+          }
+        }
+      }
       if (resolved && resolved.resolvedToken !== token) {
         console.info(
           `[chatgpt-web] broker aliasing token ${handleFingerprint(token)} -> active token ${handleFingerprint(effectiveToken)} (trace=${activeChannel?.traceId})`,

@@ -156,6 +156,8 @@ export function createChatGptWebAdapter(
       ? lunaCheckpointStore.apply(parsed).parsed
       : parsed;
 
+  const threadLastRegisteredTokens = new Map<string, string>();
+
   const startRuntime = (
     parsed: CodexParsedRequest,
     environment: ReturnType<typeof extractChatGptTurnEnvironment> | undefined,
@@ -408,7 +410,10 @@ export function createChatGptWebAdapter(
       input: CodexParsedRequest,
       optionsOverrides?: Partial<CompileChatGptWebPromptOptions>,
     ) => {
-      const predecessor = environment.execution === "host-only" ? undefined : (activeToken ?? lastRegisteredToken);
+      const threadKey = identity.threadId ?? chatGptThreadOwnershipKey(parsed);
+      const threadPredecessor = threadLastRegisteredTokens.get(threadKey);
+      const predecessor =
+        environment.execution === "host-only" ? undefined : (activeToken ?? lastRegisteredToken ?? threadPredecessor);
       const turnToken =
         activeToken ??
         (await broker.register(
@@ -418,9 +423,17 @@ export function createChatGptWebAdapter(
           false,
           "turn",
           predecessor,
+          threadKey,
         ));
       activeToken = turnToken;
       lastRegisteredToken = turnToken;
+      if (environment.execution !== "host-only") {
+        threadLastRegisteredTokens.set(threadKey, turnToken);
+        if (threadLastRegisteredTokens.size > 512) {
+          const oldest = threadLastRegisteredTokens.keys().next().value;
+          if (oldest) threadLastRegisteredTokens.delete(oldest);
+        }
+      }
       try {
         const { input: preflightInput } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
         const compiled = compileChatGptWebPrompt(
@@ -450,6 +463,10 @@ export function createChatGptWebAdapter(
       } catch (error) {
         await broker.revoke(turnToken);
         activeToken = undefined;
+        if (threadLastRegisteredTokens.get(threadKey) === turnToken) {
+          if (threadPredecessor) threadLastRegisteredTokens.set(threadKey, threadPredecessor);
+          else threadLastRegisteredTokens.delete(threadKey);
+        }
         throw error;
       }
     };

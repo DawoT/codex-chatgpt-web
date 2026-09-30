@@ -16,6 +16,9 @@ export const MAX_RETIRED_TURN_HANDLES = 64;
  */
 export const MAX_ACTIVITY_LIVENESS_MS = 120_000;
 
+/** Default grace window to wait for a thread's successor turn before rejecting an inter-turn claim. */
+export const DEFAULT_INTER_TURN_GRACE_WAIT_MS = 2_000;
+
 /** Alias chains are bounded like retired-handle history; the broker is a process singleton. */
 export const MAX_TOKEN_ALIASES = 256;
 
