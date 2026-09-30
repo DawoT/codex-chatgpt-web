@@ -76,15 +76,20 @@ export async function defaultHealthUrlProbe(url: string, timeoutMs = 2_000): Pro
     const response = await fetch(target, { signal: controller.signal });
     if (response.status !== 200) return false;
 
-    // Check tunnel metrics for 502 status indicating retired stdio channel or broken upstream
+    // Check tunnel metrics for 5xx status indicating retired stdio channel or broken upstream
     const metricsTarget = url.endsWith("/") ? `${url}metrics` : `${url}/metrics`;
     try {
       const metricsResponse = await fetch(metricsTarget, { signal: controller.signal });
       if (metricsResponse.status === 200) {
         const text = await metricsResponse.text();
-        const match502 = text.match(/tunnel_service_status="502"[^}]*\}\s+(\d+)/);
-        if (match502 && parseInt(match502[1], 10) > 0) {
-          return false;
+        const lines = text.split("\n");
+        for (const line of lines) {
+          if (/tunnel_service_status="5\d\d"/.test(line)) {
+            const match = line.match(/\}\s+(\d+(?:\.\d+)?)/);
+            if (match && Number.parseFloat(match[1]) > 0) {
+              return false;
+            }
+          }
         }
       }
     } catch {

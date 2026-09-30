@@ -358,4 +358,48 @@ command_end_to_end_latency_milliseconds_count{channel="main",tunnel_service_stat
       mockHealthServer.stop(true);
     }
   });
+
+  test("defaultHealthUrlProbe correctly catches 502/5xx even when histogram buckets start with zero", async () => {
+    let metricsBody = `
+command_end_to_end_latency_milliseconds_bucket{client_type="app",le="10",tunnel_service_status="200"} 5
+command_end_to_end_latency_milliseconds_count{client_type="app",tunnel_service_status="200"} 5
+`;
+    const mockHealthServer = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/readyz") {
+          return new Response("ready", { status: 200 });
+        }
+        if (path === "/metrics") {
+          return new Response(metricsBody, { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+
+    try {
+      const url = `http://127.0.0.1:${mockHealthServer.port}`;
+      expect(await defaultHealthUrlProbe(url)).toBe(true);
+
+      // Histogram with zero-valued buckets before positive Inf bucket / count
+      metricsBody = `
+command_end_to_end_latency_milliseconds_bucket{client_type="app",failure_reason="",le="10",runtime_name="codex",tunnel_service_status="502"} 0
+command_end_to_end_latency_milliseconds_bucket{client_type="app",failure_reason="",le="25",runtime_name="codex",tunnel_service_status="502"} 0
+command_end_to_end_latency_milliseconds_bucket{client_type="app",failure_reason="",le="+Inf",runtime_name="codex",tunnel_service_status="502"} 35
+command_end_to_end_latency_milliseconds_sum{client_type="app",failure_reason="",runtime_name="codex",tunnel_service_status="502"} 4200000
+command_end_to_end_latency_milliseconds_count{client_type="app",failure_reason="",runtime_name="codex",tunnel_service_status="502"} 35
+`;
+      expect(await defaultHealthUrlProbe(url)).toBe(false);
+
+      // Also catches 504 Gateway Timeout or other 5xx
+      metricsBody = `
+command_end_to_end_latency_milliseconds_bucket{client_type="app",le="10",tunnel_service_status="504"} 0
+command_end_to_end_latency_milliseconds_count{client_type="app",tunnel_service_status="504"} 2
+`;
+      expect(await defaultHealthUrlProbe(url)).toBe(false);
+    } finally {
+      mockHealthServer.stop(true);
+    }
+  });
 });
