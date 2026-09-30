@@ -1,12 +1,13 @@
 import type { Locator, Page } from "playwright-core";
 import { CHATGPT_COMPOSER_SELECTOR } from "../../../chatgpt-session";
 import { chatGptConnectorIsSelected } from "./connectors";
+import { waitForChatGptDomRevision } from "./dom-signal";
 import { dismissAllChatGptOverlays } from "./overlays";
 import {
   CHATGPT_UI_SETTLE_MS,
   pressChatGptPersonalizationEscape,
   runChatGptPersonalizationCleanup,
-  waitForChatGptPersonalizationPoll,
+  settleChatGptUi,
 } from "./personalization";
 import {
   CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
@@ -32,6 +33,7 @@ export async function chatGptActiveComposer(
   const deadline = Date.now() + timeoutMs;
   let count = 0;
   let lastOverlayDismissalAttemptAt = 0;
+  let domKey: string | undefined;
   while (Date.now() < deadline) {
     throwIfPromptAttachmentAborted(abortSignal);
     count = await withBrowserTurnAbort(
@@ -47,7 +49,17 @@ export async function chatGptActiveComposer(
       lastOverlayDismissalAttemptAt = Date.now();
       await dismissAllChatGptOverlays(page).catch(() => 0);
     }
-    await withBrowserTurnAbort(new Promise((resolveSleep) => setTimeout(resolveSleep, 50)), abortSignal);
+    const verdict = await waitForChatGptDomRevision(page, {
+      afterKey: domKey,
+      settleMs: 25,
+      horizonMs: Math.min(50, Math.max(1, deadline - Date.now())),
+      signal: abortSignal,
+    }).catch((err) => {
+      if (abortSignal?.aborted) throw err;
+      return { key: domKey ?? "fallback:0", revision: 0, timedOut: true };
+    });
+    domKey = verdict.key;
+    throwIfPromptAttachmentAborted(abortSignal);
   }
   throw new Error("ChatGPT composer is unavailable. Reload ChatGPT and retry the task.", {
     cause: new Error(`Visible ChatGPT composer count was ${count}`),
@@ -104,7 +116,7 @@ export async function chatGptClearComposerState(page: Page, options: ChatGptClea
       signal,
       timeout: Math.max(1, Math.min(CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS, deadline - Date.now())),
     });
-    await waitForChatGptPersonalizationPoll(CHATGPT_UI_SETTLE_MS, signal);
+    await settleChatGptUi(page, { signal, horizonMs: CHATGPT_UI_SETTLE_MS });
     const settledComposer = await resolveActiveComposer(page, Math.max(1, deadline - Date.now()), signal);
     const remainingMs = Math.max(1, deadline - Date.now());
     const remainingText = await settledComposer.evaluate((element) => element.textContent?.trim() ?? "", undefined, {

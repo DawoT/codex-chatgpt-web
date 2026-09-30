@@ -20,6 +20,7 @@ import { throwIfChatGptRateLimitDialog, throwIfChatGptSessionFailureAlert } from
 import {
   CHATGPT_RESPONSE_DOM_GRACE_MS,
   ChatGptBrowserObservationTimeoutError,
+  isMultiChannelLivenessActive,
   throwIfPromptAttachmentAborted,
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
@@ -228,8 +229,23 @@ export class SubmissionObserver {
           if (observed.kind === "external") continue;
           if (observed.kind === "dom_timeout") {
             const latestProgress = externalProgress.snapshot();
+            const isRunning =
+              typeof page?.locator === "function"
+                ? await page
+                    .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+                    .last()
+                    .isVisible()
+                    .catch(() => false)
+                : false;
+            const multiChannelLivenessActive = isMultiChannelLivenessActive({
+              lastBrokerEventAt: latestProgress?.lastProgressAt,
+              activeToolCalls: latestProgress?.activeToolCalls,
+              inFlightCalls: latestProgress?.claimed,
+            });
             if (
               latestProgress.claimed ||
+              isRunning ||
+              multiChannelLivenessActive ||
               chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)
             ) {
               continue;
@@ -241,7 +257,27 @@ export class SubmissionObserver {
           progressWaitAbort.abort();
         }
       } else {
-        evidence = await this.currentSubmissionEvidence(page, baseline, signal);
+        try {
+          evidence = await this.currentSubmissionEvidence(page, baseline, signal);
+        } catch (error) {
+          if (error instanceof ChatGptBrowserObservationTimeoutError) {
+            const isRunning =
+              typeof page?.locator === "function"
+                ? await page
+                    .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+                    .last()
+                    .isVisible()
+                    .catch(() => false)
+                : false;
+            if (isRunning) {
+              evidence = undefined;
+            } else {
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
       if (evidence) return evidence;
       domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(

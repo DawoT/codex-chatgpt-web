@@ -143,7 +143,15 @@ async function runChatGptPersonalizationOwnedStep<T>(
   return result;
 }
 
-export async function waitForChatGptPersonalizationPoll(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+export async function waitForChatGptPersonalizationPoll(
+  timeoutMs: number,
+  signal?: AbortSignal,
+  page?: Page,
+): Promise<void> {
+  if (page && typeof page.evaluate === "function") {
+    await waitForChatGptDomSettle(page, { signal, horizonMs: timeoutMs }).catch(() => {});
+    return;
+  }
   if (!signal) {
     await new Promise((resolve) => setTimeout(resolve, timeoutMs));
     return;
@@ -204,7 +212,7 @@ async function waitForChatGptOwnedPersonalizationMenu(
   while (!menuId) {
     const remaining = remainingChatGptPersonalizationMs(deadline, signal);
     menuId = await control.getAttribute("aria-controls", { timeout: remaining, signal });
-    if (!menuId) await waitForChatGptPersonalizationPoll(Math.min(50, remaining), signal);
+    if (!menuId) await waitForChatGptPersonalizationPoll(Math.min(50, remaining), signal, page);
   }
   const menu = page.locator(`[id=${JSON.stringify(menuId)}]`);
   try {
@@ -319,7 +327,7 @@ async function restoreChatGptPersonalizationChoice(
       timeout: remainingChatGptPersonalizationMs(deadline, signal),
       signal,
     });
-    await waitForChatGptPersonalizationPoll(CHATGPT_UI_SETTLE_MS, signal);
+    await waitForChatGptPersonalizationPoll(CHATGPT_UI_SETTLE_MS, signal, page);
 
     state = await openChatGptStructuralPersonalizationState(page, deadline, signal);
     if (state.checkedIndex !== receipt.originalIndex) {

@@ -4,11 +4,8 @@ import { parseDataUrl } from "../../image";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { CHATGPT_MAX_INPUT_IMAGES, type ChatGptWebPromptImage, type CompiledChatGptWebPrompt } from "../prompt";
 import { validateSkillFiles } from "../skill-attachments";
-import {
-  CHATGPT_COMPOSER_DOCUMENT_END_KEY,
-  throwIfPromptAttachmentAborted,
-  withBrowserTurnAbort,
-} from "./suspension-clock";
+import { waitForChatGptDomRevision } from "./dom-signal";
+import { CHATGPT_COMPOSER_DOCUMENT_END_KEY, throwIfPromptAttachmentAborted } from "./suspension-clock";
 
 const CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS = 10_000;
 
@@ -82,6 +79,8 @@ export async function setChatGptThinkMode(
     throwIfPromptAttachmentAborted(abortSignal);
     await composer.press("Enter", actionOptions);
     const deadline = Date.now() + 5_000;
+    const page = composerForm.page();
+    let domKey: string | undefined;
     while (Date.now() < deadline) {
       throwIfPromptAttachmentAborted(abortSignal);
       const currentCount = await controls.count();
@@ -91,7 +90,17 @@ export async function setChatGptThinkMode(
       if (currentCount === 1 && pressed !== "true" && pressed !== "false") {
         throw new Error("ChatGPT Think control lost its semantic pressed state");
       }
-      await withBrowserTurnAbort(new Promise((resolveSleep) => setTimeout(resolveSleep, 100)), abortSignal);
+      const verdict = await waitForChatGptDomRevision(page, {
+        afterKey: domKey,
+        settleMs: 25,
+        horizonMs: Math.min(100, Math.max(1, deadline - Date.now())),
+        signal: abortSignal,
+      }).catch((err) => {
+        if (abortSignal?.aborted) throw err;
+        return { key: domKey ?? "fallback:0", revision: 0, timedOut: true };
+      });
+      domKey = verdict.key;
+      throwIfPromptAttachmentAborted(abortSignal);
     }
     if (pressed !== target) {
       throw new Error(`ChatGPT did not ${enabled ? "enable" : "disable"} Think mode`);

@@ -1,8 +1,26 @@
+import type { Page } from "playwright-core";
 import { type activateChatGptEffortMenu, parseChatGptEffortSliderState } from "../../chatgpt-session";
 import type { ChatGptWebAdapterEffort, ChatGptWebModelFamily } from "../../chatgpt-web-models";
 import { ChatGptWebAdapterError } from "./adapter-error";
+import { waitForChatGptDomRevision } from "./browser/dom-signal";
 
 type EffortMenu = Awaited<ReturnType<typeof activateChatGptEffortMenu>>;
+
+function resolvePageFromLocator(locator?: unknown): Page | undefined {
+  if (!locator || typeof locator !== "object") return undefined;
+  if ("page" in locator) {
+    const pageVal = (locator as { page: unknown }).page;
+    if (typeof pageVal === "function") {
+      try {
+        return pageVal.call(locator) as Page;
+      } catch {
+        return undefined;
+      }
+    }
+    return pageVal as Page;
+  }
+  return undefined;
+}
 
 function familyError(family: ChatGptWebModelFamily, cause?: unknown): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
@@ -52,12 +70,23 @@ export async function selectChatGptModelFamily(
     // Family selection returns to the slider in the same open picker. Closing and immediately
     // reopening it races the old menu's exit animation and can discard the new selection.
     const selected = await activate();
+    const page = resolvePageFromLocator(selected.menu);
     const deadline = Date.now() + 1_000;
+    let domKey: string | undefined;
     do {
       const current = familyOption(selected, family);
       if ((await current.count()) > 1) throw familyError(family);
       if ((await current.count()) === 1 && (await current.getAttribute("aria-checked")) === "true") return selected;
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (page && typeof page.evaluate === "function") {
+        const verdict = await waitForChatGptDomRevision(page, {
+          afterKey: domKey,
+          settleMs: 25,
+          horizonMs: Math.min(50, Math.max(1, deadline - Date.now())),
+        }).catch(() => ({ key: domKey ?? "fallback:0", revision: 0, timedOut: true }));
+        domKey = verdict.key;
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     } while (Date.now() < deadline);
     throw familyError(family);
   } catch (cause) {
@@ -98,7 +127,9 @@ export async function assertChatGptModelFamily(
   effortIndex: number,
   settleMs = 0,
 ): Promise<void> {
+  const page = resolvePageFromLocator(menu.menu);
   const deadline = Date.now() + settleMs;
+  let domKey: string | undefined;
   do {
     const option = familyOption(menu, family);
     const checked = (await option.count()) === 1 && (await option.getAttribute("aria-checked")) === "true";
@@ -121,7 +152,16 @@ export async function assertChatGptModelFamily(
     )
       return;
     if (Date.now() >= deadline) break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (page && typeof page.evaluate === "function") {
+      const verdict = await waitForChatGptDomRevision(page, {
+        afterKey: domKey,
+        settleMs: 25,
+        horizonMs: Math.min(50, Math.max(1, deadline - Date.now())),
+      }).catch(() => ({ key: domKey ?? "fallback:0", revision: 0, timedOut: true }));
+      domKey = verdict.key;
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   } while (true);
   throw familyError(family);
 }

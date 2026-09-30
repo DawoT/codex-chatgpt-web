@@ -49,3 +49,44 @@ test("family confirmation separates Latest staging from the actual Pro response"
   expect(chatGptModelFamilyMatches(["6 Pro, 5 of 5."], "5.6", "max")).toBe(false);
   expect(chatGptModelFamilyMatches(["6 Pro, 5 of 5."], "6", "xhigh")).toBe(false);
 });
+
+test("selectChatGptModelFamily waits on DOM revision signal instead of blind setTimeout", async () => {
+  let domSignalWaits = 0;
+  let ariaCheckedProbes = 0;
+  const mockPage = {
+    isClosed: () => false,
+    evaluate: async (_fn: any, args: any) => {
+      if (args && Array.isArray(args.attributeFilter)) {
+        domSignalWaits += 1;
+        return { key: `doc:${domSignalWaits}`, revision: domSignalWaits, timedOut: false };
+      }
+      return undefined;
+    },
+  };
+  const mockOption = {
+    count: async () => 1,
+    getAttribute: async (name: string) => {
+      if (name === "aria-checked") {
+        ariaCheckedProbes += 1;
+        return ariaCheckedProbes >= 3 ? "true" : "false";
+      }
+      return null;
+    },
+    waitFor: async () => {},
+    click: async () => {},
+  };
+  const menu = {
+    menu: {
+      page: () => mockPage,
+      getByRole: () => mockOption,
+      locator: () => ({
+        count: async () => 1,
+        getAttribute: async () => "advanced",
+      }),
+    },
+  } as unknown as Parameters<typeof selectChatGptModelFamily>[0];
+
+  const selection = await selectChatGptModelFamily(menu, "6", async () => menu);
+  expect(selection).toBe(menu);
+  expect(domSignalWaits).toBeGreaterThanOrEqual(1);
+});

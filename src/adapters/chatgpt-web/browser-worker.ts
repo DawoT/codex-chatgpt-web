@@ -1036,6 +1036,41 @@ export class ChatGptBrowserWorker {
     let responseTurn = initialResponseTurn;
     let lastHeartbeat = Date.now();
     let lastRunning: boolean | undefined;
+    let domSignalKey: string | undefined;
+
+    const waitForTurnSignal = async (): Promise<void> => {
+      const previousKey = domSignalKey;
+      const progressRev = externalProgress?.snapshot().revision ?? 0;
+      if (typeof this.waitForTurnDomRevisionOrExternalProgress === "function") {
+        domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+          page,
+          domSignalKey,
+          progressRev,
+          externalProgress,
+          abortSignal,
+        );
+      } else {
+        const verdict = await waitForChatGptDomRevision(page, {
+          afterKey: domSignalKey,
+          settleMs: 150,
+          horizonMs: 250,
+          signal: abortSignal,
+        });
+        domSignalKey = verdict.key;
+      }
+      const newProgressRev = externalProgress?.snapshot().revision ?? 0;
+      if (newProgressRev > progressRev) {
+        turnEvents?.publish({
+          type: "external_progress_advanced",
+          source: "external_progress",
+          revision: newProgressRev,
+        });
+      }
+      if (domSignalKey !== previousKey) {
+        turnEvents?.publish({ type: "response_mutated", source: "dom" });
+      }
+    };
+
     for (;;) {
       if (Date.now() - lastHeartbeat >= 5_000) {
         onHeartbeat?.();
@@ -1052,7 +1087,33 @@ export class ChatGptBrowserWorker {
       }
       await throwIfChatGptSessionFailureAlert(page);
       await throwIfChatGptTerminalErrorAlert(responseTurn.locator);
-      let snapshot = await this.responseDomSnapshot(responseTurn.locator, responseDomCache);
+      let snapshot: ChatGptResponseDomSnapshot;
+      try {
+        snapshot = await this.responseDomSnapshot(responseTurn.locator, responseDomCache);
+      } catch (error) {
+        if (!(error instanceof ChatGptBrowserObservationTimeoutError)) throw error;
+        const currentProgress = externalProgress?.snapshot();
+        const currentProgressLive = chatGptExternalProgressSuppressesDomHealth(currentProgress, Date.now());
+        const currentCallsInFlight = chatGptExternalToolCallsAreInFlight(currentProgress);
+        const isRunning = await page
+          .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+          .last()
+          .isVisible()
+          .catch(() => false);
+        const multiChannelLivenessActive = isMultiChannelLivenessActive({
+          lastBrokerEventAt: currentProgress?.lastProgressAt,
+          activeToolCalls: currentProgress?.activeToolCalls,
+          inFlightCalls: currentCallsInFlight || currentProgress?.claimed,
+        });
+        if (currentProgressLive || currentCallsInFlight || isRunning || multiChannelLivenessActive) {
+          console.warn(
+            `[chatgpt-web] multipart stage DOM observation probe timed out while generation or external progress is active; deferring without failure`,
+          );
+          await waitForTurnSignal();
+          continue;
+        }
+        throw error;
+      }
       if (!snapshot.responsePresent && (await responseTurn.locator.count()) !== 1) {
         const rebound = await this.reconcileAssistantTurnBinding(page, submissionBaseline, responseTurn, abortSignal);
         if (rebound.identity !== responseTurn.identity) {
@@ -1083,7 +1144,7 @@ export class ChatGptBrowserWorker {
         // Proven MCP activity outranks a momentarily unavailable staging DOM, exactly as it does
         // in the main turn loop.
         domHealthTracker.clearMissingResponse();
-        await new Promise((resolveSleep) => setTimeout(resolveSleep, 250));
+        await waitForTurnSignal();
         continue;
       }
       const running = await page
@@ -1140,7 +1201,7 @@ export class ChatGptBrowserWorker {
         }
         return;
       }
-      await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
+      await waitForTurnSignal();
     }
   }
 
@@ -2258,7 +2319,7 @@ export class ChatGptBrowserWorker {
           console.warn(
             `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or external progress is active; deferring without rebind or failure`,
           );
-          await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
+          await waitForTurnSignal();
           return;
         }
         if (!launcherSurfaceId) {
@@ -2266,7 +2327,7 @@ export class ChatGptBrowserWorker {
             console.warn(
               `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out on non-launcher surface; page still open, retrying with brief backoff`,
             );
-            await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_500));
+            await waitForTurnSignal();
             return;
           }
           throw new ChatGptWebAdapterError(
@@ -2388,7 +2449,7 @@ export class ChatGptBrowserWorker {
               console.warn(
                 `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe exceeded ${responseProbeTimeoutMs}ms but generation or external progress is active; suppressing false timeout and deferring observation`,
               );
-              await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
+              await waitForTurnSignal();
               continue;
             }
             await recoverStalledResponsePage(error);
@@ -2427,7 +2488,7 @@ export class ChatGptBrowserWorker {
                 console.warn(
                   `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or tools are active; continuing observation without rebind`,
                 );
-                await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
+                await waitForTurnSignal();
                 continue;
               }
               await recoverStalledResponsePage(error);

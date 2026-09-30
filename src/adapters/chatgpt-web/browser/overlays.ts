@@ -1,5 +1,6 @@
 import type { Locator, Page, Request, Response } from "playwright-core";
 import { ChatGptWebAdapterError } from "../adapter-error";
+import { waitForChatGptDomRevision } from "./dom-signal";
 import { withChatGptBrowserObservationTimeout } from "./suspension-clock";
 
 export const CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS = 60_000;
@@ -482,10 +483,21 @@ export async function resolveChatGptToolConfirmation(
   }
 
   const deadline = Date.now() + timeoutMs;
+  let domKey: string | undefined;
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
     if (!(await targetDialog.isVisible().catch(() => false))) return true;
-    await new Promise((resolveSleep) => setTimeout(resolveSleep, Math.min(100, Math.max(1, deadline - Date.now()))));
+    const verdict = await waitForChatGptDomRevision(page, {
+      afterKey: domKey,
+      settleMs: 25,
+      horizonMs: Math.min(100, Math.max(1, deadline - Date.now())),
+      signal,
+    }).catch((err) => {
+      if (signal?.aborted) throw err;
+      return { key: domKey ?? "fallback:0", revision: 0, timedOut: true };
+    });
+    domKey = verdict.key;
+    if (signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
   }
 
   if (!(await targetDialog.isVisible().catch(() => false))) return true;

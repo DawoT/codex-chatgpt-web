@@ -328,6 +328,7 @@ export class TurnDiagnostics {
     let observationPage = page;
     let observationBaseline = baseline;
     let recoveryAttempts = 0;
+    let domSignalKey: string | undefined;
     for (;;) {
       try {
         const evidence = await this.waitForSubmissionAccepted(
@@ -340,15 +341,41 @@ export class TurnDiagnostics {
         );
         return evidence;
       } catch (error) {
-        if (!(error instanceof ChatGptBrowserObservationTimeoutError) || !recoverObservation) throw error;
+        if (!(error instanceof ChatGptBrowserObservationTimeoutError)) throw error;
         const latestProgress = externalProgress?.snapshot();
+        const isRunning =
+          typeof observationPage?.locator === "function"
+            ? await observationPage
+                .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+                .last()
+                .isVisible()
+                .catch(() => false)
+            : false;
+        const multiChannelLivenessActive = isMultiChannelLivenessActive({
+          lastBrokerEventAt: latestProgress?.lastProgressAt,
+          activeToolCalls: latestProgress?.activeToolCalls,
+          inFlightCalls: latestProgress?.claimed,
+        });
         if (
           latestProgress?.claimed ||
+          isRunning ||
+          multiChannelLivenessActive ||
           chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)
         ) {
-          await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
+          if (typeof this.waitForTurnDomRevisionOrExternalProgress === "function") {
+            domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+              observationPage,
+              domSignalKey,
+              latestProgress?.revision ?? 0,
+              externalProgress,
+              abortSignal,
+            );
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
           continue;
         }
+        if (!recoverObservation) throw error;
         recoveryAttempts += 1;
         if (recoveryAttempts > MAX_CHATGPT_BROWSER_PAGE_REBINDS) {
           throw new Error(
