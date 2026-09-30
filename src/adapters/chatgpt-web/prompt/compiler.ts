@@ -253,7 +253,11 @@ function compileChatGptWebPromptInternal(
         ]
       : mode.localTools
         ? conversationalFreedom
-          ? ["<codex_transport_resume>", `Pass turn_token ${turnToken} to tool calls.`, "</codex_transport_resume>"]
+          ? [
+              "<codex_transport_resume>",
+              `Pass turn_token ${turnToken} to tool calls. Act as an autonomous coding agent: carry the requested task through implementation and verification before concluding.`,
+              "</codex_transport_resume>",
+            ]
           : [
               "<codex_transport_resume>",
               `The task context is complete. Pass turn_token ${turnToken} unchanged to every Codex Native call in this response, including continuations after tool results; do not expose it in the answer. Execute the latest active user request now.`,
@@ -316,10 +320,14 @@ function compileChatGptWebPromptInternal(
           const text = plainMessageText(message);
           if (text?.includes("# AGENTS.md instructions") || text?.includes("<INSTRUCTIONS>")) {
             const envMatch = text.match(/<environment_context>[\s\S]*?<\/environment_context>/);
-            if (envMatch) {
-              return [{ ...message, content: envMatch[0] }];
-            }
-            return [];
+            const envContent = envMatch ? `${envMatch[0]}\n` : "";
+            return [
+              {
+                ...message,
+                content:
+                  `${envContent}[Repository instructions: follow conventions in AGENTS.md; inspect with tools if needed.]`.trim(),
+              },
+            ];
           }
         }
       }

@@ -142,4 +142,21 @@ describe("Root-Level Zero Prompt Conditioning & MCP Access", () => {
     expect(CHAT_FIRST_MCP_INSTRUCTIONS).toContain("config.json");
     expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("Command execution remains owned by the outer host");
   });
+
+  test("MCP server instructions and transport resume establish autonomous code solver mandate without UI bloat", () => {
+    expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("AUTONOMOUS PROBLEM-SOLVER");
+    expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("strong bias towards action");
+    expect(NATIVE_CHATGPT_MCP_INSTRUCTIONS).toContain("PROJECT REPOSITORY DISCOVERY");
+    expect(CHAT_FIRST_MCP_INSTRUCTIONS).toContain("AUTONOMOUS CODE SOLVER");
+
+    const request = createRequest("high");
+    const compiled = compileChatGptWebPrompt(request, baseCapabilities, "token-xyz", {
+      conversationalFreedom: true,
+    });
+
+    expect(compiled.text).toContain(
+      "Act as an autonomous coding agent: carry the requested task through implementation and verification before concluding.",
+    );
+    expect(compiled.text).not.toContain("Act as the model backend for the Codex task encoded below.");
+  });
 });
