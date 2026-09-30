@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -95,16 +95,21 @@ test("executeCompactionFlow preserves exact message and code on ChatGptBrowserOb
   }
 });
 
-test("executeCompactionFlow preserves arbitrary untyped Error messages rather than masking", async () => {
+test("executeCompactionFlow masks arbitrary untyped error details for clients and logs them server-side", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-compaction-transparency-untyped-"));
   const parsed = createMockCompactionRequest("2");
   const events: AdapterEvent[] = [];
+  const rawError = "Chromium renderer disconnect: transport closed";
+  const errorLogs: string[] = [];
+  const errorSpy = spyOn(console, "error").mockImplementation((...parts) => {
+    errorLogs.push(parts.map(String).join(" "));
+  });
 
   try {
     await executeCompactionFlow({
       worker: {
         run: async () => {
-          throw new Error("Chromium renderer disconnect: transport closed");
+          throw new Error(rawError);
         },
       } as any,
       parsed,
@@ -136,7 +141,7 @@ test("executeCompactionFlow preserves arbitrary untyped Error messages rather th
       environment: undefined,
       startRuntime: () => {
         return {
-          browser: Promise.reject(new Error("Chromium renderer disconnect: transport closed")),
+          browser: Promise.reject(new Error(rawError)),
           physicalSettlement: Promise.resolve(),
           cancel() {},
         } as any;
@@ -145,9 +150,14 @@ test("executeCompactionFlow preserves arbitrary untyped Error messages rather th
 
     const errorEvent = events.find((e) => e.type === "error") as any;
     expect(errorEvent).toBeDefined();
-    expect(errorEvent.message).toBe("Chromium renderer disconnect: transport closed");
+    // Arbitrary error text can carry workspace secrets: clients get the masked fallback,
+    // while the raw cause stays available in the server-side log for operators.
+    expect(errorEvent.message).toBe("ChatGPT did not complete the context handoff. Retry the task.");
     expect(errorEvent.code).toBe("compaction_handoff_failed");
+    expect(JSON.stringify(events)).not.toContain(rawError);
+    expect(errorLogs.join("\n")).toContain(rawError);
   } finally {
+    errorSpy.mockRestore();
     rmSync(root, { recursive: true, force: true });
   }
 });

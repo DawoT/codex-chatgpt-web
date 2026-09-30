@@ -900,8 +900,13 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       });
       const message =
         upstreamError?.message ||
-        handoffError.message ||
+        (isObservationTimeout ? handoffError.message : undefined) ||
         "ChatGPT did not complete the context handoff. Retry the task.";
+      if (message !== handoffError.message) {
+        // The client-facing event masks arbitrary error text (it can carry workspace secrets);
+        // the operator still needs the raw cause in the server log.
+        console.error(`[chatgpt-web] compaction handoff failed (${errorCode}): ${handoffError.message}`);
+      }
       emit({
         type: "error",
         message,
