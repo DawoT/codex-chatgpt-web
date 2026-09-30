@@ -89,7 +89,7 @@ import {
 } from "../src/config";
 import { estimateTokens } from "../src/lib/token-estimate";
 import type { CodexProviderConfig } from "../src/types";
-import { type FakePageOverrides, fakePage } from "./fixtures/browser-fakes";
+import { type FakePageOverrides, type FakePressOptions, fakePage, fakeSendComposer } from "./fixtures/browser-fakes";
 
 function personalizedTemporaryChatRole(_role: string, options: { name: string | RegExp }) {
   const locator = {
@@ -888,16 +888,11 @@ test("an accepted Full-mode send survives one stalled DOM probe and a later MCP 
     locator: (selector: string) => (selector.startsWith("[data-turn-id=") ? assistantLocator : hiddenLocator),
   } as unknown as Page;
   let sendPresses = 0;
-  const sendButton = {
-    waitFor: async () => {},
-    isEnabled: async () => true,
+  const composer = fakeSendComposer({
     press: async () => {
       sendPresses += 1;
     },
-  };
-  const composer = {
-    locator: () => ({ getByTestId: () => sendButton }),
-  };
+  });
   worker.activeComposer = async () => composer;
 
   let domObservations = 0;
@@ -1010,18 +1005,14 @@ test("Bigger Context send activation keeps the outer stage budget instead of res
     isClosed: () => false,
     locator: () => hiddenLocator,
   } as unknown as Page;
-  let pressOptions: { noWaitAfter?: boolean; signal?: AbortSignal; timeout?: number } | undefined;
-  const sendButton = {
-    waitFor: async () => {},
-    isEnabled: async () => true,
-    press: async (_key: string, options?: { noWaitAfter?: boolean; signal?: AbortSignal; timeout?: number }) => {
-      pressOptions = options;
-      if (options?.timeout !== 0) throw new Error("nested locator timeout replaced the outer stage budget");
-    },
-  };
-  worker.activeComposer = async () => ({
-    locator: () => ({ getByTestId: () => sendButton }),
-  });
+  let pressOptions: FakePressOptions | undefined;
+  worker.activeComposer = async () =>
+    fakeSendComposer({
+      press: async (_key: string, options?: FakePressOptions) => {
+        pressOptions = options;
+        if (options?.timeout !== 0) throw new Error("nested locator timeout replaced the outer stage budget");
+      },
+    });
   worker.waitForSubmissionAcceptedWithRecovery = async () => "user_turn";
 
   await expect(
@@ -1049,14 +1040,7 @@ test("physical Send releases browser focus before semantic acceptance settles", 
   const acceptance = new Promise<string>((resolve) => {
     accept = resolve;
   });
-  const sendButton = {
-    waitFor: async () => {},
-    isEnabled: async () => true,
-    press: async () => {},
-  };
-  worker.activeComposer = async () => ({
-    locator: () => ({ getByTestId: () => sendButton }),
-  });
+  worker.activeComposer = async () => fakeSendComposer();
   worker.waitForSubmissionAcceptedWithRecovery = () => acceptance;
   const page = {
     isClosed: () => false,
