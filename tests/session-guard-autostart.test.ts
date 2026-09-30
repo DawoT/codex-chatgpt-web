@@ -6,6 +6,9 @@ import { SessionHealthGuard, sessionHealthGuard } from "../src/adapters/chatgpt-
 import { defaultBrokerEndpoint, defaultConfig } from "../src/config";
 import { startServer } from "../src/server";
 
+// This file drives /admin/shutdown against an in-process server; keep the runner alive.
+process.env.CODEX_CHATGPT_WEB_SKIP_PROCESS_EXIT = "1";
+
 describe("Sprint W: Background Session Proactive Refresher & Watchdog Auto-Start", () => {
   beforeEach(() => {
     sessionHealthGuard.reset();

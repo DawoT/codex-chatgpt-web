@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// This file drives /admin/shutdown against an in-process server; keep the runner alive.
+process.env.CODEX_CHATGPT_WEB_SKIP_PROCESS_EXIT = "1";
+
 import { chatGptWebTraceId } from "../src/adapters/chatgpt-web";
 import { runStructuredCompactionOnce } from "../src/adapters/chatgpt-web/compaction-handoff";
 import {

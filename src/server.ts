@@ -555,6 +555,8 @@ export function startServer(
 
   function shutdown(exitProcess = false): void {
     if (shutdownPromise) return;
+    // Tests boot the server in-process; POST /admin/shutdown must not kill the bun test runner.
+    const shouldExitProcess = exitProcess && process.env.CODEX_CHATGPT_WEB_SKIP_PROCESS_EXIT !== "1";
     draining = true;
     void hostRoutes.close();
     tunnelSupervisor?.stop();
@@ -578,7 +580,7 @@ export function startServer(
         }
       }
       await server.stop(true);
-      if (exitProcess) {
+      if (shouldExitProcess) {
         process.exit(process.exitCode ?? 0);
       }
     })().catch((error) => {
@@ -586,7 +588,7 @@ export function startServer(
       console.error(
         `[codex-chatgpt-web] server shutdown failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-      if (exitProcess) {
+      if (shouldExitProcess) {
         process.exit(1);
       }
     });
