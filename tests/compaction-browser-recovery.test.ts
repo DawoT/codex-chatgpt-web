@@ -45,7 +45,6 @@ test.each([
       },
       contextPressureByConversation: new Map(),
       contextPressureByPage: new WeakMap(),
-      lastDomMeasurementByPage: new WeakMap(),
       runStage: async (
         _trace: string,
         name: string,
