@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerHostRegistryTools } from "../src/adapters/chatgpt-web/mcp/host-registry-tools";
 import { registerImageTools } from "../src/adapters/chatgpt-web/mcp/image-tools";
 import { BRIDGE_TOOL_NAMES } from "../src/adapters/chatgpt-web/mcp/tool-visibility";
+import { TurnCoordinator } from "../src/adapters/chatgpt-web/mcp/turn-coordinator";
+import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 
 describe("MCP Image Tools", () => {
   const samplePngBase64 =
@@ -141,5 +144,49 @@ describe("MCP Image Tools", () => {
     await client.close();
     await server.close();
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("codex_tool_inventory discovers codex_image_generate and image_gen", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "mcp-inv-img-"));
+    const socket = join(cwd, "broker.sock");
+    const broker = TurnBroker.forSocket(socket);
+    const token = await broker.register({
+      cwd,
+      roots: [cwd],
+      writableRoots: [cwd],
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      tools: [{ name: "exec", description: "execute command", parameters: {} }],
+    });
+
+    const coordinator = new TurnCoordinator(socket, "native");
+    const server = new McpServer({ name: "test-server", version: "1.0.0" });
+    registerHostRegistryTools(server, coordinator);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const res = await client.callTool({
+      name: "codex_tool_inventory",
+      arguments: {
+        turn_token: token,
+        query: "image",
+      },
+    });
+
+    expect(res.isError).toBeFalsy();
+    const textContent = (res.content as Array<{ type: string; text?: string }>).find((c) => c.type === "text");
+    expect(textContent?.text).toBeDefined();
+    const parsed = JSON.parse(textContent!.text!);
+    const toolNames = parsed.tools.map((t: any) => t.name);
+    expect(toolNames).toContain("codex_image_generate");
+    expect(toolNames).toContain("image_gen");
+
+    await client.close();
+    await server.close();
+    broker.close();
+    rmSync(cwd, { recursive: true, force: true });
   });
 });

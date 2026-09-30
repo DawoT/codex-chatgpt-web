@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
+import { generateImage } from "../../../image-generation";
+import type { CodexTool } from "../../../types";
 import { result } from "../fast-path-handlers";
 import { CODEX_COMPACTION_CONTROL_WIRE_NAME } from "../native-compaction-control";
 import { callTurnBroker } from "../turn-broker";
@@ -28,6 +30,41 @@ import {
 } from "./tool-visibility";
 import type { TurnCoordinator } from "./turn-coordinator";
 
+const BUILTIN_IMAGE_TOOLS: CodexTool[] = [
+  {
+    name: "codex_image_generate",
+    description:
+      "Generate or edit an image using ChatGPT Plus / Codex and save it to disk (PNG). Options: prompt (required), out_path (optional), size ('1024x1024'|'1536x1024'|'1024x1536'|'auto'), quality ('low'|'medium'|'high'|'auto'), input_image_path (optional).",
+    parameters: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Image description or edit instructions" },
+        out_path: { type: "string", description: "Optional output file path" },
+        size: { type: "string", enum: ["1024x1024", "1536x1024", "1024x1536", "auto"] },
+        quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
+        input_image_path: { type: "string", description: "Optional path to base image for variations/edits" },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
+    name: "image_gen",
+    description:
+      "Generate or edit an image using ChatGPT Plus / Codex and save it to disk (PNG). Alias for codex_image_generate.",
+    parameters: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", description: "Image description or edit instructions" },
+        out_path: { type: "string", description: "Optional output file path" },
+        size: { type: "string", enum: ["1024x1024", "1536x1024", "1024x1536", "auto"] },
+        quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
+        input_image_path: { type: "string", description: "Optional path to base image for variations/edits" },
+      },
+      required: ["prompt"],
+    },
+  },
+];
+
 export function registerHostRegistryTools(server: McpServer, coordinator: TurnCoordinator): void {
   const contract = coordinator.contract;
 
@@ -53,7 +90,7 @@ export function registerHostRegistryTools(server: McpServer, coordinator: TurnCo
         const { query, offset, limit, include_schema } = input;
         const bound = claimed.environment;
         const needle = query?.trim().toLowerCase();
-        const visibleTools = safeVisibleTools(bound, contract);
+        const visibleTools = [...safeVisibleTools(bound, contract), ...BUILTIN_IMAGE_TOOLS];
         const directMatches = visibleTools.filter(
           (tool) =>
             !needle ||
@@ -195,6 +232,29 @@ export function registerHostRegistryTools(server: McpServer, coordinator: TurnCo
         return result({ submitted: true });
       }
       return coordinator.withClaimedTurn("codex_tool_call", requestId, extra, async (claimed) => {
+        if (wire_name === "codex_image_generate" || wire_name === "image_gen") {
+          const prompt = typeof args?.prompt === "string" ? args.prompt : input;
+          if (!prompt || typeof prompt !== "string") {
+            throw new Error("Image generation requires a prompt");
+          }
+          const res = await generateImage({
+            prompt,
+            size: typeof args?.size === "string" ? (args.size as any) : undefined,
+            quality: typeof args?.quality === "string" ? (args.quality as any) : undefined,
+            outPath: typeof args?.out_path === "string" ? args.out_path : undefined,
+            inputImagePath: typeof args?.input_image_path === "string" ? args.input_image_path : undefined,
+            token: coordinator.authSessionToken,
+          });
+          return result({
+            tool: wire_name,
+            success: true,
+            path: res.path,
+            bytes: res.bytes,
+            prompt: res.prompt,
+            size: res.size,
+            edited: res.edited ?? false,
+          });
+        }
         const bound = claimed.environment;
         const tool = safeVisibleTools(bound, contract).find((candidate) => wireName(candidate) === wire_name);
         if (!tool) {
