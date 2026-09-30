@@ -148,9 +148,8 @@ export class ResponseObserver {
                 activityContainers.some((container) => container.contains(candidate)),
             ),
           );
-          // CHATGPT_COMMENTARY_CLASSIFIER_BEGIN
-          // Self-contained so the test suite can execute this exact source against a synthetic DOM;
-          // it must not close over anything from the surrounding evaluate scope.
+          // Self-contained: it runs inside a page.evaluate callback and must not close over
+          // anything from the surrounding evaluate scope.
           const selectChatGptAnswerRoots = (
             markdownRoots: HTMLElement[],
             statusContainers: HTMLElement[],
@@ -181,7 +180,6 @@ export class ResponseObserver {
               answerRoots: markdownRoots.filter((candidate) => !commentary.includes(candidate)),
             };
           };
-          // CHATGPT_COMMENTARY_CLASSIFIER_END
           const classified = selectChatGptAnswerRoots(
             allMarkdownRoots.filter((candidate) => !activitySummaryRoots.has(candidate)),
             streamingStatusContainers,
@@ -195,7 +193,6 @@ export class ResponseObserver {
             (candidate) => classified.commentaryRoots.includes(candidate) || knownCommentary.has(candidate),
           );
           const renderedRoots = classified.answerRoots.filter((root) => !knownCommentary.has(root));
-          // CHATGPT_MARKDOWN_CONTENT_BEGIN
           const chatGptMarkdownContent = (markdownRoot: HTMLElement): HTMLElement => {
             const content = markdownRoot.cloneNode(true) as HTMLElement;
             // These are embedded renderers, not Markdown answer text. Their loading labels, controls
@@ -292,7 +289,6 @@ export class ResponseObserver {
             visit(element);
             return parts.join("").trim();
           };
-          // CHATGPT_MARKDOWN_CONTENT_END
           let listGroupIndex = 0;
           const sourceRange = (candidate: Element): { sourceStart: number; sourceEnd: number } | undefined => {
             const startAttribute = candidate.getAttribute("data-start");
