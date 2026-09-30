@@ -65,9 +65,6 @@ export class SessionActorManager {
       ) {
         continue;
       }
-      if (this.journal.wasOperationAccepted(op.sessionId, op.generation, op.operationId)) {
-        continue;
-      }
       const ref = this.results.referenceFor({
         sessionId: op.sessionId,
         generation: op.generation,

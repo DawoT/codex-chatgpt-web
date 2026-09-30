@@ -1722,6 +1722,46 @@ test("hot runtime self-healing: unrecovered uncertain operation does not block a
   }
 });
 
+test("hot runtime self-healing: accepted but failed browser turn without result auto-abandons and allows a new turn in the same session", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-accepted-then-failed";
+
+    // 1. First turn is accepted (prompt sent to ChatGPT), but fails before producing a result
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async (onAccepted) => {
+        await onAccepted();
+        throw new Error(
+          "ChatGPT stopped responding after the task started (ChatGPT browser DOM observation did not respond within 5250ms)",
+        );
+      }),
+    ).rejects.toThrow("ChatGPT stopped responding");
+
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
+    expect(home.journal.wasOperationAccepted(sessionId, 1, "browser:trace-1")).toBe(true);
+
+    // 2. Client launches turn-2 with a new operationId:
+    const turn2Result = await manager.runBrowserTurn(
+      sessionId,
+      "turn-2",
+      "browser:trace-2",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        await onAccepted();
+        await onResultReady("Turn 2 succeeded");
+        return "Turn 2 succeeded";
+      },
+    );
+
+    expect(turn2Result).toBe("Turn 2 succeeded");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("abandoned");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-2")?.state).toBe("completed");
+  } finally {
+    home.close();
+  }
+});
+
 test("surface replacement across retries leases new surface without duplicate content error", async () => {
   const home = fixture();
   try {

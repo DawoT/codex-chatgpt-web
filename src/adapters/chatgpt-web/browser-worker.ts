@@ -2244,9 +2244,19 @@ export class ChatGptBrowserWorker {
         const currentProgress = turn.externalProgress?.snapshot();
         const currentProgressLive = chatGptExternalProgressSuppressesDomHealth(currentProgress, Date.now());
         const currentCallsInFlight = chatGptExternalToolCallsAreInFlight(currentProgress);
-        if (currentProgressLive || currentCallsInFlight) {
+        const isRunning = await page
+          .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+          .last()
+          .isVisible()
+          .catch(() => false);
+        const multiChannelLivenessActive = isMultiChannelLivenessActive({
+          lastBrokerEventAt: currentProgress?.lastProgressAt,
+          activeToolCalls: currentProgress?.activeToolCalls,
+          inFlightCalls: currentCallsInFlight || currentProgress?.claimed,
+        });
+        if (currentProgressLive || currentCallsInFlight || isRunning || multiChannelLivenessActive) {
           console.warn(
-            `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while external progress is active; deferring without rebind or failure`,
+            `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or external progress is active; deferring without rebind or failure`,
           );
           await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
           return;
@@ -2364,9 +2374,19 @@ export class ChatGptBrowserWorker {
             const currentProgress = turn.externalProgress?.snapshot();
             const currentProgressLive = chatGptExternalProgressSuppressesDomHealth(currentProgress, Date.now());
             const currentCallsInFlight = chatGptExternalToolCallsAreInFlight(currentProgress);
-            if (currentProgressLive || currentCallsInFlight) {
+            const isRunning = await page
+              .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+              .last()
+              .isVisible()
+              .catch(() => false);
+            const multiChannelLivenessActive = isMultiChannelLivenessActive({
+              lastBrokerEventAt: currentProgress?.lastProgressAt,
+              activeToolCalls: currentProgress?.activeToolCalls,
+              inFlightCalls: currentCallsInFlight || currentProgress?.claimed,
+            });
+            if (currentProgressLive || currentCallsInFlight || isRunning || multiChannelLivenessActive) {
               console.warn(
-                `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe exceeded ${responseProbeTimeoutMs}ms but external tool calls are active; suppressing false timeout and deferring observation`,
+                `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe exceeded ${responseProbeTimeoutMs}ms but generation or external progress is active; suppressing false timeout and deferring observation`,
               );
               await new Promise((resolveSleep) => setTimeout(resolveSleep, 1_000));
               continue;
@@ -2398,7 +2418,12 @@ export class ChatGptBrowserWorker {
                 .last()
                 .isVisible()
                 .catch(() => false);
-              if (currentCallsInFlight || currentProgressLive || isRunning) {
+              const multiChannelLivenessActive = isMultiChannelLivenessActive({
+                lastBrokerEventAt: currentProgress?.lastProgressAt,
+                activeToolCalls: currentProgress?.activeToolCalls,
+                inFlightCalls: currentCallsInFlight || currentProgress?.claimed,
+              });
+              if (currentCallsInFlight || currentProgressLive || isRunning || multiChannelLivenessActive) {
                 console.warn(
                   `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or tools are active; continuing observation without rebind`,
                 );
