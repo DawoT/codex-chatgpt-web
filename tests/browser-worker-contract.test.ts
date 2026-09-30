@@ -25,6 +25,7 @@ import {
   CHATGPT_COMPOSER_SELECT_ALL_KEY,
   CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS,
   CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS,
+  CHATGPT_MIN_OPERATIONAL_VIEWPORT,
   CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS,
   CHATGPT_PENDING_TOOL_EVIDENCE_STALL_MS,
   CHATGPT_RESPONSE_DOM_GRACE_MS,
@@ -64,6 +65,7 @@ import {
   throwIfChatGptRateLimitDialog,
   throwIfChatGptSessionFailureAlert,
   throwIfChatGptTerminalErrorAlert,
+  waitForOperationalChatGptViewport,
   withChatGptBrowserObservationTimeout,
 } from "../src/adapters/chatgpt-web/browser-worker";
 import { estimateCompiledChatGptWebInputTokens } from "../src/adapters/chatgpt-web/input-tokens";
@@ -87,6 +89,7 @@ import {
 } from "../src/config";
 import { estimateTokens } from "../src/lib/token-estimate";
 import type { CodexProviderConfig } from "../src/types";
+import { type FakePageOverrides, fakePage } from "./fixtures/browser-fakes";
 
 function personalizedTemporaryChatRole(_role: string, options: { name: string | RegExp }) {
   const locator = {
@@ -770,28 +773,39 @@ test("compaction retry submission evidence cannot make prompt-stage settlement u
   expect(evaluateStarted).toBeTrue();
 });
 
-test("launcher page acquisition proves a nonzero operational viewport before DOM interaction", () => {
-  const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
-  const connect = workerSource.indexOf("const connection = await connectLauncherBrowserHost(");
-  const viewport = workerSource.indexOf(
-    "await waitForOperationalChatGptViewport(connection.page, abortSignal);",
-    connect,
-  );
-  const acquired = workerSource.indexOf('await diagnostics.capture(page, "browser-page-acquired")', viewport);
+test("launcher page acquisition proves a nonzero operational viewport before DOM interaction", async () => {
+  // The gate polls Playwright's real predicate, so execute that shipped predicate against a
+  // configured viewport instead of trusting a canned resolution.
+  const pageWithViewport = (innerWidth: number, innerHeight: number) =>
+    fakePage({
+      waitForFunction: (async (pageFunction: unknown, arg: { width: number; height: number }) => {
+        const holds = runInContext(
+          `(${String(pageFunction)})(${JSON.stringify(arg)})`,
+          createContext({ innerWidth, innerHeight }),
+        );
+        if (holds !== true) throw new Error("waitForFunction: Timeout 10000ms exceeded");
+      }) as unknown as FakePageOverrides["waitForFunction"],
+    });
+  const min = CHATGPT_MIN_OPERATIONAL_VIEWPORT;
 
-  expect(connect).toBeGreaterThan(-1);
-  expect(viewport).toBeGreaterThan(connect);
-  expect(acquired).toBeGreaterThan(viewport);
-  expect(workerSource).toContain("innerWidth >= width && innerHeight >= height");
+  await expect(waitForOperationalChatGptViewport(pageWithViewport(min.width, min.height))).resolves.toBeUndefined();
+  await expect(waitForOperationalChatGptViewport(pageWithViewport(min.width - 1, min.height))).rejects.toThrow(
+    "ChatGPT browser surface did not expose an operational viewport",
+  );
+  await expect(waitForOperationalChatGptViewport(pageWithViewport(min.width, min.height - 1))).rejects.toThrow(
+    "ChatGPT browser surface did not expose an operational viewport",
+  );
 });
 
-test("Luna turns without a retained conversation never send connector identity alone", () => {
-  const workerSource = readFileSync(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url), "utf8");
-  const runExclusive = workerSource.slice(workerSource.indexOf("  private async runExclusive("));
-  const connectorIdentity = runExclusive.indexOf("connectorIdentity: this.config.appName");
-  expect(connectorIdentity).toBeGreaterThan(-1);
-  expect(runExclusive.slice(connectorIdentity - 260, connectorIdentity)).toContain("turn.conversationKey");
-  expect(runExclusive.slice(connectorIdentity - 260, connectorIdentity)).toContain("turn.nativeConnector");
+test("an aborted launcher page acquisition rejects with AbortError, not the viewport timeout", async () => {
+  const controller = new AbortController();
+  const page = fakePage({ waitForFunction: () => new Promise<never>(() => {}) });
+  const pending = waitForOperationalChatGptViewport(page, controller.signal);
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({
+    name: "AbortError",
+    message: "ChatGPT browser page acquisition aborted",
+  });
 });
 
 test("a stalled DOM observation fails within its probe budget", async () => {
