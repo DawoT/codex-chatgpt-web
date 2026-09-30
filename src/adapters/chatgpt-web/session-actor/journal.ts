@@ -509,6 +509,15 @@ export class SessionActorJournal {
     })();
   }
 
+  resetAbandonedOperation(sessionId: string, generation: number, operationId: string): void {
+    this.database
+      .query(`
+      UPDATE session_operation SET state = 'intent', result_ref = NULL
+      WHERE session_id = ? AND generation = ? AND operation_id = ? AND state = 'abandoned'
+    `)
+      .run(sessionId, generation, operationId);
+  }
+
   private applyTransaction(command: SessionCommand): SessionAcknowledgement {
     const current = this.snapshot(command.sessionId);
     const generation = current?.generation ?? 1;

@@ -1762,6 +1762,42 @@ test("hot runtime self-healing: accepted but failed browser turn without result 
   }
 });
 
+test("hot runtime self-healing: retrying an abandoned operation resets its state to intent and completes successfully", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-retry-abandoned";
+
+    // 1. First turn is aborted and left uncertain, then abandoned on recovery
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async () => {
+        throw new Error("Client disconnect / restart");
+      }),
+    ).rejects.toThrow("Client disconnect");
+
+    manager.recoverUncertainOperations();
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("abandoned");
+
+    // 2. Client retries the exact same turn with the same operationId
+    const retryResult = await manager.runBrowserTurn(
+      sessionId,
+      "turn-1",
+      "browser:trace-1",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        await onAccepted();
+        await onResultReady("Retry succeeded");
+        return "Retry succeeded";
+      },
+    );
+
+    expect(retryResult).toBe("Retry succeeded");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("completed");
+  } finally {
+    home.close();
+  }
+});
+
 test("surface replacement across retries leases new surface without duplicate content error", async () => {
   const home = fixture();
   try {

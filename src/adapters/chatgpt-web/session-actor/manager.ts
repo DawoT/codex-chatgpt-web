@@ -549,6 +549,9 @@ export class SessionActorManager {
         throw new Error("Session actor browser send requires reconciliation before retry");
       }
     }
+    if (existing?.state === "abandoned") {
+      this.journal.resetAbandonedOperation(sessionId, generation, operationId);
+    }
     const intent = {
       protocolVersion: SESSION_ACTOR_PROTOCOL_VERSION,
       sessionId,
