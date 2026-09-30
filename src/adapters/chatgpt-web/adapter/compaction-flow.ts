@@ -625,7 +625,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             if (!source || !retainedKey) {
               const pendingSource = chatGptTurnSessions.find(compactedSourceExecutionKey);
               if (pendingSource?.isActive()) {
-                const settlement = chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey);
+                const settlement = chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey).then(() => {});
                 retainOwnershipUntil(settlement);
                 await withAbort(settlement, operationSignal);
               }

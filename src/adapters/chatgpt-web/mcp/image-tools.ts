@@ -18,7 +18,7 @@ export interface ImageToolOptions {
 
 export function registerImageTools(server: McpServer, options: ImageToolOptions = {}): void {
   const contract = options.contract ?? "native";
-  const tokenSchema =
+  const tokenSchema: Record<string, z.ZodTypeAny> =
     contract === "safe"
       ? { request_id: turnTokenSchema.optional() }
       : contract === "chat-first"

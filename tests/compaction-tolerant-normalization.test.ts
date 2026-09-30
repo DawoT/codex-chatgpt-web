@@ -13,6 +13,7 @@ function createMockParsedRequest(messages: CodexMessage[] = []): CodexParsedRequ
   const userContent = "Original user task: fix the compaction loop";
   return {
     modelId: "chatgpt-web-native",
+    stream: true,
     _compactionRequest: true,
     _rawBody: {
       input: [

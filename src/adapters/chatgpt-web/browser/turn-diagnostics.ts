@@ -1,5 +1,5 @@
 import type { Locator, Page } from "playwright-core";
-import { chatGptAssistantTurnSelector } from "../../../chatgpt-session";
+import { CHATGPT_STOP_BUTTON_SELECTOR, chatGptAssistantTurnSelector } from "../../../chatgpt-session";
 import { chatGptBrowserTabClosedError } from "../adapter-error";
 import { type ChatGptTurnProgressReader, chatGptExternalProgressIsLive } from "../turn-progress";
 import {
@@ -20,6 +20,7 @@ import type {
 import {
   CHATGPT_RESPONSE_DOM_GRACE_MS,
   ChatGptBrowserObservationTimeoutError,
+  isMultiChannelLivenessActive,
   MAX_CHATGPT_BROWSER_PAGE_REBINDS,
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
@@ -120,7 +121,21 @@ export class TurnDiagnostics {
         state = await this.submissionDomState(observationPage, observationBaseline.domCache, signal);
       } catch (error) {
         const latestProgress = externalProgress?.snapshot();
-        if (chatGptExternalProgressIsLive(latestProgress, Date.now(), graceMs)) {
+        const isRunning = await observationPage
+          .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+          .last()
+          .isVisible()
+          .catch(() => false);
+        const multiChannelLivenessActive = isMultiChannelLivenessActive({
+          lastBrokerEventAt: latestProgress?.lastProgressAt,
+          activeToolCalls: latestProgress?.activeToolCalls,
+          inFlightCalls: latestProgress?.claimed,
+        });
+        if (
+          chatGptExternalProgressIsLive(latestProgress, Date.now(), graceMs) ||
+          isRunning ||
+          multiChannelLivenessActive
+        ) {
           const prevKey = domSignalKey;
           domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
             observationPage,

@@ -17,7 +17,7 @@ describe("Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget", () => 
         ],
         timestamp: 2,
       },
-      { role: "toolResult", toolCallId: "call_1", toolName: "exec", content: "ok", timestamp: 3 },
+      { role: "toolResult", toolCallId: "call_1", toolName: "exec", content: "ok", isError: false, timestamp: 3 },
     ];
 
     expect(isHeavyCompactionTurn(lightMessages)).toBe(false);
@@ -36,6 +36,7 @@ describe("Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget", () => 
         toolCallId: `call_${i}`,
         toolName: "exec",
         content: `result ${i}`,
+        isError: false,
         timestamp: i * 2 + 3,
       });
     }

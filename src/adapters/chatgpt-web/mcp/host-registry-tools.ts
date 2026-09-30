@@ -243,7 +243,6 @@ export function registerHostRegistryTools(server: McpServer, coordinator: TurnCo
             quality: typeof args?.quality === "string" ? (args.quality as any) : undefined,
             outPath: typeof args?.out_path === "string" ? args.out_path : undefined,
             inputImagePath: typeof args?.input_image_path === "string" ? args.input_image_path : undefined,
-            token: coordinator.authSessionToken,
           });
           return result({
             tool: wire_name,

@@ -3,6 +3,7 @@ import type { ChatGptWebBackendModel } from "../../chatgpt-web-models";
 import {
   autoHealCompactionBlock,
   COMPACT_PROMPT,
+  type CompactionAchievement,
   type CompactionRequirement,
   type CompactionStateBlock,
   compactionStateFields,

@@ -216,7 +216,7 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
       };
 
       const observe = (ChatGptBrowserWorker.prototype as any).waitForMultipartAcknowledgement;
-      const turnEvents = new ChatGptTurnEventBus();
+      const turnEvents = new ChatGptTurnEventBus({ sessionId: "test-session", turnId: "turn-1" });
 
       // Run observation that ticks clock past 5,000ms to verify heartbeat trigger
       const originalNow = Date.now;
