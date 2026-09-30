@@ -1679,6 +1679,8 @@ class BrowserHost {
       tab.view.setVisible(visible || tab.status === "running");
       return;
     }
+    const contents = tab?.view?.webContents;
+    if (contents && typeof contents.isDestroyed === "function" && contents.isDestroyed()) return;
     if (visible) {
       // Establish native on-screen bounds before removing the background viewport contract.
       tab.view.setBounds(this.bounds);
@@ -1708,6 +1710,8 @@ class BrowserHost {
   }
 
   presentPrimaryView(visible) {
+    const contents = this.view?.webContents;
+    if (contents && typeof contents.isDestroyed === "function" && contents.isDestroyed()) return;
     // The descriptor advertises this exact WebContents for the lifetime of the launcher. Hiding
     // the native View can make Windows drop it from the remote-debugging target set, leaving a
     // live descriptor whose ownership id cannot be leased. Keep the View attached and drawable
@@ -1750,7 +1754,12 @@ class BrowserHost {
     const visible = windowVisible && browserViewVisible(this.visible, this.surfaceActive, this.boundsReady);
     const selected = this.selectedTurnTab();
     this.presentPrimaryView(visible && !this.authView && !selected);
-    for (const tab of this.turnTabs.values()) {
+    for (const tab of [...this.turnTabs.values()]) {
+      const contents = tab?.view?.webContents;
+      if (contents && typeof contents.isDestroyed === "function" && contents.isDestroyed()) {
+        this.removeTurnTab(tab, false);
+        continue;
+      }
       const tabVisible = visible && !this.authView && selected?.id === tab.id;
       this.presentTurnView(tab, tabVisible);
     }
