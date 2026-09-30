@@ -127,26 +127,31 @@ test("worker close cleans up browser state even when the launcher helper refuses
         },
       },
       activeRuns: new Map(),
-      maintenanceTail: Promise.resolve(),
-      browser: {
-        close: async () => {
-          browserCloses.push(1);
-        },
-      },
-      context: { marker: true },
-      page: { marker: true },
-      managedBrowserReady: Promise.resolve({ browser: {}, context: {} }),
       contextPressureByConversation: new Map([["conv-key", {}]]),
+      // The composed BrowserSession borrows this exact state object; close() must clear its
+      // borrowed lifecycle handles in place.
+      sessionState: {
+        maintenanceTail: Promise.resolve(),
+        browser: {
+          close: async () => {
+            browserCloses.push(1);
+          },
+        },
+        context: { marker: true },
+        page: { marker: true },
+        managedBrowserReady: Promise.resolve({ browser: {}, context: {} }),
+      },
     }) as unknown as ChatGptBrowserWorker;
 
     await worker.close();
 
     const field = (name: string) => (worker as unknown as Record<string, unknown>)[name];
+    const state = field("sessionState") as Record<string, unknown>;
     expect(browserCloses).toHaveLength(1);
-    expect(field("browser")).toBeUndefined();
-    expect(field("context")).toBeUndefined();
-    expect(field("page")).toBeUndefined();
-    expect(field("managedBrowserReady")).toBeUndefined();
+    expect(state.browser).toBeUndefined();
+    expect(state.context).toBeUndefined();
+    expect(state.page).toBeUndefined();
+    expect(state.managedBrowserReady).toBeUndefined();
     expect((field("contextPressureByConversation") as Map<string, unknown>).size).toBe(0);
     expect(field("launcherHelper")).toBeUndefined();
     expect(

@@ -7,26 +7,30 @@ import { ChatGptPersistentBrowserStateError } from "./personalization";
 import { type ChatGptSuspensionClock, chatGptSuspensionClock, remainingStageBudgetMs } from "./suspension-clock";
 
 /**
- * Dispatch surface the browser/page lifecycle methods rely on through their `this`.
- * The worker owns the resolved browser configuration, the browser/context/page handles, the
- * managed-browser opening promise, the maintenance tail and the active run registry, and lends
- * them to the borrowed prototype dispatch, so stubs installed on the worker instance or on
- * `ChatGptBrowserWorker.prototype` keep steering every internal call.
+ * Mutable browser/page lifecycle state shared between the worker and its composed
+ * BrowserSession. The worker owns exactly one state object and hands it to the session, so
+ * handles opened by the session (browser/context/page/managed-browser opening promise) are the
+ * same objects the worker's accessors and `close()` observe, and the maintenance tail serialized
+ * by `enqueueMaintenance` outlives individual calls.
  */
-export interface ChatGptBrowserSessionHost {
-  readonly config: ResolvedBrowserConfig;
+export interface BrowserSessionState {
   browser?: Browser;
   context?: BrowserContext;
   page?: Page;
   managedBrowserReady?: Promise<{ browser: Browser; context: BrowserContext }>;
   maintenanceTail: Promise<void>;
+}
+
+export interface BrowserSessionDeps {
+  readonly config: ResolvedBrowserConfig;
+  readonly state: BrowserSessionState;
   readonly activeRuns: Map<string, Promise<string>>;
-  ensureManagedBrowser(): Promise<{ browser: Browser; context: BrowserContext }>;
 }
 
 export class BrowserSession {
+  constructor(private readonly deps: BrowserSessionDeps) {}
+
   async runStage<T>(
-    this: ChatGptBrowserSessionHost,
     traceId: string,
     stage: string,
     timeoutMs: number,
@@ -85,73 +89,75 @@ export class BrowserSession {
     }
   }
 
-  enqueueMaintenance<T>(this: ChatGptBrowserSessionHost, name: string, action: () => Promise<T>): Promise<T> {
-    const operation = this.maintenanceTail.then(() => {
-      if (this.activeRuns.size > 0) {
+  enqueueMaintenance<T>(name: string, action: () => Promise<T>): Promise<T> {
+    const operation = this.deps.state.maintenanceTail.then(() => {
+      if (this.deps.activeRuns.size > 0) {
         throw new Error(`ChatGPT ${name} requires all browser turns to finish`);
       }
       return action();
     });
-    this.maintenanceTail = operation.then(
+    this.deps.state.maintenanceTail = operation.then(
       () => undefined,
       () => undefined,
     );
     return operation;
   }
 
-  async ensurePage(this: ChatGptBrowserSessionHost): Promise<Page> {
-    if (this.page && !this.page.isClosed()) return this.page;
-    if (this.config.browserHost === "launcher") {
-      const connection = await connectLauncherBrowserHost(this.config.browserHostDescriptorPath!);
-      this.browser = connection.browser;
-      this.context = connection.context;
-      this.page = connection.page;
-      return this.page;
+  async ensurePage(): Promise<Page> {
+    if (this.deps.state.page && !this.deps.state.page.isClosed()) return this.deps.state.page;
+    if (this.deps.config.browserHost === "launcher") {
+      const connection = await connectLauncherBrowserHost(this.deps.config.browserHostDescriptorPath!);
+      this.deps.state.browser = connection.browser;
+      this.deps.state.context = connection.context;
+      this.deps.state.page = connection.page;
+      return this.deps.state.page;
     }
     if (
-      !existsSync(this.config.storageStatePath) ||
-      !existsSync(loginVerificationMarkerPath(this.config.storageStatePath))
+      !existsSync(this.deps.config.storageStatePath) ||
+      !existsSync(loginVerificationMarkerPath(this.deps.config.storageStatePath))
     ) {
-      throw new Error(`ChatGPT web login state is missing: ${this.config.storageStatePath}`);
+      throw new Error(`ChatGPT web login state is missing: ${this.deps.config.storageStatePath}`);
     }
-    if (!existsSync(this.config.chromeExecutablePath)) {
-      throw new Error(`Configured Chrome executable does not exist: ${this.config.chromeExecutablePath}`);
+    if (!existsSync(this.deps.config.chromeExecutablePath)) {
+      throw new Error(`Configured Chrome executable does not exist: ${this.deps.config.chromeExecutablePath}`);
     }
-    this.browser = await chromium.launch({
-      executablePath: this.config.chromeExecutablePath,
-      headless: !this.config.headed,
+    this.deps.state.browser = await chromium.launch({
+      executablePath: this.deps.config.chromeExecutablePath,
+      headless: !this.deps.config.headed,
     });
-    this.context = await this.browser.newContext({ storageState: this.config.storageStatePath });
-    this.page = await this.context.newPage();
-    return this.page;
+    this.deps.state.context = await this.deps.state.browser.newContext({
+      storageState: this.deps.config.storageStatePath,
+    });
+    this.deps.state.page = await this.deps.state.context.newPage();
+    return this.deps.state.page;
   }
 
-  async ensureManagedBrowser(this: ChatGptBrowserSessionHost): Promise<{ browser: Browser; context: BrowserContext }> {
-    if (this.managedBrowserReady) return this.managedBrowserReady;
+  async ensureManagedBrowser(): Promise<{ browser: Browser; context: BrowserContext }> {
+    if (this.deps.state.managedBrowserReady) return this.deps.state.managedBrowserReady;
     const opening = (async () => {
       if (
-        !existsSync(this.config.storageStatePath) ||
-        !existsSync(loginVerificationMarkerPath(this.config.storageStatePath))
+        !existsSync(this.deps.config.storageStatePath) ||
+        !existsSync(loginVerificationMarkerPath(this.deps.config.storageStatePath))
       ) {
-        throw new Error(`ChatGPT web login state is missing: ${this.config.storageStatePath}`);
+        throw new Error(`ChatGPT web login state is missing: ${this.deps.config.storageStatePath}`);
       }
-      if (!existsSync(this.config.chromeExecutablePath)) {
-        throw new Error(`Configured Chrome executable does not exist: ${this.config.chromeExecutablePath}`);
+      if (!existsSync(this.deps.config.chromeExecutablePath)) {
+        throw new Error(`Configured Chrome executable does not exist: ${this.deps.config.chromeExecutablePath}`);
       }
       const browser = await chromium.launch({
-        executablePath: this.config.chromeExecutablePath,
-        headless: !this.config.headed,
+        executablePath: this.deps.config.chromeExecutablePath,
+        headless: !this.deps.config.headed,
       });
-      const context = await browser.newContext({ storageState: this.config.storageStatePath });
-      this.browser = browser;
-      this.context = context;
+      const context = await browser.newContext({ storageState: this.deps.config.storageStatePath });
+      this.deps.state.browser = browser;
+      this.deps.state.context = context;
       return { browser, context };
     })();
-    this.managedBrowserReady = opening;
+    this.deps.state.managedBrowserReady = opening;
     try {
       return await opening;
     } catch (error) {
-      if (this.managedBrowserReady === opening) this.managedBrowserReady = undefined;
+      if (this.deps.state.managedBrowserReady === opening) this.deps.state.managedBrowserReady = undefined;
       throw error;
     }
   }
@@ -161,8 +167,8 @@ export class BrowserSession {
    * ChatGPT SPA page can retain the previous transcript and autocomplete DOM,
    * so an @app lookup may select stale UI from the preceding turn.
    */
-  async pageForNewTurn(this: ChatGptBrowserSessionHost): Promise<Page> {
-    if (this.config.browserHost === "launcher") {
+  async pageForNewTurn(): Promise<Page> {
+    if (this.deps.config.browserHost === "launcher") {
       throw new Error("Launcher turns require an explicitly leased browser surface");
     }
     const { context } = await this.ensureManagedBrowser();

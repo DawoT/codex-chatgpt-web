@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import type { Locator, Page } from "playwright-core";
 import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter-error";
+import { BrowserSession } from "../src/adapters/chatgpt-web/browser/browser-session";
 import {
   type ChatGptBrowserContextPressure,
   ChatGptPageDomObserver,
@@ -564,7 +565,7 @@ test("connector verification reports a legacy-only ChatGPT menu as a migration e
 test("browser stage timeout aborts late page acquisition", async () => {
   let acquisitionAborted = false;
   const runStage = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    BrowserSession.prototype as unknown as {
       runStage<T>(
         traceId: string,
         stage: string,
@@ -608,7 +609,7 @@ test("a mutating stage timeout waits for abort cleanup before returning", async 
     markAbortSeen = resolve;
   });
   const runStage = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    BrowserSession.prototype as unknown as {
       runStage<T>(
         traceId: string,
         stage: string,
@@ -689,7 +690,7 @@ test("a mutating stage timeout preserves a failed cleanup integrity error", asyn
         : menu,
   } as any;
   const runStage = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    BrowserSession.prototype as unknown as {
       runStage<T>(
         traceId: string,
         stage: string,
@@ -730,15 +731,19 @@ test("compaction retry submission evidence cannot make prompt-stage settlement u
     domCache: {},
     initialTurnIdentities: [],
   } as any;
+  const runStage = (
+    BrowserSession.prototype as unknown as {
+      runStage<T>(
+        traceId: string,
+        stage: string,
+        timeoutMs: number,
+        action: (signal: AbortSignal) => Promise<T>,
+        clock: { suspendedMs(): number },
+        awaitAbortedActionSettlement: boolean,
+      ): Promise<T>;
+    }
+  ).runStage;
   const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    runStage<T>(
-      traceId: string,
-      stage: string,
-      timeoutMs: number,
-      action: (signal: AbortSignal) => Promise<T>,
-      clock: { suspendedMs(): number },
-      awaitAbortedActionSettlement: boolean,
-    ): Promise<T>;
     attachPromptWithCompactionRetry(
       page: unknown,
       prompt: string,
@@ -759,7 +764,7 @@ test("compaction retry submission evidence cannot make prompt-stage settlement u
     submissionDomState: prototype.submissionDomState,
   };
 
-  const result = prototype.runStage.call(
+  const result = runStage.call(
     {},
     "trace_compaction_retry_timeout",
     "prompt_attachment",

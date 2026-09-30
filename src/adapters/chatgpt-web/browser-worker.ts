@@ -26,7 +26,7 @@ import {
   chatGptRetainedConversationUnavailableError,
   chatGptStoppedThinkingError,
 } from "./adapter-error";
-import { BrowserSession, type ChatGptBrowserSessionHost } from "./browser/browser-session";
+import { BrowserSession, type BrowserSessionState } from "./browser/browser-session";
 import {
   type ChatGptComposerControllerHost,
   type ChatGptConnectorAttemptBudget,
@@ -328,13 +328,12 @@ export class ChatGptBrowserWorker {
     return worker;
   }
 
-  private browser?: Browser;
-  private context?: BrowserContext;
-  private page?: Page;
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: lent to BrowserSession through the borrowed `this` dispatch
-  private managedBrowserReady?: Promise<{ browser: Browser; context: BrowserContext }>;
+  // Shared browser/page lifecycle state. The worker owns one state object and hands it to the
+  // composed BrowserSession, so handles opened by the session are the same objects the accessors
+  // below observe. Prototype fixtures may seed it directly as `sessionState`.
+  private sessionState?: BrowserSessionState;
+  private sessionInstance?: BrowserSession;
   private launcherHelper?: LauncherBrowserHelperClient;
-  private maintenanceTail: Promise<void> = Promise.resolve();
   private readonly activeRuns = new Map<string, Promise<string>>();
   private readonly contextPressureByConversation = new Map<string, ChatGptBrowserContextPressure>();
   private readonly contextPressureByPage = new WeakMap<Page, ChatGptBrowserContextPressure>();
@@ -346,6 +345,27 @@ export class ChatGptBrowserWorker {
    * long-lived worker from accumulating one entry per turn.
    */
   turnEventBuses?: Map<string, ChatGptTurnEventBus>;
+
+  private get session(): BrowserSession {
+    if (!this.sessionState) this.sessionState = { maintenanceTail: Promise.resolve() };
+    return (this.sessionInstance ??= new BrowserSession({
+      config: this.config,
+      state: this.sessionState,
+      activeRuns: this.activeRuns ?? new Map(),
+    }));
+  }
+
+  private get browser(): Browser | undefined {
+    return this.sessionState?.browser;
+  }
+
+  private get context(): BrowserContext | undefined {
+    return this.sessionState?.context;
+  }
+
+  private get maintenanceTail(): Promise<void> {
+    return this.sessionState?.maintenanceTail ?? Promise.resolve();
+  }
 
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
     // A page can be recycled for a different chat. Its old pressure must not follow
@@ -456,11 +476,7 @@ export class ChatGptBrowserWorker {
   }
 
   private enqueueMaintenance<T>(name: string, action: () => Promise<T>): Promise<T> {
-    return BrowserSession.prototype.enqueueMaintenance.call(
-      this as unknown as ChatGptBrowserSessionHost,
-      name,
-      action,
-    ) as Promise<T>;
+    return this.session.enqueueMaintenance(name, action);
   }
 
   async close(): Promise<void> {
@@ -480,10 +496,15 @@ export class ChatGptBrowserWorker {
     await Promise.allSettled([...this.activeRuns.values()]);
     await this.maintenanceTail;
     const browser = this.browser;
-    this.browser = undefined;
-    this.context = undefined;
-    this.page = undefined;
-    this.managedBrowserReady = undefined;
+    // Discard every lifecycle handle the composed session opened. The state object itself stays
+    // (fixtures may hold it); only the borrowed handles are cleared.
+    const state = this.sessionState;
+    if (state) {
+      state.browser = undefined;
+      state.context = undefined;
+      state.page = undefined;
+      state.managedBrowserReady = undefined;
+    }
     this.contextPressureByConversation.clear();
     // For connectOverCDP, Playwright implements Browser.close as a transport disconnect; it does
     // not close the launcher-owned Electron process. Always release that connection and its
@@ -499,23 +520,15 @@ export class ChatGptBrowserWorker {
     suspensionClock: Pick<ChatGptSuspensionClock, "suspendedMs"> = chatGptSuspensionClock,
     awaitAbortedActionSettlement = false,
   ): Promise<T> {
-    return BrowserSession.prototype.runStage.call(
-      this as unknown as ChatGptBrowserSessionHost,
-      traceId,
-      stage,
-      timeoutMs,
-      action,
-      suspensionClock,
-      awaitAbortedActionSettlement,
-    ) as Promise<T>;
+    return this.session.runStage(traceId, stage, timeoutMs, action, suspensionClock, awaitAbortedActionSettlement);
   }
 
   private async ensurePage(): Promise<Page> {
-    return BrowserSession.prototype.ensurePage.call(this as unknown as ChatGptBrowserSessionHost);
+    return this.session.ensurePage();
   }
 
   private async ensureManagedBrowser(): Promise<{ browser: Browser; context: BrowserContext }> {
-    return BrowserSession.prototype.ensureManagedBrowser.call(this as unknown as ChatGptBrowserSessionHost);
+    return this.session.ensureManagedBrowser();
   }
 
   /**
@@ -524,7 +537,7 @@ export class ChatGptBrowserWorker {
    * so an @app lookup may select stale UI from the preceding turn.
    */
   private async pageForNewTurn(): Promise<Page> {
-    return BrowserSession.prototype.pageForNewTurn.call(this as unknown as ChatGptBrowserSessionHost);
+    return this.session.pageForNewTurn();
   }
 
   private async selectModelAndEffort(
