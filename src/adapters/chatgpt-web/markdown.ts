@@ -442,6 +442,9 @@ export class ChatGptMarkdownBuffer {
       if (committedIndex !== undefined) {
         const committed = this.committed[committedIndex]!;
         if (sawPending || committedIndex < highestCommittedIndex || committed.text !== segment.text) {
+          if (!committed.text.trim() && !segment.text.trim()) {
+            continue;
+          }
           return this.changedCommittedBlockError(
             sawPending || committedIndex < highestCommittedIndex ? "block_order_changed" : "text_changed",
             segment,
@@ -491,7 +494,10 @@ export class ChatGptMarkdownBuffer {
     if (!segment.tag) return undefined;
     const semanticMatches = this.committed
       .map((committed, index) => ({ committed, index }))
-      .filter(({ committed }) => committed.tag === segment.tag && committed.text === segment.text);
+      .filter(
+        ({ committed }) =>
+          Boolean(committed.text.trim()) && committed.tag === segment.tag && committed.text === segment.text,
+      );
     return semanticMatches.length === 1 ? semanticMatches[0]!.index : undefined;
   }
 

@@ -321,11 +321,14 @@ export class ResponseObserver {
                 ? ([...child.children].filter((candidate) => candidate.tagName === "LI") as HTMLElement[])
                 : [];
             if (listItems.length === 0) {
+              const text = markdownText(child);
+              const links = linkState(child);
+              if (!text.trim() && links.linkTargets.length === 0) return;
               flattenedMarkdownSegments.push({
                 tag,
                 html: child.outerHTML,
-                text: markdownText(child),
-                ...linkState(child),
+                text,
+                ...links,
                 ...childRange,
               });
               return;
@@ -334,6 +337,9 @@ export class ResponseObserver {
             const group = childRange ? `list:${childRange.sourceStart}:${tag}` : `list:${listGroupIndex++}:${tag}`;
             const orderedStart = tag === "ol" ? Number(child.getAttribute("start") ?? "1") : undefined;
             listItems.forEach((item, itemIndex) => {
+              const itemText = markdownText(item);
+              const itemLinks = linkState(item);
+              if (!itemText.trim() && itemLinks.linkTargets.length === 0) return;
               const shell = child.cloneNode(false) as HTMLElement;
               shell.removeAttribute("data-is-last-node");
               if (orderedStart !== undefined && Number.isFinite(orderedStart)) {
@@ -343,8 +349,8 @@ export class ResponseObserver {
               flattenedMarkdownSegments.push({
                 tag: `${tag}:item`,
                 html: shell.outerHTML,
-                text: markdownText(item),
-                ...linkState(item),
+                text: itemText,
+                ...itemLinks,
                 group,
                 ...sourceRange(item),
               });
@@ -354,12 +360,14 @@ export class ResponseObserver {
             const children = [...markdownRoot.children] as HTMLElement[];
             const hasBlockChildren = children.some((child) => blockMarkdownTags.has(child.tagName.toLowerCase()));
             if (!hasBlockChildren) {
-              if (markdownRoot.innerHTML.trim())
+              const text = markdownText(markdownRoot);
+              const links = linkState(markdownRoot);
+              if (text.trim() || links.linkTargets.length > 0)
                 flattenedMarkdownSegments.push({
                   tag: "root",
                   html: markdownRoot.innerHTML,
-                  text: markdownText(markdownRoot),
-                  ...linkState(markdownRoot),
+                  text,
+                  ...links,
                   ...sourceRange(markdownRoot),
                 });
               return;

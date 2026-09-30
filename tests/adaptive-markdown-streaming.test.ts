@@ -83,4 +83,24 @@ describe("Sprint U: Adaptive Markdown Streaming Latency & Instant Tool Emission"
     // At t0 + 310: prose has stabilized and emits
     expect(buffer.observe([toolSeg, proseSeg], t0 + 310)).toContain("Here are the files:");
   });
+
+  test("harmless empty spacer elements across multi-tool turn do not trigger block_order_changed conflict", () => {
+    const buffer = new ChatGptMarkdownBuffer((m) => m, 0);
+    const emptySeg1 = makeSegment("k-empty-1", "", true, "P");
+    const proseSeg1 = makeSegment("k-prose-1", "First answer block", true, "P");
+    const toolSeg1 = makeSegment("k-tool-1", '```json\n{"call": 1}\n```', true, "PRE");
+
+    // First observation: empty spacer + prose + tool
+    buffer.observe([emptySeg1, proseSeg1, toolSeg1], 1000);
+
+    // Later DOM update: ChatGPT moves or adds another empty spacer
+    const emptySeg2 = makeSegment("k-empty-2", "", true, "P");
+    const proseSeg2 = makeSegment("k-prose-2", "Second answer block", true, "P");
+
+    // Reconciling with new empty spacer should not throw block_order_changed
+    expect(() => {
+      buffer.observe([proseSeg1, toolSeg1, emptySeg2, proseSeg2], 2000);
+      buffer.finish();
+    }).not.toThrow();
+  });
 });
