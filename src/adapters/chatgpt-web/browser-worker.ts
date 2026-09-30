@@ -92,8 +92,10 @@ const workers = new Map<string, ChatGptBrowserWorker>();
 
 export async function closeChatGptBrowserWorkers(): Promise<void> {
   const active = [...workers.values()];
-  workers.clear();
   const results = await Promise.allSettled(active.map((worker) => worker.close()));
+  // Cleared only after every close settled: a forProvider call racing an in-flight close must
+  // keep receiving the worker being closed instead of silently constructing a second one.
+  workers.clear();
   const failures = results
     .filter((result): result is PromiseRejectedResult => result.status === "rejected")
     .map((result) => result.reason);

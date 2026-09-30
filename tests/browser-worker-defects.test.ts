@@ -4,9 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted } from "../src/adapters/chatgpt-web/adapter-error";
 import type { ChatGptBrowserContextPressure } from "../src/adapters/chatgpt-web/browser/context-pressure";
-import { type BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import {
+  type BrowserTurn,
+  ChatGptBrowserWorker,
+  closeChatGptBrowserWorkers,
+} from "../src/adapters/chatgpt-web/browser-worker";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import * as realLauncherBrowserHost from "../src/launcher-browser-host";
+import type { CodexProviderConfig } from "../src/types";
 
 // Snapshot the real launcher host exports before any module mock is installed, so the mock can
 // delegate everything it does not override and be restored for subsequent test files.
@@ -227,4 +232,33 @@ test("an accepted compaction handoff resets the conversation's existing context 
   await expect(runBrowserTurn(turn)).rejects.toBeInstanceOf(ChatGptCompactionHandoffAccepted);
 
   expect(resetCalls).toEqual(["existing"]);
+});
+
+test("a forProvider call racing an in-flight close keeps receiving the worker being closed", async () => {
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: "browser://test-close-race",
+    chatgptWeb: { storageStatePath: "/tmp/browser-worker-defects-close-race.json" },
+  };
+  const first = ChatGptBrowserWorker.forProvider(provider);
+  let releaseClose!: () => void;
+  const closeGate = new Promise<void>((resolve) => {
+    releaseClose = resolve;
+  });
+  const closeSpy = spyOn(ChatGptBrowserWorker.prototype, "close").mockImplementation(() => closeGate);
+  try {
+    const closing = closeChatGptBrowserWorkers();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ChatGptBrowserWorker.forProvider(provider)).toBe(first);
+
+    releaseClose();
+    await closing;
+
+    expect(ChatGptBrowserWorker.forProvider(provider)).not.toBe(first);
+  } finally {
+    closeSpy.mockRestore();
+  }
+  // Leave the module-level worker registry empty for the remaining tests.
+  await closeChatGptBrowserWorkers();
 });
