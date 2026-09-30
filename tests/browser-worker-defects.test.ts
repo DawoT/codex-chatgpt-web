@@ -2,6 +2,8 @@ import { afterAll, expect, mock, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ChatGptCompactionHandoffAccepted } from "../src/adapters/chatgpt-web/adapter-error";
+import type { ChatGptBrowserContextPressure } from "../src/adapters/chatgpt-web/browser/context-pressure";
 import { type BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import * as realLauncherBrowserHost from "../src/launcher-browser-host";
@@ -189,4 +191,40 @@ test("launcher turn heartbeats while a slow onSurfaceLeased callback is still pe
       process.env.CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS = previousHelperEnv;
     }
   }
+});
+
+test("an accepted compaction handoff resets the conversation's existing context pressure without creating a fresh one", async () => {
+  const resetCalls: string[] = [];
+  const existingPressure = {
+    reset: () => {
+      resetCalls.push("existing");
+    },
+  } as unknown as ChatGptBrowserContextPressure;
+  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    config: {
+      browserHost: "managed-chrome",
+      appName: "test",
+      browserDiagnosticsPath: diagnosticsTempRoot(),
+    },
+    contextPressureByConversation: new Map([["conv-key", existingPressure]]),
+  }) as unknown as ChatGptBrowserWorker;
+  const controller = new AbortController();
+  const turn = baseBrowserTurn("b4_handoff_probe", {
+    conversationKey: "conv-key",
+    compaction: true,
+    abortSignal: controller.signal,
+    prepare: async () => {
+      // A structured handoff accepted while the prompt was being prepared aborts the turn with
+      // the handoff reason before any diagnostic page was acquired.
+      controller.abort(new ChatGptCompactionHandoffAccepted());
+      return { text: "hello", images: [], release() {} };
+    },
+  });
+
+  const runBrowserTurn = (
+    worker as unknown as { runBrowserTurn(turn: BrowserTurn): Promise<string> }
+  ).runBrowserTurn.bind(worker);
+  await expect(runBrowserTurn(turn)).rejects.toBeInstanceOf(ChatGptCompactionHandoffAccepted);
+
+  expect(resetCalls).toEqual(["existing"]);
 });

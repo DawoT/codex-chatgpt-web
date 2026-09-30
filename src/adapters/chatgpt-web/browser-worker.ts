@@ -413,6 +413,21 @@ export class ChatGptBrowserWorker {
     return pressure;
   }
 
+  /**
+   * Locate the context pressure already registered for this turn's conversation or page without
+   * creating or registering a fresh one. Error paths must observe state, not mutate it.
+   */
+  private findExistingContextPressure(
+    page: Page | undefined,
+    conversationKey?: string,
+  ): ChatGptBrowserContextPressure | undefined {
+    if (conversationKey) {
+      const byConversation = this.contextPressureByConversation.get(conversationKey);
+      if (byConversation) return byConversation;
+    }
+    return page ? this.contextPressureByPage.get(page) : undefined;
+  }
+
   async releaseConversationContextPressure(conversationKey: string): Promise<void> {
     this.contextPressureByConversation.delete(conversationKey);
     await this.launcherHelper?.releaseConversationContextPressure(conversationKey);
@@ -2818,7 +2833,7 @@ export class ChatGptBrowserWorker {
         error.name === "AbortError" &&
         turn.abortSignal?.reason instanceof ChatGptCompactionHandoffAccepted
       ) {
-        if (turn.compaction && diagnosticPage) this.getContextPressure(diagnosticPage).reset();
+        if (turn.compaction) this.findExistingContextPressure(diagnosticPage, turn.conversationKey)?.reset();
         console.info(`[chatgpt-web] browser turn ${turn.traceId} ended after accepted structured compaction handoff`);
         if (diagnosticPage && !diagnosticPage.isClosed()) {
           await diagnostics?.capture(diagnosticPage, "compaction-handoff-accepted");
