@@ -256,7 +256,7 @@ const CHATGPT_SMOKE_TEXT = "Reply with exactly: CODEX WEB GPT READY";
 const CHATGPT_SMOKE_EXPECTED = "CODEX WEB GPT READY";
 export const CHATGPT_SEND_ENABLE_GRACE_MS = 5_000;
 
-async function waitForOperationalChatGptViewport(page: Page, signal?: AbortSignal): Promise<void> {
+export async function waitForOperationalChatGptViewport(page: Page, signal?: AbortSignal): Promise<void> {
   try {
     await withBrowserTurnAbort(
       page.waitForFunction(
@@ -945,6 +945,9 @@ export class ChatGptBrowserWorker {
   ): Promise<ChatGptSubmissionEvidence> {
     const composer = await this.activeComposer(page);
     const composerForm = composer.locator("xpath=ancestor::form[1]");
+    // TODO(sprint-3): remove after harness adoption — the contract-test fakes still hand-roll
+    // composer forms with only getByTestId("send-button") (no .locator), so the fallback below
+    // cannot be dropped until those tests adopt tests/fixtures/browser-fakes.ts.
     const sendButton =
       (typeof composerForm.locator === "function"
         ? composerForm
@@ -978,7 +981,7 @@ export class ChatGptBrowserWorker {
       sendDomKey = verdict.key;
     }
     await captureDiagnostic?.("send-ready");
-    if (requireConnector && typeof this.connectorIsSelected === "function") {
+    if (requireConnector) {
       const selected = await this.connectorIsSelected(composer, abortSignal);
       if (!selected) {
         throw new ChatGptPromptAttachmentIntegrityError(
@@ -1778,9 +1781,7 @@ export class ChatGptBrowserWorker {
           }
         } catch {}
       };
-      if (typeof page?.on === "function") {
-        page.on("response", onNetworkResponse);
-      }
+      page.on("response", onNetworkResponse);
       const contextPressure = this.getContextPressure(page, turn.conversationKey);
       const rebindLauncherPage = async (attempt: number, cause: Error, callerSignal?: AbortSignal): Promise<void> => {
         if (!launcherSurfaceId || !this.config.browserHostDescriptorPath) throw cause;
