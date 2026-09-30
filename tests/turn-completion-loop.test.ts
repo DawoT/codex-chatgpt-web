@@ -66,7 +66,6 @@ async function driveCompletion(options: {
       },
       contextPressureByConversation: new Map(),
       contextPressureByPage: new WeakMap(),
-      lastDomMeasurementByPage: new WeakMap(),
       runStage: async (
         _trace: string,
         _name: string,
@@ -202,7 +201,6 @@ test("compaction handoff publishes compaction_handoff_observed to the turn event
       },
       contextPressureByConversation: new Map(),
       contextPressureByPage: new WeakMap(),
-      lastDomMeasurementByPage: new WeakMap(),
       runStage: async (
         _trace: string,
         _name: string,
