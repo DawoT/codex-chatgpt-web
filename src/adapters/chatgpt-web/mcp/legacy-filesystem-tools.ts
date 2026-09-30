@@ -26,7 +26,7 @@ export function registerLegacyFilesystemTools(server: McpServer, coordinator: Tu
         const { patch } = input;
         const bound = claimed.environment;
         const tool = exactTool(bound, "apply_patch");
-        let res;
+        let res: Awaited<ReturnType<typeof coordinator.invoke>>;
         if (!tool) {
           res = await coordinator.invokeNestedNative(
             claimed.bindingId,
