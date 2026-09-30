@@ -1067,6 +1067,7 @@ export function createChatGptWebAdapter(
             }
           });
         } catch (error) {
+          console.error("[chatgpt-web] browser turn failed:", error);
           if (incoming.abortSignal?.aborted && error instanceof DOMException && error.name === "AbortError") {
             if (session.runtime.manualControl) {
               chatGptTurnSessions.retire(executionKey, session);

@@ -117,6 +117,7 @@ import {
   ChatGptSuspensionClock,
   chatGptSuspensionClock,
   connectAfterClosingBrowserConnection,
+  isMultiChannelLivenessActive,
   MAX_CHATGPT_BROWSER_PAGE_REBINDS,
   remainingStageBudgetMs,
   resolveAdaptiveObservationProbeTimeoutMs,
@@ -1023,6 +1024,8 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
     externalProgress?: ChatGptTurnProgressReader,
     completionTracker = new ChatGptCompletionTracker(),
+    turnEvents?: ChatGptTurnEventBus,
+    onHeartbeat?: () => void,
   ): Promise<void> {
     // A staged message may briefly create an assistant shell and then replace it while ChatGPT
     // ingests the attached context. The ordinary 60-second missing-response verdict would cut the
@@ -1031,7 +1034,13 @@ export class ChatGptBrowserWorker {
     const domHealthTracker = new ChatGptTurnDomHealthTracker(CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS);
     const responseDomCache: ChatGptResponseDomCache = {};
     let responseTurn = initialResponseTurn;
+    let lastHeartbeat = Date.now();
+    let lastRunning: boolean | undefined;
     for (;;) {
+      if (Date.now() - lastHeartbeat >= 5_000) {
+        onHeartbeat?.();
+        lastHeartbeat = Date.now();
+      }
       if (page.isClosed()) throw chatGptBrowserTabClosedError();
       if (abortSignal?.aborted) {
         const stop = page.locator(CHATGPT_STOP_BUTTON_SELECTOR).last();
@@ -1065,7 +1074,12 @@ export class ChatGptBrowserWorker {
       }
       const externalProgressLive = chatGptExternalProgressSuppressesDomHealth(externalProgressSnapshot, Date.now());
       const externalToolCallsInFlight = chatGptExternalToolCallsAreInFlight(externalProgressSnapshot);
-      if (!snapshot.responsePresent && externalProgressLive) {
+      const multiChannelLivenessActive = isMultiChannelLivenessActive({
+        lastBrokerEventAt: externalProgressSnapshot?.lastProgressAt,
+        activeToolCalls: externalProgressSnapshot?.activeToolCalls,
+        inFlightCalls: externalToolCallsInFlight || externalProgressSnapshot?.claimed,
+      });
+      if (!snapshot.responsePresent && (externalProgressLive || multiChannelLivenessActive)) {
         // Proven MCP activity outranks a momentarily unavailable staging DOM, exactly as it does
         // in the main turn loop.
         domHealthTracker.clearMissingResponse();
@@ -1077,14 +1091,28 @@ export class ChatGptBrowserWorker {
         .last()
         .isVisible()
         .catch(() => false);
+      if (running !== lastRunning) {
+        lastRunning = running;
+        turnEvents?.publish({ type: "stop_button_visibility_changed", source: "dom", visible: running });
+      }
       const domError = domHealthTracker.update({
         responsePresent: snapshot.responsePresent,
         running,
         currentText: snapshot.visibleText,
         completionActionVisible: snapshot.completionActionVisible,
         externalProgressLive,
+        multiChannelLivenessActive,
+        domChars: snapshot.fullHtml.length || snapshot.visibleText.length,
       });
-      if (domError) throw new Error(domError);
+      if (domError) {
+        throw new ChatGptWebAdapterError(domError, {
+          status: 504,
+          errorType: "server_error",
+          code: "chatgpt_browser_dom_unresponsive",
+          retryable: false,
+          cause: new Error(domError),
+        });
+      }
       if (
         completionTracker.update({
           responsePresent: snapshot.responsePresent,
@@ -1968,6 +1996,9 @@ export class ChatGptBrowserWorker {
                 deadline,
                 acknowledgementSignal,
                 turn.externalProgress,
+                undefined,
+                turnEvents,
+                turn.onHeartbeat,
               );
             },
             chatGptSuspensionClock,
@@ -2398,7 +2429,12 @@ export class ChatGptBrowserWorker {
           }
           const externalProgressLive = chatGptExternalProgressSuppressesDomHealth(externalProgressSnapshot, Date.now());
           const externalToolCallsInFlight = chatGptExternalToolCallsAreInFlight(externalProgressSnapshot);
-          if (!snapshot.responsePresent && externalProgressLive) {
+          const multiChannelLivenessActive = isMultiChannelLivenessActive({
+            lastBrokerEventAt: externalProgressSnapshot?.lastProgressAt,
+            activeToolCalls: externalProgressSnapshot?.activeToolCalls,
+            inFlightCalls: externalToolCallsInFlight || externalProgressSnapshot?.claimed,
+          });
+          if (!snapshot.responsePresent && (externalProgressLive || multiChannelLivenessActive)) {
             // Current-turn MCP activity proves that ChatGPT is still executing even if its renderer
             // temporarily cannot expose the response subtree. DOM remains authoritative for text and
             // completion; this only prevents a live turn from being misclassified as vanished.
@@ -2436,8 +2472,18 @@ export class ChatGptBrowserWorker {
               currentText: snapshot.visibleText,
               completionActionVisible: snapshot.completionActionVisible,
               externalProgressLive,
+              multiChannelLivenessActive,
+              domChars: snapshot.fullHtml.length || snapshot.visibleText.length,
             });
-            if (domError) throw new Error(domError);
+            if (domError) {
+              throw new ChatGptWebAdapterError(domError, {
+                status: 504,
+                errorType: "server_error",
+                code: "chatgpt_browser_dom_unresponsive",
+                retryable: false,
+                cause: new Error(domError),
+              });
+            }
             const completionReady = completionTracker.update({
               responsePresent: snapshot.responsePresent,
               running,
@@ -2560,8 +2606,17 @@ export class ChatGptBrowserWorker {
               currentText: "",
               completionActionVisible: false,
               externalProgressLive,
+              multiChannelLivenessActive,
             });
-            if (domError) throw new Error(domError);
+            if (domError) {
+              throw new ChatGptWebAdapterError(domError, {
+                status: 504,
+                errorType: "server_error",
+                code: "chatgpt_browser_dom_unresponsive",
+                retryable: false,
+                cause: new Error(domError),
+              });
+            }
           }
           await waitForTurnSignal();
         } catch (error) {

@@ -260,24 +260,27 @@ export class ChatGptTurnDomHealthTracker {
       currentText: string;
       completionActionVisible: boolean;
       externalProgressLive?: boolean;
+      multiChannelLivenessActive?: boolean;
+      domChars?: number;
     },
     now = Date.now(),
   ): string | undefined {
     if (state.responsePresent) this.sawResponse = true;
-    if (state.externalProgressLive || state.running) {
+    if (state.externalProgressLive || state.running || state.multiChannelLivenessActive) {
       // Every conclusion below asserts that ChatGPT stopped producing this turn. A tool call that
-      // is still completing disproves all of them, whatever the renderer is currently exposing, so
-      // no window may accrue while the model is provably working.
+      // is still completing, active multi-channel liveness lease, or running state disproves all of them,
+      // whatever the renderer is currently exposing, so no window may accrue while the model is provably working.
       this.missingResponseSince = undefined;
       this.emptyCompletionSince = undefined;
       this.missingCompletionAction = undefined;
       return undefined;
     }
+    const effectiveMissingResponseMs = this.missingResponseMs + Math.floor(Math.max(0, state.domChars ?? 0) / 50);
     if (state.responsePresent) {
       this.missingResponseSince = undefined;
     } else {
       this.missingResponseSince ??= now;
-      if (now - this.missingResponseSince >= this.missingResponseMs) {
+      if (now - this.missingResponseSince >= effectiveMissingResponseMs) {
         return this.sawResponse
           ? "ChatGPT response DOM disappeared while the browser turn was active"
           : "ChatGPT did not create a response DOM after the message was sent";

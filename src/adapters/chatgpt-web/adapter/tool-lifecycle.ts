@@ -22,10 +22,11 @@ export function submittedTurnFailure(session: ChatGptTurnSession, error: unknown
   }
   if (!phase || phase === "prepared") return normalized;
   const ambiguous = phase === "send_activated";
+  const detail = normalized.message ? ` (${normalized.message})` : "";
   return new ChatGptWebAdapterError(
     ambiguous
-      ? "ChatGPT did not confirm that the prompt was sent. Check the ChatGPT tab before continuing."
-      : "ChatGPT stopped responding after the task started. Check the ChatGPT tab before continuing.",
+      ? `ChatGPT did not confirm that the prompt was sent${detail}. Check the ChatGPT tab before continuing.`
+      : `ChatGPT stopped responding after the task started${detail}. Check the ChatGPT tab before continuing.`,
     {
       status: 502,
       errorType: "server_error",

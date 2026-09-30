@@ -573,9 +573,18 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             source = sourceConversationKey
               ? chatGptTurnSessions.findConversationHead(sourceConversationKey)
               : undefined;
+            if (!source) {
+              source = chatGptTurnSessions.find(compactedSourceExecutionKey);
+            }
             preserveFinalResponse = !source?.isActive() && source?.settledOutcome()?.type === "final";
             const retainedKey = source?.conversationKey();
             if (!source || !retainedKey) {
+              const pendingSource = chatGptTurnSessions.find(compactedSourceExecutionKey);
+              if (pendingSource?.isActive()) {
+                const settlement = chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey);
+                retainOwnershipUntil(settlement);
+                await withAbort(settlement, operationSignal);
+              }
               return await runFreshCompaction("source_unavailable_before_handoff");
             }
             let rawSummary: string;
@@ -822,6 +831,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       );
     }
     emit({ type: "heartbeat" });
+    const compactionHeartbeatTimer = setInterval(() => {
+      emit({ type: "heartbeat" });
+    }, 5_000);
+    compactionHeartbeatTimer.unref?.();
     let summary: string;
     try {
       summary = await withAbort(sharedSummary, incoming.abortSignal);
@@ -848,6 +861,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         retryable: false,
       });
       return true;
+    } finally {
+      clearInterval(compactionHeartbeatTimer);
     }
     const rejectCheckpoint = async (reason: string): Promise<boolean> => {
       await rejectCheckpointIfOpen();

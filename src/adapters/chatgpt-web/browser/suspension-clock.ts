@@ -111,7 +111,7 @@ export function isMultiChannelLivenessActive(
     snapshot.lastDomMutationAt ?? 0,
     snapshot.lastNetworkChunkAt ?? 0,
   );
-  if (lastEvent === 0) return true;
+  if (lastEvent === 0) return false;
   return now - lastEvent < silenceThresholdMs;
 }
 
