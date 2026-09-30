@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { CHATGPT_WEB_INSTANT_COMPOSER_CHAR_LIMIT, type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { COMPACT_PROMPT, compactionDraftText, extractStructuredCompactionHandoff } from "../../../responses/compaction";
-import type { AdapterEvent, CodexParsedRequest } from "../../../types";
+import type { AdapterEvent, CodexMessage, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { validateCompactionQuality } from "../autonomous-compaction";
 import type { ChatGptBrowserWorker } from "../browser-worker";
@@ -57,6 +57,24 @@ import { estimateChatGptWebUsage } from "../usage";
 import { persistTurnCompaction } from "../workspace-persistence";
 import { withAbort } from "./cancellation";
 import { emitBrowserCompletion } from "./events";
+
+export const HEAVY_TURN_TOOL_CALL_THRESHOLD = 35;
+export const DEFAULT_COMPACTION_TOTAL_BUDGET_MS = 4 * 60_000;
+
+export function isHeavyCompactionTurn(
+  messages: readonly CodexMessage[],
+  threshold = HEAVY_TURN_TOOL_CALL_THRESHOLD,
+): boolean {
+  let toolCount = 0;
+  for (const msg of messages) {
+    if (msg.role === "toolResult") {
+      toolCount += 1;
+    } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+      toolCount += msg.content.filter((part) => part.type === "toolCall").length;
+    }
+  }
+  return toolCount >= threshold;
+}
 
 const observedRepairDurationsMs: number[] = [];
 const persistedStructuredRunRoots = new WeakMap<Promise<string>, string>();
@@ -387,9 +405,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         },
         async (operatorSignal, retainOwnershipUntil) => {
           const handoffTimeoutMs = Math.min(
-            timeoutMs ?? MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
+            timeoutMs ?? DEFAULT_COMPACTION_TOTAL_BUDGET_MS,
             MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
           );
+          const globalDeadlineAt = Date.now() + handoffTimeoutMs;
           const handoffDeadline = new AbortController();
           const handoffTimeoutError = new ChatGptWebAdapterError(
             `ChatGPT compaction did not fully settle within ${handoffTimeoutMs}ms`,
@@ -402,11 +421,20 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           );
           let handoffTimer: ReturnType<typeof setTimeout> | undefined;
           let handoffDeadlineAt = 0;
-          const armHandoffDeadline = (): void => {
+          const armHandoffDeadline = (extendMs?: number): void => {
             if (handoffDeadline.signal.aborted) return;
             if (handoffTimer) clearTimeout(handoffTimer);
-            handoffDeadlineAt = Date.now() + handoffTimeoutMs;
-            handoffTimer = setTimeout(() => handoffDeadline.abort(handoffTimeoutError), handoffTimeoutMs);
+            const now = Date.now();
+            let remainingMs = Math.max(0, globalDeadlineAt - now);
+            if (extendMs && remainingMs > 0) {
+              remainingMs = Math.min(remainingMs + extendMs, MAX_COMPACTION_HANDOFF_TIMEOUT_MS);
+            }
+            if (remainingMs <= 0) {
+              handoffDeadline.abort(handoffTimeoutError);
+              return;
+            }
+            handoffDeadlineAt = now + remainingMs;
+            handoffTimer = setTimeout(() => handoffDeadline.abort(handoffTimeoutError), remainingMs);
             handoffTimer.unref?.();
           };
           armHandoffDeadline();
@@ -415,9 +443,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           const runFreshCompaction = async (reason: string): Promise<string> => {
             route = freshConversationPerTurn ? "fresh" : "fallback";
             record("prepared", "pending", { reasonCode: reason });
-            // Fresh compaction is a bounded phase. Each exact multipart acknowledgement
-            // and the final accepted compact prompt re-arms the five-minute liveness budget;
-            // transport time cannot consume the model-generation window.
+            // Fresh compaction is bounded by the global compaction budget
             armHandoffDeadline();
             // Truncate any individual messages that exceed the per-stage browser char limit.
             // This is the only path where truncation is acceptable: the model is summarizing
@@ -429,7 +455,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               manualRequest ? environment : undefined,
               freshCompactionTraceId,
               turnCapabilities,
-              { onCompactionProgress: armHandoffDeadline, onHeartbeat: () => emit({ type: "heartbeat" }) },
+              {
+                onCompactionProgress: () => armHandoffDeadline(30_000),
+                onHeartbeat: () => emit({ type: "heartbeat" }),
+              },
             );
             retainOwnershipUntil(fallbackRuntime.physicalSettlement);
             try {
@@ -441,6 +470,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               let summary = canonicalizeCompactionHandoff(
                 parsed,
                 rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
+                { autoHeal: true },
               );
               let quality = validateCompactionQuality(parsed.context.messages, summary, {
                 requireStructured: true,
@@ -520,6 +550,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     summary = canonicalizeCompactionHandoff(
                       parsed,
                       repaired.trim() ? repaired : "Empty checkpoint draft",
+                      { autoHeal: true },
                     );
                     quality = validateCompactionQuality(parsed.context.messages, summary, {
                       requireStructured: true,
@@ -563,6 +594,19 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               retainOwnershipUntil(settlement);
               await withAbort(settlement, operationSignal);
               return await runFreshCompaction("configured_fresh_conversation");
+            }
+            if (isHeavyCompactionTurn(parsed.context.messages)) {
+              console.info(
+                "[chatgpt-web] compaction_heavy_turn_fast_path: Bypassing bloated retained session directly to clean fresh compaction",
+              );
+              const previous = chatGptTurnSessions.find(compactedSourceExecutionKey);
+              const settlement =
+                previous?.settledOutcome()?.type === "final"
+                  ? previous.physicalSettlement
+                  : chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey).then(() => {});
+              retainOwnershipUntil(settlement);
+              await withAbort(settlement, operationSignal);
+              return await runFreshCompaction("heavy_turn_fast_path");
             }
             // The previous compaction may already have detached the retained head while
             // its browser/helper is still unwinding. Do not inspect that old epoch or
@@ -646,6 +690,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             let summary = canonicalizeCompactionHandoff(
               parsed,
               rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
+              { autoHeal: true },
             );
             let quality = validateCompactionQuality(parsed.context.messages, summary, {
               requireStructured: true,
@@ -731,7 +776,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     operatorSignal.aborted ? "operator_cancelled" : repairOutcome,
                   );
                 }
-                summary = canonicalizeCompactionHandoff(parsed, repaired.trim() ? repaired : "Empty checkpoint draft");
+                summary = canonicalizeCompactionHandoff(parsed, repaired.trim() ? repaired : "Empty checkpoint draft", {
+                  autoHeal: true,
+                });
                 quality = validateCompactionQuality(parsed.context.messages, summary, {
                   requireStructured: true,
                   evidenceSessionId: compactionSessionId(parsed),
