@@ -17,7 +17,6 @@ import {
   LauncherRetainedConversationUnavailableError,
   notifyLauncherTurn,
 } from "../../launcher-browser-host";
-import { estimateTokens } from "../../lib/token-estimate";
 import type { CodexProviderConfig } from "../../types";
 import {
   ChatGptCompactionHandoffAccepted,
@@ -61,12 +60,7 @@ import {
 import { ChatGptTurnEventBus } from "./browser/turn-events";
 import { type InteractiveBrowserTurnLock, interactiveBrowserTurnMutex } from "./browser-mutex";
 import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "./concurrency";
-import {
-  createBrowserPayloadAcceptanceRecorder,
-  estimateChatGptWebImageTokens,
-  measureCompiledBrowserPayload,
-  measureCompiledChatGptWebInput,
-} from "./input-tokens";
+import { createBrowserPayloadAcceptanceRecorder } from "./input-tokens";
 import { LauncherBrowserHelperClient } from "./launcher-helper-client";
 import { detectChatGptLimitsPlan, readChatGptUsageAccount, supportsChatGptUsageTracking } from "./limits";
 import { ChatGptMarkdownBuffer, ChatGptMarkdownConsistencyError, inspectCompactionResponseSurface } from "./markdown";
@@ -76,14 +70,8 @@ import {
   type ChatGptWebCapabilities,
   resolveChatGptWebModelMode,
 } from "./model";
-import {
-  type ChatGptWebMultipartStage,
-  type CompiledChatGptWebPrompt,
-  formatChatGptWebMultipartCommit,
-  formatChatGptWebMultipartStage,
-} from "./prompt";
+import type { ChatGptWebMultipartStage, CompiledChatGptWebPrompt } from "./prompt";
 import { type CapturedChatGptLunaCheckpoint, ChatGptLunaCheckpointStream } from "./rolling-checkpoint";
-import { skillFileTokens } from "./skill-attachments";
 import type { ChatGptTurnProgressReader } from "./turn-progress";
 import { chatGptExternalToolCallsAreInFlight } from "./turn-progress";
 
@@ -219,6 +207,7 @@ import {
   chatGptExternalProgressSuppressesDomHealth,
   MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS,
 } from "./browser/dom-trackers";
+import { buildMultipartPlan } from "./browser/multipart-plan";
 import {
   CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
   ChatGptPromptAttachmentIntegrityError,
@@ -230,11 +219,6 @@ import {
 } from "./browser/overlays";
 import { assertChatGptPromptAttachments } from "./browser/payloads";
 import { promptEquivalentPrefixLength, promptTextEquivalent } from "./browser/prompt-equivalence";
-import {
-  assertChatGptWebInputWithinLimits,
-  assertChatGptWebMultipartInputWithinLimits,
-  resolveChatGptWebMultipartStagingMode,
-} from "./browser/staging-limits";
 import {
   browserStageTimeouts,
   CHATGPT_MIN_OPERATIONAL_VIEWPORT,
@@ -1601,82 +1585,26 @@ export class ChatGptBrowserWorker {
       if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
       // Validate only the selected physical message, not canonical history used for usage estimates.
       assertChatGptPromptAttachments(prepared);
-      const multipartTransactionId = prepared.multipart ? `ctx_${randomUUID().replaceAll("-", "")}` : undefined;
-      const multipartStages =
-        prepared.multipart && multipartTransactionId
-          ? prepared.multipart.parts
-              .slice(0, -1)
-              .map((payload, index) =>
-                formatChatGptWebMultipartStage(
-                  payload,
-                  multipartTransactionId,
-                  index + 1,
-                  prepared.multipart!.parts.length,
-                ),
-              )
-          : undefined;
-      const multipartFinalPrompt =
-        prepared.multipart && multipartTransactionId
-          ? formatChatGptWebMultipartCommit(prepared.multipart, multipartTransactionId)
-          : undefined;
-      const selectedMessages =
-        multipartStages && multipartFinalPrompt
-          ? [...multipartStages.map((stage) => stage.text), multipartFinalPrompt]
-          : [prepared.text];
-      const browserPayload = measureCompiledBrowserPayload(prepared, turn.modelId, selectedMessages);
+      // The staging plan (transport split, payload metrics, token estimates, and the limit
+      // assertions) is built by a pure module at the same point where the inline block used to
+      // run, so every limit violation still throws before any browser work starts.
       const {
-        inputTokens: estimatedInputTokens,
-        maxMessageTokens: estimatedMessageTokens,
+        multipartTransactionId,
+        multipartStages,
+        multipartFinalPrompt,
+        selectedMessages,
+        browserPayload,
+        estimatedInputTokens,
         maxMessageChars,
-      } = measureCompiledChatGptWebInput(prepared, turn.modelId, browserPayload);
-      const maxStageMessageTokens = multipartStages
-        ? Math.max(...multipartStages.map((stage) => estimateTokens(stage.text, turn.modelId)))
-        : undefined;
-      const maxStageChars = multipartStages
-        ? Math.max(...multipartStages.map((stage) => stage.text.length))
-        : undefined;
-      const stagingMode = multipartStages
-        ? resolveChatGptWebMultipartStagingMode(
-            turn.modelId,
-            browserCapabilities,
-            maxStageMessageTokens!,
-            maxStageChars!,
-          )
-        : requestedMode;
-      if (prepared.multipart) {
-        assertChatGptWebMultipartInputWithinLimits(
-          estimatedInputTokens,
-          estimatedMessageTokens,
-          turn.modelId,
-          requestedMode.effort,
-          browserCapabilities,
-          maxMessageChars,
-          prepared.multipart.parts.length,
-          multipartStages && multipartFinalPrompt && maxStageMessageTokens !== undefined && maxStageChars !== undefined
-            ? {
-                stagingEffort: stagingMode.effort,
-                maxStageMessageTokens,
-                maxStageChars,
-                finalMessageTokens:
-                  estimateTokens(multipartFinalPrompt, turn.modelId) +
-                  skillFileTokens(prepared.skillFiles, turn.modelId),
-                finalMessageChars: multipartFinalPrompt.length,
-                finalImageTokens: estimateChatGptWebImageTokens(prepared),
-                isCompaction: turn.compaction === true,
-              }
-            : undefined,
-          turn.compaction === true,
-        );
-      } else {
-        assertChatGptWebInputWithinLimits(
-          estimatedInputTokens,
-          estimatedMessageTokens,
-          turn.modelId,
-          requestedMode.effort,
-          browserCapabilities,
-          maxMessageChars,
-        );
-      }
+        maxStageMessageTokens,
+        maxStageChars,
+        stagingMode,
+      } = buildMultipartPlan(prepared, {
+        modelId: turn.modelId,
+        capabilities: browserCapabilities,
+        requestedMode,
+        compaction: turn.compaction === true,
+      });
       // The provider exposes no token-cache read/write accounting through this browser surface.
       // Record only the selected physical payload, and only once the respective Send is accepted.
       const recordAcceptedPayload = createBrowserPayloadAcceptanceRecorder(
