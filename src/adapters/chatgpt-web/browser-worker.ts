@@ -431,6 +431,12 @@ export class ChatGptBrowserWorker {
   }
 
   run(turn: BrowserTurn): Promise<string> {
+    // Fail fast with the same trace id contract the diagnostics recorder enforces, so an invalid
+    // id never reaches prompt preparation (whose prepared resource would otherwise leak when the
+    // turn aborts before staging).
+    if (!/^[A-Za-z0-9_-]{6,128}$/.test(turn.traceId)) {
+      return Promise.reject(new Error("ChatGPT web browser turn trace id is invalid"));
+    }
     if (this.activeRuns.has(turn.traceId)) {
       return Promise.reject(new Error(`Duplicate ChatGPT web browser turn: ${turn.traceId}`));
     }
@@ -1619,32 +1625,38 @@ export class ChatGptBrowserWorker {
     const prepare = reuseConversation ? turn.prepareResume : turn.prepare;
     if (!prepare) throw new Error("The retained ChatGPT conversation has no continuation prompt");
     const prepared = await prepare();
-    const diagnostics = new ChatGptBrowserDiagnostics(
-      turn.traceId,
-      this.config.browserDiagnosticsPath ?? join(getConfigDir(), "diagnostics", "browser-turns"),
-      this.config.appName,
-    );
     let turnConnection: Browser | undefined;
     let managedPage: Page | undefined;
     let diagnosticPage: Page | undefined;
     const usageWrites: Promise<void>[] = [];
     const submissionRejection = new ChatGptSubmissionRejectionObserver();
-    const turnEvents = new ChatGptTurnEventBus({
-      sessionId: turn.conversationKey,
-      surfaceId: launcherSurfaceId,
-      turnId: turn.traceId,
-    });
-    if (!this.turnEventBuses) {
-      this.turnEventBuses = new Map();
-    }
-    this.turnEventBuses.set(turn.traceId, turnEvents);
-    while ((this.turnEventBuses?.size ?? 0) > 8) {
-      const oldest = this.turnEventBuses!.keys().next().value;
-      if (oldest === undefined || oldest === turn.traceId) break;
-      this.turnEventBuses!.delete(oldest);
-    }
     let onNetworkResponse: ((response: { url(): string; status(): number }) => void) | undefined;
+    // Diagnostics and the event bus are constructed inside the try: neither may throw past the
+    // finally block below, which is the only guaranteed release of the prepared prompt resource.
+    // Definite-assignment keeps the in-try call sites unchanged; catch/finally use optional
+    // chaining because a construction failure leaves both unset.
+    let diagnostics!: ChatGptBrowserDiagnostics;
+    let turnEvents!: ChatGptTurnEventBus;
     try {
+      diagnostics = new ChatGptBrowserDiagnostics(
+        turn.traceId,
+        this.config.browserDiagnosticsPath ?? join(getConfigDir(), "diagnostics", "browser-turns"),
+        this.config.appName,
+      );
+      turnEvents = new ChatGptTurnEventBus({
+        sessionId: turn.conversationKey,
+        surfaceId: launcherSurfaceId,
+        turnId: turn.traceId,
+      });
+      if (!this.turnEventBuses) {
+        this.turnEventBuses = new Map();
+      }
+      this.turnEventBuses.set(turn.traceId, turnEvents);
+      while ((this.turnEventBuses?.size ?? 0) > 8) {
+        const oldest = this.turnEventBuses!.keys().next().value;
+        if (oldest === undefined || oldest === turn.traceId) break;
+        this.turnEventBuses!.delete(oldest);
+      }
       if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
       // Validate only the selected physical message, not canonical history used for usage estimates.
       assertChatGptPromptAttachments(prepared);
@@ -2798,7 +2810,7 @@ export class ChatGptBrowserWorker {
         if (turn.compaction && diagnosticPage) this.getContextPressure(diagnosticPage).reset();
         console.info(`[chatgpt-web] browser turn ${turn.traceId} ended after accepted structured compaction handoff`);
         if (diagnosticPage && !diagnosticPage.isClosed()) {
-          await diagnostics.capture(diagnosticPage, "compaction-handoff-accepted");
+          await diagnostics?.capture(diagnosticPage, "compaction-handoff-accepted");
         }
         turnEvents?.publish({ type: "compaction_handoff_observed", source: "host" });
         throw turn.abortSignal.reason;
@@ -2808,14 +2820,14 @@ export class ChatGptBrowserWorker {
           ` ${redactChatGptUiDiagnostic(error instanceof Error ? error.message : String(error))}`,
       );
       if (diagnosticPage && !diagnosticPage.isClosed()) {
-        await diagnostics.capture(diagnosticPage, "turn-failed", error);
+        await diagnostics?.capture(diagnosticPage, "turn-failed", error);
       }
       throw error;
     } finally {
       if (onNetworkResponse && typeof diagnosticPage?.off === "function") {
         diagnosticPage.off("response", onNetworkResponse);
       }
-      turnEvents.dispose();
+      turnEvents?.dispose();
       submissionRejection.dispose();
       await Promise.all(usageWrites);
       prepared.release();
