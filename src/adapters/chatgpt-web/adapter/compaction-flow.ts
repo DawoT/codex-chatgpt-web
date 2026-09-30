@@ -4,6 +4,7 @@ import { COMPACT_PROMPT, compactionDraftText, extractStructuredCompactionHandoff
 import type { AdapterEvent, CodexMessage, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { validateCompactionQuality } from "../autonomous-compaction";
+import { ChatGptBrowserObservationTimeoutError } from "../browser/suspension-clock";
 import type { ChatGptBrowserWorker } from "../browser-worker";
 import { acceptedCompactionEpoch } from "../compaction-continuation";
 import {
@@ -470,7 +471,6 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               let summary = canonicalizeCompactionHandoff(
                 parsed,
                 rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
-                { autoHeal: true },
               );
               let quality = validateCompactionQuality(parsed.context.messages, summary, {
                 requireStructured: true,
@@ -550,7 +550,6 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     summary = canonicalizeCompactionHandoff(
                       parsed,
                       repaired.trim() ? repaired : "Empty checkpoint draft",
-                      { autoHeal: true },
                     );
                     quality = validateCompactionQuality(parsed.context.messages, summary, {
                       requireStructured: true,
@@ -690,7 +689,6 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             let summary = canonicalizeCompactionHandoff(
               parsed,
               rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
-              { autoHeal: true },
             );
             let quality = validateCompactionQuality(parsed.context.messages, summary, {
               requireStructured: true,
@@ -776,9 +774,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     operatorSignal.aborted ? "operator_cancelled" : repairOutcome,
                   );
                 }
-                summary = canonicalizeCompactionHandoff(parsed, repaired.trim() ? repaired : "Empty checkpoint draft", {
-                  autoHeal: true,
-                });
+                summary = canonicalizeCompactionHandoff(parsed, repaired.trim() ? repaired : "Empty checkpoint draft");
                 quality = validateCompactionQuality(parsed.context.messages, summary, {
                   requireStructured: true,
                   evidenceSessionId: compactionSessionId(parsed),
@@ -894,15 +890,24 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       const handoffError = error instanceof Error ? error : new Error(String(error));
       const upstreamError = handoffError instanceof ChatGptWebAdapterError ? handoffError : undefined;
       await rejectCheckpointIfOpen();
+      const isObservationTimeout =
+        handoffError instanceof ChatGptBrowserObservationTimeoutError ||
+        (handoffError as { code?: string }).code === "browser_dom_observation_timeout";
+      const errorCode =
+        upstreamError?.code ?? (isObservationTimeout ? "browser_dom_observation_timeout" : "compaction_handoff_failed");
       record("failed", "failed", {
-        reasonCode: upstreamError?.code ?? "compaction_handoff_failed",
+        reasonCode: errorCode,
       });
+      const message =
+        upstreamError?.message ||
+        handoffError.message ||
+        "ChatGPT did not complete the context handoff. Retry the task.";
       emit({
         type: "error",
-        message: upstreamError?.message ?? "ChatGPT did not complete the context handoff. Retry the task.",
-        status: upstreamError?.status ?? 409,
-        errorType: upstreamError?.errorType ?? "invalid_request_error",
-        code: upstreamError?.code ?? "compaction_handoff_failed",
+        message,
+        status: upstreamError?.status ?? (isObservationTimeout ? 504 : 409),
+        errorType: upstreamError?.errorType ?? (isObservationTimeout ? "server_error" : "invalid_request_error"),
+        code: errorCode,
         // Compaction retry remains an explicit operator decision even when its source
         // failure was retryable; preserve the cause without opening a new retry loop.
         retryable: false,

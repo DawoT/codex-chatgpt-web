@@ -548,7 +548,7 @@ function parseRequirementItem(raw: string): CompactionRequirement | null {
         return {
           id: typeof obj.id === "string" ? obj.id : "",
           status: obj.status === "verified" || obj.status === "blocked" ? obj.status : "pending",
-          source: typeof obj.source === "string" ? obj.source : trimmed,
+          source: typeof obj.source === "string" ? obj.source : "",
           ...(typeof obj.evidence === "string" ? { evidence: obj.evidence } : {}),
           ...(Array.isArray(obj.evidenceRefs) ? { evidenceRefs: obj.evidenceRefs as string[] } : {}),
         };

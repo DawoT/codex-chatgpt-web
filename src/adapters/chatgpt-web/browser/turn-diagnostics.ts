@@ -71,6 +71,13 @@ export interface ChatGptTurnDiagnosticsHost {
     afterProgressRevision: number,
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
+    options?: {
+      horizonMs?: number;
+      settleMs?: number;
+      observationTimeoutMs?: number;
+      domChars?: number;
+      payloadChars?: number;
+    },
   ): Promise<string>;
   responseDomSnapshot(responseTurn: Locator, cache?: ChatGptResponseDomCache): Promise<ChatGptResponseDomSnapshot>;
   waitForSubmissionAccepted(

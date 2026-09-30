@@ -1,7 +1,7 @@
 import type { Page } from "playwright-core";
 import { CHATGPT_DOM_REVISION_ATTRIBUTES } from "./dom-trackers";
 import {
-  CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
+  resolveAdaptiveObservationProbeTimeoutMs,
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
 } from "./suspension-clock";
@@ -41,12 +41,28 @@ export interface ChatGptDomRevisionWaitOptions {
    * their existing unresponsive-page recovery (page rebind) instead of hanging.
    */
   observationTimeoutMs?: number;
+  /** Estimated DOM characters to adaptively scale the probe watchdog. */
+  domChars?: number;
+  /** Staged payload character length to adaptively scale the probe watchdog. */
+  payloadChars?: number;
   /**
    * Require a fresh mutation even when `afterKey` is omitted. The general wait reads the current
    * key immediately in that case; settle barriers (waitForChatGptDomSettle) set this so a quiet
    * page really waits out its horizon instead of resolving instantly.
    */
   requireMutation?: boolean;
+}
+
+/**
+ * Calculates adaptive probe watchdog timeout based on horizon and payload / DOM volume.
+ * Avoids false timeout errors when Chromium's V8 main thread spends multiple seconds rendering
+ * massive React markdown DOM trees (e.g. 135k characters in Bigger Context compaction).
+ */
+export function resolveDomRevisionProbeTimeoutMs(options: ChatGptDomRevisionWaitOptions = {}): number {
+  if (options.observationTimeoutMs !== undefined) return options.observationTimeoutMs;
+  const horizonMs = options.horizonMs ?? 500;
+  const estimatedChars = Math.max(Number(options.domChars) || 0, Number(options.payloadChars) || 0);
+  return horizonMs + resolveAdaptiveObservationProbeTimeoutMs(estimatedChars);
 }
 
 export async function waitForChatGptDomRevision(
@@ -141,7 +157,7 @@ export async function waitForChatGptDomRevision(
       ),
       options.signal,
     ),
-    options.observationTimeoutMs ?? horizonMs + CHATGPT_BROWSER_OBSERVATION_PROBE_TIMEOUT_MS,
+    resolveDomRevisionProbeTimeoutMs(options),
   );
 }
 
@@ -159,6 +175,8 @@ export async function waitForChatGptDomSettle(
     horizonMs?: number;
     signal?: AbortSignal;
     observationTimeoutMs?: number;
+    domChars?: number;
+    payloadChars?: number;
   } = {},
 ): Promise<ChatGptDomRevisionVerdict> {
   return waitForChatGptDomRevision(page, {
@@ -167,6 +185,8 @@ export async function waitForChatGptDomSettle(
     horizonMs: options.horizonMs ?? 250,
     signal: options.signal,
     observationTimeoutMs: options.observationTimeoutMs,
+    domChars: options.domChars,
+    payloadChars: options.payloadChars,
     requireMutation: true,
   });
 }

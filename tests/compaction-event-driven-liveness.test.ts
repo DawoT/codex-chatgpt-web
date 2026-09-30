@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { submittedTurnFailure } from "../src/adapters/chatgpt-web/adapter/tool-lifecycle";
 import { ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
 import { ChatGptTurnDomHealthTracker } from "../src/adapters/chatgpt-web/browser/dom-trackers";
+import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 import { ChatGptTurnEventBus } from "../src/adapters/chatgpt-web/browser/turn-events";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import type { ChatGptTurnSession } from "../src/adapters/chatgpt-web/turn-execution";
@@ -304,6 +305,70 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
           status: 504,
           retryable: false,
         });
+      } finally {
+        Date.now = originalNow;
+      }
+    });
+
+    it("defers probe timeout during heavy multipart staging ingestion when stage grace is active", async () => {
+      const mockLocator = createMockLocator();
+      const fakePage = {
+        isClosed: () => false,
+        locator: () => mockLocator,
+      };
+      const fakeBinding = {
+        locator: mockLocator,
+        identity: "turn-1",
+      };
+
+      const observe = (ChatGptBrowserWorker.prototype as any).waitForMultipartAcknowledgement;
+      const turnEvents = new ChatGptTurnEventBus({ sessionId: "test-session", turnId: "turn-1" });
+
+      let attempts = 0;
+      let heartbeats = 0;
+      const originalNow = Date.now;
+      let fakeTime = 1_000_000;
+      Date.now = () => fakeTime;
+
+      try {
+        await observe.call(
+          {
+            responseDomSnapshot: async () => {
+              attempts += 1;
+              fakeTime += 2_500;
+              if (attempts <= 2) {
+                // First 2 probes fail with probe timeout due to Chromium rendering 135k characters
+                throw new ChatGptBrowserObservationTimeoutError(5250);
+              }
+              // Third probe succeeds once React completes rendering
+              return {
+                responsePresent: true,
+                stoppedThinkingVisible: false,
+                visibleText: "STAGED_OK",
+                completionActionVisible: true,
+                fullHtml: "<p>STAGED_OK</p>",
+              };
+            },
+            waitForTurnDomRevisionOrExternalProgress: async () => {
+              return "key-1";
+            },
+          },
+          fakePage,
+          fakeBinding,
+          {},
+          { text: "x".repeat(135_231), acknowledgement: "STAGED_OK", sha256: "hash" },
+          fakeTime + 180_000, // 180s deadline
+          undefined,
+          undefined,
+          undefined,
+          turnEvents,
+          () => {
+            heartbeats += 1;
+          },
+        );
+
+        expect(attempts).toBe(4);
+        expect(heartbeats).toBeGreaterThanOrEqual(1);
       } finally {
         Date.now = originalNow;
       }

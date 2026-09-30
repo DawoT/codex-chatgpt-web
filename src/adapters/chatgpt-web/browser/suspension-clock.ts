@@ -130,9 +130,13 @@ export function resolveAdaptiveObservationProbeTimeoutMs(domChars: number, _acti
 }
 
 export class ChatGptBrowserObservationTimeoutError extends Error {
+  readonly code = "browser_dom_observation_timeout";
+  readonly timeoutMs: number;
+
   constructor(timeoutMs: number) {
     super(`ChatGPT browser DOM observation did not respond within ${timeoutMs}ms`);
     this.name = "ChatGptBrowserObservationTimeoutError";
+    this.timeoutMs = timeoutMs;
   }
 }
 

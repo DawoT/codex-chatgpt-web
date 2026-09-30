@@ -638,6 +638,13 @@ export class ChatGptBrowserWorker {
     afterProgressRevision: number,
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
+    options?: {
+      horizonMs?: number;
+      settleMs?: number;
+      observationTimeoutMs?: number;
+      domChars?: number;
+      payloadChars?: number;
+    },
   ): Promise<string> {
     return SubmissionObserver.prototype.waitForTurnDomRevisionOrExternalProgress.call(
       this as unknown as ChatGptSubmissionObserverHost,
@@ -646,6 +653,7 @@ export class ChatGptBrowserWorker {
       afterProgressRevision,
       externalProgress,
       signal,
+      options,
     );
   }
 
@@ -1038,25 +1046,45 @@ export class ChatGptBrowserWorker {
     let lastRunning: boolean | undefined;
     let domSignalKey: string | undefined;
 
+    const payloadChars = typeof stage?.text === "string" ? stage.text.length : undefined;
+
     const waitForTurnSignal = async (): Promise<void> => {
       const previousKey = domSignalKey;
       const progressRev = externalProgress?.snapshot().revision ?? 0;
-      if (typeof this.waitForTurnDomRevisionOrExternalProgress === "function") {
-        domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
-          page,
-          domSignalKey,
-          progressRev,
-          externalProgress,
-          abortSignal,
-        );
-      } else {
-        const verdict = await waitForChatGptDomRevision(page, {
-          afterKey: domSignalKey,
-          settleMs: 150,
-          horizonMs: 250,
-          signal: abortSignal,
-        });
-        domSignalKey = verdict.key;
+      try {
+        if (typeof this.waitForTurnDomRevisionOrExternalProgress === "function") {
+          domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+            page,
+            domSignalKey,
+            progressRev,
+            externalProgress,
+            abortSignal,
+            { payloadChars },
+          );
+        } else {
+          const verdict = await waitForChatGptDomRevision(page, {
+            afterKey: domSignalKey,
+            settleMs: 150,
+            horizonMs: 250,
+            signal: abortSignal,
+            payloadChars,
+          });
+          domSignalKey = verdict.key;
+        }
+      } catch (error) {
+        if (
+          error instanceof ChatGptBrowserObservationTimeoutError &&
+          !page.isClosed() &&
+          (deadline === undefined || Date.now() < deadline)
+        ) {
+          console.warn(
+            `[chatgpt-web] multipart stage DOM observation signal timed out during heavy rendering; deferring without failure`,
+          );
+          onHeartbeat?.();
+          turnEvents?.publish({ type: "observation_faulted", source: "host", message: error.message });
+          return;
+        }
+        throw error;
       }
       const newProgressRev = externalProgress?.snapshot().revision ?? 0;
       if (newProgressRev > progressRev) {
@@ -1105,10 +1133,19 @@ export class ChatGptBrowserWorker {
           activeToolCalls: currentProgress?.activeToolCalls,
           inFlightCalls: currentCallsInFlight || currentProgress?.claimed,
         });
-        if (currentProgressLive || currentCallsInFlight || isRunning || multiChannelLivenessActive) {
+        const stageGraceActive = !page.isClosed() && (deadline === undefined || Date.now() < deadline);
+        if (
+          currentProgressLive ||
+          currentCallsInFlight ||
+          isRunning ||
+          multiChannelLivenessActive ||
+          stageGraceActive
+        ) {
           console.warn(
-            `[chatgpt-web] multipart stage DOM observation probe timed out while generation or external progress is active; deferring without failure`,
+            `[chatgpt-web] multipart stage DOM observation probe timed out while generation, context ingestion, or stage grace is active; deferring without failure`,
           );
+          onHeartbeat?.();
+          turnEvents?.publish({ type: "observation_faulted", source: "host", message: error.message });
           await waitForTurnSignal();
           continue;
         }

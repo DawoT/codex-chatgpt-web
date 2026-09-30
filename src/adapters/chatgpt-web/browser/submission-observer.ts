@@ -72,6 +72,13 @@ export interface ChatGptSubmissionObserverHost {
     afterProgressRevision: number,
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
+    options?: {
+      horizonMs?: number;
+      settleMs?: number;
+      observationTimeoutMs?: number;
+      domChars?: number;
+      payloadChars?: number;
+    },
   ): Promise<string>;
   waitForSubmissionAccepted(
     page: Page,
@@ -145,17 +152,30 @@ export class SubmissionObserver {
     afterProgressRevision: number,
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
+    options?: {
+      horizonMs?: number;
+      settleMs?: number;
+      observationTimeoutMs?: number;
+      domChars?: number;
+      payloadChars?: number;
+    },
   ): Promise<string> {
-    if (this.waitForTurnDomOrExternalProgress !== SubmissionObserver.prototype.waitForTurnDomOrExternalProgress) {
+    if (
+      typeof this.waitForTurnDomOrExternalProgress === "function" &&
+      this.waitForTurnDomOrExternalProgress !== SubmissionObserver.prototype.waitForTurnDomOrExternalProgress
+    ) {
       await this.waitForTurnDomOrExternalProgress(page, afterProgressRevision, externalProgress, signal);
       return afterDomKey ?? "legacy-stub";
     }
     let domKey = afterDomKey;
     const domSignal = waitForChatGptDomRevision(page, {
       afterKey: afterDomKey,
-      settleMs: 150,
-      horizonMs: 250,
+      settleMs: options?.settleMs ?? 150,
+      horizonMs: options?.horizonMs ?? 250,
       signal,
+      observationTimeoutMs: options?.observationTimeoutMs,
+      domChars: options?.domChars,
+      payloadChars: options?.payloadChars,
     });
     if (!externalProgress) return (await domSignal).key;
     const trackedKey = domSignal.then((verdict) => {

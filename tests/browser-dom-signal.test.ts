@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { createContext, runInContext } from "node:vm";
 import { chromium, type Page } from "playwright-core";
-import { waitForChatGptDomRevision, waitForChatGptDomSettle } from "../src/adapters/chatgpt-web/browser/dom-signal";
+import {
+  resolveDomRevisionProbeTimeoutMs,
+  waitForChatGptDomRevision,
+  waitForChatGptDomSettle,
+} from "../src/adapters/chatgpt-web/browser/dom-signal";
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 
 const BROWSER_PATH = process.env.CHATGPT_DOM_TEST_BROWSER ?? "/usr/bin/google-chrome";
@@ -169,4 +173,21 @@ test("a renderer that never settles raises the observation timeout instead of ha
   await expect(waitForChatGptDomRevision(page, { horizonMs: 100, observationTimeoutMs: 50 })).rejects.toThrow(
     ChatGptBrowserObservationTimeoutError,
   );
+});
+
+test("resolveDomRevisionProbeTimeoutMs scales adaptively based on domChars or payloadChars", () => {
+  // Baseline small DOM with default 500ms horizon
+  expect(resolveDomRevisionProbeTimeoutMs({ horizonMs: 500 })).toBe(500 + 6_000);
+
+  // Large payload (135,231 chars from stage 3) with 250ms horizon
+  const timeout135k = resolveDomRevisionProbeTimeoutMs({ horizonMs: 250, payloadChars: 135_231 });
+  expect(timeout135k).toBe(250 + 6_000 + Math.floor(135_231 / 50));
+  expect(timeout135k).toBeGreaterThan(8_900);
+
+  // Massive DOM (1M chars) with 250ms horizon
+  const timeout1M = resolveDomRevisionProbeTimeoutMs({ horizonMs: 250, domChars: 1_000_000 });
+  expect(timeout1M).toBe(250 + 26_000);
+
+  // Explicit observationTimeoutMs always takes precedence
+  expect(resolveDomRevisionProbeTimeoutMs({ horizonMs: 250, observationTimeoutMs: 42_000 })).toBe(42_000);
 });

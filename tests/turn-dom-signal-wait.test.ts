@@ -4,6 +4,7 @@ import { chatGptActiveComposer } from "../src/adapters/chatgpt-web/browser/compo
 import { ChatGptCompletionTracker } from "../src/adapters/chatgpt-web/browser/dom-trackers";
 import { resolveChatGptToolConfirmation } from "../src/adapters/chatgpt-web/browser/overlays";
 import { setChatGptThinkMode } from "../src/adapters/chatgpt-web/browser/payloads";
+import { SubmissionObserver } from "../src/adapters/chatgpt-web/browser/submission-observer";
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 import { ChatGptTurnEventBus } from "../src/adapters/chatgpt-web/browser/turn-events";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
@@ -430,4 +431,31 @@ test("resolveChatGptToolConfirmation waits on DOM revision signal when autoAppro
   const resolved = await resolveChatGptToolConfirmation(mockPage, "TestApp", false, undefined, 500);
   expect(resolved).toBe(true);
   expect(domSignalWaits).toBeGreaterThanOrEqual(1);
+});
+
+test("waitForTurnDomRevisionOrExternalProgress propagates adaptive payloadChars and relaxed horizon", async () => {
+  let evaluatedHorizon: number | undefined;
+  const mockPage = {
+    isClosed: () => false,
+    evaluate: async (_fn: any, args: any) => {
+      if (args && typeof args.horizon === "number") {
+        evaluatedHorizon = args.horizon;
+        return { key: "doc:1", revision: 1, timedOut: false };
+      }
+      return undefined;
+    },
+  } as unknown as Page;
+
+  const key = await SubmissionObserver.prototype.waitForTurnDomRevisionOrExternalProgress.call(
+    SubmissionObserver.prototype as any,
+    mockPage,
+    undefined,
+    0,
+    undefined,
+    undefined,
+    { horizonMs: 1_000, payloadChars: 135_231 },
+  );
+
+  expect(key).toBe("doc:1");
+  expect(evaluatedHorizon).toBe(1_000);
 });

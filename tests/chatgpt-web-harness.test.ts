@@ -1362,7 +1362,8 @@ describe("ChatGPT outer-native harness v4", () => {
           type: "error",
           code: "chatgpt_submission_ambiguous",
           retryable: false,
-          message: "ChatGPT did not confirm that the prompt was sent. Check the ChatGPT tab before continuing.",
+          message:
+            "ChatGPT did not confirm that the prompt was sent (submission evidence disappeared after Send activation). Check the ChatGPT tab before continuing.",
         });
       }
       expect(browserStarts).toBe(1);
@@ -3254,6 +3255,7 @@ next_actions:
         "codex_wait_tasks",
         "codex_write_file",
         "codex_write_stdin",
+        "image_gen",
       ]);
       const publicConnectorAbi = listed.tools.map((tool) => ({
         name: tool.name,
@@ -3266,7 +3268,7 @@ next_actions:
       // ChatGPT caches the complete tools/list contract under a connector identity.
       // An intentional hash change therefore requires an explicit connector refresh or identity migration.
       expect(createHash("sha256").update(canonicalJson(publicConnectorAbi)).digest("hex")).toBe(
-        "f26da610a9f59bc68cc4ba9e71b08ae442f838bb3ee2d2ce2f502bf06d55c545",
+        "cb54b9edc4dd398b78d16a8542c9b8462c137be687be25f27e7a827a7cb93bc5",
       );
       for (const tool of listed.tools) {
         const properties = tool.inputSchema.properties as Record<string, unknown>;
