@@ -2467,6 +2467,13 @@ export class ChatGptBrowserWorker {
                 try {
                   return markdownBuffer.finish();
                 } catch (error) {
+                  if (error instanceof ChatGptMarkdownConsistencyError) {
+                    console.warn(
+                      `[chatgpt-web] browser turn ${turn.traceId} recovered from Markdown completion conflict (${error.diagnostic?.reason ?? error.message}); completing turn cleanly`,
+                      error.diagnostic,
+                    );
+                    return markdownBuffer.forceFinish();
+                  }
                   return throwMarkdownConsistencyError(error);
                 }
               })();

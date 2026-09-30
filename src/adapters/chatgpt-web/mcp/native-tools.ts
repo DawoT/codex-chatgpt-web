@@ -49,7 +49,7 @@ export function registerNativeAndSafeTools(server: McpServer, coordinator: TurnC
 
     registerLegacyFilesystemTools(server, coordinator);
     registerHostRegistryTools(server, coordinator);
-    registerImageTools(server);
+    registerImageTools(server, { contract, token: coordinator.authSessionToken });
   }
 
   if (contract === "safe") {

@@ -187,8 +187,14 @@ export class ResponseObserver {
             streamingStatusContainers,
             activityContainers,
           );
-          const commentaryRoots = classified.commentaryRoots;
-          const renderedRoots = classified.answerRoots;
+          const knownCommentary = ((observerState as any).knownCommentaryRoots ??= new WeakSet<HTMLElement>());
+          for (const root of classified.commentaryRoots) {
+            knownCommentary.add(root);
+          }
+          const commentaryRoots = allMarkdownRoots.filter(
+            (candidate) => classified.commentaryRoots.includes(candidate) || knownCommentary.has(candidate),
+          );
+          const renderedRoots = classified.answerRoots.filter((root) => !knownCommentary.has(root));
           // CHATGPT_MARKDOWN_CONTENT_BEGIN
           const chatGptMarkdownContent = (markdownRoot: HTMLElement): HTMLElement => {
             const content = markdownRoot.cloneNode(true) as HTMLElement;

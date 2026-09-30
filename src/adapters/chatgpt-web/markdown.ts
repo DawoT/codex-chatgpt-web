@@ -417,6 +417,22 @@ export class ChatGptMarkdownBuffer {
     return { markdown: this.markdown, delta };
   }
 
+  forceFinish(): { markdown: string; delta: string } {
+    this.consistencyError = undefined;
+    let delta = "";
+    for (const segment of this.latest) {
+      try {
+        delta += this.commit(segment);
+        this.committed.push(this.committedSegment(segment));
+      } catch {
+        // Continue committing remaining segments
+      }
+    }
+    this.candidates.clear();
+    this.latest = [];
+    return { markdown: this.markdown, delta };
+  }
+
   currentSnapshotIsConsistent(): boolean {
     return this.consistencyError === undefined;
   }
@@ -443,6 +459,15 @@ export class ChatGptMarkdownBuffer {
         const committed = this.committed[committedIndex]!;
         if (sawPending || committedIndex < highestCommittedIndex || committed.text !== segment.text) {
           if (!committed.text.trim() && !segment.text.trim()) {
+            continue;
+          }
+          // If the segment has no explicit source range (sourceStart === undefined),
+          // an index match or semantic text match appearing after pending blocks or before
+          // highestCommittedIndex indicates repeated text or a newly mounted node rather
+          // than a retroactive reordering of previously streamed tokens. Treat it as pending.
+          if (segment.sourceStart === undefined && (sawPending || committedIndex < highestCommittedIndex)) {
+            sawPending = true;
+            pending.push(segment);
             continue;
           }
           return this.changedCommittedBlockError(

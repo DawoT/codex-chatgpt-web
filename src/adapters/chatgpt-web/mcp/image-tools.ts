@@ -4,16 +4,20 @@ import { generateImage, type ImageGenerationResult } from "../../../image-genera
 import { assertWritableRootContainment } from "../fast-path/sandbox";
 import { resolveSafeWorkspacePath, result } from "../fast-path-handlers";
 import { asMcpResult } from "./results";
+import { turnReferenceInput } from "./tool-visibility";
+import type { ChatGptMcpContract } from "./types";
 
 export interface ImageToolOptions {
   token?: string;
   baseUrl?: string;
   codexHome?: string;
   fetchImpl?: typeof fetch;
+  contract?: ChatGptMcpContract;
   scopeFor?: (requested?: string) => { cwd: string; roots: string[]; writableRoots?: string[] };
 }
 
 export function registerImageTools(server: McpServer, options: ImageToolOptions = {}): void {
+  const contract = options.contract ?? "native";
   server.registerTool(
     "codex_image_generate",
     {
@@ -25,6 +29,7 @@ export function registerImageTools(server: McpServer, options: ImageToolOptions 
         "When an input image is provided the request is routed to the image-edits endpoint. " +
         "Returns the saved file path.",
       inputSchema: {
+        ...turnReferenceInput(contract),
         prompt: z.string().min(1).max(4_000).describe("Description of the image to generate or the edit instructions."),
         out_path: z
           .string()

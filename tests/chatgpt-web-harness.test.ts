@@ -3033,6 +3033,7 @@ next_actions:
           solAvailable: true,
           extraHighAvailable: true,
           proAvailable: true,
+          conversationalFreedom: false,
           experimentalFreshConversationPerTurn: freshConversation,
         },
       };
@@ -3243,6 +3244,7 @@ next_actions:
         "codex_apply_patch",
         "codex_exec",
         "codex_grep",
+        "codex_image_generate",
         "codex_list_dir",
         "codex_patch_file",
         "codex_read_file",
@@ -3264,7 +3266,7 @@ next_actions:
       // ChatGPT caches the complete tools/list contract under a connector identity.
       // An intentional hash change therefore requires an explicit connector refresh or identity migration.
       expect(createHash("sha256").update(canonicalJson(publicConnectorAbi)).digest("hex")).toBe(
-        "61e8e641501197ec64a1c86ab18f18ba2abc400b7e70a7eb933b0c4cf8211ced",
+        "f26da610a9f59bc68cc4ba9e71b08ae442f838bb3ee2d2ce2f502bf06d55c545",
       );
       for (const tool of listed.tools) {
         const properties = tool.inputSchema.properties as Record<string, unknown>;

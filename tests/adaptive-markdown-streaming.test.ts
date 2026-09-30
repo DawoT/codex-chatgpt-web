@@ -103,4 +103,46 @@ describe("Sprint U: Adaptive Markdown Streaming Latency & Instant Tool Emission"
       buffer.finish();
     }).not.toThrow();
   });
+
+  test("repeated short phrases without source ranges across tool calls do not trigger block_order_changed conflict", () => {
+    const buffer = new ChatGptMarkdownBuffer((m) => m, 0);
+    // 13-character phrase emitted after tool 1
+    const p1 = makeSegment("0:p", "File updated.", true, "p");
+    const toolCall = makeSegment("1:pre", '```json\n{"call": "exec"}\n```', true, "pre");
+    buffer.observe([p1, toolCall], 1000);
+
+    // After tool 2, ChatGPT repeats the same 13-character phrase as a new paragraph
+    const p2Pending = makeSegment("2:p", "Running tests...", true, "p");
+    const p3Duplicate = makeSegment("3:p", "File updated.", true, "p");
+
+    expect(() => {
+      buffer.observe([p1, toolCall, p2Pending, p3Duplicate], 2000);
+      const res = buffer.finish();
+      expect(res.markdown).toContain("File updated.");
+      expect(res.markdown).toContain("Running tests...");
+    }).not.toThrow();
+  });
+
+  test("forceFinish commits remaining segments and recovers cleanly when consistency conflict was set", () => {
+    const buffer = new ChatGptMarkdownBuffer((m) => m, 0);
+    const seg1 = makeSegment("k1", "Initial response", true, "p");
+    buffer.observe([seg1], 1000);
+
+    // Intentionally create a rewrite conflict on key k1 with sourceStart
+    const seg1Changed = { ...seg1, text: "Rewritten response", sourceStart: 0, sourceEnd: 15 };
+    const seg1Committed = { ...seg1, sourceStart: 0, sourceEnd: 16 };
+    // Observe normal ranged segment
+    const b2 = new ChatGptMarkdownBuffer((m) => m, 0);
+    b2.observe([seg1Committed], 1000);
+    b2.observe([seg1Changed], 2000);
+    expect(b2.currentSnapshotIsConsistent()).toBe(false);
+
+    // finish() would throw:
+    expect(() => b2.finish()).toThrow();
+
+    // forceFinish() completes cleanly without throwing:
+    const forced = b2.forceFinish();
+    expect(forced).toBeDefined();
+    expect(b2.currentSnapshotIsConsistent()).toBe(true);
+  });
 });
