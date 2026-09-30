@@ -41,6 +41,7 @@ import {
   type ChatGptModelControlsHost,
   type SelectedChatGptWebModelMode,
 } from "./browser/model-controls";
+import { extractAttachedPromptText } from "./browser/prompt-readback";
 import { type ChatGptResponseObserverHost, ResponseObserver } from "./browser/response-observer";
 import {
   type ChatGptSubmissionBaseline,
@@ -755,57 +756,7 @@ export class ChatGptBrowserWorker {
 
   private async attachedPromptText(page: Page, abortSignal?: AbortSignal): Promise<string> {
     const composer = await this.activeComposer(page, 30_000, abortSignal);
-    return composer.evaluate(
-      (element, appName) => {
-        const clone = element.cloneNode(true) as HTMLElement;
-        for (const br of Array.from(clone.querySelectorAll("br"))) {
-          if (br.previousSibling || br.nextSibling) {
-            if (typeof br.replaceWith === "function") {
-              br.replaceWith("\n");
-            } else if (br.parentNode) {
-              br.parentNode.replaceChild(
-                clone.ownerDocument?.createTextNode("\n") ?? document.createTextNode("\n"),
-                br,
-              );
-            }
-          }
-        }
-        for (const part of Array.from(clone.querySelectorAll("[data-inline-selection-pill-cursor-target]"))) {
-          if (typeof part.remove === "function") part.remove();
-          else part.parentNode?.removeChild(part);
-        }
-        const slug = (appName ?? "").toLowerCase().replace(/\s+/g, "-");
-        for (const part of Array.from(
-          clone.querySelectorAll(
-            '[data-id^="plugin:"], [app-mention-display-name], [data-prompt-link-label], [class*="Mention-"]',
-          ),
-        )) {
-          const text = (part.textContent ?? "").trim();
-          const kw =
-            part.getAttribute("data-keyword") ??
-            part.getAttribute("app-mention-display-name") ??
-            part.getAttribute("data-prompt-link-label") ??
-            "";
-          if (
-            !appName ||
-            kw === appName ||
-            kw === `$${slug}` ||
-            text === `@${appName}` ||
-            text === `$${appName}` ||
-            (slug && (text.toLowerCase() === `@${slug}` || text.toLowerCase() === `$${slug}`))
-          ) {
-            if (typeof part.remove === "function") part.remove();
-            else part.parentNode?.removeChild(part);
-          }
-        }
-        return [...clone.childNodes]
-          .map((child) => child.textContent ?? "")
-          .join("\n")
-          .trimStart();
-      },
-      this.config?.appName,
-      { timeout: 20_000, signal: abortSignal },
-    );
+    return extractAttachedPromptText(composer, this.config?.appName, { timeoutMs: 20_000, signal: abortSignal });
   }
 
   private async assertPromptAttached(page: Page, prompt: string, abortSignal?: AbortSignal): Promise<void> {
