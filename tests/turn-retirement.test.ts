@@ -261,3 +261,66 @@ test("injected registry clock never expires an active browser execution", async 
   turn.physical.resolve();
   await Promise.all([session.browserOutcome, session.physicalSettlement]);
 });
+
+test("duplicate trace cancellation aborts its runtime once and preserves terminal replay", async () => {
+  const sessions = new ChatGptTurnSessions(60_000, 256);
+  const turn = controlledRuntime("conversation");
+  const session = sessions.getOrCreate("execution", () => turn.runtime, "trace", "owner");
+  const reason = new Error("trace cancelled");
+  const first = sessions.beginCancelTrace("trace", reason);
+  const duplicate = sessions.beginCancelTrace("trace", reason);
+  try {
+    expect(first.cancelled).toBe(1);
+    expect(turn.cancellations()).toBe(1);
+    await session.browserOutcome;
+    expect(session.isPhysicallySettled()).toBe(false);
+    expect(sessions.find("execution")).toBe(session);
+    expect(session.settledOutcome()).toEqual({ type: "error", error: reason });
+    turn.physical.resolve();
+    await Promise.all([first.settlement, duplicate.settlement]);
+    expect(sessions.find("execution")).toBe(session);
+    expect(
+      sessions.getOrCreate("execution", () => {
+        throw new Error("Cancelled trace replay must reuse its terminal response");
+      }),
+    ).toBe(session);
+  } finally {
+    turn.physical.resolve();
+    await Promise.all([first.settlement, duplicate.settlement, session.browserOutcome]);
+  }
+});
+
+test("TTL prune retains physical owner gating after logical final completion", async () => {
+  let now = 1_000;
+  const sessions = new ChatGptTurnSessions(100, 256, () => now);
+  const oldTurn = controlledRuntime("expired_conversation");
+  const old = sessions.getOrCreate("expired", () => oldTurn.runtime, "old_trace", "owner");
+  oldTurn.browser.resolve("already committed final");
+  await old.browserOutcome;
+  now = 1_101;
+  sessions.activeCount();
+  expect(sessions.find("expired")).toBeUndefined();
+  const nextTurn = controlledRuntime();
+  let starts = 0;
+  const replacement = sessions.getOrCreateAfterOwnerRetirement("next", "owner", () => {
+    starts += 1;
+    return nextTurn.runtime;
+  });
+  try {
+    expect(old.isPhysicallySettled()).toBe(false);
+    expect(starts).toBe(0);
+    oldTurn.physical.resolve();
+    const next = await replacement;
+    expect(starts).toBe(1);
+    expect(next).not.toBe(old);
+    expect(old.settledOutcome()).toEqual({ type: "final", answer: "already committed final" });
+    nextTurn.browser.resolve("replacement answer");
+    nextTurn.physical.resolve();
+    await Promise.all([next.browserOutcome, next.physicalSettlement]);
+  } finally {
+    oldTurn.physical.resolve();
+    nextTurn.browser.resolve("replacement answer");
+    nextTurn.physical.resolve();
+    await replacement;
+  }
+});

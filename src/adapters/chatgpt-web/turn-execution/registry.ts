@@ -267,11 +267,12 @@ export class ChatGptTurnSessions {
 
   /** Revoke execution immediately; keep physical cleanup tracked independently of the UI receipt. */
   beginCancelTrace(traceId: string, reason: Error): { cancelled: number; settlement: Promise<void> } {
-    const sessions = [...this.entries.values()].filter((session) => session.traceId === traceId && session.isActive());
-    for (const session of sessions) session.cancel(reason);
+    const sessions = [...this.entries].filter(([, session]) => session.traceId === traceId && session.isActive());
     return {
       cancelled: sessions.length,
-      settlement: Promise.all(sessions.map((session) => session.physicalSettlement)).then(() => undefined),
+      settlement: Promise.all(sessions.map(([key, session]) => this.beginRetirement(key, session, reason))).then(
+        () => undefined,
+      ),
     };
   }
 
@@ -330,7 +331,7 @@ export class ChatGptTurnSessions {
     const cutoff = this.now() - this.ttlMs;
     for (const [key, session] of this.entries) {
       if (session.isActive() || session.lastUsedAt() >= cutoff) continue;
-      session.cancel();
+      this.beginRetirement(key, session);
       this.entries.delete(key);
       this.forgetConversationHead(session);
     }
