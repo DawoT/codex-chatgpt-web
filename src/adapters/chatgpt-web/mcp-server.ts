@@ -110,4 +110,9 @@ export async function runChatGptMcpServer(options: {
     emitMcpTransportDiagnostic("transport_ready", telemetry.write);
   };
   await server.connect(transport);
+  const onclose = transport.onclose;
+  transport.onclose = () => {
+    onclose?.();
+    void telemetry.flush(1000);
+  };
 }

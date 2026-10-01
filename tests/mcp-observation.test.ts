@@ -119,3 +119,24 @@ test("MCP observation failures, arbitrary IDs and unknown names never alter tran
   transport.onclose?.();
   expect(closed).toBeTrue();
 });
+
+test("cancellation retires correlation without a response and late replies stay uncorrelated", async () => {
+  const events: Record<string, unknown>[] = [];
+  const transport: Transport = {
+    start: async () => {},
+    close: async () => {},
+    send: async () => {},
+  };
+  observeMcpToolCalls(transport, new Set(["codex_exec"]), (event) => events.push(event));
+  transport.onmessage?.({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "codex_exec" } });
+  transport.onmessage?.({
+    jsonrpc: "2.0",
+    method: "notifications/cancelled",
+    params: { requestId: 9, reason: "private user text" },
+  });
+  await transport.send({ jsonrpc: "2.0", id: 9, result: {} });
+  transport.onclose?.();
+  expect(events.map((event) => event.event)).toEqual(["call_received", "call_cancelled"]);
+  expect(events[1]!.trace_id).toBe(events[0]!.trace_id);
+  expect(JSON.stringify(events)).not.toContain("private user text");
+});

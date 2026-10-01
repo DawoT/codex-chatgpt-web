@@ -45,6 +45,23 @@ export function observeMcpToolCalls(
         emit({ event: "call_received", call: call.call, tool, trace_id: call.trace_id });
       }
     }
+    if ("method" in message && message.method === "notifications/cancelled") {
+      const id = message.params?.requestId;
+      if (typeof id === "string" || typeof id === "number") {
+        const entry = pending.get(id);
+        if (entry) {
+          pending.delete(id);
+          if (entry.call)
+            emit({
+              event: "call_cancelled",
+              call: entry.call.call,
+              tool: entry.call.tool,
+              trace_id: entry.call.trace_id,
+              terminal_cause: "user_cancelled",
+            });
+        }
+      }
+    }
     if (traceId) mcpTraceContext.run(traceId, () => receive?.(message, extra));
     else receive?.(message, extra);
   };

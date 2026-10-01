@@ -112,8 +112,8 @@ export class TurnBroker implements TurnBrokerOwner {
   private readonly toolQueue = new BrokerToolQueue({
     getChannel: (token) => this.getChannel(token),
     waitForSafeStart: (token, signal) => this.waitForSafeStart(token, signal),
-    recordToolObservation: (request, event, isError, started, evidence) =>
-      this.recordToolObservation(request, event, isError, started, evidence),
+    recordToolObservation: (request, event, isError, started, evidence, channel) =>
+      this.recordToolObservation(request, event, isError, started, evidence, channel),
   });
   private readonly completionFence = new BrokerCompletionFence({
     prune: () => this.prune(),
@@ -554,6 +554,7 @@ export class TurnBroker implements TurnBrokerOwner {
     this.server = undefined;
     this.startPromise = undefined;
     brokers.delete(this.socketPath);
+    await this.telemetry.flush(1000);
     if (server?.listening) {
       await new Promise<void>((resolveClose, rejectClose) =>
         server.close((error) => {
@@ -1121,11 +1122,13 @@ export class TurnBroker implements TurnBrokerOwner {
     isError = false,
     started?: number,
     evidence?: string,
+    channel?: TurnChannel,
   ): void {
     if (!request.observationId) return;
     this.telemetry.write({
       trace_id: request.observationId,
       broker_call_id: request.callId,
+      turn_trace_id: channel?.traceId,
       event,
       is_error: isError,
       ...(evidence ? { evidence } : {}),

@@ -26,6 +26,7 @@ test("compaction closes queued tool traces as cancelled without claiming executi
         tools: [{ name: "exec_command", description: "Run", parameters: { type: "object" } }],
       },
       10_000,
+      "browser-trace",
     );
     const claimed = await callTurnBroker<{ bindingId: string }>(broker.socketPath, {
       method: "claim",
@@ -61,6 +62,9 @@ test("compaction closes queued tool traces as cancelled without claiming executi
     const cancelled = events.find((row) => row.metadata?.event === "broker_compaction_cancelled");
     const queued = events.find((row) => row.metadata?.event === "broker_queued");
     expect(cancelled?.terminalState).toBe("cancelled");
+    expect(cancelled?.metadata?.turn_trace_id).toBe("browser-trace");
+    expect(cancelled?.metadata?.execution_observed).toBe(false);
+    expect(cancelled?.metadata?.delivery_observed).toBe(false);
     expect(cancelled?.brokerCallId).toBe(queued?.brokerCallId);
     expect(cancelled?.metadata?.elapsed_ms).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(events)).not.toContain("private-command");

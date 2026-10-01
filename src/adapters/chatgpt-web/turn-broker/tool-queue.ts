@@ -13,6 +13,7 @@ interface BrokerToolQueueDependencies {
     isError?: boolean,
     started?: number,
     evidence?: string,
+    channel?: TurnChannel,
   ) => void;
 }
 
@@ -84,6 +85,7 @@ export class BrokerToolQueue {
         result.isError === true,
         invocation.observedStarted,
         "tool_result",
+        channel,
       );
     }
     channel.invocations.delete(callId);
@@ -92,6 +94,8 @@ export class BrokerToolQueue {
       "broker_result_received",
       result.isError === true,
       invocation.observedStarted,
+      undefined,
+      channel,
     );
     channel.completedToolsCount = (channel.completedToolsCount ?? 0) + 1;
     const finalResult = injectGracefulYieldNoticeIfRecommended(result, channel.completedToolsCount);
@@ -106,7 +110,7 @@ export class BrokerToolQueue {
     const invocation = channel.invocations.get(callId);
     if (!invocation) throw new TurnBrokerProtocolError(`tool call is not pending: ${callId}`);
     if (invocation.lifecycle.mark(phase)) {
-      this.deps.recordToolObservation(invocation.request, phase, false, invocation.observedStarted, evidence);
+      this.deps.recordToolObservation(invocation.request, phase, false, invocation.observedStarted, evidence, channel);
     }
   }
 
@@ -132,6 +136,8 @@ export class BrokerToolQueue {
         "broker_compaction_cancelled",
         false,
         invocation.observedStarted,
+        undefined,
+        channel,
       );
       invocation.resolve(structuredClone(queuedResult));
     }
@@ -153,7 +159,7 @@ export class BrokerToolQueue {
         observedStarted: performance.now(),
         lifecycle: new ToolDeliveryLifecycle(),
       });
-      this.deps.recordToolObservation(request, "broker_queued");
+      this.deps.recordToolObservation(request, "broker_queued", false, undefined, undefined, channel);
       channel.queuedCallIds.push(callId);
       console.info(
         `[chatgpt-web] broker trace=${channel.traceId} queued call=${callId.slice(0, 17)} tool=${request.wireName} waiters=${channel.waiters.size}`,
@@ -178,7 +184,7 @@ export class BrokerToolQueue {
     path: "immediate" | "waiter" | "replay",
   ): void {
     for (const request of batch) {
-      this.deps.recordToolObservation(request, "broker_delivered", false, undefined, "handed_to_adapter_only");
+      this.deps.recordToolObservation(request, "broker_delivered", false, undefined, "handed_to_adapter_only", channel);
       console.info(
         `[chatgpt-web] broker trace=${channel.traceId} delivered call=${request.callId.slice(0, 17)} path=${path} replay=${path === "replay"}`,
       );
@@ -223,7 +229,14 @@ export class BrokerToolQueue {
 
   rejectInvocations(channel: TurnChannel, error: Error): void {
     for (const invocation of channel.invocations.values()) {
-      this.deps.recordToolObservation(invocation.request, "broker_abandoned", false, invocation.observedStarted);
+      this.deps.recordToolObservation(
+        invocation.request,
+        "broker_abandoned",
+        false,
+        invocation.observedStarted,
+        undefined,
+        channel,
+      );
       invocation.reject(error);
     }
     channel.invocations.clear();
