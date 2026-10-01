@@ -173,7 +173,7 @@ merge; this document does not claim that merge has already happened.
 ## Turn lifecycle checkpoints (2026-09-30)
 
 Production and all commits belong to A. B supplied the assigned tests/infra, performed read-only
-semantic review, and owns this documentation. Ownership transferred retirement and the three new
+semantic review, and owned documentation until the final handoff to A. Ownership transferred retirement and the three new
 compaction test files to A during execution; B's broker composition test is frozen and committed
 by A. No B staging, commits, production edits, extra agents, or live-service operations.
 
@@ -184,7 +184,7 @@ by A. No B staging, commits, production edits, extra agents, or live-service ope
 | 3 | Helper wire protocol: shared input/output types, decoder framing and typed identity | `9a00e7c`, `8ed93c8`, `7d0ad4a`; A: 115 protocol/client tests, typecheck/lint pass. A full: 2,146 pass / 14 skip / 0 fail, 202.97s. |
 | 4 | Retirement coordinator: physical execution/owner/conversation gates, distinct epoch closure, deterministic clock | `c437edd`, `1a8251e`, `aebdc0e`, final interaction fix `313cec1`; A latest: 92 pass, 4.57s, typecheck/lint pass (88 warnings). Earlier stage full: 2,159 pass / 14 skip / 0 fail, 207s. |
 | 5 | Compaction policy, browser runner and checkpoint transaction on the existing actor journal | `5d4b6b0` policy: 82 pass; `7a7cbce` runner: 23 pass; `09d6bdd` checkpoint: 134 pass. A reported typecheck/lint passing and 13 new seam tests GREEN. A full: 2,172 pass / 14 skip / 0 fail, 211.33s. |
-| 6 | Broker admission, tool queue and completion fence over the facade's sole channel registry | `8ee5ac1` characterization: B 5 pass / 41 assertions, 59ms; `07d630a` admission: A 43 pass; `1a5c60e` queue: A 45 pass, both typecheck/lint pass; `c009109` fence committed. Final full after `313cec1` remains pending. |
+| 6 | Broker admission, tool queue and completion fence over the facade's sole channel registry | `8ee5ac1` characterization: B 5 pass / 41 assertions, 59ms; `07d630a` admission: A 43 pass; `1a5c60e` queue: A 45 pass, both typecheck/lint pass; `c009109` fence: 45 pass, typecheck/lint pass. Final immutable `313cec1` full: 2,178 pass / 14 skip / 0 fail, 208.51s. |
 
 Lifecycle vocabulary: **logical outcome** is the client-visible final/error and exact-response
 replay; **physical settlement** is completion of the helper/browser teardown; **conversation
@@ -288,7 +288,8 @@ assertion or timeout was relaxed. Evidence: `/tmp/turn-lifecycle-stage6-full.log
 B's semantic review completed with no unresolved finding; B then froze documentation and closed.
 A assumed documentation ownership for these final receipts and local integration. No approval
 or engineering verification remains pending. The migration has sixteen conventional code/test
-commits and a separate documentation acceptance commit; integration uses a local fast-forward.
+commits, with documentation receipts committed separately. Local fast-forward integration from
+`main` at `96e3896` through `refactor/turn-lifecycle` completed; validated code remains `313cec1`.
 
 Zero-cast statements apply only to the reviewed extraction/worker-controller targets. The two
 pre-existing `as unknown as` casts in compaction-flow's oversized-message truncation remain out of
