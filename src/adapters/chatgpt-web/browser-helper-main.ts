@@ -6,87 +6,21 @@ import type { CodexProviderConfig } from "../../types";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import { createBrowserHelperPromptSelection } from "./browser-helper-prompt-selection";
 import { type BrowserTurn, ChatGptBrowserWorker, closeChatGptBrowserWorkers } from "./browser-worker";
-import type { ChatGptWebCapabilities } from "./model";
+import {
+  type HelperOutputMessage,
+  type InputMessage,
+  type InspectMessage,
+  type LimitsMessage,
+  type MaintenanceMessage,
+  parseHelperInputMessage,
+  type RunMessage,
+  type SmokeMessage,
+  type VerifyMessage,
+} from "./helper-protocol";
 import { createProcessLineWriter } from "./process-line-writer";
-import { type CompiledChatGptWebPrompt, isChatGptWebMultipartPartCount } from "./prompt";
+import { isChatGptWebMultipartPartCount } from "./prompt";
 import { validateSkillFiles } from "./skill-attachments";
-import type { ChatGptExternalTurnProgressSnapshot } from "./turn-progress";
 import { ChatGptMirroredTurnProgress } from "./turn-progress";
-
-interface RunMessage {
-  type: "run";
-  id: string;
-  config: {
-    appName: string;
-    browserHostDescriptorPath: string;
-    browserDiagnosticsPath?: string;
-    turnTimeoutMs: number;
-    autoApproveToolCalls: boolean;
-    useSavedChats?: boolean;
-  };
-  turn: {
-    traceId: string;
-    modelId: string;
-    reasoning?: string;
-    modelFamily?: "5.6" | "6";
-    capabilities: ChatGptWebCapabilities;
-    nativeConnector?: boolean;
-    resumeAvailable?: boolean;
-    retainConversation?: boolean;
-    requireRetainedConversation?: boolean;
-    conversationKey?: string;
-    compaction?: boolean;
-    pendingMissionRequirements?: boolean;
-    captureLunaCheckpoint?: boolean;
-    externalProgress?: boolean;
-    surfaceOwnership?: boolean;
-    resultPersistence?: boolean;
-  };
-}
-
-interface VerifyMessage {
-  type: "verify";
-  id: string;
-  config: {
-    appName: string;
-    browserHostDescriptorPath: string;
-  };
-}
-
-interface InspectMessage {
-  type: "inspect";
-  id: string;
-  config: VerifyMessage["config"];
-  detectCapabilities: boolean;
-}
-
-interface SmokeMessage {
-  type: "smoke";
-  id: string;
-  config: VerifyMessage["config"];
-}
-
-interface LimitsMessage {
-  type: "limits";
-  id: string;
-  config: VerifyMessage["config"];
-}
-
-type MaintenanceMessage = VerifyMessage | InspectMessage | SmokeMessage | LimitsMessage;
-type InputMessage =
-  | RunMessage
-  | MaintenanceMessage
-  | { type: "prepared_selected_ack"; id: string; prepared: CompiledChatGptWebPrompt }
-  | { type: "send_activation_ack"; id: string }
-  | { type: "surface_ownership_ack"; id: string; phase: "leased" | "released"; surfaceId: string; accepted: boolean }
-  | { type: "result_ready_ack"; id: string; textSha256: string; accepted: boolean }
-  | { type: "tool_batch_observed_ack"; id: string; requestId: number; revision: number; accepted: boolean }
-  | { type: "completion_fence_begin_ack"; id: string; requestId: number; revision: number | null }
-  | { type: "completion_fence_commit_ack"; id: string; requestId: number; committed: boolean }
-  | { type: "progress"; id: string; snapshot: ChatGptExternalTurnProgressSnapshot }
-  | { type: "abort"; id: string; reason?: "compaction_handoff_accepted" }
-  | { type: "release_context_pressure"; conversationKey: string }
-  | { type: "shutdown" };
 
 let outputFailure: Error | undefined;
 const handleOutputFailure = (error: Error): void => {
@@ -97,7 +31,7 @@ const handleOutputFailure = (error: Error): void => {
 const protocolOutput = createProcessLineWriter(stdout, handleOutputFailure);
 const diagnosticOutput = createProcessLineWriter(stderr, handleOutputFailure);
 
-const writeProtocol = (message: unknown): boolean => protocolOutput.write(JSON.stringify(message));
+const writeProtocol = (message: HelperOutputMessage): boolean => protocolOutput.write(JSON.stringify(message));
 
 const diagnostic = (...values: unknown[]): void => {
   diagnosticOutput.write(values.map((value) => (typeof value === "string" ? value : JSON.stringify(value))).join(" "));
@@ -562,11 +496,7 @@ input.on("line", (line) => {
   if (shuttingDown) return;
   let message: InputMessage;
   try {
-    const value: unknown = JSON.parse(line);
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("Browser helper message is not an object");
-    }
-    message = value as InputMessage;
+    message = parseHelperInputMessage(line);
   } catch {
     writeProtocol({ type: "error", id: "protocol", message: "Browser helper received invalid JSON" });
     return;
