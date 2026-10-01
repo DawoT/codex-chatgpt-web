@@ -5,7 +5,6 @@ import {
   CHATGPT_ASSISTANT_TURN_SELECTOR,
   CHATGPT_STOP_BUTTON_SELECTOR,
   CHATGPT_USER_TURN_SELECTOR,
-  chatGptAssistantTurnSelector,
   detectChatGptAccountCapabilities,
 } from "../../chatgpt-session";
 import { atomicWriteFile, CHATGPT_CONNECTOR_NAME, getConfigDir } from "../../config";
@@ -195,10 +194,8 @@ import {
 } from "./browser/dom-trackers";
 import { buildMultipartPlan } from "./browser/multipart-plan";
 import {
-  CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
   ChatGptPromptAttachmentIntegrityError,
   ChatGptSubmissionRejectionObserver,
-  resolveChatGptToolConfirmation,
   throwIfChatGptRateLimitDialog,
   throwIfChatGptSessionFailureAlert,
   throwIfChatGptTerminalErrorAlert,
@@ -213,7 +210,6 @@ import {
   type ChatGptSuspensionClock,
   chatGptSuspensionClock,
   connectAfterClosingBrowserConnection,
-  resolveAdaptiveObservationProbeTimeoutMs,
   throwIfPromptAttachmentAborted,
   withBrowserTurnAbort,
   withChatGptBrowserObservationTimeout,
@@ -313,7 +309,7 @@ export class ChatGptBrowserWorker {
 
   // Shared browser/page lifecycle state. The worker owns one state object and hands it to the
   // composed BrowserSession, so handles opened by the session are the same objects the accessors
-  // below observe. Prototype fixtures may seed it directly as `sessionState`.
+  // below observe.
   private sessionState?: BrowserSessionState;
   private sessionInstance?: BrowserSession;
   private launcherHelper?: LauncherBrowserHelperClient;
@@ -334,7 +330,7 @@ export class ChatGptBrowserWorker {
       this.sessionInstance = new BrowserSession({
         config: this.config,
         state: this.sessionState,
-        activeRuns: this.activeRuns ?? new Map(),
+        activeRuns: this.activeRuns,
       });
     }
     return this.sessionInstance;
@@ -558,7 +554,7 @@ export class ChatGptBrowserWorker {
     } finally {
       const browser = this.browser;
       // Discard every lifecycle handle the composed session opened. The state object itself stays
-      // (fixtures may hold it); only the borrowed handles are cleared.
+      // Only the lifecycle handles are cleared; the session retains its state object.
       const state = this.sessionState;
       if (state) {
         state.browser = undefined;
@@ -2023,9 +2019,7 @@ export class ChatGptBrowserWorker {
       }
       throw error;
     } finally {
-      if (onNetworkResponse && typeof diagnosticPage?.off === "function") {
-        diagnosticPage.off("response", onNetworkResponse);
-      }
+      if (onNetworkResponse) diagnosticPage?.off("response", onNetworkResponse);
       turnEvents?.dispose();
       submissionRejection.dispose();
       await Promise.all(usageWrites);

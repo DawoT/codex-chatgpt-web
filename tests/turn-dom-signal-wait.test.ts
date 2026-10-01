@@ -12,6 +12,7 @@ import {
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 import { ChatGptTurnEventBus } from "../src/adapters/chatgpt-web/browser/turn-events";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { fakePage } from "./fixtures/browser-fakes";
 import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 function signalWorker(counters: { signalWaits: number; mutationWaits: number }) {
@@ -175,11 +176,11 @@ test("selectConnector publishes connector_pill_mounted to turnEvents when mounte
   const menuRows = {
     filter: () => appResult,
   };
-  const page = {
+  const page = fakePage({
     url: () => "https://chatgpt.com/?temporary-chat=false",
     locator: () => menuRows,
     getByText: () => ({}),
-  } as unknown as Page;
+  });
 
   const controller = Object.assign(new ComposerController({ config: { appName: "Codex Native2" } as never }), {
     connectorIsSelected: async () => selected,

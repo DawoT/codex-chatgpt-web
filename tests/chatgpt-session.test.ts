@@ -11,6 +11,7 @@ import {
   chatGptNewChatUrl,
   detectChatGptAccountCapabilities,
 } from "../src/chatgpt-session";
+import { fakeLocator, fakePage } from "./fixtures/browser-fakes";
 import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 test("saved chats start empty and cannot reuse an arbitrary conversation or a Temporary Chat", async () => {
@@ -19,16 +20,16 @@ test("saved chats start empty and cannot reuse an arbitrary conversation or a Te
   for (const saved of [false, true]) {
     let url = "https://chatgpt.com/c/previous-task";
     const navigations: string[] = [];
-    const absent: any = { filter: () => absent, last: () => absent, isVisible: async () => false };
-    const composer: any = { count: async () => 1, nth: () => composer, isVisible: async () => true };
-    const page: any = {
+    const absent = fakeLocator();
+    const composer = fakeLocator({ count: async () => 1, isVisible: async () => true });
+    const page = fakePage({
       url: () => url,
       goto: async (next: string) => {
         url = next;
         navigations.push(next);
       },
       locator: (selector: string) => (selector === CHATGPT_COMPOSER_SELECTOR ? composer : absent),
-    };
+    });
     const controller = new ComposerController({
       config: resolveBrowserConfig({ adapter: "chatgpt-web", baseUrl: "browser://chatgpt" }),
     });

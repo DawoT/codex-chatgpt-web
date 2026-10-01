@@ -47,12 +47,7 @@ function chatGptModelControlUnavailableAdapterError(diagnostic: string, detail?:
   );
 }
 
-/**
- * Dependencies the model/effort selection borrows from the worker, injected as a late-bound
- * function: the active-composer resolver. The worker supplies a lambda closing over `this`, so
- * stubs installed on the worker instance or on `ChatGptBrowserWorker.prototype` keep steering
- * every internal call. Effort re-verification stays an ordinary internal method call.
- */
+/** The composer resolver is injected; model and effort selection operate on the current page. */
 export interface ChatGptModelControlsDeps {
   activeComposer(page: Page, timeoutMs?: number, abortSignal?: AbortSignal): Promise<Locator>;
 }

@@ -94,7 +94,13 @@ import {
 } from "../src/config";
 import { estimateTokens } from "../src/lib/token-estimate";
 import type { CodexProviderConfig } from "../src/types";
-import { type FakePageOverrides, type FakePressOptions, fakePage, fakeSendComposer } from "./fixtures/browser-fakes";
+import {
+  type FakePageOverrides,
+  type FakePressOptions,
+  fakeLocator,
+  fakePage,
+  fakeSendComposer,
+} from "./fixtures/browser-fakes";
 import { makeLauncherTurn, makeWorkerFixture } from "./fixtures/worker-harness";
 
 // Playwright evaluation is asynchronous even when the synthetic DOM is already settled.
@@ -559,7 +565,11 @@ test("browser configuration rejects the retired connector identity before openin
  * recursion resolves to the stubs.
  */
 function composerFixture(host: Record<string, unknown>): ComposerController {
-  const controller = new ComposerController({ config: host.config as never }) as unknown as Record<string, unknown>;
+  const config = {
+    ...resolveBrowserConfig({ adapter: "chatgpt-web", baseUrl: "browser://composer-fixture" }),
+    ...(host.config as Partial<ReturnType<typeof resolveBrowserConfig>> | undefined),
+  };
+  const controller = new ComposerController({ config }) as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(host)) {
     if (key === "config") continue;
     controller[key] = value;
@@ -1280,8 +1290,8 @@ test("submission observation recovery resumes with rebound locators and is stric
     waitForSubmissionAccepted(page: Page, baseline: unknown): Promise<Evidence>;
   };
 
-  const firstPage = { name: "first" } as unknown as Page;
-  const reboundPage = { name: "rebound" } as unknown as Page;
+  const firstPage = Object.assign(fakePage(), { name: "first" });
+  const reboundPage = Object.assign(fakePage(), { name: "rebound" });
   const firstBaseline = { name: "first" };
   const reboundBaseline = { name: "rebound" };
   const observations: Array<{ page: Page; baseline: unknown }> = [];
@@ -1740,7 +1750,8 @@ test("large Markdown-rich context uses one plain-text editing command before exa
     focus: async () => {
       calls.push(["focus"]);
     },
-    evaluate: async (fn: unknown, value: string, options: unknown) => {
+    evaluate: async (fn: unknown, value: string | undefined, options: unknown) => {
+      if (value === undefined) return false;
       calls.push(["evaluate", value]);
       calls.push(["evaluateOptions", options]);
       expect(typeof fn).toBe("function");
@@ -1789,7 +1800,13 @@ test("plain-text editing command fails closed when the focused composer rejects 
       {
         activeComposer: async () => composer,
       },
-      {},
+      fakePage({
+        keyboard: {
+          insertText: async () => {
+            throw new Error("Browser rejected the plain-text editing command");
+          },
+        },
+      }),
       "literal `markdown`",
     ),
   ).rejects.toThrow("rejected the plain-text editing command");
@@ -2295,7 +2312,7 @@ test("connector verification preserves the host-refreshed catalog evidence", asy
     },
   };
   const selectedComposer = { selected: true };
-  const page = {
+  const page = Object.assign(fakePage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     reload: async () => {
@@ -2324,7 +2341,7 @@ test("connector verification preserves the host-refreshed catalog evidence", asy
         calls.push("activate");
       },
     },
-  };
+  });
   let prepared = 0;
   const fixture = makeWorkerFixture({
     fields: {
@@ -3443,28 +3460,25 @@ test("image attachment readiness uses exact file tiles and not localized remove-
   const imageUrl =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   const calls: Array<[string, string?]> = [];
-  const send = {
+  const send = fakeLocator({
     isEnabled: async () => {
       calls.push(["sendEnabled"]);
       return true;
     },
-  };
-  const composerForm = {
-    getByRole: (role: string, options: { name: string; exact: boolean }) => {
+  });
+  const composerForm = fakeLocator({
+    getByRole: (role, options) => {
       expect(role).toBe("group");
       expect(options).toEqual({ name: "codex-input-image-1.png", exact: true });
-      return {
-        waitFor: async (state: { state: string; timeout: number }) => {
+      return fakeLocator({
+        waitFor: async (state) => {
           expect(state).toEqual({ state: "visible", timeout: 60_000 });
-          calls.push(["fileTile", options.name]);
+          calls.push(["fileTile", typeof options?.name === "string" ? options.name : undefined]);
         },
-      };
+      });
     },
-    getByTestId: (testId: string) => {
-      expect(testId).toBe("send-button");
-      return send;
-    },
-  };
+    locator: (selector: string) => (selector.startsWith(".composer-attachment-surface") ? fakeLocator() : send),
+  });
   const composer = {
     locator: (selector: string) => {
       expect(selector).toBe("xpath=ancestor::form[1]");

@@ -1,41 +1,10 @@
 /**
- * Shared typed fakes for the Playwright `Page`/`Locator` surfaces that the ChatGPT
- * browser worker drives.
+ * Browser-boundary fakes for the Page and Locator APIs exercised by real worker
+ * instances. Selector refinements share a locator unless a scenario overrides
+ * their routing; browser actions have asynchronous defaults.
  *
- * Before this fixture, every suite hand-rolled its own `Object.assign(new EventEmitter(), {...})
- * as unknown as Page` fake with a slightly different surface (see the `chainLocator()` /
- * `hiddenLocator()` copies in turn-completion-loop.test.ts, browser-worker-contract.test.ts and
- * turn-dom-signal-wait.test.ts). These builders centralize those shapes so a fake can be
- * configured per test with a small overrides object instead of rebuilt from scratch.
- *
- * Which worker code paths each fake supports:
- * - `fakeLocator` stands in for any selector chain: `filter/first/last/nth/getByText/getByTestId/
- *   getByRole/getByLabel/locator` are chainable and always return the same fake, while the
- *   behavior methods (`isVisible/count/press/evaluate/fill/waitFor/click/getAttribute/hover/...`)
- *   carry quiet defaults that tests override per scenario. It covers observation probes
- *   (`submissionDomState`, `responseDomSnapshot` call sites that refine via `filter`/`last`),
- *   overlay guards (`throwIfChatGptRateLimitDialog`, `throwIfChatGptSessionFailureAlert`) and
- *   composer helpers (`setChatGptThinkMode`, `selectConnector`).
- * - `fakePage` is `EventEmitter`-based, so the worker's `page.on(...)` / `page.off(...)`
- *   wiring (submission rejection observer, DOM event listeners) works on it. Defaults cover
- *   `isClosed`, `url`, `mainFrame`, `locator`, role/test-id/text lookups, a no-op keyboard
- *   (`model-controls.ts` presses Escape without a feature guard) and an `evaluate` that answers
- *   the DOM revision probe (`waitForChatGptDomRevision` args bag containing `attributeFilter`)
- *   with a stable verdict so event-driven waits resolve instead of hanging or crashing on
- *   `verdict.key`.
- * - `fakeSendComposer` builds the composer shape consumed by
- *   `ChatGptBrowserWorker.sendAttachedPrompt`: `composer.locator("xpath=ancestor::form[1]")`
- *   resolves to a form whose `locator(CHATGPT_SEND_BUTTON_SELECTOR).first()` (typed-Locator path)
- *   AND `getByTestId("send-button")` (legacy fallback behind the
- *   `typeof composerForm.locator === "function"` guard) both resolve to the same send button,
- *   so the guard can be deleted in production once fakes are type-complete. Reach the send
- *   button from a test through the same path the worker uses:
- *   `composer.locator("xpath=ancestor::form[1]").getByTestId("send-button")`.
- *
- * Casting policy: each builder performs ONE documented `as unknown as Page`/`as unknown as
- * Locator` cast at its own boundary. Call sites never cast — the returned fakes are already
- * typed as the real playwright-core interfaces. The fakes implement the surface the worker
- * actually uses, not the entirety of playwright-core, which is what the boundary cast absorbs.
+ * Boundary casts cover the unexercised Playwright API. Tests receive typed
+ * Page/Locator values and configure browser state or failures explicitly.
  */
 import { EventEmitter } from "node:events";
 import type { Locator, Page } from "playwright-core";
@@ -72,6 +41,8 @@ export interface FakeLocatorOverrides {
   hover?: (options?: { timeout?: number }) => Promise<void>;
   focus?: (options?: { timeout?: number }) => Promise<void>;
   innerText?: (options?: { timeout?: number }) => Promise<string>;
+  allInnerTexts?: () => Promise<string[]>;
+  setInputFiles?: Locator["setInputFiles"];
   // --- Chainable refinement surface (each returns this fake unless overridden) ---
   // Overrides here are useful when a test must route by selector, e.g. returning a
   // dedicated locator for `[data-turn-id=` selectors while everything else stays hidden.
@@ -79,6 +50,7 @@ export interface FakeLocatorOverrides {
   first?: () => unknown;
   last?: () => unknown;
   nth?: (index: number) => unknown;
+  or?: (other: Locator) => unknown;
   getByText?: (text: string | RegExp, options?: { exact?: boolean }) => unknown;
   getByTestId?: (testId: string) => unknown;
   getByRole?: (role: string, options?: { name?: string | RegExp; exact?: boolean; disabled?: boolean }) => unknown;
@@ -118,7 +90,7 @@ export interface FakePageOverrides {
  * reading `verdict.key` get a value instead of a TypeError, and event-driven waits resolve
  * instead of hanging. Everything else evaluates to `undefined`.
  */
-function defaultPageEvaluate(_pageFunction: unknown, arg?: unknown): unknown {
+async function defaultPageEvaluate(_pageFunction: unknown, arg?: unknown): Promise<unknown> {
   if (
     arg !== null &&
     typeof arg === "object" &&
@@ -142,6 +114,7 @@ export function fakeLocator(overrides: FakeLocatorOverrides = {}): Locator {
     first: () => locator,
     last: () => locator,
     nth: (_index?: number) => locator,
+    or: (_other: Locator) => locator,
     getByText: (_text?: unknown, _options?: unknown) => locator,
     getByTestId: (_testId?: unknown) => locator,
     getByRole: (_role?: unknown, _options?: unknown) => locator,
@@ -162,6 +135,8 @@ export function fakeLocator(overrides: FakeLocatorOverrides = {}): Locator {
     hover: async () => {},
     focus: async () => {},
     innerText: async () => "",
+    allInnerTexts: async () => [],
+    setInputFiles: async () => {},
   };
   for (const [key, value] of Object.entries(overrides)) {
     if (value !== undefined) locator[key] = value;
@@ -200,22 +175,20 @@ export function fakePage(overrides: FakePageOverrides = {}): Page {
   });
   const writable = page as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(overrides)) {
-    if (value !== undefined) writable[key] = value;
+    if (value === undefined) continue;
+    if (key === "keyboard") {
+      Object.assign(page.keyboard, value);
+    } else {
+      writable[key] = value;
+    }
   }
   // Factory-boundary cast: see the module doc block. Call sites receive a typed Page.
   return page as unknown as Page;
 }
 
 /**
- * Builds the composer shape consumed by `ChatGptBrowserWorker.sendAttachedPrompt`:
- * `composer.locator("xpath=ancestor::form[1]")` resolves to a form whose
- * `locator(send-button-selector).first()` (typed-Locator path) AND
- * `getByTestId("send-button")` (legacy fallback behind the
- * `typeof composerForm.locator === "function"` guard) both resolve to the same send button.
- * The send button defaults to visible + enabled with no-op `waitFor`/`press`; override it with
- * `sendButtonOverrides` (e.g. a stateful `press` counting submissions, or `isEnabled` flipping
- * after the first probe). Reach the button from a test via
- * `composer.locator("xpath=ancestor::form[1]").getByTestId("send-button")`.
+ * Composer fixture with an owned form and a visible, enabled send button.
+ * Form selector and test-id lookups resolve to the same browser element.
  */
 export function fakeSendComposer(sendButtonOverrides: FakeLocatorOverrides = {}): Locator {
   const sendButton = fakeLocator({
@@ -223,8 +196,7 @@ export function fakeSendComposer(sendButtonOverrides: FakeLocatorOverrides = {})
     isEnabled: async () => true,
     ...sendButtonOverrides,
   });
-  // The form routes both the typed selector path and the legacy getByTestId fallback to the
-  // same button so either production resolution converges on the same fake instance.
+  // Both browser lookup APIs resolve the same send button within the owned form.
   const composerForm = fakeLocator({
     locator: (_selector?: unknown) => sendButton,
     getByTestId: (_testId?: unknown) => sendButton,

@@ -47,12 +47,7 @@ export interface ChatGptAssistantTurnBinding {
   acceptedUserIdentities?: readonly string[];
 }
 
-/**
- * Dependencies the turn observation diagnostics borrow from the worker, injected as late-bound
- * functions: the DOM observation primitives owned by the composed SubmissionObserver and
- * ResponseObserver. The worker supplies lambdas closing over `this`, so stubs installed on the
- * worker instance or on `ChatGptBrowserWorker.prototype` keep steering every internal call.
- */
+/** Typed observation callbacks keep recovery bound to the current page and submission baseline. */
 export interface TurnDiagnosticsDeps {
   submissionDomState(
     page: Page,
@@ -349,14 +344,11 @@ export class TurnDiagnostics {
       } catch (error) {
         if (!(error instanceof ChatGptBrowserObservationTimeoutError)) throw error;
         const latestProgress = externalProgress?.snapshot();
-        const isRunning =
-          typeof observationPage?.locator === "function"
-            ? await observationPage
-                .locator(CHATGPT_STOP_BUTTON_SELECTOR)
-                .last()
-                .isVisible()
-                .catch(() => false)
-            : false;
+        const isRunning = await observationPage
+          .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+          .last()
+          .isVisible()
+          .catch(() => false);
         const multiChannelLivenessActive = isMultiChannelLivenessActive({
           lastBrokerEventAt: latestProgress?.lastProgressAt,
           activeToolCalls: latestProgress?.activeToolCalls,

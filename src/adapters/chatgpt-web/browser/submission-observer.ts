@@ -53,13 +53,7 @@ export interface ChatGptSubmissionDomCache {
   cacheHits?: number;
 }
 
-/**
- * Dependencies the submission observer borrows from the worker, injected as a late-bound
- * function: the response DOM snapshot reader used to observe the boundary answer text. The
- * worker supplies a lambda closing over `this`, so stubs installed on the worker instance or
- * on `ChatGptBrowserWorker.prototype` keep steering it. Every other member is the observer's
- * own method and recurses through `this` directly.
- */
+/** The response projection reader is injected; submission observation owns its own DOM and progress waits. */
 export interface SubmissionObserverDeps {
   responseDomSnapshot(locator: Locator, cache?: ChatGptResponseDomCache): Promise<ChatGptResponseDomSnapshot>;
 }

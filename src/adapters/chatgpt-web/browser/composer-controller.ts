@@ -105,8 +105,8 @@ export class ComposerController {
         try {
           const u = page.locator(CHATGPT_USER_TURN_SELECTOR);
           const a = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
-          const userCount = typeof u?.count === "function" ? await u.count().catch(() => 0) : 0;
-          const assistantCount = typeof a?.count === "function" ? await a.count().catch(() => 0) : 0;
+          const userCount = await u.count().catch(() => 0);
+          const assistantCount = await a.count().catch(() => 0);
           return userCount > 0 || assistantCount > 0;
         } catch {
           return false;
@@ -137,49 +137,47 @@ export class ComposerController {
     await assertAuthenticatedChatGptPage(page);
     await assertNewChatPage(page, useSavedChats);
     await captureDiagnostic?.("session-verified");
-    if (typeof page.evaluate === "function") {
-      await page
-        .evaluate(() => {
-          try {
-            const desc = Object.getOwnPropertyDescriptor(Document.prototype, "title");
-            if (desc?.set && !(desc.set as { __clamped?: boolean }).__clamped) {
-              const originalSet = desc.set;
-              const clampedSet = function (this: Document, value: string) {
-                const clamped = typeof value === "string" && value.length > 200 ? `${value.slice(0, 197)}...` : value;
-                return originalSet.call(this, clamped);
-              };
-              (clampedSet as { __clamped?: boolean }).__clamped = true;
-              Object.defineProperty(document, "title", {
-                get: desc.get,
-                set: clampedSet,
-                configurable: true,
-              });
-            }
-            const clampTitleElement = () => {
-              const titleEl = document.querySelector("title");
-              if (titleEl && (titleEl.textContent?.length ?? 0) > 200) {
-                titleEl.textContent = `${titleEl.textContent!.slice(0, 197)}...`;
-              }
+    await page
+      .evaluate(() => {
+        try {
+          const desc = Object.getOwnPropertyDescriptor(Document.prototype, "title");
+          if (desc?.set && !(desc.set as { __clamped?: boolean }).__clamped) {
+            const originalSet = desc.set;
+            const clampedSet = function (this: Document, value: string) {
+              const clamped = typeof value === "string" && value.length > 200 ? `${value.slice(0, 197)}...` : value;
+              return originalSet.call(this, clamped);
             };
-            clampTitleElement();
-            const globalAny = globalThis as typeof globalThis & { __TITLE_OBSERVER_ATTACHED__?: boolean };
-            if (!globalAny.__TITLE_OBSERVER_ATTACHED__) {
-              globalAny.__TITLE_OBSERVER_ATTACHED__ = true;
-              const titleObserver = new MutationObserver(() => clampTitleElement());
-              const target = document.querySelector("title") || document.head;
-              if (target) {
-                titleObserver.observe(target, { childList: true, characterData: true, subtree: true });
-              }
+            (clampedSet as { __clamped?: boolean }).__clamped = true;
+            Object.defineProperty(document, "title", {
+              get: desc.get,
+              set: clampedSet,
+              configurable: true,
+            });
+          }
+          const clampTitleElement = () => {
+            const titleEl = document.querySelector("title");
+            if (titleEl && (titleEl.textContent?.length ?? 0) > 200) {
+              titleEl.textContent = `${titleEl.textContent!.slice(0, 197)}...`;
             }
-            for (const el of document.querySelectorAll('[contenteditable="true"], textarea')) {
-              el.setAttribute("spellcheck", "false");
-              el.setAttribute("autocorrect", "off");
-              el.setAttribute("autocapitalize", "off");
+          };
+          clampTitleElement();
+          const globalAny = globalThis as typeof globalThis & { __TITLE_OBSERVER_ATTACHED__?: boolean };
+          if (!globalAny.__TITLE_OBSERVER_ATTACHED__) {
+            globalAny.__TITLE_OBSERVER_ATTACHED__ = true;
+            const titleObserver = new MutationObserver(() => clampTitleElement());
+            const target = document.querySelector("title") || document.head;
+            if (target) {
+              titleObserver.observe(target, { childList: true, characterData: true, subtree: true });
             }
-          } catch {}
-        })
-        .catch(() => {});
-    }
+          }
+          for (const el of document.querySelectorAll('[contenteditable="true"], textarea')) {
+            el.setAttribute("spellcheck", "false");
+            el.setAttribute("autocorrect", "off");
+            el.setAttribute("autocapitalize", "off");
+          }
+        } catch {}
+      })
+      .catch(() => {});
     return composer;
   }
 
@@ -280,9 +278,7 @@ export class ComposerController {
               signal: personalizationSignal,
               timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
             });
-            if (typeof page?.bringToFront === "function") {
-              await page.bringToFront().catch(() => {});
-            }
+            await page.bringToFront().catch(() => {});
             await composer.focus({
               signal: personalizationSignal,
               timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS,
@@ -359,9 +355,7 @@ export class ComposerController {
         attemptBudget.triggerAttempts += 1;
         composer = await this.activeComposer(page, 30_000, abortSignal);
         await composer.fill("", { signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-        if (typeof page?.bringToFront === "function") {
-          await page.bringToFront().catch(() => {});
-        }
+        await page.bringToFront().catch(() => {});
         await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
         await waitForChatGptDomSettle(page, { signal: abortSignal, horizonMs: 250 });
         await composer.pressSequentially(CHATGPT_CONNECTOR_MENTION_QUERY, {
@@ -514,12 +508,10 @@ export class ComposerController {
       }
       let userTurnCount = 0;
       try {
-        if (typeof page?.locator === "function") {
-          const userTurns = page.locator(CHATGPT_USER_TURN_SELECTOR);
-          if (userTurns && typeof userTurns.count === "function") {
-            userTurnCount = await userTurns.count().catch(() => 0);
-          }
-        }
+        userTurnCount = await page
+          .locator(CHATGPT_USER_TURN_SELECTOR)
+          .count()
+          .catch(() => 0);
       } catch {
         userTurnCount = 0;
       }
@@ -598,16 +590,14 @@ export class ComposerController {
     throwIfPromptAttachmentAborted(abortSignal);
     const composer = await this.activeComposer(page, 30_000, abortSignal);
     await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
-    if (typeof page.keyboard?.insertText === "function") {
-      const isProseMirror = await composer.evaluate(
-        (el) =>
-          el.classList.contains("ProseMirror") ||
-          (el.getAttribute("role") === "textbox" && !el.hasAttribute("data-lexical-editor")),
-      );
-      if (isProseMirror) {
-        await page.keyboard.insertText(text);
-        return;
-      }
+    const isProseMirror = await composer.evaluate(
+      (el) =>
+        el.classList.contains("ProseMirror") ||
+        (el.getAttribute("role") === "textbox" && !el.hasAttribute("data-lexical-editor")),
+    );
+    if (isProseMirror) {
+      await page.keyboard.insertText(text);
+      return;
     }
     // CDP Input.insertText is interpreted as live typing by ChatGPT's Lexical plugins. On a large
     // JSON transport it can turn literal Markdown backticks into rich code nodes, remove the
@@ -620,11 +610,7 @@ export class ComposerController {
     });
     throwIfPromptAttachmentAborted(abortSignal);
     if (!inserted) {
-      if (typeof page.keyboard?.insertText === "function") {
-        await page.keyboard.insertText(text);
-      } else {
-        throw new ChatGptPromptAttachmentIntegrityError("ChatGPT composer rejected the plain-text editing command");
-      }
+      await page.keyboard.insertText(text);
     }
   }
 
@@ -640,14 +626,11 @@ export class ComposerController {
       await Promise.all(
         files.map((file) => {
           const byRole = composerForm.getByRole("group", { name: file.name, exact: true });
-          const target =
-            typeof byRole?.or === "function" && typeof composerForm.locator === "function"
-              ? byRole.or(
-                  composerForm.locator(
-                    `.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(file.name)}]`,
-                  ),
-                )
-              : byRole;
+          const target = byRole.or(
+            composerForm.locator(
+              `.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(file.name)}]`,
+            ),
+          );
           return target.waitFor({ state: "visible", timeout: 60_000 });
         }),
       );
@@ -664,14 +647,11 @@ export class ComposerController {
         `ChatGPT did not accept all prompt attachments${alerts.length > 0 ? `: ${alerts.join(" | ")}` : ""}`,
       );
     }
-    const send =
-      (typeof composerForm.locator === "function"
-        ? composerForm
-            .locator(
-              '[data-testid="send-button"], button[type="submit"]:not([aria-haspopup="menu"]), button[aria-label*="Enviar" i], button[aria-label*="Send" i]',
-            )
-            .first()
-        : undefined) ?? composerForm.getByTestId("send-button");
+    const send = composerForm
+      .locator(
+        '[data-testid="send-button"], button[type="submit"]:not([aria-haspopup="menu"]), button[aria-label*="Enviar" i], button[aria-label*="Send" i]',
+      )
+      .first();
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (await send.isEnabled().catch(() => false)) return;

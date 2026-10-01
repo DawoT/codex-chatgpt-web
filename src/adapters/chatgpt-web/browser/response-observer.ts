@@ -14,12 +14,7 @@ import {
 } from "./dom-trackers";
 import { CHATGPT_DOM_REVISION_ATTRIBUTES } from "./submission-observer";
 
-/**
- * Dependencies the response observer borrows from the worker, injected as late-bound members:
- * the shared page DOM observer and the worker's per-page context-pressure resolver. The worker
- * supplies lambdas closing over `this`, so stubs installed on the worker instance or on
- * `ChatGptBrowserWorker.prototype` keep steering every internal call.
- */
+/** Shared page DOM measurements and context pressure are injected from the browser session owner. */
 export interface ResponseObserverDeps {
   readonly pageDomObserver: ChatGptPageDomObserver;
   getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure;
