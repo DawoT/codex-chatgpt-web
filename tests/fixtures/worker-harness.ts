@@ -1,30 +1,13 @@
 /**
- * Shared builder for worker-prototype fixtures: the recurring
- * `Object.assign(Object.create(ChatGptBrowserWorker.prototype), {...})` pattern that worker tests
- * hand-rolled per suite (see browser-worker-contract, browser-worker-defects, turn-completion-loop,
- * browser-worker-launcher-contract, chatgpt-session, compaction-browser-recovery).
- *
- * The worker is never constructed with `new` in tests (the constructor reaches for browser
- * handles); instead the fixture hangs the fields the exercised path reads off the shared
- * prototype and relies on prototype methods steering through `this`. `makeWorkerFixture` supplies
- * the instance fields the real constructor always initializes (config, run registry, context
- * pressure registries) and replaces them with the given overrides; anything unmodeled goes
- * through `fields` (controller-host method stubs such as `runStage`, `prepareChatSurface`,
- * `responseDomSnapshot`, ...).
- *
- * Config defaults to `{ browserHost: "managed-chrome" }` — the dominant fixture — and stays a
- * partial on purpose: fixtures only carry the fields the exercised path reads, mirroring how the
- * hand-rolled versions worked. Launcher-host sites pass
- * `{ browserHost: "launcher", browserHostDescriptorPath: "..." }` and usually a `runBrowserTurn`
- * override; concurrency sites pass a gated `runExclusive`.
- *
- * Casting policy: each builder performs ONE documented boundary cast (see `browser-fakes.ts` for
- * the same policy on page fakes). Call sites receive a `ChatGptBrowserWorker` / `BrowserTurn` and
- * never cast; the cast absorbs that the fixtures implement the surface the exercised paths read,
- * not the worker's full private state.
+ * Test boundary for constructing a genuine worker without the shared provider registry.
+ * Configuration is fully resolved. Browser resources are acquired lazily; supplied handles
+ * seed the same session state used by the composed BrowserSession.
+ * Focused tests may override orchestration dependencies through fields, but the behavior
+ * under test must remain the real worker/controller implementation.
  */
 import type { Browser, Page } from "playwright-core";
-import type { ResolvedBrowserConfig } from "../../src/adapters/chatgpt-web/browser/config";
+import type { BrowserSessionState } from "../../src/adapters/chatgpt-web/browser/browser-session";
+import { type ResolvedBrowserConfig, resolveBrowserConfig } from "../../src/adapters/chatgpt-web/browser/config";
 import type { ChatGptBrowserContextPressure } from "../../src/adapters/chatgpt-web/browser/context-pressure";
 import { type BrowserTurn, ChatGptBrowserWorker } from "../../src/adapters/chatgpt-web/browser-worker";
 import type { LauncherBrowserHelperClient } from "../../src/adapters/chatgpt-web/launcher-helper-client";
@@ -42,7 +25,7 @@ export type WorkerFixtureRunBrowserTurn = (
 ) => Promise<string>;
 
 export interface WorkerFixtureOverrides {
-  /** Merged (shallow) over the `{ browserHost: "managed-chrome" }` default. */
+  /** Merged over a complete resolved managed-browser configuration. */
   config?: Partial<ResolvedBrowserConfig>;
   /** Replaces the default empty run registry wholesale. */
   activeRuns?: Map<string, Promise<string>>;
@@ -70,26 +53,34 @@ export interface WorkerFixtureOverrides {
 }
 
 /**
- * Builds a worker-prototype fixture. Defaults mirror a fresh worker's constructor state
+ * Builds a real worker fixture without touching the shared provider registry. Defaults mirror a
+ * fresh worker's constructor state
  * (`managed-chrome` config, empty run registry, empty context pressure registries); overrides
  * replace them or hang additional fields on the fixture.
  */
 export function makeWorkerFixture(overrides: WorkerFixtureOverrides = {}): ChatGptBrowserWorker {
-  const fields: Record<string, unknown> = {
-    config: { browserHost: "managed-chrome", ...overrides.config },
-    activeRuns: overrides.activeRuns ?? new Map<string, Promise<string>>(),
-    contextPressureByConversation:
-      overrides.contextPressureByConversation ?? new Map<string, ChatGptBrowserContextPressure>(),
-    contextPressureByPage: overrides.contextPressureByPage ?? new WeakMap<object, ChatGptBrowserContextPressure>(),
+  const { fields: extra = {}, ...modeled } = overrides;
+  const fields: Record<string, unknown> = { ...modeled, ...extra };
+  const config = {
+    ...resolveBrowserConfig({ adapter: "chatgpt-web", baseUrl: "browser://test-fixture", chatgptWeb: {} }),
+    ...(fields.config as Partial<ResolvedBrowserConfig> | undefined),
   };
-  const modeled = new Set(["config", "activeRuns", "contextPressureByConversation", "contextPressureByPage"]);
-  for (const [key, value] of Object.entries(overrides)) {
-    if (!modeled.has(key) && value !== undefined) fields[key] = value;
+  delete fields.config;
+  const sessionState = {
+    maintenanceTail: Promise.resolve(),
+    ...(fields.sessionState as BrowserSessionState | undefined),
+  };
+  for (const key of ["browser", "context", "page", "managedBrowserReady", "maintenanceTail"] as const) {
+    if (fields[key] !== undefined) {
+      Object.assign(sessionState, { [key]: fields[key] });
+      delete fields[key];
+    }
   }
-  Object.assign(fields, overrides.fields);
-  // Factory-boundary cast: the fixture carries only the fields the exercised paths read, not the
-  // worker's full private state. This is the only cast; call sites receive a typed worker.
-  return Object.assign(Object.create(ChatGptBrowserWorker.prototype), fields) as unknown as ChatGptBrowserWorker;
+  // The constructor is private only at the TypeScript API boundary. Reflect.construct runs
+  // every real field initializer and avoids registering the fixture as a provider singleton.
+  const worker = Reflect.construct(ChatGptBrowserWorker, [config]) as ChatGptBrowserWorker;
+  Object.assign(worker, { ...fields, sessionState });
+  return worker;
 }
 
 /**
