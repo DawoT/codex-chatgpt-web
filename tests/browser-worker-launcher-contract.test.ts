@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
-import { type BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import type { BrowserTurn, ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import * as realLauncherBrowserHost from "../src/launcher-browser-host";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 // Snapshot the real launcher host exports before any module mock is installed, so the mock can
 // delegate everything it does not override and be restored for subsequent test files.
@@ -62,7 +63,7 @@ function baseBrowserTurn(traceId: string, overrides: Partial<BrowserTurn> = {}):
 }
 
 function launcherWorkerFixture() {
-  return Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+  return Object.assign(makeWorkerFixture(), {
     config: {
       browserHost: "launcher",
       browserHostDescriptorPath: "owned-descriptor",

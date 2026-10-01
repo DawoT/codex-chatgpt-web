@@ -13,8 +13,6 @@ import {
   connectLauncherBrowserHost,
   LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS,
   LAUNCHER_TURN_HEARTBEAT_TIMEOUT_MS,
-  LauncherBrowserTurnCancelledError,
-  LauncherRetainedConversationUnavailableError,
   notifyLauncherTurn,
 } from "../../launcher-browser-host";
 import type { CodexProviderConfig } from "../../types";
@@ -23,7 +21,6 @@ import {
   ChatGptWebAdapterError,
   chatGptBrowserTabClosedError,
   chatGptContextCompactionRequiredError,
-  chatGptRetainedConversationUnavailableError,
   chatGptStoppedThinkingError,
 } from "./adapter-error";
 import { BrowserSession, type BrowserSessionState } from "./browser/browser-session";
@@ -50,7 +47,8 @@ import {
   TurnDiagnostics,
 } from "./browser/turn-diagnostics";
 import { ChatGptTurnEventBus } from "./browser/turn-events";
-import { type InteractiveBrowserTurnLock, interactiveBrowserTurnMutex } from "./browser-mutex";
+import { TurnOrchestrator } from "./browser/turn-orchestrator";
+import { interactiveBrowserTurnMutex } from "./browser-mutex";
 import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "./concurrency";
 import { createBrowserPayloadAcceptanceRecorder } from "./input-tokens";
 import { LauncherBrowserHelperClient } from "./launcher-helper-client";
@@ -1330,166 +1328,14 @@ export class ChatGptBrowserWorker {
   }
 
   private async runExclusive(turn: BrowserTurn): Promise<string> {
-    if (turn.abortSignal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
-
-    let interactiveLock: InteractiveBrowserTurnLock | undefined;
-    const acquireInteractive = async () => {
-      if (interactiveLock) return;
-      interactiveLock = await interactiveBrowserTurnMutex.acquire(turn.traceId, turn.abortSignal);
-    };
-    const releaseInteractive = () => {
-      interactiveLock?.release();
-      interactiveLock = undefined;
-    };
-
-    if (this.config.browserHost !== "launcher") {
-      try {
-        const answer = await this.runBrowserTurn(
-          turn,
-          undefined,
-          undefined,
-          false,
-          false,
-          releaseInteractive,
-          acquireInteractive,
-        );
-        await turn.onResultReady?.(answer);
-        return answer;
-      } finally {
-        releaseInteractive();
-      }
-    }
-
-    let surfaceId: string | undefined;
-    let surfaceClaimed = false;
-    let resultReadyConfirmed = false;
-    let reused = false;
-    let terminal: "completed" | "failed" | "aborted" = "completed";
-    let terminalMessage: string | undefined;
-    let originalError: unknown;
-    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-    let heartbeatInFlight = false;
-    let lastHeartbeatFailureAt = 0;
-    try {
-      const lease = await notifyLauncherTurn(
-        this.config.browserHostDescriptorPath!,
-        {
-          phase: "start",
-          traceId: turn.traceId,
-          helperPid: process.pid,
-          ...(turn.conversationKey ? { conversationKey: turn.conversationKey } : {}),
-          ...(turn.conversationKey &&
-          (turn.nativeConnector || turn.capabilities.localToolsEnabled || turn.requireRetainedConversation)
-            ? { connectorIdentity: this.config.appName }
-            : {}),
-          ...(turn.requireRetainedConversation ? { requireRetainedConversation: true } : {}),
-          ...(turn.compaction ? { compaction: true } : {}),
-        },
-        undefined,
-        turn.abortSignal,
-      ).catch((error) => {
-        if (error instanceof LauncherBrowserTurnCancelledError) throw chatGptBrowserTabClosedError();
-        if (error instanceof LauncherRetainedConversationUnavailableError) {
-          throw chatGptRetainedConversationUnavailableError();
-        }
-        throw error;
-      });
-      surfaceId = lease.surfaceId;
-      reused = lease.reused === true;
-      if (!surfaceId) throw new Error("Launcher did not lease a browser tab for the ChatGPT turn");
-      // Arm the heartbeat before any user callback runs: onSurfaceLeased/onPreparedSelected can
-      // take arbitrarily long, and the launcher revokes a surface that stops receiving
-      // heartbeats, so slow callbacks must not burn the liveness budget.
-      const sendHeartbeat = () => {
-        if (heartbeatInFlight) return;
-        heartbeatInFlight = true;
-        void notifyLauncherTurn(
-          this.config.browserHostDescriptorPath!,
-          {
-            phase: "heartbeat",
-            traceId: turn.traceId,
-            helperPid: process.pid,
-          },
-          LAUNCHER_TURN_HEARTBEAT_TIMEOUT_MS,
-        )
-          .catch((error) => {
-            const now = Date.now();
-            if (now - lastHeartbeatFailureAt < 30_000) return;
-            lastHeartbeatFailureAt = now;
-            console.warn(
-              `[chatgpt-web] launcher turn heartbeat failed for ${turn.traceId}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          })
-          .finally(() => {
-            heartbeatInFlight = false;
-          });
-      };
-      heartbeatTimer = setInterval(sendHeartbeat, LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS);
-      heartbeatTimer.unref?.();
-      await turn.onSurfaceLeased?.(surfaceId);
-      surfaceClaimed = true;
-      if (turn.requireRetainedConversation && !reused) {
-        throw chatGptRetainedConversationUnavailableError();
-      }
-      if (reused && !turn.prepareResume) {
-        throw new Error("Launcher reused a ChatGPT conversation without a continuation prompt");
-      }
-      await turn.onPreparedSelected?.(reused);
-      const answer = await this.runBrowserTurn(
-        turn,
-        surfaceId,
-        undefined,
-        reused,
-        lease.trackUsage === true,
-        releaseInteractive,
-        acquireInteractive,
-      );
-      await turn.onResultReady?.(answer);
-      resultReadyConfirmed = turn.onResultReady !== undefined;
-      return answer;
-    } catch (error) {
-      originalError = error;
-      terminal =
-        error instanceof ChatGptCompactionHandoffAccepted
-          ? "completed"
-          : (error instanceof DOMException && error.name === "AbortError") ||
-              (error instanceof ChatGptWebAdapterError && error.code === "client_cancelled")
-            ? "aborted"
-            : "failed";
-      terminalMessage = error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
-      throw error;
-    } finally {
-      releaseInteractive();
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      if (surfaceId) {
-        try {
-          const release = await notifyLauncherTurn(this.config.browserHostDescriptorPath!, {
-            phase: "end",
-            traceId: turn.traceId,
-            helperPid: process.pid,
-            status: terminal,
-            ...(terminalMessage ? { message: terminalMessage } : {}),
-            ...(terminal === "completed" && turn.retainConversation ? { retain: true } : {}),
-            ...(resultReadyConfirmed ? { resultPersisted: true } : {}),
-            ...(terminal === "completed" && (turn.nativeConnector || turn.capabilities.localToolsEnabled)
-              ? { connectorBound: true }
-              : {}),
-          });
-          if (surfaceClaimed && !(terminal === "completed" && turn.retainConversation && turn.conversationKey)) {
-            await turn.onSurfaceReleased?.(surfaceId);
-          }
-          if (release.cancelledByUser) throw chatGptBrowserTabClosedError();
-        } catch (controlError) {
-          if (controlError instanceof ChatGptWebAdapterError && controlError.code === "client_cancelled") {
-            throw controlError;
-          }
-          if (!originalError) throw controlError;
-          console.error(
-            `[chatgpt-web] launcher turn-end notification failed after browser error: ${controlError instanceof Error ? controlError.message : String(controlError)}`,
-          );
-        }
-      }
-    }
+    return new TurnOrchestrator({
+      config: this.config,
+      notifyLauncherTurn,
+      acquireInteractive: (traceId, signal) => interactiveBrowserTurnMutex.acquire(traceId, signal),
+      runBrowserTurn: (...args) => this.runBrowserTurn(...args),
+      heartbeatIntervalMs: LAUNCHER_TURN_HEARTBEAT_INTERVAL_MS,
+      heartbeatTimeoutMs: LAUNCHER_TURN_HEARTBEAT_TIMEOUT_MS,
+    }).run(turn);
   }
 
   private async runBrowserTurn(

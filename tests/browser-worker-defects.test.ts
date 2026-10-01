@@ -12,6 +12,7 @@ import {
 import { CHATGPT_WEB_MODEL_ID } from "../src/adapters/chatgpt-web/model";
 import * as realLauncherBrowserHost from "../src/launcher-browser-host";
 import type { CodexProviderConfig } from "../src/types";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 // Snapshot the real launcher host exports before any module mock is installed, so the mock can
 // delegate everything it does not override and be restored for subsequent test files.
@@ -67,7 +68,7 @@ function diagnosticsTempRoot(): string {
 test("run rejects an invalid trace id before preparing the prompt", async () => {
   const prepareCalls: string[] = [];
   const runExclusiveCalls: string[] = [];
-  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+  const worker = Object.assign(makeWorkerFixture(), {
     config: { browserHost: "managed-chrome" },
     activeRuns: new Map(),
     runExclusive: async (turn: { traceId: string }) => {
@@ -89,7 +90,7 @@ test("run rejects an invalid trace id before preparing the prompt", async () => 
 
 test("a prompt prepared before staging fails still gets released", async () => {
   let released = 0;
-  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+  const worker = Object.assign(makeWorkerFixture(), {
     config: {
       browserHost: "managed-chrome",
       appName: "test",
@@ -120,7 +121,7 @@ test("worker close cleans up browser state even when the launcher helper refuses
   });
   try {
     const browserCloses: number[] = [];
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    const worker = Object.assign(makeWorkerFixture(), {
       launcherHelper: {
         close: async () => {
           throw new Error("refused termination");
@@ -175,7 +176,7 @@ test("launcher turn heartbeats while a slow onSurfaceLeased callback is still pe
     });
     setTimeout(() => releaseLease(), 80);
 
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    const worker = Object.assign(makeWorkerFixture(), {
       config: {
         browserHost: "launcher",
         browserHostDescriptorPath: "/tmp/browser-worker-defects-descriptor.json",
@@ -210,7 +211,7 @@ test("an accepted compaction handoff resets the conversation's existing context 
       resetCalls.push("existing");
     },
   } as unknown as ChatGptBrowserContextPressure;
-  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+  const worker = Object.assign(makeWorkerFixture(), {
     config: {
       browserHost: "managed-chrome",
       appName: "test",
@@ -250,7 +251,7 @@ test("a forProvider call racing an in-flight close keeps receiving the worker be
   const closeGate = new Promise<void>((resolve) => {
     releaseClose = resolve;
   });
-  const closeSpy = spyOn(ChatGptBrowserWorker.prototype, "close").mockImplementation(() => closeGate);
+  const closeSpy = spyOn(first, "close").mockImplementation(() => closeGate);
   try {
     const closing = closeChatGptBrowserWorkers();
     await new Promise((resolve) => setTimeout(resolve, 0));
