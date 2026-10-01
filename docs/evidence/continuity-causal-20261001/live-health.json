@@ -1,0 +1,32 @@
+{
+  "service": "codex-chatgpt-web",
+  "runtime_identity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "289e6acebbc4d4401d64099ecd2c461b63ee8882bb891710ec6c91a766ce025c",
+    "generation": "e13a6b56-a87a-424e-ab03-60e73101b2a1",
+    "pid": 7319
+  },
+  "helper_runtimes": [
+    {
+      "pid": 25647,
+      "protocolStatus": "compatible",
+      "identity": {
+        "protocolVersion": 2,
+        "generation": "526ca6e5-1dfe-4caf-9667-7083103c5740",
+        "pid": 25647,
+        "buildCommit": null,
+        "artifactSha256": "14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7"
+      }
+    }
+  ],
+  "accepting_turns": true,
+  "active_http_turns": 2,
+  "active_browser_turns": 2,
+  "active_subagents": 0,
+  "queued_subagents": 0,
+  "resource_diagnostics": null,
+  "telemetry_health": null,
+  "diagnostic_health": null,
+  "observedAt": "2026-10-01T15:24:49.568187+00:00"
+}

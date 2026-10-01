@@ -1,0 +1,31 @@
+bun install v1.4.2 (744846f84)
+
++ @types/node@22.20.1
++ @types/react@19.2.17
++ @types/react-dom@19.2.3
++ @vitejs/plugin-react@5.2.0
++ app-builder-lib@26.15.3
++ builder-util@26.15.3
++ electron@41.10.7
++ electron-builder@26.15.3
++ typescript@5.9.3
++ vite@6.4.3
++ motion@12.42.2
++ react@19.2.8
++ react-dom@19.2.8
+
+334 packages installed [1.55s]
+$ bun run typecheck && bun run build:renderer
+$ tsc --noEmit
+$ vite build
+vite v6.4.3 building for production...
+transforming...
+✓ 441 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                     0.72 kB │ gzip:   0.42 kB
+dist/assets/mcp-create-tunnel-Ct8dodf9.mp4        715.64 kB
+dist/assets/mcp-connect-connector-D6ufVfWb.mp4  1,839.21 kB
+dist/assets/index-DzRwOXXH.css                     53.59 kB │ gzip:   9.91 kB
+dist/assets/index-WyqcFVJ0.js                     475.40 kB │ gzip: 151.91 kB
+✓ built in 1.00s

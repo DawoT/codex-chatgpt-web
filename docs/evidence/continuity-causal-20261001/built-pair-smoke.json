@@ -1,0 +1,48 @@
+{
+  "cliExit": 0,
+  "version": "6.2.0",
+  "helperExit": 0,
+  "ready": {
+    "type": "ready",
+    "protocolVersion": 2,
+    "identity": {
+      "protocolVersion": 2,
+      "buildCommit": "a25e1ef9c5e3c9488fc47952b6d9176bb8a3b301",
+      "artifactSha256": "f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6",
+      "generation": "f9786dda-fc84-46b0-babd-8d6eef067842",
+      "pid": 191535,
+      "artifactSetSha256": "0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f",
+      "artifactVerification": "paired_manifest_verified"
+    },
+    "features": [
+      "diagnostic-error-v1",
+      "continuity-record-fragments-v1",
+      "typed-abort-reason-v1",
+      "progress",
+      "tool-boundary-ack",
+      "tool-boundary-request-ack-v2",
+      "session-operation-id-v2",
+      "surface-ownership-ack-v1",
+      "result-persistence-ack-v1",
+      "completion-fence",
+      "multipart-stage-ack",
+      "multipart-submission-lifecycle",
+      "skill-attachments",
+      "mission-headroom",
+      "context-pressure-release",
+      "checkpoint-markdown-v2"
+    ]
+  },
+  "mcpExit": 0,
+  "mcpProtocol": "2025-11-25",
+  "mcpTools": 14,
+  "browserStarted": false,
+  "liveSend": false,
+  "candidate": {
+    "runtimeRoot": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
+    "entrypoint": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/cli.js",
+    "helperPath": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/browser-helper.cjs",
+    "sourceInputsSha256": "31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
+    "artifactSetSha256": "0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f"
+  }
+}

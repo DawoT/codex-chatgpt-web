@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "measuredAt": "2026-10-01T15:21:20.915Z",
+  "measuredAt": "2026-10-01T11:21:04.134Z",
   "runtime": {
     "bun": "1.4.2",
     "platform": "linux",
@@ -8,9 +8,9 @@
     "browser": "/home/deuz/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
   },
   "revision": {
-    "head": "5479f97a7766c80b3fcc64df89b75b556744f978",
+    "head": "98bef093fa2b9614939aae9e164a6a1d416ec74b",
     "dirty": false,
-    "sourceDigest": "f2fc6d8f703c669fdc737da5b34f4ad726c0771aa9286bf91a44a75e3940aa82"
+    "sourceDigest": "4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d"
   },
   "stableBuild": true,
   "scenarioDigest": "9f0cbd6a248c743c3b8a33ee95264d5e2d3ff12db4021bd75fa48a9bc47b4e3c",
@@ -22,7 +22,7 @@
       "exitCode": 0,
       "pass": 158,
       "skipped": 0,
-      "elapsedMs": 2279.051985,
+      "elapsedMs": 1839.831554,
       "contractBudgetMs": 5000,
       "success": true
     },
@@ -32,7 +32,7 @@
       "exitCode": 0,
       "pass": 10,
       "skipped": 0,
-      "elapsedMs": 72.142742,
+      "elapsedMs": 38.11389300000019,
       "contractBudgetMs": null,
       "success": true
     },
@@ -42,7 +42,7 @@
       "exitCode": 0,
       "pass": 3,
       "skipped": 0,
-      "elapsedMs": 1461.184886,
+      "elapsedMs": 1073.2814900000003,
       "contractBudgetMs": null,
       "success": true
     },
@@ -52,7 +52,7 @@
       "exitCode": 0,
       "pass": 8,
       "skipped": 0,
-      "elapsedMs": 4531.673675,
+      "elapsedMs": 3785.4171440000005,
       "contractBudgetMs": null,
       "success": true
     },
@@ -62,7 +62,7 @@
       "exitCode": 0,
       "pass": 8,
       "skipped": 0,
-      "elapsedMs": 403.8612069999999,
+      "elapsedMs": 236.15845700000045,
       "contractBudgetMs": null,
       "success": true
     },
@@ -72,7 +72,7 @@
       "exitCode": 0,
       "pass": 4,
       "skipped": 0,
-      "elapsedMs": 75.7969520000006,
+      "elapsedMs": 153.20662399999947,
       "contractBudgetMs": null,
       "success": true
     },
@@ -82,7 +82,7 @@
       "exitCode": 0,
       "pass": 15,
       "skipped": 0,
-      "elapsedMs": 4193.480283000001,
+      "elapsedMs": 4480.351644,
       "contractBudgetMs": null,
       "success": true
     },
@@ -92,7 +92,7 @@
       "exitCode": 0,
       "pass": 7,
       "skipped": 0,
-      "elapsedMs": 67.08361899999909,
+      "elapsedMs": 41.37117599999874,
       "contractBudgetMs": null,
       "success": true
     },
@@ -102,7 +102,7 @@
       "exitCode": 0,
       "pass": 6,
       "skipped": 0,
-      "elapsedMs": 44.95092400000067,
+      "elapsedMs": 35.70022699999936,
       "contractBudgetMs": null,
       "success": true
     },
@@ -112,7 +112,7 @@
       "exitCode": 0,
       "pass": 8,
       "skipped": 0,
-      "elapsedMs": 370.6167089999999,
+      "elapsedMs": 345.9891239999997,
       "contractBudgetMs": null,
       "success": true
     },
@@ -122,7 +122,7 @@
       "exitCode": 0,
       "pass": 11,
       "skipped": 0,
-      "elapsedMs": 76.53683900000033,
+      "elapsedMs": 79.30822100000114,
       "contractBudgetMs": null,
       "success": true
     },
@@ -132,32 +132,27 @@
       "exitCode": 0,
       "pass": 4,
       "skipped": 0,
-      "elapsedMs": 124.08944100000008,
+      "elapsedMs": 90.08205500000076,
       "contractBudgetMs": null,
       "success": true
     }
   ],
   "build": {
-    "kind": "immutable-development-snapshot",
+    "kind": "in-memory-validation",
+    "packages": "external",
     "minify": false,
-    "runtimeRoot": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
-    "entrypoint": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/cli.js",
-    "helperPath": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/browser-helper.cjs",
-    "sourceInputsSha256": "31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
-    "artifactSetSha256": "0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f",
-    "buildCommit": "a25e1ef9c5e3c9488fc47952b6d9176bb8a3b301",
-    "dependencies": "frozen-lockfile-copy",
-    "elapsedMs": 18.222044000000096,
     "bundles": [
       {
         "name": "cli",
-        "bytes": 3074896,
-        "sha256": "6fe17b7f0cb2f042c27dec4e545126455446030dfc2f8400b58e8445b05b3e20"
+        "bytes": 1716756,
+        "sha256": "fc6d2eab0070738e6b512c8eeef70280e084459d3a4966cd201a59b9e39a3fc3",
+        "elapsedMs": 20.372066999998424
       },
       {
         "name": "browser-helper",
-        "bytes": 1184993,
-        "sha256": "f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6"
+        "bytes": 474540,
+        "sha256": "c93bd474d6830bd4750d0a8fb656c4fe71d73a59fd7dc57defafb37d1d153011",
+        "elapsedMs": 11.044426999998905
       }
     ]
   },
@@ -165,15 +160,15 @@
     {
       "name": "late-ack",
       "samplesMs": [
-        460.37913000000117,
-        392.1642069999998,
-        372.89138999999886,
-        366.68731500000104,
-        359.22184500000003
+        428.6930370000009,
+        396.7154499999997,
+        410.44452100000126,
+        358.2378750000007,
+        381.8599520000007
       ],
       "sampleCount": 5,
-      "p50Ms": 372.89138999999886,
-      "p95Ms": 460.37913000000117,
+      "p50Ms": 396.7154499999997,
+      "p95Ms": 428.6930370000009,
       "method": "nearest-rank",
       "outcome": {
         "scenario": "late-ack",
@@ -190,15 +185,15 @@
     {
       "name": "lost-ack",
       "samplesMs": [
-        390.6964769999977,
-        403.4827379999988,
-        406.28028500000073,
-        385.27041499999905,
-        392.8894199999995
+        413.4541900000004,
+        408.925432,
+        415.0586380000004,
+        432.73391300000003,
+        401.910487000001
       ],
       "sampleCount": 5,
-      "p50Ms": 392.8894199999995,
-      "p95Ms": 406.28028500000073,
+      "p50Ms": 413.4541900000004,
+      "p95Ms": 432.73391300000003,
       "method": "nearest-rank",
       "outcome": {
         "scenario": "lost-ack",
@@ -215,15 +210,15 @@
     {
       "name": "ambiguous-send",
       "samplesMs": [
-        314.4062720000002,
-        317.28647099999944,
-        337.68678600000203,
-        325.43941899999845,
-        311.9812740000016
+        327.61173399999825,
+        346.2977800000008,
+        335.5431810000009,
+        348.4565619999994,
+        343.5617779999993
       ],
       "sampleCount": 5,
-      "p50Ms": 317.28647099999944,
-      "p95Ms": 337.68678600000203,
+      "p50Ms": 343.5617779999993,
+      "p95Ms": 348.4565619999994,
       "method": "nearest-rank",
       "outcome": {
         "scenario": "ambiguous-send",
@@ -239,15 +234,15 @@
     {
       "name": "coding-checkpoint-persist-reload",
       "samplesMs": [
-        158.3869360000026,
-        11.548320000001695,
-        12.183896000002278,
-        11.405251000000135,
-        9.076900999996724
+        164.21723700000075,
+        15.587852000000566,
+        19.92094399999769,
+        13.398336000002018,
+        13.164831000001868
       ],
       "sampleCount": 5,
-      "p50Ms": 11.548320000001695,
-      "p95Ms": 158.3869360000026,
+      "p50Ms": 15.587852000000566,
+      "p95Ms": 164.21723700000075,
       "method": "nearest-rank",
       "payload": {
         "originalBytes": 2162,
@@ -361,26 +356,5 @@
     "minimumSessionMinutesExclusive": 22
   },
   "tokenMetric": "o200k_base ordinary text via production estimateTokens; transport JSON, not billed model usage",
-  "comparison": [
-    {
-      "name": "late-ack",
-      "p50DeltaMs": -23.824060000000827,
-      "p95DeltaMs": 31.686093000000255
-    },
-    {
-      "name": "lost-ack",
-      "p50DeltaMs": -20.564770000000863,
-      "p95DeltaMs": -26.4536279999993
-    },
-    {
-      "name": "ambiguous-send",
-      "p50DeltaMs": -26.275306999999884,
-      "p95DeltaMs": -10.769775999997364
-    },
-    {
-      "name": "coding-checkpoint-persist-reload",
-      "p50DeltaMs": -4.0395319999988715,
-      "p95DeltaMs": -5.830300999998144
-    }
-  ]
+  "comparison": null
 }

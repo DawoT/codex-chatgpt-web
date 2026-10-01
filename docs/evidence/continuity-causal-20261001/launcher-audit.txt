@@ -1,0 +1,22 @@
+$ bun run --cwd launcher audit
+$ bun audit
+bun audit v1.4.2 (744846f84)
+
+brace-expansion@5.0.9, 1.1.18, 2.1.4
+  app-builder-lib > @electron/universal > @electron/asar > minimatch > brace-expansion
+  high: brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion (>=4.0.0 <5.0.11) - https://github.com/advisories/GHSA-qhr7-859c-m2p7
+  high: brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion (<1.1.19) - https://github.com/advisories/GHSA-6j4f-fj2g-mc7p
+  high: brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion (>=2.0.0 <2.1.5) - https://github.com/advisories/GHSA-6j4f-fj2g-mc7p
+  high: brace-expansion: DoS via uncontrolled recursion in parseCommaParts causing stack exhaustion (>=4.0.0 <5.0.10) - https://github.com/advisories/GHSA-6j4f-fj2g-mc7p
+  moderate: brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service (<1.1.21) - https://github.com/advisories/GHSA-q2hr-2g5m-vwhr
+  moderate: brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service (>=2.0.0 <2.1.7) - https://github.com/advisories/GHSA-q2hr-2g5m-vwhr
+  moderate: brace-expansion: Quadratic-time expansion of the `{a},b}` rewrite causes CPU denial of service (>=4.0.0 <5.0.12) - https://github.com/advisories/GHSA-q2hr-2g5m-vwhr
+  high: brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion (<1.1.20) - https://github.com/advisories/GHSA-qhr7-859c-m2p7
+  high: brace-expansion: DoS via uncontrolled recursion on nested brace groups causing stack exhaustion (>=2.0.0 <2.1.6) - https://github.com/advisories/GHSA-qhr7-859c-m2p7
+
+9 vulnerabilities (6 high, 3 moderate)
+
+  bun audit fix           upgrade the vulnerable packages within their ranges
+  bun audit fix --latest  also cross major versions
+error: script "audit" exited with code 1
+error: script "launcher:audit" exited with code 1

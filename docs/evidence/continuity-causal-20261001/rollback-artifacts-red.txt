@@ -1,0 +1,50 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-rollback-artifacts.test.ts:
+31 |
+32 | test("helper and a claimed source commit alone cannot constitute a rollback", () => {
+33 |   const { root, app } = fixture();
+34 |   try {
+35 |     rmSync(join(app, "cli.js"));
+36 |     expect(verifyRollbackPreparation(app)).toBe(false);
+                                                ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-rollback-artifacts.test.ts:36:44)
+(fail) helper and a claimed source commit alone cannot constitute a rollback [2.00ms]
+42 | test("rollback validates both artifact bytes and exact committed provenance", () => {
+43 |   const { root, app } = fixture();
+44 |   try {
+45 |     expect(verifyRollbackPreparation(app)).toBe(true);
+46 |     writeFileSync(join(app, "source-commit.txt"), `${"b".repeat(40)}\n`);
+47 |     expect(verifyRollbackPreparation(app)).toBe(false);
+                                                ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-rollback-artifacts.test.ts:47:44)
+(fail) rollback validates both artifact bytes and exact committed provenance [0.98ms]
+56 | test("rollback cannot omit declared frozen external dependencies", () => {
+57 |   const { root, app, manifest } = fixture();
+58 |   try {
+59 |     manifest.dependencies = "frozen-lockfile-copy";
+60 |     writeFileSync(join(root, "manifest.json"), JSON.stringify(manifest));
+61 |     expect(verifyRollbackPreparation(app)).toBe(false);
+                                                ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-rollback-artifacts.test.ts:61:44)
+(fail) rollback cannot omit declared frozen external dependencies [1.05ms]
+
+ 0 pass
+ 3 fail
+ 4 expect() calls
+Ran 3 tests across 1 file. [31.00ms]

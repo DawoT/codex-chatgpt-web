@@ -1,0 +1,26 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-development-runtime.test.ts:
+34 | }
+35 |
+36 | test("continuity gates measure the runnable launcher snapshot rather than an unrelated build recipe", async () => {
+37 |   const root = fixture();
+38 |   const measured = await buildValidation(root);
+39 |   expect(measured.kind).toBe("immutable-development-snapshot");
+                             ^
+error: expect(received).toBe(expected)
+
+Expected: "immutable-development-snapshot"
+Received: "in-memory-validation"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-development-runtime.test.ts:39:25)
+(fail) continuity gates measure the runnable launcher snapshot rather than an unrelated build recipe [3.96ms]
+(pass) startup builder emits a runnable pair with a manifest of actual artifact hashes [50.53ms]
+(pass) changed source creates a new pair while the earlier generation remains runnable [102.52ms]
+(pass) a broken helper build cannot publish a partial runnable generation [17.78ms]
+(pass) development snapshots resolve external modules from frozen dependencies instead of mutable checkout modules [1305.51ms]
+
+ 4 pass
+ 1 fail
+ 29 expect() calls
+Ran 5 tests across 1 file. [1.77s]

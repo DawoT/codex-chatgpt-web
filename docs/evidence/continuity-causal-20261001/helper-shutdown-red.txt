@@ -1,0 +1,26 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-diagnostics-helper.test.ts:
+(pass) helper errors preserve source DAG with sanitized outer fields and unchanged structured contract [2.29ms]
+(pass) helper parser rejects dangling causes and sanitizes forged diagnostic messages [0.24ms]
+(pass) optional internal abort diagnostic survives protocol without reclassifying unknown abort [0.25ms]
+120 |     await exited;
+121 |     expect(stderr).not.toContain("Cookie secret prompt");
+122 |     const { DiagnosticSink } = await import("../src/diagnostics/sink");
+123 |     const saved = await new DiagnosticSink<any>(join(root, "logs", "harness")).query();
+124 |     const failure = saved.find((event) => event.event === "helper_error");
+125 |     expect(failure?.error.errorId).toBe(frame.diagnostic.errorId);
+                                         ^
+error: expect(received).toBe(expected)
+
+Expected: "d8825bf7-a4fb-4224-b43f-49e8467b31cf"
+Received: undefined
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-helper.test.ts:125:36)
+(fail) real helper emits negotiated sanitized causes and keeps stdout free of browser log secrets [339.72ms]
+(pass) helper runtime pairing fields are optional but validated and survive ready parsing [0.20ms]
+
+ 4 pass
+ 1 fail
+ 22 expect() calls
+Ran 5 tests across 1 file. [403.00ms]

@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-development-runtime.test.ts:
+(pass) continuity gates measure the runnable launcher snapshot rather than an unrelated build recipe [28.65ms]
+(pass) startup builder emits a runnable pair with a manifest of actual artifact hashes [52.37ms]
+(pass) changed source creates a new pair while the earlier generation remains runnable [119.74ms]
+(pass) a broken helper build cannot publish a partial runnable generation [17.36ms]
+(pass) development snapshots resolve external modules from frozen dependencies instead of mutable checkout modules [740.46ms]
+
+ 5 pass
+ 0 fail
+ 35 expect() calls
+Ran 5 tests across 1 file. [1374.00ms]

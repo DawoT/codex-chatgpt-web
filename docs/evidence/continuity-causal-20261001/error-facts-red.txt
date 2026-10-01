@@ -1,0 +1,50 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-diagnostics-errors.test.ts:
+(pass) source IDs and shared causes survive round trip without copying arbitrary text [1.14ms]
+(pass) cyclic, deep, aggregate and oversized errors remain a bounded cause DAG [11.17ms]
+(pass) hostile getters and forged diagnostics cannot leak or break serialization [0.33ms]
+(pass) typed source reasons remain distinct from unknown aborts [1.32ms]
+(pass) native I/O facts survive without carrying the private pathname or message [0.12ms]
+103 | test("selection facts preserve numeric expectations and discard arbitrary diagnostic metadata", () => {
+104 |   const source = new api.DiagnosticSourceError("model_step_failed", {
+105 |     facts: { expectedValue: 3, observedValue: 2, min: 0, max: 4, effortIndex: 3, privatePath: "/private/task" },
+106 |   });
+107 |   const graph = api.serializeDiagnosticError(source);
+108 |   expect(graph.nodes[0].facts).toEqual({ expectedValue: 3, observedValue: 2, min: 0, max: 4, effortIndex: 3 });
+                                     ^
+error: expect(received).toEqual(expected)
+
+- {
+-   "effortIndex": 3,
+-   "expectedValue": 3,
+-   "max": 4,
+-   "min": 0,
+-   "observedValue": 2,
+- }
++ undefined
+
+- Expected  - 7
++ Received  + 1
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:108:32)
+(fail) selection facts preserve numeric expectations and discard arbitrary diagnostic metadata [0.20ms]
+126 |   try {
+127 |     const exitCode = await Promise.race([
+128 |       child.exited,
+129 |       new Promise<number>((resolve) => { timer = setTimeout(() => { child.kill(); resolve(-1); }, 1500); }),
+130 |     ]);
+131 |     expect(exitCode).toBe(0);
+                           ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: -1
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:131:22)
+(fail) a shared cause DAG is parsed with bounded work instead of expanding every path [1505.31ms]
+
+ 5 pass
+ 2 fail
+ 35 expect() calls
+Ran 7 tests across 1 file. [1.55s]

@@ -1,0 +1,5 @@
+$ bun run --cwd launcher audit
+$ bun audit
+bun audit v1.4.2 (744846f84)
+
+No vulnerabilities found (checked 351 packages) [528.00ms]

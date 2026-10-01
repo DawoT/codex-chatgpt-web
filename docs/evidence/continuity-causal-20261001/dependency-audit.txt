@@ -1,0 +1,10 @@
+bun audit v1.4.2 (744846f84)
+
+hono@4.13.5
+  @modelcontextprotocol/sdk > @hono/node-server > hono
+  moderate: hono/jsx renders plain strings unescaped in boundary components, leading to XSS (<4.13.7) - https://github.com/advisories/GHSA-hxh3-vqpv-xpqv
+
+1 vulnerability (1 moderate)
+
+  bun audit fix           upgrade the vulnerable packages within their ranges
+  bun audit fix --latest  also cross major versions

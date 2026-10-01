@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "sourceInputsSha256": "31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
+  "artifactSetSha256": "0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f",
+  "buildCommit": "a25e1ef9c5e3c9488fc47952b6d9176bb8a3b301",
+  "bunVersion": "1.4.2",
+  "dependencies": "frozen-lockfile-copy",
+  "entrypoint": "app/cli.js",
+  "files": [
+    {
+      "path": "app/browser-helper.cjs",
+      "size": 1184993,
+      "sha256": "f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6"
+    },
+    {
+      "path": "app/cli.js",
+      "size": 3074896,
+      "sha256": "6fe17b7f0cb2f042c27dec4e545126455446030dfc2f8400b58e8445b05b3e20"
+    }
+  ]
+}

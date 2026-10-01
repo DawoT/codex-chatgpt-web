@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-development-runtime.test.ts:
+(pass) startup builder emits a runnable pair with a manifest of actual artifact hashes [49.58ms]
+(pass) changed source creates a new pair while the earlier generation remains runnable [108.92ms]
+(pass) a broken helper build cannot publish a partial runnable generation [22.21ms]
+(pass) development snapshots resolve external modules from frozen dependencies instead of mutable checkout modules [1751.77ms]
+
+ 4 pass
+ 0 fail
+ 28 expect() calls
+Ran 4 tests across 1 file. [1.95s]

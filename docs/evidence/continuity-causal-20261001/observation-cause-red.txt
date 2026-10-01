@@ -1,0 +1,35 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-diagnostics-errors.test.ts:
+(pass) source IDs and shared causes survive round trip without copying arbitrary text [1.11ms]
+(pass) cyclic, deep, aggregate and oversized errors remain a bounded cause DAG [13.06ms]
+(pass) hostile getters and forged diagnostics cannot leak or break serialization [0.41ms]
+(pass) typed source reasons remain distinct from unknown aborts [1.45ms]
+(pass) native I/O facts survive without carrying the private pathname or message [0.13ms]
+(pass) selection facts preserve numeric expectations and discard arbitrary diagnostic metadata [0.13ms]
+(pass) a shared cause DAG is parsed with bounded work instead of expanding every path [12.69ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.19ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.03ms]
+(pass) primitive causes serialize to a valid graph (private abort) [0.02ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.01ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.01ms]
+(pass) hostile error names cannot leak object fields or execute coercion [0.06ms]
+156 | });
+157 |
+158 | test("DOM observation deadlines retain their exact typed cause across the diagnostic boundary", async () => {
+159 |   const { ChatGptBrowserObservationTimeoutError } = await import("../src/adapters/chatgpt-web/browser/suspension-clock");
+160 |   const graph = api.serializeDiagnosticError(new ChatGptBrowserObservationTimeoutError(5250));
+161 |   expect(graph.nodes[0].code).toBe("browser_dom_observation_timeout");
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "browser_dom_observation_timeout"
+Received: "operation_failed"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:161:31)
+(fail) DOM observation deadlines retain their exact typed cause across the diagnostic boundary [0.35ms]
+
+ 13 pass
+ 1 fail
+ 55 expect() calls
+Ran 14 tests across 1 file. [52.00ms]

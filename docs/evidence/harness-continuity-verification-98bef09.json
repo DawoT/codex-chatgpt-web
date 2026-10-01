@@ -1,0 +1,69 @@
+{
+  "verifiedProductionTree": "a045530001a0cd714700467a150a67099890b800",
+  "finalGateCommit": "98bef093fa2b9614939aae9e164a6a1d416ec74b",
+  "fullSuite": {
+    "command": "bun test ./tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=/tmp/continuity-coverage-98bef09",
+    "pass": 2233,
+    "skip": 14,
+    "fail": 0,
+    "assertions": 12341,
+    "seconds": 220.73,
+    "lcovSha256": "665d4c816bccd9ea78fab51bffe93072da1be4c976fe0352abfbe1bd95e32475",
+    "lcovCounts": {
+      "FNF": 3878,
+      "FNH": 3135,
+      "LF": 50725,
+      "LH": 38149
+    },
+    "coverageFunctionsPercentFromLcov": 80.84063950489943,
+    "coverageLinesPercentFromLcov": 75.20749137506161,
+    "scope": "Full coverage run after adding the live-canary quiescence seam and preflight."
+  },
+  "browserContracts": {
+    "command": "bun run test:browser-contracts",
+    "browser": "/home/deuz/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+    "pass": 37,
+    "fail": 0,
+    "assertions": 228,
+    "seconds": 260.93
+  },
+  "typecheck": {
+    "command": "bun run typecheck",
+    "success": true
+  },
+  "lint": {
+    "command": "bun x --no-install biome check .",
+    "errors": 0,
+    "warnings": 88
+  },
+  "refactorGates": {
+    "command": "bun run check:refactor-gates",
+    "success": true
+  },
+  "continuityGate": {
+    "command": "bun run scripts/check-harness-continuity.ts --samples=5 --report=/tmp/continuity-candidate-98bef09-gates.json",
+    "success": true,
+    "stableBuild": true,
+    "sourceDigest": "4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d"
+  },
+  "candidatePreparation": {
+    "directory": "/tmp/continuity-candidate-98bef09",
+    "cliSha256": "fc6d2eab0070738e6b512c8eeef70280e084459d3a4966cd201a59b9e39a3fc3",
+    "browserHelperSha256": "c93bd474d6830bd4750d0a8fb656c4fe71d73a59fd7dc57defafb37d1d153011",
+    "rollbackDirectory": "/tmp/continuity-rollback-98bef09",
+    "rollbackBrowserHelperSha256": "14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7",
+    "activated": false
+  },
+  "review": {
+    "independentReviews": 2,
+    "scope": "Prior shared-workspace readonly semantic review remains historical evidence; this quiescence seam is covered by TDD and the complete local gate set but still requires the runbook's human review before merge."
+  },
+  "operational": {
+    "candidateActivated": false,
+    "runtimeProcessObserved": true,
+    "admissionQueueEmpty": true,
+    "liveCompactations": 0,
+    "longLiveSessions": 0,
+    "status": "Pending demonstrably inactive runtime window and live acceptance. The currently loaded runtime predates the quiescence health seam."
+  }
+}

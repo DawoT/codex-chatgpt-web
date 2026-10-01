@@ -1,0 +1,44 @@
+[
+  {
+    "path": "docs/evidence/continuity-causal-20261001/artifact-gate-red.txt",
+    "inputSha256": "fe477d3d75b9c73f9d6f955f0855dec924b492a7cbc6511a4fb54ccf2deecc7a",
+    "outputSha256": "35d9312ca68ad5cd2b5657b78a0a3f12de5ea42bb6cea1a991ef15ea0ac5ba1e",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostic-preflight-red.txt",
+    "inputSha256": "bc1dbe98f75e2ec41bddc7925bb2f1d6aae61bfb5063f5c013e43e674466f09e",
+    "outputSha256": "6eb49b13c61cc68c3faff7dd1a71f386a3c435d3448dcbe5dda5f3b7c951e74b",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/full-suite-final.txt",
+    "inputSha256": "1dc6815cbc6b1e82eb47359497c900991e9def7ed4e5ecbfd4f36bf0136a5564",
+    "outputSha256": "40540b6a8692466df671b37d0c096943e05fa010189827460a6bb08195f3b150",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/lint-complete.txt",
+    "inputSha256": "8b31c7ca10d85a4879aa05d7f8ba8f484e91a275daffee1b811db44e0c6d7303",
+    "outputSha256": "69748d7c5ed4ba74d8372d16e9044f4a6c011fc89de36e8050fa8e6b4ac5ba54",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/observation-cause-red.txt",
+    "inputSha256": "041775c5085d673b18be9ba5604a72e7e5761e94687c5955f23f56b5e76e2838",
+    "outputSha256": "470080b95f05fcce02b66ad9fd9299240e01f0b58736c8cbbb25aba037f83c2e",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/review-regressions-red.txt",
+    "inputSha256": "258d760bb30e9dbb12cbd24e4b0843d958cc6e795c31d10f538e3982b22ef0fd",
+    "outputSha256": "59362e20ae9b937b125bcc217c021751e46275fab92375b6fffc37249f97500e",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/rollback-artifacts-red.txt",
+    "inputSha256": "0deb16a6a01d374737af3170c3c679861f0b96bbcfbe76e174bf77e7a9a99c08",
+    "outputSha256": "5fcb901e91f55cbd0adc479f537145f7090e9026c4664fa3b74c4bacdbc4a3eb",
+    "transformation": "Strip trailing whitespace and normalize final newline for Git whitespace checks. No test result changed."
+  }
+]

@@ -1,0 +1,32 @@
+bun test v1.4.2 (744846f84)
+
+tests/launcher-helper-client.test.ts:
+[chatgpt-web-helper] {"version":2,"eventId":"402d8e92-b5fa-4644-ab17-177c921af382","producer":"helper","producerId":"6092524b-f23c-44df-89a0-a4a373e98247","sequence":1,"occurredAt":"2026-10-01T14:32:44.494Z","monotonicMs":420.023792,"runtime":{"artifactSetSha256":null,"artifactVerification":"entrypoint_only","protocolVersion":2,"buildCommit":null,"artifactSha256":"9b58e6e1aeb3f5458a46d7a9f6c550125a43a593c59a9e9e2a4af36c5842dd28","generation":"54e67e05-e424-4ec9-ac5a-fce547c54bb2","pid":153720},"correlation":{"requestId":"unsupported-contract-frame"},"event":"helper_error","phase":"failed","fields":{},"error":{"version":1,"errorId":"9c167785-b30a-4ac0-9541-52123a774408","nodes":[{"errorId":"9c167785-b30a-4ac0-9541-52123a774408","name":"Error","code":"helper_protocol_failure","message":"Browser helper protocol failed"}],"truncated":{"depth":false,"aggregate":false,"bytes":false,"cycle":false}}}
+[chatgpt-web-helper] {"version":2,"eventId":"cfa7b434-cdf3-4c8c-a7c3-d0ccb1f4688a","producer":"helper","producerId":"6092524b-f23c-44df-89a0-a4a373e98247","sequence":2,"occurredAt":"2026-10-01T14:32:44.496Z","monotonicMs":422.349049,"runtime":{"artifactSetSha256":null,"artifactVerification":"entrypoint_only","protocolVersion":2,"buildCommit":null,"artifactSha256":"9b58e6e1aeb3f5458a46d7a9f6c550125a43a593c59a9e9e2a4af36c5842dd28","generation":"54e67e05-e424-4ec9-ac5a-fce547c54bb2","pid":153720},"correlation":{},"event":"unknown","phase":"observed","fields":{}}
+(pass) daemon streams browser lifecycle through the real helper process [499.43ms]
+(pass) real helper retires accepted compaction and aborts pending browser work on close [473.38ms]
+(pass) a helper without multipart submission lifecycle never receives multipart payload [1.33ms]
+(pass) launcher helper protocol preserves multipart context and the compaction flag [0.83ms]
+(pass) an abort dispatched during run submission cannot overtake the run frame [0.48ms]
+(pass) a stale helper cannot accept a fresh compaction before checkpoint Markdown support is confirmed [0.38ms]
+(pass) structured helper errors preserve the ChatGPT adapter failure contract [0.41ms]
+(pass) an older helper cannot silently drop selected skill files and releases the prepared turn [0.66ms]
+(pass) helper selection launches the correct process: packaged sibling [24.86ms]
+(pass) helper selection launches the correct process: explicit override [21.44ms]
+(pass) helper selection launches the correct process: source entrypoint [24.76ms]
+(pass) helper selection launches the correct process: missing sibling [23.63ms]
+(pass) negotiation prevents dispatch to a helper missing the MCP boundary: %s [25.75ms]
+(pass) negotiation prevents dispatch to a helper missing the MCP boundary: %s [22.37ms]
+(pass) helper readiness rejects manifest mismatch and cross-artifact pairing [52.46ms]
+
+tests/continuity-diagnostics-helper.test.ts:
+(pass) helper errors preserve source DAG with sanitized outer fields and unchanged structured contract [0.43ms]
+(pass) helper parser rejects dangling causes and sanitizes forged diagnostic messages [0.22ms]
+(pass) optional internal abort diagnostic survives protocol without reclassifying unknown abort [0.26ms]
+(pass) real helper emits negotiated sanitized causes and keeps stdout free of browser log secrets [357.45ms]
+(pass) helper runtime pairing fields are optional but validated and survive ready parsing [0.19ms]
+
+ 20 pass
+ 0 fail
+ 102 expect() calls
+Ran 20 tests across 2 files. [1.83s]

@@ -1,0 +1,283 @@
+bun test v1.4.2 (744846f84)
+
+tests/runtime-identity.test.ts:
+(pass) health diagnostics identify the running daemon generation and loaded artifact [3.63ms]
+(pass) a helper with an incompatible protocol is rejected at ready [27.07ms]
+(pass) a helper from the previous IPC generation cannot start a new session [23.39ms]
+(pass) a legacy ready frame remains usable without an identity [36.41ms]
+(pass) one helper exit leaves another helper's runtime identity in diagnostics [60.91ms]
+(pass) a matching build manifest supplies its commit while the artifact hash comes from disk [0.90ms]
+(pass) a versioned helper cannot omit its identity [27.15ms]
+(pass) a versioned helper cannot claim a hash other than its launched artifact [24.07ms]
+(pass) a packaged daemon rejects an identified helper from another build [26.01ms]
+(pass) a packaged daemon accepts a helper from the same build [31.74ms]
+(pass) a packaged daemon rejects a legacy helper without build identity [24.56ms]
+(pass) runtime identity binds both executable artifacts rather than only the CLI entrypoint [1.11ms]
+(pass) a manifest declaring a missing helper cannot claim a verified commit [0.56ms]
+326 |     const path = join(app, name);
+327 |     writeFileSync(path, "const version = 1;\n");
+328 |     return { path: `app/${name}`, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
+329 |   });
+330 |   writeFileSync(join(root, "manifest.json"), JSON.stringify({ buildCommit: null, files }));
+331 |   expect(createRuntimeIdentity(join(app, "cli.js"))).toMatchObject({
+                                                           ^
+error: expect(received).toMatchObject(expected)
+
+  {
+-   "artifactSetSha256": Any<String>,
+-   "artifactVerification": "paired_manifest_verified",
++   "artifactSetSha256": "20739299251e219dca4777c011baf0be959c232e53e1533a9cca25d200852538",
++   "artifactSha256": "de55c6c1adc80b27eb3d9d1279af7802716c9a273871188bdf3104c3609171d8",
++   "artifactVerification": "manifest_mismatch",
+    "buildCommit": null,
++   "generation": "809c89b9-6ad1-4973-b931-6f0b73648207",
++   "pid": 148040,
++   "protocolVersion": 2,
+  }
+
+- Expected  - 2
++ Received  + 6
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/runtime-identity.test.ts:331:54)
+(fail) a dirty development checkout keeps a verified artifact pair without claiming a commit [1.27ms]
+338 |   roots.push(root);
+339 |   mkdirSync(join(root, "app"));
+340 |   const cli = join(root, "app", "cli.js");
+341 |   writeFileSync(cli, "const version = 1;\n");
+342 |   writeFileSync(join(root, "manifest.json"), "{bad}");
+343 |   expect(createRuntimeIdentity(cli)).toMatchObject({ artifactVerification: "manifest_mismatch", buildCommit: null });
+                                           ^
+error: expect(received).toMatchObject(expected)
+
+  {
+-   "artifactVerification": "manifest_mismatch",
++   "artifactSetSha256": null,
++   "artifactSha256": "de55c6c1adc80b27eb3d9d1279af7802716c9a273871188bdf3104c3609171d8",
++   "artifactVerification": "entrypoint_only",
+    "buildCommit": null,
++   "generation": "809c89b9-6ad1-4973-b931-6f0b73648207",
++   "pid": 148040,
++   "protocolVersion": 2,
+  }
+
+- Expected  - 1
++ Received  + 6
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/runtime-identity.test.ts:343:38)
+(fail) a corrupt existing runtime manifest is a mismatch rather than a legacy source layout [0.78ms]
+
+tests/continuity-diagnostics-events.test.ts:
+(pass) each producer owns ordered occurrence clocks and validated runtime/correlation fields [1.81ms]
+(pass) ring snapshots expose capture loss and never mix turns or retain mutable caller data [7.03ms]
+(pass) byte overflow and invalid events are counted as missing evidence [0.59ms]
+(pass) diagnostic observers cannot throw or reject into application execution [2.40ms]
+(pass) worker stages and exact selection evidence survive with startup/request/document correlation [0.52ms]
+(pass) failed default emitter produces safe output even without a supplied sink [1.31ms]
+157 | });
+158 |
+159 | test.each([{ pid: 0 }, { generation: "invalid" }, { protocolVersion: 0 }])("remote identity is rejected instead of attributed to the receiving process (%j)", (invalid) => {
+160 |   const event = producer()("helper")({ event: "transport_ready", phase: "observed" });
+161 |   event.runtime = { ...event.runtime, ...invalid };
+162 |   expect(() => api.parseDiagnosticEvent(event)).toThrow("Invalid diagnostic runtime identity");
+                                                      ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "Invalid diagnostic runtime identity"
+
+Received function did not throw
+Received value: {
+  version: 2,
+  eventId: "03f2ace8-842f-4950-8e65-f983983bf2c2",
+  producer: "helper",
+  producerId: "ba372c9f-63a4-42b8-82df-fba442005c0a",
+  sequence: 1,
+  occurredAt: "2026-10-01T14:28:43.231Z",
+  monotonicMs: 762.019334,
+  runtime: {
+    artifactSetSha256: null,
+    artifactVerification: "entrypoint_only",
+    protocolVersion: 2,
+    buildCommit: null,
+    artifactSha256: "1c3f586c640906b7ce6f0b5ad0a537537037ab901a9231c0706220b163e97a2f",
+    generation: "809c89b9-6ad1-4973-b931-6f0b73648207",
+    pid: 148040,
+  },
+  correlation: {},
+  event: "transport_ready",
+  phase: "observed",
+  fields: {},
+}
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-events.test.ts:162:49)
+(fail) remote identity is rejected instead of attributed to the receiving process ({"pid":0}) [0.35ms]
+157 | });
+158 |
+159 | test.each([{ pid: 0 }, { generation: "invalid" }, { protocolVersion: 0 }])("remote identity is rejected instead of attributed to the receiving process (%j)", (invalid) => {
+160 |   const event = producer()("helper")({ event: "transport_ready", phase: "observed" });
+161 |   event.runtime = { ...event.runtime, ...invalid };
+162 |   expect(() => api.parseDiagnosticEvent(event)).toThrow("Invalid diagnostic runtime identity");
+                                                      ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "Invalid diagnostic runtime identity"
+
+Received function did not throw
+Received value: {
+  version: 2,
+  eventId: "3f0bf8e4-bac6-4b09-9168-b950e331878f",
+  producer: "helper",
+  producerId: "0b372d3a-6718-46ad-bfa9-9ff2af1d9fdb",
+  sequence: 1,
+  occurredAt: "2026-10-01T14:28:43.232Z",
+  monotonicMs: 762.273314,
+  runtime: {
+    artifactSetSha256: null,
+    artifactVerification: "entrypoint_only",
+    protocolVersion: 2,
+    buildCommit: null,
+    artifactSha256: "1c3f586c640906b7ce6f0b5ad0a537537037ab901a9231c0706220b163e97a2f",
+    generation: "809c89b9-6ad1-4973-b931-6f0b73648207",
+    pid: 148040,
+  },
+  correlation: {},
+  event: "transport_ready",
+  phase: "observed",
+  fields: {},
+}
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-events.test.ts:162:49)
+(fail) remote identity is rejected instead of attributed to the receiving process ({"generation":"invalid"}) [0.10ms]
+157 | });
+158 |
+159 | test.each([{ pid: 0 }, { generation: "invalid" }, { protocolVersion: 0 }])("remote identity is rejected instead of attributed to the receiving process (%j)", (invalid) => {
+160 |   const event = producer()("helper")({ event: "transport_ready", phase: "observed" });
+161 |   event.runtime = { ...event.runtime, ...invalid };
+162 |   expect(() => api.parseDiagnosticEvent(event)).toThrow("Invalid diagnostic runtime identity");
+                                                      ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "Invalid diagnostic runtime identity"
+
+Received function did not throw
+Received value: {
+  version: 2,
+  eventId: "cb0fba2b-ee86-46cb-afe0-6292441a2360",
+  producer: "helper",
+  producerId: "65d153e3-b29f-4f2d-aca8-87d254a3e15c",
+  sequence: 1,
+  occurredAt: "2026-10-01T14:28:43.232Z",
+  monotonicMs: 762.374358,
+  runtime: {
+    artifactSetSha256: null,
+    artifactVerification: "entrypoint_only",
+    protocolVersion: 2,
+    buildCommit: null,
+    artifactSha256: "1c3f586c640906b7ce6f0b5ad0a537537037ab901a9231c0706220b163e97a2f",
+    generation: "809c89b9-6ad1-4973-b931-6f0b73648207",
+    pid: 148040,
+  },
+  correlation: {},
+  event: "transport_ready",
+  phase: "observed",
+  fields: {},
+}
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-events.test.ts:162:49)
+(fail) remote identity is rejected instead of attributed to the receiving process ({"protocolVersion":0}) [0.08ms]
+
+tests/continuity-diagnostics-errors.test.ts:
+(pass) source IDs and shared causes survive round trip without copying arbitrary text [0.98ms]
+(pass) cyclic, deep, aggregate and oversized errors remain a bounded cause DAG [21.72ms]
+(pass) hostile getters and forged diagnostics cannot leak or break serialization [0.50ms]
+(pass) typed source reasons remain distinct from unknown aborts [1.69ms]
+(pass) native I/O facts survive without carrying the private pathname or message [0.21ms]
+(pass) selection facts preserve numeric expectations and discard arbitrary diagnostic metadata [0.17ms]
+(pass) a shared cause DAG is parsed with bounded work instead of expanding every path [19.20ms]
+141 |   }
+142 | });
+143 |
+144 | test.each([undefined, null, "private abort", 0, true])("primitive causes serialize to a valid graph (%s)", (value) => {
+145 |   const graph = api.serializeDiagnosticError(value);
+146 |   expect(graph.nodes[0].errorId).toBe(graph.errorId);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: "53b03864-4ab3-4e3f-870b-d8cb7a6ab4b2"
+Received: "4d41acd8-c8aa-4c02-b801-a9b12fbe33ed"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:146:34)
+(fail) primitive causes serialize to a valid graph (%s) [0.26ms]
+141 |   }
+142 | });
+143 |
+144 | test.each([undefined, null, "private abort", 0, true])("primitive causes serialize to a valid graph (%s)", (value) => {
+145 |   const graph = api.serializeDiagnosticError(value);
+146 |   expect(graph.nodes[0].errorId).toBe(graph.errorId);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: "99137826-8924-436c-8508-619c96c56de0"
+Received: "62173032-02e6-4ca4-a93c-c83fe6d352c1"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:146:34)
+(fail) primitive causes serialize to a valid graph (%s) [0.05ms]
+141 |   }
+142 | });
+143 |
+144 | test.each([undefined, null, "private abort", 0, true])("primitive causes serialize to a valid graph (%s)", (value) => {
+145 |   const graph = api.serializeDiagnosticError(value);
+146 |   expect(graph.nodes[0].errorId).toBe(graph.errorId);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: "f939783b-d19d-4c25-a795-a78163a9983a"
+Received: "8d772a03-c5df-4f9e-a46c-2351e6624a87"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:146:34)
+(fail) primitive causes serialize to a valid graph (private abort) [0.03ms]
+141 |   }
+142 | });
+143 |
+144 | test.each([undefined, null, "private abort", 0, true])("primitive causes serialize to a valid graph (%s)", (value) => {
+145 |   const graph = api.serializeDiagnosticError(value);
+146 |   expect(graph.nodes[0].errorId).toBe(graph.errorId);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: "839519f9-c67a-45da-969c-7889a62bd5b8"
+Received: "8a263672-9b1b-47e4-8e1e-f562f83f4ace"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:146:34)
+(fail) primitive causes serialize to a valid graph (%s) [0.04ms]
+141 |   }
+142 | });
+143 |
+144 | test.each([undefined, null, "private abort", 0, true])("primitive causes serialize to a valid graph (%s)", (value) => {
+145 |   const graph = api.serializeDiagnosticError(value);
+146 |   expect(graph.nodes[0].errorId).toBe(graph.errorId);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: "36152f83-edca-427a-a49a-c3a154040112"
+Received: "4dab332b-da7e-454b-ad17-aabda1eca94d"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-diagnostics-errors.test.ts:146:34)
+(fail) primitive causes serialize to a valid graph (%s) [0.03ms]
+(pass) hostile error names cannot leak object fields or execute coercion [0.11ms]
+
+10 tests failed:
+(fail) a dirty development checkout keeps a verified artifact pair without claiming a commit [1.27ms]
+(fail) a corrupt existing runtime manifest is a mismatch rather than a legacy source layout [0.78ms]
+(fail) remote identity is rejected instead of attributed to the receiving process ({"pid":0}) [0.35ms]
+(fail) remote identity is rejected instead of attributed to the receiving process ({"generation":"invalid"}) [0.10ms]
+(fail) remote identity is rejected instead of attributed to the receiving process ({"protocolVersion":0}) [0.08ms]
+(fail) primitive causes serialize to a valid graph (%s) [0.26ms]
+(fail) primitive causes serialize to a valid graph (%s) [0.05ms]
+(fail) primitive causes serialize to a valid graph (private abort) [0.03ms]
+(fail) primitive causes serialize to a valid graph (%s) [0.04ms]
+(fail) primitive causes serialize to a valid graph (%s) [0.03ms]
+
+ 27 pass
+ 10 fail
+ 136 expect() calls
+Ran 37 tests across 3 files. [813.00ms]

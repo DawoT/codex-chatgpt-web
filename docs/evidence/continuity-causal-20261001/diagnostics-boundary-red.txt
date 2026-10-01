@@ -1,0 +1,106 @@
+bun test v1.4.2 (744846f84)
+
+tests/runtime-identity.test.ts:
+(pass) health diagnostics identify the running daemon generation and loaded artifact [1.75ms]
+(pass) a helper with an incompatible protocol is rejected at ready [19.32ms]
+(pass) a helper from the previous IPC generation cannot start a new session [18.62ms]
+(pass) a legacy ready frame remains usable without an identity [18.52ms]
+(pass) one helper exit leaves another helper's runtime identity in diagnostics [41.66ms]
+(pass) a matching build manifest supplies its commit while the artifact hash comes from disk [0.43ms]
+(pass) a versioned helper cannot omit its identity [15.50ms]
+(pass) a versioned helper cannot claim a hash other than its launched artifact [19.28ms]
+(pass) a packaged daemon rejects an identified helper from another build [24.53ms]
+(pass) a packaged daemon accepts a helper from the same build [23.24ms]
+(pass) a packaged daemon rejects a legacy helper without build identity [19.96ms]
+(pass) runtime identity binds both executable artifacts rather than only the CLI entrypoint [1.14ms]
+305 |     files: [
+306 |       { path: "app/cli.js", sha256: createHash("sha256").update(readFileSync(cli)).digest("hex") },
+307 |       { path: "app/browser-helper.cjs", sha256: "b".repeat(64) },
+308 |     ],
+309 |   }));
+310 |   expect(createRuntimeIdentity(cli)).toMatchObject({
+                                           ^
+error: expect(received).toMatchObject(expected)
+
+  {
+    "artifactSetSha256": null,
+-   "artifactVerification": "manifest_mismatch",
++   "artifactSha256": "e13b36aea7019c64ae061d4471cc77e1fcc85dc4eb4442835cdf25d32a40cb13",
++   "artifactVerification": "entrypoint_only",
+    "buildCommit": null,
++   "generation": "5b79d96b-eabf-4096-8cb8-b92797a222e7",
++   "pid": 137205,
++   "protocolVersion": 2,
+  }
+
+- Expected  - 1
++ Received  + 5
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/runtime-identity.test.ts:310:38)
+(fail) a manifest declaring a missing helper cannot claim a verified commit [0.54ms]
+
+tests/continuity-diagnostics-sink.test.ts:
+(pass) independent instances rotate only their own private segments and ignore legacy locks [9.76ms]
+(pass) real concurrent processes retain all records across separate rotations [53.08ms]
+{"event":"diagnostic_sink_fallback","code":"QUEUE_BUDGET_EXCEEDED","operation":"enqueue"}
+(pass) queue count and byte limits reject before allocating more queued resources [1.05ms]
+(pass) oversized and unserializable entries fail safely without queuing or invoking unsafe fallback [4.03ms]
+(pass) a sustained I/O failure opens a fast circuit and recovery resets current health only [117.24ms]
+(pass) flush respects an outstanding append deadline and drains after completion [25.07ms]
+(pass) V2 writtenAt is stamped after preceding appends rather than when queued [11.31ms]
+(pass) query reads legacy archives and all segment rotations while ignoring torn and non-object lines [0.91ms]
+(pass) query refuses symlinks without disclosing the target or reading external data [0.39ms]
+(pass) query refuses FIFO archives promptly without waiting for a writer [6.63ms]
+(pass) query bounds a file before reading and rejects oversized archives [0.57ms]
+{"event":"diagnostic_sink_fallback","code":"UNSAFE_FILE","operation":"stat"}
+{"event":"diagnostic_sink_fallback","code":"UNSAFE_FILE","operation":"stat"}
+(pass) replaced active segment symlinks and FIFOs cannot receive writes [4.48ms]
+(pass) query handles a missing directory as empty without hiding other I/O failures [0.77ms]
+{"event":"diagnostic_sink_fallback","code":"ENOENT","operation":"stat"}
+{"event":"diagnostic_sink_fallback","code":"ENOENT","operation":"stat"}
+156 |     failure.code === "RECORD_BUDGET_EXCEEDED"
+157 |       ? "Diagnostic file budget exceeded"
+158 |       : failure.code === "QUEUE_BUDGET_EXCEEDED"
+159 |         ? "Diagnostic queue budget exceeded"
+160 |         : `Diagnostic ${failure.operation} failed (${failure.code})`;
+161 |   return Object.assign(budget ? new RangeError(label) : new Error(label), failure);
+                                                                  ^
+error: Diagnostic stat failed (ENOENT)
+ operation: "stat",
+      code: "ENOENT"
+
+      at failureError (/home/deuz/projects/codex-chatgpt-web/src/diagnostics/sink.ts:161:61)
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/src/diagnostics/sink.ts:407:15)
+(fail) a deleted private segment can recover on the next write after cooldown [6.33ms]
+
+tests/compaction-observability.test.ts:
+(pass) canary events are structured, correlated, build identified and bounded [0.82ms]
+(pass) unknown diagnostic text is reduced to an allowlisted code [0.53ms]
+(pass) invalid checkpoint diagnostics expose recognized structure without paths or requirement text [3.08ms]
+(pass) checkpoint field diagnosis ignores narrative lines outside the state block [0.18ms]
+(pass) checkpoint field diagnosis handles collapsed single-line state blocks with escaped underscores [0.51ms]
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T14:20:15.416Z","traceId":"aabbcc123456","phase":"failed","outcome":"failed","route":"fallback","runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"155a7d6a1a4bd82193e915766e59fc96cf1ff97bdbaf721ed6e67832b5de1b83","generation":"5b79d96b-eabf-4096-8cb8-b92797a222e7","pid":137205,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+122 |   const source = new DiagnosticSourceError("context_checkpoint_persistence_failed", {
+123 |     cause: Object.assign(new Error("private task pathname"), { code: "EACCES", syscall: "open" }),
+124 |   });
+125 |   logCompactionEvent({ traceId: "aabbcc123456", phase: "failed", outcome: "failed", route: "fallback", error: source });
+126 |   const events = snapshotDiagnosticEvents("aabbcc123456").events;
+127 |   expect(events).toHaveLength(1);
+                       ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/compaction-observability.test.ts:127:18)
+(fail) checkpoint failure enters the shared diagnostic timeline with its causal chain [0.41ms]
+
+3 tests failed:
+(fail) a manifest declaring a missing helper cannot claim a verified commit [0.54ms]
+(fail) a deleted private segment can recover on the next write after cooldown [6.33ms]
+(fail) checkpoint failure enters the shared diagnostic timeline with its causal chain [0.41ms]
+
+ 30 pass
+ 3 fail
+ 332 expect() calls
+Ran 33 tests across 3 files. [746.00ms]

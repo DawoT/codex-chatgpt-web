@@ -1,0 +1,33 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-diagnostics-helper.test.ts:
+(pass) helper errors preserve source DAG with sanitized outer fields and unchanged structured contract [1.92ms]
+(pass) helper parser rejects dangling causes and sanitizes forged diagnostic messages [0.19ms]
+(pass) optional internal abort diagnostic survives protocol without reclassifying unknown abort [0.21ms]
+(pass) real helper emits negotiated sanitized causes and keeps stdout free of browser log secrets [491.46ms]
+(pass) helper runtime pairing fields are optional but validated and survive ready parsing [0.23ms]
+
+tests/continuity-diagnostics-errors.test.ts:
+(pass) source IDs and shared causes survive round trip without copying arbitrary text [0.69ms]
+(pass) cyclic, deep, aggregate and oversized errors remain a bounded cause DAG [20.02ms]
+(pass) hostile getters and forged diagnostics cannot leak or break serialization [0.62ms]
+(pass) typed source reasons remain distinct from unknown aborts [2.09ms]
+(pass) native I/O facts survive without carrying the private pathname or message [0.38ms]
+(pass) selection facts preserve numeric expectations and discard arbitrary diagnostic metadata [0.26ms]
+(pass) a shared cause DAG is parsed with bounded work instead of expanding every path [21.54ms]
+
+tests/continuity-diagnostics-browser.test.ts:
+(pass) specific model surface mismatch remains diagnosable without raw DOM causes [1.15ms]
+(pass) stage timeout uses a typed abort reason and never logs arbitrary exception text [8.02ms]
+{"version":2,"eventId":"5aa97a9a-183a-4f9f-8107-2e72666bf0c5","producer":"browser","producerId":"3716ea22-d959-460e-9379-228315552d74","sequence":5,"occurredAt":"2026-10-01T14:26:28.727Z","monotonicMs":941.528492,"runtime":{"artifactSetSha256":null,"artifactVerification":"entrypoint_only","protocolVersion":2,"buildCommit":null,"artifactSha256":"d66aae982f481c50ac335d77b8b23afbed0fa79a3750edd6d8ff8978cbd04160","generation":"17d478c9-a22e-419e-8a9c-c56eaf28deaa","pid":142332},"correlation":{"traceId":"trace-page","turnId":"trace-page"},"event":"page_error","phase":"failed","fields":{"documentGeneration":1},"error":{"version":1,"errorId":"e7d44b48-c133-4ca3-a557-bd7763504594","nodes":[{"errorId":"e7d44b48-c133-4ca3-a557-bd7763504594","name":"Error","code":"operation_failed","message":"Operation failed"}],"truncated":{"depth":false,"aggregate":false,"bytes":false,"cycle":false}}}
+{"version":2,"eventId":"0c7b6246-b78e-412b-90de-826e8e2cddae","producer":"browser","producerId":"3716ea22-d959-460e-9379-228315552d74","sequence":7,"occurredAt":"2026-10-01T14:26:28.728Z","monotonicMs":942.040455,"runtime":{"artifactSetSha256":null,"artifactVerification":"entrypoint_only","protocolVersion":2,"buildCommit":null,"artifactSha256":"d66aae982f481c50ac335d77b8b23afbed0fa79a3750edd6d8ff8978cbd04160","generation":"17d478c9-a22e-419e-8a9c-c56eaf28deaa","pid":142332},"correlation":{"traceId":"trace-page","turnId":"trace-page"},"event":"page_request_failed","phase":"failed","fields":{"documentGeneration":2,"reason":"page_request_failed"}}
+(pass) page-scoped listeners rebind and detach without observing another page or context tracing [1.72ms]
+[chatgpt-web] browser diagnostic partial capture trace=trace-capture checkpoint=01-turn-failed failures=state
+[chatgpt-web] browser diagnostic trace=trace-capture checkpoint=01-turn-failed path=/tmp/continuity-browser-diagnostics-8rQWWH/trace-capture-74a385cb
+(pass) capture exposes missing state/error evidence and writes only sanitized bounded structure [4.72ms]
+(pass) state allowlist rejects secret strings, arbitrary keys and cyclic snapshots [0.69ms]
+
+ 17 pass
+ 0 fail
+ 78 expect() calls
+Ran 17 tests across 3 files. [953.00ms]

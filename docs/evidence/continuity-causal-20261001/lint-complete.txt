@@ -1,0 +1,351 @@
+$ biome check .
+launcher/electron/browser-host.cjs:976:13 lint/suspicious/useIterableCallbackReturn ━━━━━━━━━━━━━━━━
+
+  ! This callback passed to map() iterable method should always return a value.
+
+    974 │     ];
+    975 │     await Promise.all(
+  > 976 │       views.map((view) => {
+        │             ^^^
+    977 │         const contents = view?.webContents;
+    978 │         if (!contents || contents.isDestroyed()) return;
+
+  i Change this return so that it returns a value.
+
+    976 │       views.map((view) => {
+    977 │         const contents = view?.webContents;
+  > 978 │         if (!contents || contents.isDestroyed()) return;
+        │                                                  ^^^^^^
+    979 │         return contents.executeJavaScript(`(${configureChatGptAnnouncementDismissal.toString()})(${enabled})`, true);
+    980 │       }),
+
+
+launcher/electron/passkey-login-state.cjs:76:42 lint/suspicious/noControlCharactersInRegex ━━━━━━━━━━
+
+  ! Unexpected control character in a regular expression.
+
+    74 │     const cookieValue = boundedString(raw.value, "cookie value");
+    75 │     const cookiePath = boundedString(raw.path, "cookie path", { allowEmpty: false });
+  > 76 │     if (!cookiePath.startsWith("/") || /[\u0000-\u001f\u007f?#]/.test(cookiePath)) {
+       │                                          ^^^^^^
+    77 │       throw new Error("Passkey login state has an invalid cookie path");
+    78 │     }
+
+  i Control characters are unusual and potentially incorrect inputs, so they are disallowed.
+
+
+launcher/electron/passkey-login-state.cjs:76:49 lint/suspicious/noControlCharactersInRegex ━━━━━━━━━━
+
+  ! Unexpected control character in a regular expression.
+
+    74 │     const cookieValue = boundedString(raw.value, "cookie value");
+    75 │     const cookiePath = boundedString(raw.path, "cookie path", { allowEmpty: false });
+  > 76 │     if (!cookiePath.startsWith("/") || /[\u0000-\u001f\u007f?#]/.test(cookiePath)) {
+       │                                                 ^^^^^^
+    77 │       throw new Error("Passkey login state has an invalid cookie path");
+    78 │     }
+
+  i Control characters are unusual and potentially incorrect inputs, so they are disallowed.
+
+
+launcher/src/App.tsx:311:9 lint/a11y/useAriaPropsSupportedByRole ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The ARIA attribute 'aria-label' is not supported by this element.
+
+    309 │           ) : null}
+    310 │         </div>
+  > 311 │         <div className="welcome-progress" aria-label={`${stageIndex + 1} / 3`}>
+        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    312 │           {[0, 1, 2].map((index) => (
+    313 │             <span
+
+  i Ensure that ARIA attributes are valid for the role of the element.
+
+
+launcher/src/App.tsx:960:11 lint/a11y/useKeyWithClickEvents ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Enforce to have the onClick mouse event with the onKeyUp, the onKeyDown, or the onKeyPress keyboard event.
+
+    958 │       <div className="browser-tab-strip" title={copy.browserTabLimit}>
+    959 │         {(browser?.tabs ?? []).map((tab) => (
+  > 960 │           <div
+        │           ^^^^
+  > 961 │             className={`browser-tab${tab.active ? " is-active" : ""}`}
+         ...
+  > 965 │             aria-selected={tab.active}
+  > 966 │           >
+        │           ^
+    967 │             <BrandMark small />
+    968 │             <span title={tab.traceId ? `${tab.title} · ${tab.traceId}` : tab.title}>
+
+  i Actions triggered using mouse events should have corresponding keyboard events to account for keyboard-only navigation.
+
+
+launcher/src/App.tsx:960:11 lint/a11y/useFocusableInteractive ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The HTML element with the interactive role "tab" is not focusable.
+
+    958 │       <div className="browser-tab-strip" title={copy.browserTabLimit}>
+    959 │         {(browser?.tabs ?? []).map((tab) => (
+  > 960 │           <div
+        │           ^^^^
+  > 961 │             className={`browser-tab${tab.active ? " is-active" : ""}`}
+         ...
+  > 965 │             aria-selected={tab.active}
+  > 966 │           >
+        │           ^
+    967 │             <BrandMark small />
+    968 │             <span title={tab.traceId ? `${tab.title} · ${tab.traceId}` : tab.title}>
+
+  i A non-interactive HTML element that is not focusable may not be reachable for users that rely on keyboard navigation, even with an added role like "tab".
+
+  i Add a tabIndex attribute to make this element focusable.
+
+
+launcher/src/App.tsx:1426:7 lint/a11y/useAriaPropsSupportedByRole ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The ARIA attribute 'aria-label' is not supported by this element.
+
+    1424 │       ) : null}
+    1425 │
+  > 1426 │       <div className="wizard-stepper" aria-label={`${step + 1} / 3`}>
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1427 │         {steps.map((item, index) => (
+    1428 │           <button
+
+  i Ensure that ARIA attributes are valid for the role of the element.
+
+
+launcher/src/App.tsx:2049:5 lint/a11y/noStaticElementInteractions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Unexpected event handler on static element.
+
+    2048 │   return (
+  > 2049 │     <div
+         │     ^^^^
+  > 2050 │       className={`zero-risk-model-menu${open ? " is-open" : ""}`}
+  > 2051 │       onKeyDown={(event) => {
+  > 2052 │         if (event.key === "Escape") setOpen(false);
+  > 2053 │       }}
+  > 2054 │     >
+         │     ^
+    2055 │       <button
+    2056 │         aria-expanded={open}
+
+  i Static elements should not be interactive. To add interactivity such as a mouse or key event listener to a static element, give the element an appropriate role value.
+
+
+launcher/src/App.tsx:2082:17 lint/a11y/useSemanticElements ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The elements with this role can be changed to the following elements:
+    <input type="radio">
+
+    2080 │                 className={!proEnabled ? "is-selected" : ""}
+    2081 │                 onClick={() => choose(false)}
+  > 2082 │                 role="radio"
+         │                 ^^^^^^^^^^^^
+    2083 │                 type="button"
+    2084 │               >
+
+  i For examples and more information, see WAI-ARIA Roles
+
+  i Replace with one of these elements:
+
+  - <input type="radio">
+
+
+launcher/src/App.tsx:2101:17 lint/a11y/useSemanticElements ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The elements with this role can be changed to the following elements:
+    <input type="radio">
+
+    2099 │                 className={proEnabled ? "is-selected" : ""}
+    2100 │                 onClick={() => choose(true)}
+  > 2101 │                 role="radio"
+         │                 ^^^^^^^^^^^^
+    2102 │                 type="button"
+    2103 │               >
+
+  i For examples and more information, see WAI-ARIA Roles
+
+  i Replace with one of these elements:
+
+  - <input type="radio">
+
+
+launcher/src/App.tsx:2281:9 lint/a11y/useSemanticElements ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The elements with this role can be changed to the following elements:
+    <input type="radio">
+
+    2279 │         disabled={disabled}
+    2280 │         onClick={() => onChange("automatic")}
+  > 2281 │         role="radio"
+         │         ^^^^^^^^^^^^
+    2282 │         type="button"
+    2283 │       >
+
+  i For examples and more information, see WAI-ARIA Roles
+
+  i Replace with one of these elements:
+
+  - <input type="radio">
+
+
+launcher/src/App.tsx:2299:9 lint/a11y/useSemanticElements ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The elements with this role can be changed to the following elements:
+    <input type="radio">
+
+    2297 │         disabled={disabled}
+    2298 │         onClick={() => onChange("manual")}
+  > 2299 │         role="radio"
+         │         ^^^^^^^^^^^^
+    2300 │         type="button"
+    2301 │       >
+
+  i For examples and more information, see WAI-ARIA Roles
+
+  i Replace with one of these elements:
+
+  - <input type="radio">
+
+
+launcher/src/App.tsx:2340:5 lint/a11y/noLabelWithoutControl ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! A form label must be associated with an input.
+
+    2338 │ function FieldRow({ children, label }: { children: ReactNode; label: string }) {
+    2339 │   return (
+  > 2340 │     <label className="field-row">
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 2341 │       <span>{label}</span>
+  > 2342 │       {children}
+  > 2343 │     </label>
+         │     ^^^^^^^^
+    2344 │   );
+    2345 │ }
+
+  i Consider adding a "for" or "htmlFor" attribute to the label element or moving the input element to inside the label element.
+
+
+launcher/src/App.tsx:2387:7 lint/a11y/useSemanticElements ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! The elements with this role can be changed to the following elements:
+    <input type="radio">
+
+    2385 │       className={`welcome-option${active ? " is-active" : ""}`}
+    2386 │       onClick={onClick}
+  > 2387 │       role="radio"
+         │       ^^^^^^^^^^^^
+    2388 │       type="button"
+    2389 │     >
+
+  i For examples and more information, see WAI-ARIA Roles
+
+  i Replace with one of these elements:
+
+  - <input type="radio">
+
+
+launcher/src/App.tsx:2526:5 lint/a11y/noStaticElementInteractions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Unexpected event handler on static element.
+
+    2525 │   return (
+  > 2526 │     <div
+         │     ^^^^
+  > 2527 │       className={`language-menu${open ? " is-open" : ""}`}
+  > 2528 │       onKeyDown={(event) => {
+  > 2529 │         if (event.key === "Escape") setOpen(false);
+  > 2530 │       }}
+  > 2531 │     >
+         │     ^
+    2532 │       <button
+    2533 │         aria-expanded={open}
+
+  i Static elements should not be interactive. To add interactivity such as a mouse or key event listener to a static element, give the element an appropriate role value.
+
+
+launcher/src/App.tsx:1654:11 suppressions/unused ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Suppression comment has no effect. Remove the suppression or make sure you are suppressing the correct rule.
+
+    1652 │         ) : null}
+    1653 │         {[...logs].reverse().map((record, index) => (
+  > 1654 │           // biome-ignore lint/suspicious/noArrayIndexKey: index only disambiguates duplicate timestamps
+         │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1655 │           <div className="activity-row" key={`${record.at}-${record.event}-${index}`}>
+    1656 │             <StateDot state={record.level === "error" ? "error" : record.level === "warning" ? "busy" : "ready"} />
+
+
+scripts/smoke-codex-interrupt.ts:281:5 lint/correctness/noUnsafeFinally ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Unsafe usage of 'throw'.
+
+    279 │   delete process.env.CODEX_CHATGPT_WEB_HOME;
+    280 │   if (smokeError) {
+  > 281 │     throw new Error(
+        │     ^^^^^^^^^^^^^^^^
+  > 282 │       `${smokeError instanceof Error ? smokeError.message : String(smokeError)}\nCodex stderr:\n${stderr.slice(-8_000)}`,
+  > 283 │     );
+        │     ^^
+    284 │   }
+    285 │ }
+
+  i 'throw' in 'finally' overwrites the control flow statements inside 'try' and 'catch'.
+
+
+scripts/smoke-pi-host.ts:126:46 lint/suspicious/useIterableCallbackReturn ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! This callback passed to forEach() iterable method should not return a value.
+
+    124 │   mkdirSync(secondAgent);
+    125 │   const children = [launch(workspace, agentDir), launch(secondWorkspace, secondAgent)];
+  > 126 │   const deadline = setTimeout(() => children.forEach((child) => child.kill()), 30000);
+        │                                              ^^^^^^^
+    127 │   const exitCodes = await Promise.all(children.map((child) => child.exited));
+    128 │   clearTimeout(deadline);
+
+  i Either remove this return or remove the returned value.
+
+    124 │   mkdirSync(secondAgent);
+    125 │   const children = [launch(workspace, agentDir), launch(secondWorkspace, secondAgent)];
+  > 126 │   const deadline = setTimeout(() => children.forEach((child) => child.kill()), 30000);
+        │                                                                 ^^^^^^^^^^^^
+    127 │   const exitCodes = await Promise.all(children.map((child) => child.exited));
+    128 │   clearTimeout(deadline);
+
+
+src/adapters/chatgpt-web/autonomous-compaction.ts:207:13 lint/suspicious/noAssignInExpressions ━━━━━━━━━━
+
+  ! The assignment should not be in an expression.
+
+    206 │     let match: RegExpExecArray | null;
+  > 207 │     while ((match = fileRegex.exec(text)) !== null) {
+        │             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    208 │       const candidate = match[1];
+    209 │       // Filter out URLs, version numbers, or obvious false positives
+
+  i The use of assignments in expressions is confusing.
+    Expressions are often considered as side-effect free.
+
+
+src/adapters/chatgpt-web/browser/turn-orchestrator.ts:190:40 lint/correctness/noUnsafeFinally ━━━━━━━━━━
+
+  ! Unsafe usage of 'throw'.
+
+    188 │             await turn.onSurfaceReleased?.(surfaceId);
+    189 │           }
+  > 190 │           if (release.cancelledByUser) throw chatGptBrowserTabClosedError();
+        │                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    191 │         } catch (controlError) {
+    192 │           if (controlError instanceof ChatGptWebAdapterError && controlError.code === "client_cancelled") {
+
+  i 'throw' in 'finally' overwrites the control flow statements inside 'try' and 'catch'.
+
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 68.
+Checked 601 files in 617ms. No fixes applied.
+Found 88 warnings.

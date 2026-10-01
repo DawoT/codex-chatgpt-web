@@ -1,0 +1,57 @@
+$ bun run scripts/check-browser-contracts.ts
+Running browser contracts (6 suites) with /usr/bin/google-chrome
+bun test v1.4.2 (744846f84)
+
+tests/browser-dom-signal.test.ts:
+(pass) waitForChatGptDomRevision returns the current key immediately without an afterKey [372.50ms]
+(pass) waitForChatGptDomRevision wakes as soon as a qualifying mutation happens [580.67ms]
+(pass) waitForChatGptDomRevision resolves immediately when the live key already differs from afterKey [394.85ms]
+(pass) waitForChatGptDomRevision ignores mutations outside the revision attribute filter [628.79ms]
+(pass) waitForChatGptDomRevision settles one mutation batch before delivering the wake [529.21ms]
+(pass) waitForChatGptDomRevision rejects with AbortError when the signal fires [794.08ms]
+(pass) the in-page signal state persists across waits as a single document singleton [1.09ms]
+(pass) waitForChatGptDomSettle waits out the horizon on a quiet page even without an afterKey [535.75ms]
+(pass) waitForChatGptDomSettle resolves after a mutation plus its settle window [495.91ms]
+(pass) a renderer that never settles raises the observation timeout instead of hanging [1050.76ms]
+(pass) resolveDomRevisionProbeTimeoutMs scales adaptively based on domChars or payloadChars [0.12ms]
+
+tests/browser-turn-binding.test.ts:
+(pass) activity tone and collapsed content invalidate the response cache [445.46ms]
+(pass) preserves the accepted user identity across Activity's temporary fallback group [7918.28ms]
+(pass) completed exchange rekeys only with the exact submitted prompt and no competing turn [20860.08ms]
+(pass) binds captured Activity before an answer exists and recognizes uploaded native-button tiles [447.45ms]
+
+tests/chatgpt-effort-browser.test.ts:
+(pass) model selection reuses the classic picker without racing Escape cleanup [1678.76ms]
+(pass) model selection reuses the power picker without racing Escape cleanup [1589.62ms]
+(pass) real slider hydrate keeps the requested available effort [563.05ms]
+(pass) real slider shrink keeps the requested available effort [1528.37ms]
+(pass) real slider locked keeps the requested available effort [69453.29ms]
+(pass) real slider pro-disappears keeps the requested available effort [90723.50ms]
+
+tests/chatgpt-limits-browser.test.ts:
+(pass) Billing inspection preserves account and page in dialog layout [40318.72ms]
+(pass) Billing inspection preserves account and page in page layout [13019.03ms]
+
+tests/browser-dom-events.test.ts:
+(pass) waitForElementAttribute resolves immediately when attribute already matches [365.06ms]
+(pass) waitForElementAttribute resolves via MutationObserver when attribute mutates asynchronously [422.35ms]
+(pass) waitForElementAttribute throws when timeout expires without matching mutation [501.37ms]
+(pass) waitForSliderValue resolves immediately when slider already has the target value [340.66ms]
+(pass) waitForSliderValue resolves via MutationObserver when slider value changes [355.66ms]
+(pass) waitForElementText resolves via MutationObserver when innerText changes [339.78ms]
+(pass) element attribute and text waits release their observers on abort [352.31ms]
+(pass) abort during ElementHandle acquisition handoff disposes the acquired handle [0.70ms]
+
+tests/browser-response-dom.test.ts:
+(pass) keeps an unfinished hyperlink buffered and detects changed destinations after delivery [20.36ms]
+(pass) captured DIL smoke response reaches Markdown delivery and stable completion [11.91ms]
+(pass) DOM checkpoint markers split across inline spans remain parseable [14.07ms]
+(pass) a compaction-only inline-code marker is accepted without rewriting ordinary code [5.29ms]
+(pass) captured power UI excludes the user footer during streaming and completes the assistant answer [22.20ms]
+(pass) DIL response extraction preserves ownership, commentary and completion boundaries [12.60ms]
+
+ 37 pass
+ 0 fail
+ 228 expect() calls
+Ran 37 tests across 6 files. [257.02s]

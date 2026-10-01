@@ -1,0 +1,21 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-rollback-artifacts.test.ts:
+(pass) helper and a claimed source commit alone cannot constitute a rollback [0.63ms]
+(pass) rollback validates both artifact bytes and exact committed provenance [0.52ms]
+(pass) rollback cannot omit declared frozen external dependencies [0.22ms]
+
+tests/harness-live-canary-preflight.test.ts:
+(pass) live canary matrix fixes twenty unique checkpoints across two independent sessions [0.35ms]
+(pass) inactive runtime gate fails closed when the runtime is live or evidence is missing [0.23ms]
+(pass) inactive runtime gate accepts only a clean prepared candidate with zeroed durable resources [0.03ms]
+(pass) legacy bootstrap shutdown gate permits missing new metrics only after drain and full activity release [0.09ms]
+(pass) legacy bootstrap shutdown gate refuses the compatibility path for a metric-capable runtime [0.04ms]
+(pass) legacy bootstrap shutdown gate preserves known resource and telemetry blockers [0.05ms]
+(pass) canary preflight includes the causal diagnostic queue in runtime telemetry health [0.31ms]
+(pass) a malformed advertised diagnostic health cannot pass as healthy telemetry [0.09ms]
+
+ 11 pass
+ 0 fail
+ 40 expect() calls
+Ran 11 tests across 2 files. [28.00ms]

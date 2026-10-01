@@ -1,0 +1,49 @@
+bun test v1.4.2 (744846f84)
+
+tests/runtime-identity.test.ts:
+(pass) health diagnostics identify the running daemon generation and loaded artifact [2.48ms]
+(pass) a helper with an incompatible protocol is rejected at ready [23.79ms]
+(pass) a helper from the previous IPC generation cannot start a new session [22.64ms]
+(pass) a legacy ready frame remains usable without an identity [27.13ms]
+(pass) one helper exit leaves another helper's runtime identity in diagnostics [47.25ms]
+(pass) a matching build manifest supplies its commit while the artifact hash comes from disk [0.76ms]
+(pass) a versioned helper cannot omit its identity [22.17ms]
+(pass) a versioned helper cannot claim a hash other than its launched artifact [21.41ms]
+(pass) a packaged daemon rejects an identified helper from another build [29.23ms]
+(pass) a packaged daemon accepts a helper from the same build [23.52ms]
+(pass) a packaged daemon rejects a legacy helper without build identity [18.74ms]
+(pass) runtime identity binds both executable artifacts rather than only the CLI entrypoint [1.05ms]
+(pass) a manifest declaring a missing helper cannot claim a verified commit [0.56ms]
+(pass) a dirty development checkout keeps a verified artifact pair without claiming a commit [0.53ms]
+(pass) a corrupt existing runtime manifest is a mismatch rather than a legacy source layout [0.26ms]
+
+tests/continuity-diagnostics-events.test.ts:
+(pass) each producer owns ordered occurrence clocks and validated runtime/correlation fields [1.79ms]
+(pass) ring snapshots expose capture loss and never mix turns or retain mutable caller data [5.82ms]
+(pass) byte overflow and invalid events are counted as missing evidence [0.52ms]
+(pass) diagnostic observers cannot throw or reject into application execution [2.00ms]
+(pass) worker stages and exact selection evidence survive with startup/request/document correlation [0.33ms]
+(pass) failed default emitter produces safe output even without a supplied sink [0.92ms]
+(pass) remote identity is rejected instead of attributed to the receiving process ({"pid":0}) [0.10ms]
+(pass) remote identity is rejected instead of attributed to the receiving process ({"generation":"invalid"}) [0.02ms]
+(pass) remote identity is rejected instead of attributed to the receiving process ({"protocolVersion":0}) [0.02ms]
+
+tests/continuity-diagnostics-errors.test.ts:
+(pass) source IDs and shared causes survive round trip without copying arbitrary text [0.60ms]
+(pass) cyclic, deep, aggregate and oversized errors remain a bounded cause DAG [19.70ms]
+(pass) hostile getters and forged diagnostics cannot leak or break serialization [0.48ms]
+(pass) typed source reasons remain distinct from unknown aborts [1.40ms]
+(pass) native I/O facts survive without carrying the private pathname or message [0.14ms]
+(pass) selection facts preserve numeric expectations and discard arbitrary diagnostic metadata [0.14ms]
+(pass) a shared cause DAG is parsed with bounded work instead of expanding every path [16.22ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.17ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.03ms]
+(pass) primitive causes serialize to a valid graph (private abort) [0.02ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.01ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.01ms]
+(pass) hostile error names cannot leak object fields or execute coercion [0.07ms]
+
+ 37 pass
+ 0 fail
+ 146 expect() calls
+Ran 37 tests across 3 files. [751.00ms]

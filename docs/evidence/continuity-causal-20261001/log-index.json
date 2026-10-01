@@ -1,0 +1,166 @@
+[
+  {
+    "path": "docs/evidence/continuity-causal-20261001/README.md",
+    "sha256": "09ea7cd124398eb0a55b53b32252b44408d5cca51710103920bd06a0109e065e"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/artifact-gate-green.txt",
+    "sha256": "0ac723159648a04c533a36e8ea4a5ca9258e6c97688a4dfede4162d9835b7247"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/artifact-gate-red.txt",
+    "sha256": "35d9312ca68ad5cd2b5657b78a0a3f12de5ea42bb6cea1a991ef15ea0ac5ba1e"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/browser-contracts-final.txt",
+    "sha256": "0648ab40d242769a707108eaee8a8e034790e61b2a94f011eb5cb3a20771f495"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/built-pair-smoke.json",
+    "sha256": "adcc84bbb62c39a3e563e96f7a88c364f812d440e6c881865980ae122b451c4c"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/candidate-manifest.json",
+    "sha256": "2bedfee564f415de318fafb7991ca1e8d378f5950da50265f13722be03288b50"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/checkpoint-cache-green.txt",
+    "sha256": "8e2471e0e411ede3014886af725d70051f464b917f55bd68abc84d8de6c4164d"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/checkpoint-cache-red.txt",
+    "sha256": "657c3b0afb67887bc7b68d2098c748ebaaee189b85553b9627749965a21de68e"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/dependency-audit-green.txt",
+    "sha256": "ed617aaa3b4ed76dfabb0ce557da01ff48f9235b748e408050813b32d791ba6d"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/dependency-audit.txt",
+    "sha256": "9fb8b0c9a59c7d85775d8e8bd008376f701fa3fc3da0b89fdaa19945acc1cd40"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostic-preflight-green.txt",
+    "sha256": "d0352af38d23527c15dc67e673d6bea69a7038c49c695d72ce048d1737055dd0"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostic-preflight-red.txt",
+    "sha256": "6eb49b13c61cc68c3faff7dd1a71f386a3c435d3448dcbe5dda5f3b7c951e74b"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostics-boundary-green.txt",
+    "sha256": "b6d9904de3065501c6da2947320bfd0c02866e5da302e9649393db4460dc78f4"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostics-boundary-red.txt",
+    "sha256": "2a04c5b77987c560db50f1ae81f2154c6e907566923022d359c3c0b033686e58"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostics-rereview-evidence.md",
+    "sha256": "a8f9b3037e71b0e5ac0d54e94af248c9296505370e5986cb3ed433c76b05325e"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/diagnostics-review-evidence.md",
+    "sha256": "bafcd0ab19e8f4c4bd97b1f0ba18cac2f8787c61048557033cd3b426090f8d8f"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/error-facts-green.txt",
+    "sha256": "04103bb813ee1499760083218f4c2a208ce98bafa86e2bcf9fed633b904f1447"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/error-facts-red.txt",
+    "sha256": "62a2a729d95b26a2c3b36c025f17ac30ce1da963336b5053f0e9433c04f34286"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/frozen-dependencies-green.txt",
+    "sha256": "df875e4eb97acdebff8dfe53c34e75e9efc7f28cbfddffc5a991ae054c5578bb"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/frozen-dependencies-red.txt",
+    "sha256": "0dfbb4f45eb0f6ee9cf5fffda776c1fd36413e08651398981055d15b39ccf692"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/full-suite-final.txt",
+    "sha256": "40540b6a8692466df671b37d0c096943e05fa010189827460a6bb08195f3b150"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/helper-shutdown-green.txt",
+    "sha256": "16a396e97216d6f22ebbe0aee80730eb1ab57f5e3336dfebe80a491ea496dfdd"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/helper-shutdown-red.txt",
+    "sha256": "c52f8640745034cd1388ea6b36a7c6f14b9e7c8a838ce06082a2c5f286415fbe"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/launcher-audit-green.txt",
+    "sha256": "abb52e8aa1eadfd385262d929d8ba212e405b080857e8cf7d9476fca21459812"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/launcher-audit.txt",
+    "sha256": "2336a16bdce7a89e55cf532b93e1bcc1e55684fc98620e9d438616bafd086493"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/launcher-final.txt",
+    "sha256": "96bd199e8b9b9fe3aeb52caaa427e27b4a5743fb693a9dfc2c9ffdde8004bbc5"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/launcher-isolated-build.txt",
+    "sha256": "88e6fd251b6810c30ba340fbbc5e236b98d7ea42d5179b3c5ae154fb504ad314"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/launcher-typecheck-final.txt",
+    "sha256": "86d0c5319e5950c9462fc361b080bebf25e8ba9090480c6f19078cd2d130787a"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/lint-complete.txt",
+    "sha256": "69748d7c5ed4ba74d8372d16e9044f4a6c011fc89de36e8050fa8e6b4ac5ba54"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/live-health.json",
+    "sha256": "51afd56904a7ff9a6e58b73af3dc6c78e040cc4ce8f0e0bedf9065dfd59fe5e9"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/log-normalization.json",
+    "sha256": "ca2a8ae724c4ef409b937173edee452ecef138adf4e3be7f68e392bc9acdd364"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/observation-cause-green.txt",
+    "sha256": "79979a469670d9e01630bd77a0b9e6e8359ea5b83ff64c22e46470ea2ebb28c1"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/observation-cause-red.txt",
+    "sha256": "470080b95f05fcce02b66ad9fd9299240e01f0b58736c8cbbb25aba037f83c2e"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/review-regressions-green.txt",
+    "sha256": "2694ef0a635fa62039ce9c8ba13f21494a8e08a7272d5f01a4c4bee8453b12c0"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/review-regressions-red.txt",
+    "sha256": "59362e20ae9b937b125bcc217c021751e46275fab92375b6fffc37249f97500e"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/rollback-artifacts-green.txt",
+    "sha256": "80a1b901250e3252b7f8dd39c1cd5b30cda96c5f449dd7b2b192d87071a8edf7"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/rollback-artifacts-red.txt",
+    "sha256": "5fcb901e91f55cbd0adc479f537145f7090e9026c4664fa3b74c4bacdbc4a3eb"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/secrets-detector-receipt.json",
+    "sha256": "bc7c682a4919ac1c22520cbc2b65eec81b2283de1e913e87aee9a1a61a52ac23"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/secrets-scan.txt",
+    "sha256": "44b683227722147767293db6dc398a4e88b24340395f4399d15ebffa9b31a1bf"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/structural-complete.txt",
+    "sha256": "13d4707f8cc3a1ba80cbd0158a10d3613a02c7fb463f0baab9d3a57cb6f2c6e4"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/typecheck-rollback.txt",
+    "sha256": "e576e4d30f5392d9dec436980fdafe8b9b900832b6fe6adc3043841047674093"
+  }
+]

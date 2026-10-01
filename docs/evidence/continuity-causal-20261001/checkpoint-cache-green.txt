@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+
+tests/compiled-evidence-preservation.test.ts:
+(pass) ordinary compiled prompts retain old failed tool evidence and its exact source reference [110.96ms]
+(pass) oversized automatic compaction stages the complete history within the base window [152.88ms]
+(pass) multipart compaction retains the checkpoint, failed output and image evidence [53.59ms]
+(pass) automatic staging cannot multiply the base model context window [515.53ms]
+(pass) manual compaction never automatically stages browser messages [0.73ms]
+(pass) manual compaction rejects an explicit multipart request until the launcher supports several sends [0.09ms]
+
+tests/continuity-checkpoint-contract.test.ts:
+(pass) all model-facing checkpoint requests explicitly describe the strict v2 wire format [0.25ms]
+(pass) compiled fresh compact supplies the host-computed original reference outside task history [0.85ms]
+(pass) trusted continuation preserves the original digest and refuses corrupt provenance [0.23ms]
+(pass) a native environment preamble cannot replace the original task reference [0.03ms]
+(pass) a complete checkpoint with a forged original digest is rejected rather than accepted [3.36ms]
+(pass) fallback repair supplies the authoritative original request digest and preserves literals [0.17ms]
+(pass) a cached static contract never borrows another task's original digest [1.37ms]
+
+ 13 pass
+ 0 fail
+ 116 expect() calls
+Ran 13 tests across 2 files. [901.00ms]

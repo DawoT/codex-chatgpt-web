@@ -1,0 +1,25 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-development-runtime.test.ts:
+(pass) startup builder emits a runnable pair with a manifest of actual artifact hashes [50.39ms]
+(pass) changed source creates a new pair while the earlier generation remains runnable [105.76ms]
+(pass) a broken helper build cannot publish a partial runnable generation [17.22ms]
+106 |   expect(built.status).toBe(0);
+107 |   const snapshot = JSON.parse(built.stdout);
+108 |   for (const artifact of [snapshot.entrypoint, snapshot.helperPath]) {
+109 |     const child = spawnSync(process.execPath, [artifact], { encoding: "utf8", timeout: 5000 });
+110 |     expect(child.status).toBe(0);
+111 |     expect(child.stdout.trim()).toBe("function");
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "function"
+Received: "string"
+
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/continuity-development-runtime.test.ts:111:33)
+(fail) development snapshots resolve external modules from frozen dependencies instead of mutable checkout modules [27.80ms]
+
+ 3 pass
+ 1 fail
+ 26 expect() calls
+Ran 4 tests across 1 file. [220.00ms]

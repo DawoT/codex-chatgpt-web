@@ -1,0 +1,40 @@
+bun test v1.4.2 (744846f84)
+
+tests/harness-live-canary-preflight.test.ts:
+(pass) live canary matrix fixes twenty unique checkpoints across two independent sessions [0.55ms]
+(pass) inactive runtime gate fails closed when the runtime is live or evidence is missing [0.17ms]
+(pass) inactive runtime gate accepts only a clean prepared candidate with zeroed durable resources [0.02ms]
+(pass) legacy bootstrap shutdown gate permits missing new metrics only after drain and full activity release [0.06ms]
+(pass) legacy bootstrap shutdown gate refuses the compatibility path for a metric-capable runtime [0.02ms]
+(pass) legacy bootstrap shutdown gate preserves known resource and telemetry blockers [0.04ms]
+165 |   );
+166 | });
+167 |
+168 | test("canary preflight includes the causal diagnostic queue in runtime telemetry health", async () => {
+169 |   const { readRuntimeTelemetryHealth } = await import("../scripts/harness-live-canary");
+170 |   const telemetry = readRuntimeTelemetryHealth({
+                          ^
+TypeError: readRuntimeTelemetryHealth is not a function. (In 'readRuntimeTelemetryHealth({
+    telemetry_health: { status: "healthy", pending_records: 0, pending_bytes: 0, failed_writes: 0, dropped_records: 0 },
+    diagnostic_health: { status: "degraded", pendingRecords: 2, pendingBytes: 128, failedWrites: 1, droppedRecords: 3 }
+  })', 'readRuntimeTelemetryHealth' is undefined)
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/harness-live-canary-preflight.test.ts:170:21)
+(fail) canary preflight includes the causal diagnostic queue in runtime telemetry health [0.27ms]
+178 |   expect(evaluateLegacyBootstrapShutdownGate(snapshot, { runtimePredatesQuiescenceSeam: true }).ready).toBeFalse();
+179 | });
+180 |
+181 | test("a malformed advertised diagnostic health cannot pass as healthy telemetry", async () => {
+182 |   const { readRuntimeTelemetryHealth } = await import("../scripts/harness-live-canary");
+183 |   expect(readRuntimeTelemetryHealth({
+               ^
+TypeError: readRuntimeTelemetryHealth is not a function. (In 'readRuntimeTelemetryHealth({
+    telemetry_health: { status: "healthy", pending_records: 0, pending_bytes: 0, failed_writes: 0, dropped_records: 0 },
+    diagnostic_health: { status: "healthy" }
+  })', 'readRuntimeTelemetryHealth' is undefined)
+      at <anonymous> (/home/deuz/projects/codex-chatgpt-web/tests/harness-live-canary-preflight.test.ts:183:10)
+(fail) a malformed advertised diagnostic health cannot pass as healthy telemetry [0.09ms]
+
+ 6 pass
+ 2 fail
+ 30 expect() calls
+Ran 8 tests across 1 file. [24.00ms]

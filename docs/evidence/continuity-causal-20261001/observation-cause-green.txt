@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+
+tests/continuity-diagnostics-errors.test.ts:
+(pass) source IDs and shared causes survive round trip without copying arbitrary text [1.09ms]
+(pass) cyclic, deep, aggregate and oversized errors remain a bounded cause DAG [11.31ms]
+(pass) hostile getters and forged diagnostics cannot leak or break serialization [0.31ms]
+(pass) typed source reasons remain distinct from unknown aborts [1.16ms]
+(pass) native I/O facts survive without carrying the private pathname or message [0.11ms]
+(pass) selection facts preserve numeric expectations and discard arbitrary diagnostic metadata [0.11ms]
+(pass) a shared cause DAG is parsed with bounded work instead of expanding every path [17.08ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.11ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.03ms]
+(pass) primitive causes serialize to a valid graph (private abort) [0.01ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.01ms]
+(pass) primitive causes serialize to a valid graph (%s) [0.02ms]
+(pass) hostile error names cannot leak object fields or execute coercion [0.04ms]
+(pass) DOM observation deadlines retain their exact typed cause across the diagnostic boundary [0.15ms]
+
+ 14 pass
+ 0 fail
+ 55 expect() calls
+Ran 14 tests across 1 file. [53.00ms]

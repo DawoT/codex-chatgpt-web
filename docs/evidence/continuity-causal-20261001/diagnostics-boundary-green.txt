@@ -1,0 +1,50 @@
+bun test v1.4.2 (744846f84)
+
+tests/runtime-identity.test.ts:
+(pass) health diagnostics identify the running daemon generation and loaded artifact [1.67ms]
+(pass) a helper with an incompatible protocol is rejected at ready [18.49ms]
+(pass) a helper from the previous IPC generation cannot start a new session [17.99ms]
+(pass) a legacy ready frame remains usable without an identity [18.47ms]
+(pass) one helper exit leaves another helper's runtime identity in diagnostics [33.21ms]
+(pass) a matching build manifest supplies its commit while the artifact hash comes from disk [0.36ms]
+(pass) a versioned helper cannot omit its identity [14.64ms]
+(pass) a versioned helper cannot claim a hash other than its launched artifact [15.87ms]
+(pass) a packaged daemon rejects an identified helper from another build [15.28ms]
+(pass) a packaged daemon accepts a helper from the same build [23.04ms]
+(pass) a packaged daemon rejects a legacy helper without build identity [20.37ms]
+(pass) runtime identity binds both executable artifacts rather than only the CLI entrypoint [0.47ms]
+(pass) a manifest declaring a missing helper cannot claim a verified commit [0.17ms]
+
+tests/continuity-diagnostics-sink.test.ts:
+(pass) independent instances rotate only their own private segments and ignore legacy locks [8.42ms]
+(pass) real concurrent processes retain all records across separate rotations [44.95ms]
+{"event":"diagnostic_sink_fallback","code":"QUEUE_BUDGET_EXCEEDED","operation":"enqueue"}
+(pass) queue count and byte limits reject before allocating more queued resources [0.93ms]
+(pass) oversized and unserializable entries fail safely without queuing or invoking unsafe fallback [3.66ms]
+(pass) a sustained I/O failure opens a fast circuit and recovery resets current health only [113.70ms]
+(pass) flush respects an outstanding append deadline and drains after completion [29.79ms]
+(pass) V2 writtenAt is stamped after preceding appends rather than when queued [11.30ms]
+(pass) query reads legacy archives and all segment rotations while ignoring torn and non-object lines [1.45ms]
+(pass) query refuses symlinks without disclosing the target or reading external data [1.01ms]
+(pass) query refuses FIFO archives promptly without waiting for a writer [4.87ms]
+(pass) query bounds a file before reading and rejects oversized archives [0.38ms]
+{"event":"diagnostic_sink_fallback","code":"UNSAFE_FILE","operation":"stat"}
+{"event":"diagnostic_sink_fallback","code":"UNSAFE_FILE","operation":"stat"}
+(pass) replaced active segment symlinks and FIFOs cannot receive writes [4.56ms]
+(pass) query handles a missing directory as empty without hiding other I/O failures [0.67ms]
+{"event":"diagnostic_sink_fallback","code":"ENOENT","operation":"stat"}
+(pass) a deleted private segment can recover on the next write after cooldown [6.52ms]
+
+tests/compaction-observability.test.ts:
+(pass) canary events are structured, correlated, build identified and bounded [2.55ms]
+(pass) unknown diagnostic text is reduced to an allowlisted code [0.69ms]
+(pass) invalid checkpoint diagnostics expose recognized structure without paths or requirement text [3.62ms]
+(pass) checkpoint field diagnosis ignores narrative lines outside the state block [0.17ms]
+(pass) checkpoint field diagnosis handles collapsed single-line state blocks with escaped underscores [0.52ms]
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T14:21:17.978Z","traceId":"aabbcc123456","phase":"failed","outcome":"failed","route":"fallback","runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"155a7d6a1a4bd82193e915766e59fc96cf1ff97bdbaf721ed6e67832b5de1b83","generation":"a0123763-1c5b-4b26-9d4d-4b957717071f","pid":137746,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+(pass) checkpoint failure enters the shared diagnostic timeline with its causal chain [1.15ms]
+
+ 33 pass
+ 0 fail
+ 339 expect() calls
+Ran 33 tests across 3 files. [696.00ms]

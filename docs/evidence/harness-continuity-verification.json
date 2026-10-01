@@ -1,69 +1,172 @@
 {
-  "verifiedProductionTree": "a045530001a0cd714700467a150a67099890b800",
-  "finalGateCommit": "98bef093fa2b9614939aae9e164a6a1d416ec74b",
+  "schemaVersion": 2,
+  "recordedAt": "2026-10-01T15:36:43.510647+00:00",
+  "verifiedProductionTree": "afe3bc270f4a43a75d2dd54e07b67714b5bee35d",
+  "finalGateCommit": "5479f97a7766c80b3fcc64df89b75b556744f978",
   "fullSuite": {
-    "command": "bun test ./tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=/tmp/continuity-coverage-98bef09",
-    "pass": 2233,
+    "command": "bun test ./tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=/tmp/cgw-acceptance-local-coverage",
+    "pass": 2338,
     "skip": 14,
     "fail": 0,
-    "assertions": 12341,
-    "seconds": 220.73,
-    "lcovSha256": "665d4c816bccd9ea78fab51bffe93072da1be4c976fe0352abfbe1bd95e32475",
+    "assertions": 13230,
+    "tests": 2352,
+    "files": 220,
+    "seconds": 268.7,
+    "log": "docs/evidence/continuity-causal-20261001/full-suite-final.txt",
+    "lcovSha256": "8dabeafab9c98bdc055caefa69dd88e5aac8b4d64ad90e9274bd3cc101f80b78",
     "lcovCounts": {
-      "FNF": 3878,
-      "FNH": 3135,
-      "LF": 50725,
-      "LH": 38149
+      "FNF": 4038,
+      "FNH": 3294,
+      "LF": 52928,
+      "LH": 40418
     },
-    "coverageFunctionsPercentFromLcov": 80.84063950489943,
-    "coverageLinesPercentFromLcov": 75.20749137506161,
-    "scope": "Full coverage run after adding the live-canary quiescence seam and preflight."
+    "coverageFunctionsPercentFromLcov": 81.57503714710252,
+    "coverageLinesPercentFromLcov": 76.36411729141476,
+    "scope": "Serial full suite after all production, rollback-gate and regression changes at 5479f97. Skips are retained explicitly; browser contracts were also executed separately.",
+    "rawLogSha256": "3500611368f3ca8efffea0897eda7637c09cf97ed6498abe4662fa6bd6e74bdf",
+    "persistedLogRedaction": "One fixture broker tokenHash/predecessor line redacted after generic-api-key detector match. Final test counts retained; raw local log remains outside Git."
   },
   "browserContracts": {
-    "command": "bun run test:browser-contracts",
-    "browser": "/home/deuz/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+    "command": "CHATGPT_DOM_TEST_BROWSER=/usr/bin/google-chrome bun run test:browser-contracts",
+    "browser": "/usr/bin/google-chrome",
     "pass": 37,
     "fail": 0,
     "assertions": 228,
-    "seconds": 260.93
+    "seconds": 257.02,
+    "log": "docs/evidence/continuity-causal-20261001/browser-contracts-final.txt"
+  },
+  "launcherTests": {
+    "command": "node --test launcher/tests/*.test.cjs",
+    "pass": 368,
+    "skip": 1,
+    "fail": 0,
+    "tests": 369,
+    "seconds": 4.37776,
+    "log": "docs/evidence/continuity-causal-20261001/launcher-final.txt"
   },
   "typecheck": {
     "command": "bun run typecheck",
     "success": true
   },
+  "launcherTypecheck": {
+    "command": "bun run launcher:typecheck",
+    "success": true
+  },
   "lint": {
     "command": "bun x --no-install biome check .",
     "errors": 0,
-    "warnings": 88
+    "warnings": 88,
+    "warningStatus": "Existing baseline"
   },
   "refactorGates": {
     "command": "bun run check:refactor-gates",
-    "success": true
+    "success": true,
+    "strictGates": 4
   },
   "continuityGate": {
-    "command": "bun run scripts/check-harness-continuity.ts --samples=5 --report=/tmp/continuity-candidate-98bef09-gates.json",
+    "command": "bun run scripts/check-harness-continuity.ts --samples=5 --compare=docs/evidence/harness-continuity-gates-98bef09.json --report=/tmp/cgw-release-gates.json",
     "success": true,
     "stableBuild": true,
-    "sourceDigest": "4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d"
+    "sourceDigest": "f2fc6d8f703c669fdc737da5b34f4ad726c0771aa9286bf91a44a75e3940aa82",
+    "suites": 12,
+    "tests": 242,
+    "workerContractMs": 2279.051985,
+    "workerContractBudgetMs": 5000,
+    "report": "docs/evidence/harness-continuity-gates.json",
+    "comparisonLimits": "Same fixtures/scenarios, browser and Bun; five samples, nearest-rank p95 equals maximum. Late ACK p95 increased by 31.686093ms. No statistical production-latency claim. Context bytes/tokens unchanged; token counts are estimates, not billed usage or cache-hit evidence."
   },
   "candidatePreparation": {
-    "directory": "/tmp/continuity-candidate-98bef09",
-    "cliSha256": "fc6d2eab0070738e6b512c8eeef70280e084459d3a4966cd201a59b9e39a3fc3",
-    "browserHelperSha256": "c93bd474d6830bd4750d0a8fb656c4fe71d73a59fd7dc57defafb37d1d153011",
-    "rollbackDirectory": "/tmp/continuity-rollback-98bef09",
-    "rollbackBrowserHelperSha256": "14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7",
-    "activated": false
+    "runtimeRoot": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
+    "entrypoint": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/cli.js",
+    "helperPath": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/browser-helper.cjs",
+    "sourceInputsSha256": "31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1",
+    "artifactSetSha256": "0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f",
+    "directory": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app",
+    "buildCommit": "a25e1ef9c5e3c9488fc47952b6d9176bb8a3b301",
+    "cliSha256": "6fe17b7f0cb2f042c27dec4e545126455446030dfc2f8400b58e8445b05b3e20",
+    "browserHelperSha256": "f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6",
+    "dependencies": "frozen-lockfile-copy",
+    "manifest": "docs/evidence/continuity-causal-20261001/candidate-manifest.json",
+    "smoke": "docs/evidence/continuity-causal-20261001/built-pair-smoke.json",
+    "smokeScope": "Actual physical CLI --version; Node helper ready/shutdown with paired identity; isolated MCP initialize/tools-list with 14 tools and clean shutdown. No browser start or live Send.",
+    "activated": false,
+    "buildCommitNote": "Candidate was built from clean a25e1ef. Later 5479f97 changes scripts/tests/docs, not captured src/package.json/bun.lock/tsconfig.json inputs."
+  },
+  "dependencies": {
+    "rootAudit": {
+      "command": "bun audit",
+      "vulnerabilities": 0,
+      "packages": 118
+    },
+    "launcherAudit": {
+      "command": "bun run --cwd launcher audit",
+      "vulnerabilities": 0,
+      "packages": 351
+    },
+    "launcherFrozenBuild": {
+      "success": true,
+      "scope": "Tracked launcher sources copied to isolated temp directory; frozen patched lock installed without scripts, then launcher typecheck and Vite renderer build executed.",
+      "rendererModules": 441
+    },
+    "activeInstallNote": "Installed modules used by the active legacy checkout/launcher were not mutated. Patched dependencies are in the isolated candidate and launcher staging."
+  },
+  "lifecycle": {
+    "cycles": 100,
+    "verifiedScopes": [
+      "Replay bus/text/trace waiters, compaction transactions and abort listeners return to baseline through normal/abort/dispose paths.",
+      "Real Chromium page rebind/cancel loop restores page/renderer resource counters.",
+      "HTTP settled/abort listener loop and unsettled browser wait abort loop restore listener/waiter baselines."
+    ],
+    "limits": "These are local scoped loops, not 100 complete production sessions or proof of model continuity."
+  },
+  "security": {
+    "secretsScan": {
+      "tool": "gitleaks v8.30.1",
+      "findings": 0,
+      "syntheticDetectorPositiveFindings": 1,
+      "redacted": true,
+      "receipt": "docs/evidence/continuity-causal-20261001/secrets-detector-receipt.json",
+      "scope": "Tracked src/scripts/launcher electron+scripts/docs snapshot. Excludes dependency trees, runtime/user state and full Git history."
+    },
+    "dedicatedSastEngine": {
+      "status": "not-run",
+      "note": "Typecheck/lint/structural checks and secret detection do not constitute a dedicated SAST run; required for formal R2 release."
+    },
+    "evidenceSecretsScan": {
+      "findingsBeforeRedaction": 1,
+      "findingsAfterRedaction": 0,
+      "redactedLines": 1,
+      "scope": "Final durable evidence directory, including full-suite log."
+    }
   },
   "review": {
-    "independentReviews": 2,
-    "scope": "Prior shared-workspace readonly semantic review remains historical evidence; this quiescence seam is covered by TDD and the complete local gate set but still requires the runbook's human review before merge."
+    "independentReadonlyReview": true,
+    "provenFindingsCorrected": 6,
+    "evidence": [
+      "docs/evidence/continuity-causal-20261001/diagnostics-review-evidence.md",
+      "docs/evidence/continuity-causal-20261001/diagnostics-rereview-evidence.md"
+    ],
+    "limits": "Distinct reviewer conversation; inspected root sources were mutable during review. Reproductions and regression tests are evidence, not approval of final snapshot.",
+    "formalRAVIsolationVerified": false,
+    "cryptographicApprovals": [],
+    "releaseVerdict": "NO-GO pending formal independent review/verification and operational acceptance"
   },
   "operational": {
     "candidateActivated": false,
     "runtimeProcessObserved": true,
-    "admissionQueueEmpty": true,
+    "lastHealth": "docs/evidence/continuity-causal-20261001/live-health.json",
+    "activeHttpTurnsObserved": 2,
+    "activeBrowserTurnsObserved": 2,
     "liveCompactations": 0,
     "longLiveSessions": 0,
-    "status": "Pending demonstrably inactive runtime window and live acceptance. The currently loaded runtime predates the quiescence health seam."
-  }
+    "requiredCompactations": 20,
+    "requiredSessions": 2,
+    "minimumSessionMinutesExclusive": 22,
+    "rollback": "Full verified CLI/helper/dependencies/config/source graph for the legacy loaded runtime is not prepared; helper-only historical copy is insufficient.",
+    "status": "Local implementation verified. Activation and real canaries remain pending inactive runtime, full rollback, healthy diagnostics and formal R2 review."
+  },
+  "history": [
+    "docs/evidence/harness-continuity-gates-98bef09.json",
+    "docs/evidence/harness-continuity-verification-98bef09.json"
+  ]
 }
