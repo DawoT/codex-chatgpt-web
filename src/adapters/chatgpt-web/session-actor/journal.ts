@@ -8,6 +8,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { sessionReconciliationRequiredError } from "../adapter-error";
 import { SESSION_ACTOR_PROTOCOL_VERSION, type SessionAcknowledgement, type SessionCommand } from "./types";
 
 interface SessionRow {
@@ -745,7 +746,7 @@ export class SessionActorJournal {
       `)
           .get(command.sessionId)?.count ?? 0;
       if (uncertain > 0) {
-        throw new Error("Session actor requires reconciliation before another external effect");
+        throw sessionReconciliationRequiredError();
       }
       this.database
         .query(`

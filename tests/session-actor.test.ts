@@ -1812,7 +1812,7 @@ test("hot runtime self-healing: unrecovered uncertain operation does not block a
   }
 });
 
-test("accepted browser failure without result preserves uncertainty and blocks a replacement send", async () => {
+test("accepted browser failure reports a typed reconciliation conflict and blocks replacement or duplicate sends", async () => {
   const home = fixture();
   try {
     const results = new SessionResultStore(join(dirname(home.path), "results"));
@@ -1838,7 +1838,14 @@ test("accepted browser failure without result preserves uncertainty and blocks a
         effects += 1;
         return "unsafe replacement";
       }),
-    ).rejects.toThrow("reconciliation");
+    ).rejects.toMatchObject({ code: "session_reconciliation_required", status: 409, retryable: false });
+    expect(home.journal.snapshot(sessionId)?.turnId).toBe("turn-1");
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async () => {
+        effects += 1;
+        return "unsafe duplicate";
+      }),
+    ).rejects.toMatchObject({ code: "session_reconciliation_required", status: 409, retryable: false });
     expect(effects).toBe(0);
     expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
     expect(home.journal.operation(sessionId, 1, "browser:trace-2")).toBeNull();

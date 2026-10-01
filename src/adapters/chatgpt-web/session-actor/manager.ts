@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { sessionReconciliationRequiredError } from "../adapter-error";
 import { PhaseCheckpointStore } from "../phase-checkpoints";
 import { RetainedConversationBindings } from "../retained-conversation-binding";
 import { chatGptNativeThreadOwnershipKey } from "../turn-execution/keys";
@@ -402,7 +403,7 @@ export class SessionActorManager {
     const operationId = `tool-result:${callId}`;
     const existing = this.journal.operation(sessionId, snapshot.generation, operationId);
     if (existing?.state === "uncertain") {
-      throw new Error("Session actor tool result delivery requires reconciliation before retry");
+      throw sessionReconciliationRequiredError();
     }
     if (existing?.state === "completed") {
       if (existing.turnId !== nativeTurnId || !existing.resultRef) {
@@ -621,6 +622,17 @@ export class SessionActorManager {
       }
     }
     this.recoverUncertainOperationsForSession(sessionId, nativeTurnId, operationId);
+    const unresolved = this.journal.uncertainOperationsForSession(sessionId).some((operation) => {
+      const retryNotSent =
+        operation.kind === "browser_send" &&
+        operation.turnId === nativeTurnId &&
+        operation.operationId === operationId &&
+        this.journal.wasOperationNotSent(sessionId, operation.generation, operationId);
+      return !retryNotSent;
+    });
+    // Reject before recording turn_started: a failed replacement must not steal ownership
+    // from the accepted turn whose response still needs reconciliation.
+    if (unresolved) throw sessionReconciliationRequiredError();
     await this.reconcileRevokedSurfaces(sessionId);
     const admission = await this.beginTurn(sessionId, nativeTurnId);
     if (admission.status !== "accepted") {
@@ -640,7 +652,7 @@ export class SessionActorManager {
       }
       const ref = this.results.referenceFor(existing);
       if (!this.journal.wasOperationNotSent(sessionId, generation, operationId)) {
-        throw new Error("Session actor browser send requires reconciliation before retry");
+        throw sessionReconciliationRequiredError();
       }
       await actor.reconcile(operationId, generation, "not_sent", `prepared:${ref}`);
     }
