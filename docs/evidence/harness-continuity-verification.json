@@ -163,7 +163,27 @@
     "requiredSessions": 2,
     "minimumSessionMinutesExclusive": 22,
     "rollback": "Full verified CLI/helper/dependencies/config/source graph for the legacy loaded runtime is not prepared; helper-only historical copy is insufficient.",
-    "status": "Local implementation verified. Activation and real canaries remain pending inactive runtime, full rollback, healthy diagnostics and formal R2 review."
+    "status": "Local implementation verified. Activation and real canaries remain pending inactive runtime, full rollback, healthy diagnostics and formal R2 review.",
+    "finalReadOnlyPreflight": {
+      "report": "docs/evidence/continuity-causal-20261001/live-preflight.json",
+      "observedCommit": "ac4fc55dd19754f6b42e0efa2a5eaae195cca96f",
+      "generatedAt": "2026-10-01T15:39:23.024Z",
+      "exitCode": 2,
+      "workingTreeCleanAtObservation": true,
+      "sourceTreeMatched": true,
+      "candidateArtifactsMatched": true,
+      "ready": false,
+      "blockerCodes": [
+        "rollback_missing",
+        "runtime_accepting_turns",
+        "active_http_turns",
+        "active_browser_turns",
+        "helper_runtime_present",
+        "resource_evidence_missing",
+        "telemetry_evidence_missing"
+      ],
+      "mutation": "None. Admission status and health read only; no drain, shutdown, activation or Send."
+    }
   },
   "history": [
     "docs/evidence/harness-continuity-gates-98bef09.json",

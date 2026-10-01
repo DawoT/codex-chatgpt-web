@@ -37,3 +37,9 @@ auditorías de dependencias y detector de secretos con control positivo sintéti
 No acredita canarios reales, obediencia del modelo tras compactación, rollback
 completo del daemon previo, SAST dedicado ni firmas criptográficas de aprobación.
 La activación permanece pendiente; no se interrumpió el runtime ocupado.
+
+`live-preflight.json` fue observado con el commit `ac4fc55` y árbol limpio.
+Confirma source tree y artefactos preparados, pero devuelve NO-GO operativo.
+El [ledger local](../../../.shs/ledger/b025-FEAT-0001.json) registra esa evidencia
+sin firmas de aprobación. Los commits posteriores de documentación no activan
+el candidato ni alteran el resultado de esta observación histórica.

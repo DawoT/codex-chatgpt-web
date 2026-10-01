@@ -1,0 +1,159 @@
+{
+  "id": "b025-FEAT-0001",
+  "timestamp_utc": "2026-10-01T15:40:57.623794+00:00",
+  "session_id": "b02524d0-fdbc-43f5-ac87-970c8d95c125",
+  "agente_responsable": "R: Codex implementation conversation; no Approver or Verifier role claimed",
+  "tipo": "Entregable nuevo",
+  "referencias_entradas": [],
+  "prev_id": null,
+  "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "ticket_or_adr": "docs/harness-causal-diagnostics.md",
+  "evidencia": {
+    "risk": "R2xL",
+    "recordStatus": "Unsigned local evidence record. Formal R2 release NO-GO; this entry is not an approval.",
+    "red": {
+      "logs": [
+        {
+          "path": "docs/evidence/continuity-causal-20261001/artifact-gate-red.txt",
+          "sha256": "35d9312ca68ad5cd2b5657b78a0a3f12de5ea42bb6cea1a991ef15ea0ac5ba1e"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/checkpoint-cache-red.txt",
+          "sha256": "657c3b0afb67887bc7b68d2098c748ebaaee189b85553b9627749965a21de68e"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/diagnostic-preflight-red.txt",
+          "sha256": "6eb49b13c61cc68c3faff7dd1a71f386a3c435d3448dcbe5dda5f3b7c951e74b"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/diagnostics-boundary-red.txt",
+          "sha256": "2a04c5b77987c560db50f1ae81f2154c6e907566923022d359c3c0b033686e58"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/error-facts-red.txt",
+          "sha256": "62a2a729d95b26a2c3b36c025f17ac30ce1da963336b5053f0e9433c04f34286"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/frozen-dependencies-red.txt",
+          "sha256": "0dfbb4f45eb0f6ee9cf5fffda776c1fd36413e08651398981055d15b39ccf692"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/helper-shutdown-red.txt",
+          "sha256": "c52f8640745034cd1388ea6b36a7c6f14b9e7c8a838ce06082a2c5f286415fbe"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/observation-cause-red.txt",
+          "sha256": "470080b95f05fcce02b66ad9fd9299240e01f0b58736c8cbbb25aba037f83c2e"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/review-regressions-red.txt",
+          "sha256": "59362e20ae9b937b125bcc217c021751e46275fab92375b6fffc37249f97500e"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/rollback-artifacts-red.txt",
+          "sha256": "5fcb901e91f55cbd0adc479f537145f7090e9026c4664fa3b74c4bacdbc4a3eb"
+        }
+      ],
+      "snapshotLimit": "Regressions executed on working-tree overlays before corresponding corrections. Separate RED commits and exact overlay source digests were not captured. Do not claim clean RED commit provenance.",
+      "runIdMeaning": "File names identify persisted execution output, not signed isolated executions."
+    },
+    "green": {
+      "productionAndGateCommits": [
+        "e501998a493a01b8ea571b8ec4d13e190287cd70",
+        "f32b8d9dcaa931a164abe6317c4bbafac5ae4fbf",
+        "8ed2157476e7743e20e78a66e2671b7c89a2d3c4",
+        "3f70d7da12467f6399013ab42e2b95b0b8c0a0e6",
+        "506f8c882d90643b4dfcb0dc4a404b7bcad35dad",
+        "1dd10e1cfda4aabd025c42895bc92427ac66f654",
+        "ba4c802099078ec081aa916020c3e483f99c2a9f",
+        "50c9f8719dd6e4e2e1940764abfc8e7ff280943e",
+        "bfbc053975ba7df31ae4c10757a8e3b96fc6ef61",
+        "ff6a7292285acb93721188ceb2fe9fde0f924f9c",
+        "5479f97a7766c80b3fcc64df89b75b556744f978"
+      ],
+      "logs": [
+        {
+          "path": "docs/evidence/continuity-causal-20261001/artifact-gate-green.txt",
+          "sha256": "0ac723159648a04c533a36e8ea4a5ca9258e6c97688a4dfede4162d9835b7247"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/checkpoint-cache-green.txt",
+          "sha256": "8e2471e0e411ede3014886af725d70051f464b917f55bd68abc84d8de6c4164d"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/dependency-audit-green.txt",
+          "sha256": "ed617aaa3b4ed76dfabb0ce557da01ff48f9235b748e408050813b32d791ba6d"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/diagnostic-preflight-green.txt",
+          "sha256": "d0352af38d23527c15dc67e673d6bea69a7038c49c695d72ce048d1737055dd0"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/diagnostics-boundary-green.txt",
+          "sha256": "b6d9904de3065501c6da2947320bfd0c02866e5da302e9649393db4460dc78f4"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/error-facts-green.txt",
+          "sha256": "04103bb813ee1499760083218f4c2a208ce98bafa86e2bcf9fed633b904f1447"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/frozen-dependencies-green.txt",
+          "sha256": "df875e4eb97acdebff8dfe53c34e75e9efc7f28cbfddffc5a991ae054c5578bb"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/helper-shutdown-green.txt",
+          "sha256": "16a396e97216d6f22ebbe0aee80730eb1ab57f5e3336dfebe80a491ea496dfdd"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/launcher-audit-green.txt",
+          "sha256": "abb52e8aa1eadfd385262d929d8ba212e405b080857e8cf7d9476fca21459812"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/observation-cause-green.txt",
+          "sha256": "79979a469670d9e01630bd77a0b9e6e8359ea5b83ff64c22e46470ea2ebb28c1"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/review-regressions-green.txt",
+          "sha256": "2694ef0a635fa62039ce9c8ba13f21494a8e08a7272d5f01a4c4bee8453b12c0"
+        },
+        {
+          "path": "docs/evidence/continuity-causal-20261001/rollback-artifacts-green.txt",
+          "sha256": "80a1b901250e3252b7f8dd39c1cd5b30cda96c5f449dd7b2b192d87071a8edf7"
+        }
+      ],
+      "finalSuite": {
+        "commit": "5479f97a7766c80b3fcc64df89b75b556744f978",
+        "log": "docs/evidence/continuity-causal-20261001/full-suite-final.txt",
+        "pass": 2338,
+        "skip": 14,
+        "fail": 0
+      },
+      "artifactSetSha256": "0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f"
+    },
+    "receipts": [
+      {
+        "path": "docs/evidence/harness-continuity-verification.json",
+        "sha256": "91b54636b263de9583ed52bf9b02a00b45825242b93ee509e08adf9a886635f4"
+      },
+      {
+        "path": "docs/evidence/harness-continuity-gates.json",
+        "sha256": "27201539d62cce265368cebb040e0b255f621d453d0da471e3d00527e95e411e"
+      },
+      {
+        "path": "docs/evidence/continuity-causal-20261001/live-preflight.json",
+        "sha256": "b318d95273d20ec0b7e0895c7aaaed21821b6b8aa0e6b7b29d99a9f8a5d1cc72"
+      }
+    ],
+    "pending": [
+      "Verified isolation R != A and R != V, and independent cryptographic signatures.",
+      "Dedicated SAST engine execution; existing typecheck/lint/secret checks are not a substitute.",
+      "Full legacy-runtime rollback source/config/dependency graph and isolated smoke.",
+      "Inactive runtime before activation; current read-only preflight rejects active turns.",
+      "20 real compactions with continuation, retained/fallback routes and 2 sessions >22 minutes."
+    ],
+    "reviewLimits": "Distinct reviewer conversation; inspected root sources were mutable during review. Reproductions and regression tests are evidence, not approval of final snapshot."
+  },
+  "aprobaciones": [],
+  "estado": "Vigente",
+  "entry_hash": "94e2dd27db2855e1af3de85d64c5c705a5bdcb7484e84333db3b664411339770"
+}

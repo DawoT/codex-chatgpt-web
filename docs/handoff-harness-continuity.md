@@ -67,6 +67,8 @@ Procedimiento del siguiente agente, **antes de compactaciones reales**:
 
 La aceptación operativa sigue pendiente. Los resultados exactos, comparación de p50/p95 y límites de cobertura se actualizan en el recibo; cinco muestras de replay no constituyen una distribución de producción ni acreditan ahorro de tokens facturados.
 
+El [preflight final read-only](evidence/continuity-causal-20261001/live-preflight.json) se ejecutó sobre el commit limpio `ac4fc55`: source tree y artefactos coincidían, pero devolvió exit 2 por actividad, rollback ausente y seams de recursos/telemetría no expuestos. El [registro local de evidencia](../.shs/ledger/b025-FEAT-0001.json) tiene hash canónico verificado y ninguna firma A/V. Mantén NO-GO para release R2 hasta cerrar esas condiciones y ejecutar SAST dedicado. Los logs RED conservan el resultado de overlays de tests, pero no tienen un commit limpio RED separado; no inventar esa procedencia al completar la revisión.
+
 ### Histórico — preflight de canario de 98bef09
 
 

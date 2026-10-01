@@ -1,0 +1,680 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-01T15:39:23.024Z",
+  "risk": "R2xL",
+  "candidate": {
+    "head": "ac4fc55dd19754f6b42e0efa2a5eaae195cca96f",
+    "sourceTree": "afe3bc270f4a43a75d2dd54e07b67714b5bee35d",
+    "measuredGateCommit": "5479f97a7766c80b3fcc64df89b75b556744f978",
+    "measuredSourceTree": "afe3bc270f4a43a75d2dd54e07b67714b5bee35d",
+    "protocolVersion": 2,
+    "artifacts": {
+      "cli": {
+        "path": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/cli.js",
+        "sha256": "6fe17b7f0cb2f042c27dec4e545126455446030dfc2f8400b58e8445b05b3e20",
+        "expectedSha256": "6fe17b7f0cb2f042c27dec4e545126455446030dfc2f8400b58e8445b05b3e20"
+      },
+      "browserHelper": {
+        "path": "/home/deuz/projects/codex-chatgpt-web/.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app/browser-helper.cjs",
+        "sha256": "f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6",
+        "expectedSha256": "f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6"
+      }
+    },
+    "rollback": {
+      "sourceCommitPath": "/tmp/cgw-rollback-unverified/source-commit.txt",
+      "helperPath": "/tmp/cgw-rollback-unverified/browser-helper.cjs",
+      "helperSha256": null
+    }
+  },
+  "currentRuntime": {
+    "healthUrl": "http://127.0.0.1:17841/healthz",
+    "healthError": null,
+    "runtimeIdentity": {
+      "protocolVersion": 2,
+      "buildCommit": null,
+      "artifactSha256": "289e6acebbc4d4401d64099ecd2c461b63ee8882bb891710ec6c91a766ce025c",
+      "generation": "e13a6b56-a87a-424e-ab03-60e73101b2a1",
+      "pid": 7319
+    },
+    "helperRuntimes": [
+      {
+        "pid": 25647,
+        "protocolStatus": "compatible",
+        "identity": {
+          "protocolVersion": 2,
+          "generation": "526ca6e5-1dfe-4caf-9667-7083103c5740",
+          "pid": 25647,
+          "buildCommit": null,
+          "artifactSha256": "14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7"
+        }
+      }
+    ]
+  },
+  "snapshot": {
+    "candidate": {
+      "sourceTreeMatchesMeasuredGate": true,
+      "workingTreeClean": true,
+      "artifactsPrepared": true,
+      "rollbackPrepared": false
+    },
+    "admission": {
+      "active": [],
+      "waiting": 0
+    },
+    "runtime": {
+      "reachable": true,
+      "service": "codex-chatgpt-web",
+      "acceptingTurns": true,
+      "activeHttpTurns": 2,
+      "activeBrowserTurns": 2,
+      "activeSubagents": 0,
+      "queuedSubagents": 0,
+      "helperRuntimes": [
+        {
+          "pid": 25647,
+          "protocolStatus": "compatible",
+          "identity": {
+            "protocolVersion": 2,
+            "generation": "526ca6e5-1dfe-4caf-9667-7083103c5740",
+            "pid": 25647,
+            "buildCommit": null,
+            "artifactSha256": "14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7"
+          }
+        }
+      ]
+    },
+    "resources": {
+      "observed": false
+    },
+    "telemetry": {
+      "observed": false
+    }
+  },
+  "inactivityGate": {
+    "ready": false,
+    "blockers": [
+      {
+        "code": "rollback_missing",
+        "detail": "The currently loaded helper/source rollback material is not preserved."
+      },
+      {
+        "code": "runtime_accepting_turns",
+        "detail": "The runtime has not been drained and still accepts new turns."
+      },
+      {
+        "code": "active_http_turns",
+        "detail": "2 active HTTP turn(s) remain."
+      },
+      {
+        "code": "active_browser_turns",
+        "detail": "2 active browser turn(s) remain."
+      },
+      {
+        "code": "helper_runtime_present",
+        "detail": "1 helper runtime(s) are still observed."
+      },
+      {
+        "code": "resource_evidence_missing",
+        "detail": "Pending waiters, transactions, persistences and retained releases are not exposed by the runtime."
+      },
+      {
+        "code": "telemetry_evidence_missing",
+        "detail": "Telemetry queue health and pending bytes/records are not exposed by the runtime."
+      }
+    ]
+  },
+  "legacyBootstrapShutdownGate": null,
+  "sessionRequirements": {
+    "sessions": 2,
+    "minimumMinutesExclusive": 22,
+    "checkpointsPerSession": 10,
+    "totalCheckpoints": 20,
+    "requiredRoutes": [
+      "retained",
+      "fallback"
+    ],
+    "durationClock": "monotonic-real-time"
+  },
+  "matrix": [
+    {
+      "checkpointId": "A-CP-01",
+      "sessionId": "session-a",
+      "checkpointIndex": 1,
+      "expectedRoute": "retained",
+      "taskId": "unicode-regression",
+      "objective": "Preserve a Unicode normalization requirement while adding a focused regression.",
+      "requirements": [
+        {
+          "id": "A-REQ-01-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-01-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-01-3",
+          "text": "Run the focused regression and record its real exit code after the compacted continuation."
+        }
+      ],
+      "expectedFiles": [
+        "tests/prompt-equivalence.test.ts"
+      ],
+      "pendingObligation": "Run the focused regression and record its real exit code after the compacted continuation.",
+      "plannedVerification": "bun test tests/prompt-equivalence.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-02",
+      "sessionId": "session-a",
+      "checkpointIndex": 2,
+      "expectedRoute": "fallback",
+      "taskId": "abort-settlement",
+      "objective": "Carry an unresolved browser-wait cleanup obligation across compaction.",
+      "requirements": [
+        {
+          "id": "A-REQ-02-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-02-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-02-3",
+          "text": "Prove abort removes listeners and physical settlement reaches baseline."
+        }
+      ],
+      "expectedFiles": [
+        "tests/harness-continuity-lifecycle.test.ts"
+      ],
+      "pendingObligation": "Prove abort removes listeners and physical settlement reaches baseline.",
+      "plannedVerification": "bun test tests/harness-continuity-lifecycle.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-03",
+      "sessionId": "session-a",
+      "checkpointIndex": 3,
+      "expectedRoute": "retained",
+      "taskId": "multipart-digest",
+      "objective": "Retain payload identity requirements while validating multipart digest behavior.",
+      "requirements": [
+        {
+          "id": "A-REQ-03-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-03-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-03-3",
+          "text": "Compare payload digests for distinct multipart inputs after the continuation."
+        }
+      ],
+      "expectedFiles": [
+        "tests/browser-multipart-compilation.test.ts"
+      ],
+      "pendingObligation": "Compare payload digests for distinct multipart inputs after the continuation.",
+      "plannedVerification": "bun test tests/browser-multipart-compilation.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-04",
+      "sessionId": "session-a",
+      "checkpointIndex": 4,
+      "expectedRoute": "fallback",
+      "taskId": "checkpoint-reference",
+      "objective": "Preserve original-request provenance while changing a strict checkpoint regression.",
+      "requirements": [
+        {
+          "id": "A-REQ-04-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-04-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-04-3",
+          "text": "Verify an absent original request reference remains a validation defect."
+        }
+      ],
+      "expectedFiles": [
+        "tests/compaction-checkpoint.test.ts"
+      ],
+      "pendingObligation": "Verify an absent original request reference remains a validation defect.",
+      "plannedVerification": "bun test tests/compaction-checkpoint.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-05",
+      "sessionId": "session-a",
+      "checkpointIndex": 5,
+      "expectedRoute": "retained",
+      "taskId": "telemetry-budget",
+      "objective": "Keep telemetry queue and fallback requirements while exercising bounded writes.",
+      "requirements": [
+        {
+          "id": "A-REQ-05-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-05-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-05-3",
+          "text": "Verify pending records return to zero and dropped writes remain visible."
+        }
+      ],
+      "expectedFiles": [
+        "tests/harness-continuity-telemetry.test.ts"
+      ],
+      "pendingObligation": "Verify pending records return to zero and dropped writes remain visible.",
+      "plannedVerification": "bun test tests/harness-continuity-telemetry.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-06",
+      "sessionId": "session-a",
+      "checkpointIndex": 6,
+      "expectedRoute": "fallback",
+      "taskId": "deadline-classification",
+      "objective": "Preserve typed deadline semantics through a compaction boundary.",
+      "requirements": [
+        {
+          "id": "A-REQ-06-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-06-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-06-3",
+          "text": "Verify the producer emits a deadline cause that the terminal classifier recognizes."
+        }
+      ],
+      "expectedFiles": [
+        "tests/harness-continuity-replay.test.ts"
+      ],
+      "pendingObligation": "Verify the producer emits a deadline cause that the terminal classifier recognizes.",
+      "plannedVerification": "bun test tests/harness-continuity-replay.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-07",
+      "sessionId": "session-a",
+      "checkpointIndex": 7,
+      "expectedRoute": "retained",
+      "taskId": "retained-release",
+      "objective": "Carry retained-conversation release ownership into the next action.",
+      "requirements": [
+        {
+          "id": "A-REQ-07-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-07-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-07-3",
+          "text": "Verify retained release settles before a replacement owner is admitted."
+        }
+      ],
+      "expectedFiles": [
+        "tests/retained-compaction.test.ts"
+      ],
+      "pendingObligation": "Verify retained release settles before a replacement owner is admitted.",
+      "plannedVerification": "bun test tests/retained-compaction.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-08",
+      "sessionId": "session-a",
+      "checkpointIndex": 8,
+      "expectedRoute": "fallback",
+      "taskId": "tool-delivery",
+      "objective": "Preserve the distinction between tool execution and MCP delivery evidence.",
+      "requirements": [
+        {
+          "id": "A-REQ-08-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-08-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-08-3",
+          "text": "Verify result reception and reply delivery remain separate observations."
+        }
+      ],
+      "expectedFiles": [
+        "tests/mcp-observation.test.ts"
+      ],
+      "pendingObligation": "Verify result reception and reply delivery remain separate observations.",
+      "plannedVerification": "bun test tests/mcp-observation.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-09",
+      "sessionId": "session-a",
+      "checkpointIndex": 9,
+      "expectedRoute": "retained",
+      "taskId": "browser-rebind",
+      "objective": "Retain document generation and event cursor requirements across browser rebind.",
+      "requirements": [
+        {
+          "id": "A-REQ-09-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-09-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-09-3",
+          "text": "Verify page rebound increments generation and leaves zero pending waiters."
+        }
+      ],
+      "expectedFiles": [
+        "tests/browser-dom-events.test.ts"
+      ],
+      "pendingObligation": "Verify page rebound increments generation and leaves zero pending waiters.",
+      "plannedVerification": "bun test tests/browser-dom-events.test.ts"
+    },
+    {
+      "checkpointId": "A-CP-10",
+      "sessionId": "session-a",
+      "checkpointIndex": 10,
+      "expectedRoute": "fallback",
+      "taskId": "single-send",
+      "objective": "Carry the no-resend obligation through an ambiguous submission checkpoint.",
+      "requirements": [
+        {
+          "id": "A-REQ-10-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "A-REQ-10-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "A-REQ-10-3",
+          "text": "Verify physical Send count remains one when acceptance is ambiguous."
+        }
+      ],
+      "expectedFiles": [
+        "tests/browser-worker-contract.test.ts"
+      ],
+      "pendingObligation": "Verify physical Send count remains one when acceptance is ambiguous.",
+      "plannedVerification": "bun test tests/browser-worker-contract.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-01",
+      "sessionId": "session-b",
+      "checkpointIndex": 1,
+      "expectedRoute": "retained",
+      "taskId": "unicode-regression",
+      "objective": "Preserve a Unicode normalization requirement while adding a focused regression.",
+      "requirements": [
+        {
+          "id": "B-REQ-01-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-01-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-01-3",
+          "text": "Run the focused regression and record its real exit code after the compacted continuation."
+        }
+      ],
+      "expectedFiles": [
+        "tests/prompt-equivalence.test.ts"
+      ],
+      "pendingObligation": "Run the focused regression and record its real exit code after the compacted continuation.",
+      "plannedVerification": "bun test tests/prompt-equivalence.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-02",
+      "sessionId": "session-b",
+      "checkpointIndex": 2,
+      "expectedRoute": "fallback",
+      "taskId": "abort-settlement",
+      "objective": "Carry an unresolved browser-wait cleanup obligation across compaction.",
+      "requirements": [
+        {
+          "id": "B-REQ-02-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-02-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-02-3",
+          "text": "Prove abort removes listeners and physical settlement reaches baseline."
+        }
+      ],
+      "expectedFiles": [
+        "tests/harness-continuity-lifecycle.test.ts"
+      ],
+      "pendingObligation": "Prove abort removes listeners and physical settlement reaches baseline.",
+      "plannedVerification": "bun test tests/harness-continuity-lifecycle.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-03",
+      "sessionId": "session-b",
+      "checkpointIndex": 3,
+      "expectedRoute": "retained",
+      "taskId": "multipart-digest",
+      "objective": "Retain payload identity requirements while validating multipart digest behavior.",
+      "requirements": [
+        {
+          "id": "B-REQ-03-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-03-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-03-3",
+          "text": "Compare payload digests for distinct multipart inputs after the continuation."
+        }
+      ],
+      "expectedFiles": [
+        "tests/browser-multipart-compilation.test.ts"
+      ],
+      "pendingObligation": "Compare payload digests for distinct multipart inputs after the continuation.",
+      "plannedVerification": "bun test tests/browser-multipart-compilation.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-04",
+      "sessionId": "session-b",
+      "checkpointIndex": 4,
+      "expectedRoute": "fallback",
+      "taskId": "checkpoint-reference",
+      "objective": "Preserve original-request provenance while changing a strict checkpoint regression.",
+      "requirements": [
+        {
+          "id": "B-REQ-04-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-04-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-04-3",
+          "text": "Verify an absent original request reference remains a validation defect."
+        }
+      ],
+      "expectedFiles": [
+        "tests/compaction-checkpoint.test.ts"
+      ],
+      "pendingObligation": "Verify an absent original request reference remains a validation defect.",
+      "plannedVerification": "bun test tests/compaction-checkpoint.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-05",
+      "sessionId": "session-b",
+      "checkpointIndex": 5,
+      "expectedRoute": "retained",
+      "taskId": "telemetry-budget",
+      "objective": "Keep telemetry queue and fallback requirements while exercising bounded writes.",
+      "requirements": [
+        {
+          "id": "B-REQ-05-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-05-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-05-3",
+          "text": "Verify pending records return to zero and dropped writes remain visible."
+        }
+      ],
+      "expectedFiles": [
+        "tests/harness-continuity-telemetry.test.ts"
+      ],
+      "pendingObligation": "Verify pending records return to zero and dropped writes remain visible.",
+      "plannedVerification": "bun test tests/harness-continuity-telemetry.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-06",
+      "sessionId": "session-b",
+      "checkpointIndex": 6,
+      "expectedRoute": "fallback",
+      "taskId": "deadline-classification",
+      "objective": "Preserve typed deadline semantics through a compaction boundary.",
+      "requirements": [
+        {
+          "id": "B-REQ-06-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-06-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-06-3",
+          "text": "Verify the producer emits a deadline cause that the terminal classifier recognizes."
+        }
+      ],
+      "expectedFiles": [
+        "tests/harness-continuity-replay.test.ts"
+      ],
+      "pendingObligation": "Verify the producer emits a deadline cause that the terminal classifier recognizes.",
+      "plannedVerification": "bun test tests/harness-continuity-replay.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-07",
+      "sessionId": "session-b",
+      "checkpointIndex": 7,
+      "expectedRoute": "retained",
+      "taskId": "retained-release",
+      "objective": "Carry retained-conversation release ownership into the next action.",
+      "requirements": [
+        {
+          "id": "B-REQ-07-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-07-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-07-3",
+          "text": "Verify retained release settles before a replacement owner is admitted."
+        }
+      ],
+      "expectedFiles": [
+        "tests/retained-compaction.test.ts"
+      ],
+      "pendingObligation": "Verify retained release settles before a replacement owner is admitted.",
+      "plannedVerification": "bun test tests/retained-compaction.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-08",
+      "sessionId": "session-b",
+      "checkpointIndex": 8,
+      "expectedRoute": "fallback",
+      "taskId": "tool-delivery",
+      "objective": "Preserve the distinction between tool execution and MCP delivery evidence.",
+      "requirements": [
+        {
+          "id": "B-REQ-08-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-08-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-08-3",
+          "text": "Verify result reception and reply delivery remain separate observations."
+        }
+      ],
+      "expectedFiles": [
+        "tests/mcp-observation.test.ts"
+      ],
+      "pendingObligation": "Verify result reception and reply delivery remain separate observations.",
+      "plannedVerification": "bun test tests/mcp-observation.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-09",
+      "sessionId": "session-b",
+      "checkpointIndex": 9,
+      "expectedRoute": "retained",
+      "taskId": "browser-rebind",
+      "objective": "Retain document generation and event cursor requirements across browser rebind.",
+      "requirements": [
+        {
+          "id": "B-REQ-09-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-09-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-09-3",
+          "text": "Verify page rebound increments generation and leaves zero pending waiters."
+        }
+      ],
+      "expectedFiles": [
+        "tests/browser-dom-events.test.ts"
+      ],
+      "pendingObligation": "Verify page rebound increments generation and leaves zero pending waiters.",
+      "plannedVerification": "bun test tests/browser-dom-events.test.ts"
+    },
+    {
+      "checkpointId": "B-CP-10",
+      "sessionId": "session-b",
+      "checkpointIndex": 10,
+      "expectedRoute": "fallback",
+      "taskId": "single-send",
+      "objective": "Carry the no-resend obligation through an ambiguous submission checkpoint.",
+      "requirements": [
+        {
+          "id": "B-REQ-10-1",
+          "text": "Preserve the original user objective and latest steering verbatim by reference."
+        },
+        {
+          "id": "B-REQ-10-2",
+          "text": "Preserve completed evidence without inventing successful commands or results."
+        },
+        {
+          "id": "B-REQ-10-3",
+          "text": "Verify physical Send count remains one when acceptance is ambiguous."
+        }
+      ],
+      "expectedFiles": [
+        "tests/browser-worker-contract.test.ts"
+      ],
+      "pendingObligation": "Verify physical Send count remains one when acceptance is ambiguous.",
+      "plannedVerification": "bun test tests/browser-worker-contract.test.ts"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 [
   {
     "path": "docs/evidence/continuity-causal-20261001/README.md",
-    "sha256": "09ea7cd124398eb0a55b53b32252b44408d5cca51710103920bd06a0109e065e"
+    "sha256": "fa38be58cf0d566d5dfda16ce0d0dc80a898ab797f84c7c32e46167654ed7b7c"
   },
   {
     "path": "docs/evidence/continuity-causal-20261001/artifact-gate-green.txt",
@@ -118,6 +118,10 @@
   {
     "path": "docs/evidence/continuity-causal-20261001/live-health.json",
     "sha256": "51afd56904a7ff9a6e58b73af3dc6c78e040cc4ce8f0e0bedf9065dfd59fe5e9"
+  },
+  {
+    "path": "docs/evidence/continuity-causal-20261001/live-preflight.json",
+    "sha256": "b318d95273d20ec0b7e0895c7aaaed21821b6b8aa0e6b7b29d99a9f8a5d1cc72"
   },
   {
     "path": "docs/evidence/continuity-causal-20261001/log-normalization.json",
