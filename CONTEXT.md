@@ -169,3 +169,132 @@ and reran the defect suite: eight pass / zero fail in 369ms
 Both identified gaps are resolved and reviewed. No unresolved scope approval or acceptance
 blocker remains from these reviews. The working branch is ready for the parent's local fast-forward
 merge; this document does not claim that merge has already happened.
+
+## Turn lifecycle checkpoints (2026-09-30)
+
+Production and all commits belong to A. B supplied the assigned tests/infra, performed read-only
+semantic review, and owns this documentation. Ownership transferred retirement and the three new
+compaction test files to A during execution; B's broker composition test is frozen and committed
+by A. No B staging, commits, production edits, extra agents, or live-service operations.
+
+| Stage | Seam and responsibility | Commits and observed gates |
+| --- | --- | --- |
+| 1 | Strict browser-contract preflight: executable resolution, validation and child test environment | `fa98979`; B: 10 runner + 35 DOM tests, typecheck/lint pass. A full: 2,044 pass / 14 skip / 0 fail, 225.31s. |
+| 2 | MCP image contract: required explicit contract and runtime rejection before tool registration | `e28d104`; missing-contract RED before fix; A focused/typecheck/lint pass. A full: 2,045 pass / 14 skip / 0 fail, 224.78s. |
+| 3 | Helper wire protocol: shared input/output types, decoder framing and typed identity | `9a00e7c`, `8ed93c8`, `7d0ad4a`; A: 115 protocol/client tests, typecheck/lint pass. A full: 2,146 pass / 14 skip / 0 fail, 202.97s. |
+| 4 | Retirement coordinator: physical execution/owner/conversation gates, distinct epoch closure, deterministic clock | `c437edd`, `1a8251e`, `aebdc0e`, final interaction fix `313cec1`; A latest: 92 pass, 4.57s, typecheck/lint pass (88 warnings). Earlier stage full: 2,159 pass / 14 skip / 0 fail, 207s. |
+| 5 | Compaction policy, browser runner and checkpoint transaction on the existing actor journal | `5d4b6b0` policy: 82 pass; `7a7cbce` runner: 23 pass; `09d6bdd` checkpoint: 134 pass. A reported typecheck/lint passing and 13 new seam tests GREEN. A full: 2,172 pass / 14 skip / 0 fail, 211.33s. |
+| 6 | Broker admission, tool queue and completion fence over the facade's sole channel registry | `8ee5ac1` characterization: B 5 pass / 41 assertions, 59ms; `07d630a` admission: A 43 pass; `1a5c60e` queue: A 45 pass, both typecheck/lint pass; `c009109` fence committed. Final full after `313cec1` remains pending. |
+
+Lifecycle vocabulary: **logical outcome** is the client-visible final/error and exact-response
+replay; **physical settlement** is completion of the helper/browser teardown; **conversation
+close** also detaches the retained epoch and awaits its asynchronous retained release. Logical
+completion does not imply physical settlement, and physical settlement does not imply conversation
+close. Replacement ownership waits for the applicable physical/closure gate.
+
+Broker composition is admission -> tool queue -> completion fence: admission resolves capability
+authority, the queue delivers/replays calls and consumes results, and the fence commits against
+the causal revision after active requests and pending invocations stop vetoing completion.
+Checkpoint lifecycle is prepared -> received -> validated -> persisted -> accepted; rejection is
+allowed while prepared/received/validated. Persisted or accepted checkpoints survive late cleanup;
+the existing actor journal owns transition ordering and idempotency.
+
+Stage 1 retains optional local suites but fails closed through `bun run test:browser-contracts`.
+The runner resolves `CHATGPT_DOM_TEST_BROWSER` or Chromium's executable, rejects missing paths,
+directories and non-executable files, then forwards the validated environment to six DOM suites.
+CI still installs Chromium. B ran `/usr/bin/google-chrome`: 35 pass, zero skips, 275.73s. The included
+`browser-response-dom.test.ts` still uses Domino/VM; its conversion was outside B ownership.
+Evidence: `/tmp/turn-lifecycle-b-stage1-preflight-red.log`, `-stage1-runner-green.log`,
+`-stage1-browser.log`, `-stage1-typecheck.log`, `-stage1-lint.log` (same prefix).
+
+Stage 2's real MCP transport regression uses `Reflect.apply(registerImageTools, ..., [server, {}])`
+and proves missing contract rejection occurs before image aliases register. Three existing callers
+now explicitly select `contract: "native"`. Evidence: `/tmp/turn-lifecycle-b-stage2-mcp-red.log`.
+
+Stage 3's real child keeps its input loop alive after `null`, `[]`, `42` and unsupported kinds;
+`null` crashed before A's fix. The output decoder matrix preserves legacy ready/version behavior
+and validates identity/digests. Table rows wrap values as `{ frame }` so Bun does not interpret
+`[]` as a zero-argument callback. Input framing separately observed 13 valid controls and 20 RED
+invalid ACK/id/kind cases. Critical ACK errors retain id and emit before abort; prepared/progress
+business guards remain in the handler. Evidence: `/tmp/turn-lifecycle-b-stage3-ipc-red.log`,
+`-stage3-output-decoder.log`, `-stage3-output-child-green.log`, `-stage3-input-schema-red.log`.
+Version compatibility remains unchanged: unversioned ready frames without identity retain the
+`legacy_unverified` path when existing build checks allow it. A versioned ready frame still requires
+identity; identity-bearing frames retain protocol/version, process, artifact and build checks before
+status `compatible`. Malformed advertised versions remain rejected.
+
+Full checkpoints initially under `/tmp` hit the intentional durable-runtime path guard: 291
+failures, comprising 274 direct rejections and 17 cascades. The identical focused suite failed
+four cases there and passed four in the durable main tree. A recreated persistent worktrees after
+a cross-filesystem move failed; no source guard or assertion changed. Evidence:
+`/tmp/turn-lifecycle-b-stage1-environment-investigation.log`.
+
+Stage 4 separates logical final/replay from physical helper settlement. B's original seven public
+characterizations passed before extraction; the clock cycle, duplicate trace cancellation, TTL
+pruning, and owner replacement during asynchronous retained release each observed RED before A's
+fix. The final cross-cancellation interaction was discovered by source review and reproduced by
+A: zero pass / one fail, expected one release/matched closure but got zero. `313cec1` separates
+`conversationClosures` (one full epoch close) from `conversationRetirements` (physical scope).
+Closure reservation is synchronous before waiting, duplicate close coalesces through the full
+release promise, and owner gating lasts through physical settlement plus retained release.
+Logical replay, cancellation deduplication and identity-checked cleanup remain intact.
+Evidence: `/tmp/turn-lifecycle-b-stage4-retirement-baseline.log`, `-stage4-clock-red.log`,
+`-stage4-clock-green.log`, `-stage4-path-bugs-red.log`, `-stage4-conversation-owner-red.log`,
+`-retirement-conversation-gate-review.log`.
+
+Stage 5's policy keeps route precedence; browser execution retains physical ownership before
+observation, awaits browser then physical settlement before consumption, cancels on failure and
+adds no blind Send retry. Observer disconnect remains separate from operator/deadline cancellation.
+Checkpoint recovery/idempotency belong to SessionActorManager and its journal, without duplicate
+transaction state. Order remains received -> validated -> local effect -> persisted -> accepted;
+the retained path logs/marks its WeakMap after persisted, while the observer path logs its local
+effect before persisted. B's read-only review found no blocking drift. A owned new seam tests;
+initial RED was three missing-module load errors. Existing B baseline: 84 pass across five files,
+2.42s. Evidence: `/tmp/turn-lifecycle-b-stage5-baseline.log`, `-stage5-compaction-review.log`.
+
+Stage 6 keeps socket, binding, channel and lineage authority in the facade. Admission preserves
+exact host capabilities, cycle termination, alias recency/eviction, trace-before-thread succession
+and request error precedence. Queue preserves delivered-before-queued replay, one result, lifecycle
+telemetry, 15ms batching and queued waiters -> claim waiters -> invocations rejection. Compaction
+resolves queued calls while delivered calls remain owned. Fence preserves prune -> revision
+validation -> raw token lookup, pending-work veto and committed-revision idempotency. B's final
+read-only review of all three components and the `313cec1` closure fix found no unresolved blocker.
+Evidence: `/tmp/turn-lifecycle-b-stage6-broker-composition-green.log`,
+`-stage6-broker-composition-lint.log`, `-stage6-admission-review.log`,
+`-stage6-queue-fence-review.log`, `-stage6-final-semantic-review.log`.
+
+Final acceptance at code commit `313cec1`: the immutable full coverage suite, run alone with
+unchanged timeouts, passed 2,178 tests / 14 optional browser skips / zero failures, 11,805 assertions
+across 199 files in 208.51s. Evidence: `/tmp/turn-lifecycle-final-full-solo.log`. The separate required
+real-browser entrypoint passed 35 tests across six suites, zero failures, in 275.73s:
+`/tmp/turn-lifecycle-b-stage1-browser.log`. Worker contract: 158 pass in 1.90s; strict refactor gates
+PASS (29 source / 202 test files); helper CJS bundle and Node syntax check passed. Typecheck and
+lint passed; lint retains 88 pre-existing warnings. The latest retirement fix passed 92 focused
+tests in 4.57s. Final coverage is 100% functions/lines for the orchestrator, shared helper protocol,
+three compaction seams and three broker components; retirement is 92.86% functions / 100% lines.
+Evidence: `/tmp/turn-lifecycle-final-contract.log`, `-final-gates.log`, `-final-build.log`,
+`-final-types.log`, `-final-lint.log`, `-final-crosscancel-green.log`.
+
+Validation failure history remains explicit. The intermediate mutable Stage 6 run finished at
+2,177 pass / 14 skip / one fail in 249.20s: the new cross-cancellation regression loaded against
+the earlier cached registry, matching its RED, so this is not immutable evidence for `c009109`.
+The first immutable final full run had 2,176 pass / 14 skip / two failures in 237.89s; both were
+pre-existing 5s test timeouts while full runs overlapped. The same immutable tree passed all twelve
+focused tests in 17.88s: effort selection took 1,742.61ms and native workspace-write about 2.5s.
+The unchanged solo full then passed those cases in 1,779.26ms and 2,442.82ms. No source guard,
+assertion or timeout was relaxed. Evidence: `/tmp/turn-lifecycle-stage6-full.log`,
+`/tmp/turn-lifecycle-final-full.log`, `/tmp/turn-lifecycle-final-timeouts-focused.log`.
+
+B's semantic review completed with no unresolved finding; B then froze documentation and closed.
+A assumed documentation ownership for these final receipts and local integration. No approval
+or engineering verification remains pending. The migration has sixteen conventional code/test
+commits and a separate documentation acceptance commit; integration uses a local fast-forward.
+
+Zero-cast statements apply only to the reviewed extraction/worker-controller targets. The two
+pre-existing `as unknown as` casts in compaction-flow's oversized-message truncation remain out of
+that target; this receipt does not claim zero production casts globally.
+
+Reproduction: `bun run test:coverage`, `bun run typecheck`, `bun run lint`, and
+`bun run check:refactor-gates`. For required browser contracts, set
+`CHATGPT_DOM_TEST_BROWSER` to an installed executable or install Playwright Chromium, then run
+`bun run test:browser-contracts`. The required entrypoint fails preflight instead of silently skipping.
