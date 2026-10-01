@@ -537,7 +537,7 @@ export function createChatGptWebAdapter(
         }
         return { ...compiled, release: () => {} };
       } catch (error) {
-        await broker.revoke(turnToken);
+        await broker.revoke(turnToken, undefined, { terminal: true });
         activeToken = undefined;
         if (threadLastRegisteredTokens.get(threadKey) === turnToken) {
           if (threadPredecessor) threadLastRegisteredTokens.set(threadKey, threadPredecessor);
@@ -617,7 +617,7 @@ export function createChatGptWebAdapter(
       cancel: (reason?: Error) => {
         browserTurn.cancel(reason);
         if (activeToken) {
-          void Promise.resolve(broker.revoke(activeToken, reason)).catch((error) => {
+          void Promise.resolve(broker.revoke(activeToken, reason, { terminal: true })).catch((error) => {
             console.error(
               `[chatgpt-web] failed to revoke cancelled turn token: ${error instanceof Error ? error.message : String(error)}`,
             );

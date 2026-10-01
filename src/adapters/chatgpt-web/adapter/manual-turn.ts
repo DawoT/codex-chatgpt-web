@@ -168,7 +168,8 @@ export function createManualTurnRuntime(ctx: ManualTurnRuntimeContext): ChatGptT
     } catch (error) {
       const normalized = safeManualAdapterError(error);
       const externallyAborted = browserAbort.signal.aborted;
-      if (activeToken) await Promise.resolve(broker.revoke(activeToken, normalized)).catch(() => {});
+      if (activeToken)
+        await Promise.resolve(broker.revoke(activeToken, normalized, { terminal: true })).catch(() => {});
       try {
         await finishLauncher(externallyAborted ? "aborted" : "failed");
       } catch (controlError) {
@@ -206,7 +207,7 @@ export function createManualTurnRuntime(ctx: ManualTurnRuntimeContext): ChatGptT
     cancel: (reason?: Error) => {
       browserTurn.cancel(reason);
       if (activeToken) {
-        void Promise.resolve(broker.revoke(activeToken, reason)).catch((error) => {
+        void Promise.resolve(broker.revoke(activeToken, reason, { terminal: true })).catch((error) => {
           console.error(
             `[chatgpt-web] failed to revoke cancelled Zero Risk request: ${error instanceof Error ? error.message : String(error)}`,
           );

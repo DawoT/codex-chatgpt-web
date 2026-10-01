@@ -319,7 +319,9 @@ test("turn broker revokes only channels owned by the closed browser trace", asyn
     const target = await broker.register(environment, 60_000, "trace_target");
     const other = await broker.register(environment, 60_000, "trace_other");
     expect(broker.revokeTrace("trace_target")).toBe(1);
-    await expect(callTurnBroker(socketPath, { method: "claim", token: target })).rejects.toThrow("already finished");
+    await expect(callTurnBroker(socketPath, { method: "claim", token: target })).rejects.toThrow(
+      "interrupted before finishing",
+    );
     await expect(
       callTurnBroker<{ bindingId: string }>(socketPath, { method: "claim", token: other }),
     ).resolves.toMatchObject({ bindingId: expect.any(String) });

@@ -5,6 +5,7 @@ import type { BrokerRequest, TurnChannel } from "./types";
 interface BrokerAdmissionState {
   channels: Map<string, TurnChannel>;
   retiredTokens: Map<string, string>;
+  terminatedTokens: Map<string, string>;
   tokenAliases: Map<string, string>;
   traceActiveTokens: Map<string, string>;
   traceTokens: Map<string, string[]>;
@@ -31,6 +32,10 @@ export class BrokerAdmission {
   }
 
   resolveActiveToken(token: string): { resolvedToken: string; channel: TurnChannel } | undefined {
+    // A turn interrupted before its completion fence committed is terminally revoked: it never
+    // recovers permissions through alias or lineage, whatever registers afterwards on its
+    // trace or thread. A later turn is a new capability, not a revival of this one.
+    if (this.state.terminatedTokens.has(token)) return undefined;
     const directChannel = this.state.channels.get(token);
     if (directChannel && !directChannel.completionCommitted) {
       return { resolvedToken: token, channel: directChannel };
@@ -44,6 +49,9 @@ export class BrokerAdmission {
       curr = this.state.tokenAliases.get(curr)!;
       if (visited.has(curr)) break;
       visited.add(curr);
+      // A chain may not transit a terminally revoked handle: it would route older lineage
+      // around the revoked turn and readmit it through its successor.
+      if (this.state.terminatedTokens.has(curr)) break;
       const target = this.state.channels.get(curr);
       if (target && target.environment.execution !== "host-only" && !target.completionCommitted) {
         return { resolvedToken: curr, channel: target };

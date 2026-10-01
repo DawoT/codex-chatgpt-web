@@ -265,7 +265,11 @@ export class RemoteTurnBroker implements TurnBrokerOwner {
       throw new TurnBrokerProtocolError("DEV turn owner received an invalid retirement result");
   }
 
-  async revoke(token: string, _reason?: Error): Promise<void> {
-    await callTurnBroker(this.socketPath, { method: "owner_revoke", token });
+  async revoke(token: string, _reason?: Error, options?: { terminal?: boolean }): Promise<void> {
+    await callTurnBroker(this.socketPath, {
+      method: "owner_revoke",
+      token,
+      ...(options?.terminal === true ? { terminal: true } : {}),
+    });
   }
 }

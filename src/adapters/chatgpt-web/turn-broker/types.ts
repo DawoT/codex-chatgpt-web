@@ -123,6 +123,7 @@ export interface BrokerRequest {
   token?: string;
   previousToken?: string;
   newToken?: string;
+  terminal?: boolean;
   bindingId?: string;
   wireName?: string;
   freeform?: boolean;
@@ -193,5 +194,5 @@ export interface TurnBrokerOwner {
   commitCompletionFence(token: string, revision: number): boolean | Promise<boolean>;
   waitForRetirement(token: string, signal?: AbortSignal): Promise<void>;
   waitForClaim?(token: string, signal?: AbortSignal): Promise<void>;
-  revoke(token: string, reason?: Error): void | Promise<void>;
+  revoke(token: string, reason?: Error, options?: { terminal?: boolean }): void | Promise<void>;
 }

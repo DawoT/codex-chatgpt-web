@@ -29,7 +29,7 @@ test("an interrupted turn capability never readmits a later same-thread successo
     );
 
     // Interrupt A mid-turn: no completion fence is ever committed.
-    broker.revoke(tokenA);
+    broker.revoke(tokenA, new Error("interrupted by the operator"), { terminal: true });
 
     // The continuation registers B for the same thread, declaring A as predecessor exactly
     // like the production continuation path does.
@@ -76,7 +76,7 @@ test("an interrupted turn does not route through pre-existing alias chains", asy
     // C was an authorized successor while A was alive, so the alias A -> C exists.
     await broker.register(environment(root), 60_000, "trace-terminal-2", false, "turn", tokenA);
 
-    broker.revoke(tokenA);
+    broker.revoke(tokenA, new Error("interrupted by the operator"), { terminal: true });
 
     expect(broker.resolveActiveToken(tokenA)).toBeUndefined();
     await expect(
@@ -102,7 +102,7 @@ test("a late request cannot acquire a successor epoch through the thread grace w
       undefined,
       "thread-terminal-3",
     );
-    broker.revoke(tokenA);
+    broker.revoke(tokenA, new Error("interrupted by the operator"), { terminal: true });
 
     // No successor exists yet: the late claim must fail closed without waiting for one.
     await expect(
@@ -171,7 +171,7 @@ test("an interrupted turn cannot invoke through a binding captured before the in
       token: tokenA,
       activityId: "activity_term_invoke_1234",
     });
-    broker.revoke(tokenA);
+    broker.revoke(tokenA, new Error("interrupted by the operator"), { terminal: true });
 
     const rejection = async (request: Parameters<typeof callTurnBroker>[1]): Promise<string> => {
       try {

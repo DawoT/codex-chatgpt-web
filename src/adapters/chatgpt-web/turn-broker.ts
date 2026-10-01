@@ -93,6 +93,7 @@ export class TurnBroker implements TurnBrokerOwner {
   // previous turn's handle" from "this handle never existed".
   private readonly retiredBindings = new Map<string, string>();
   private readonly retiredTokens = new Map<string, string>();
+  private readonly terminatedTokens = new Map<string, string>();
   private readonly tokenAliases = new Map<string, string>();
   private readonly traceActiveTokens = new Map<string, string>();
   private readonly traceTokens = new Map<string, string[]>();
@@ -102,6 +103,7 @@ export class TurnBroker implements TurnBrokerOwner {
   private readonly admission = new BrokerAdmission({
     channels: this.channels,
     retiredTokens: this.retiredTokens,
+    terminatedTokens: this.terminatedTokens,
     tokenAliases: this.tokenAliases,
     traceActiveTokens: this.traceActiveTokens,
     traceTokens: this.traceTokens,
@@ -208,8 +210,12 @@ export class TurnBroker implements TurnBrokerOwner {
     this.channels.set(token, channel);
     this.pending.set(token, channel);
     if (predecessorToken) {
-      this.tokenAliases.set(predecessorToken, token);
-      trimOldest(this.tokenAliases, MAX_TOKEN_ALIASES);
+      // A terminally revoked predecessor (interrupted before finishing) grants nothing to its
+      // successor: creating an alias from it would readmit its holders into the new epoch.
+      if (!this.terminatedTokens.has(predecessorToken)) {
+        this.tokenAliases.set(predecessorToken, token);
+        trimOldest(this.tokenAliases, MAX_TOKEN_ALIASES);
+      }
     }
     if (traceId && traceId !== "unknown") {
       this.traceActiveTokens.set(traceId, token);
@@ -466,7 +472,7 @@ export class TurnBroker implements TurnBrokerOwner {
     return waitForSafeState(safe.completionWaiters, signal, "Zero Risk turn completion wait aborted");
   }
 
-  revoke(token: string, reason = new Error("Codex turn binding was revoked")): void {
+  revoke(token: string, reason = new Error("Codex turn binding was revoked"), options?: { terminal?: boolean }): void {
     const channel = this.channels.get(token);
     if (!channel) return;
     console.info(
@@ -495,6 +501,12 @@ export class TurnBroker implements TurnBrokerOwner {
       rejectSafeWaiters(channel.safe.completionWaiters, reason);
     }
     this.retire(this.retiredTokens, token, channel.traceId);
+    // Only an explicitly terminal revocation — the caller knows this turn was interrupted
+    // rather than superseded or finished — closes alias and lineage readmission. A finished
+    // or superseded turn keeps its compatible lineage routing to authorized successors.
+    if (options?.terminal === true) {
+      this.retire(this.terminatedTokens, token, channel.traceId);
+    }
     if (channel.threadId && channel.environment.execution !== "host-only") {
       this.retire(this.retiredTokenThreads, token, channel.threadId);
       if (this.threadActiveTokens.get(channel.threadId) === token) {
@@ -564,13 +576,13 @@ export class TurnBroker implements TurnBrokerOwner {
 
   revokeExternalOwners(): number {
     const tokens = [...this.channels].filter(([, channel]) => channel.externalOwner).map(([token]) => token);
-    for (const token of tokens) this.revoke(token);
+    for (const token of tokens) this.revoke(token, undefined, { terminal: true });
     return tokens.length;
   }
 
   revokeTrace(traceId: string, reason = new Error("Codex turn binding was revoked")): number {
     const tokens = [...this.channels].filter(([, channel]) => channel.traceId === traceId).map(([token]) => token);
-    for (const token of tokens) this.revoke(token, reason);
+    for (const token of tokens) this.revoke(token, reason, { terminal: true });
     return tokens.length;
   }
 
@@ -992,7 +1004,7 @@ export class TurnBroker implements TurnBrokerOwner {
     }
     if (request.method === "owner_revoke") {
       if (!request.token) throw new TurnBrokerTokenError("turn owner token is required");
-      this.revoke(request.token);
+      this.revoke(request.token, undefined, { terminal: request.terminal === true });
       return { revoked: true };
     }
     if (request.method === "owner_safe_wait_start") {
@@ -1023,7 +1035,9 @@ export class TurnBroker implements TurnBrokerOwner {
       let resolved = this.resolveActiveToken(token);
       let activeChannel = resolved?.channel;
       let effectiveToken = resolved?.resolvedToken ?? token;
-      if (!activeChannel && !token.startsWith("host_") && contract !== "safe") {
+      // A terminally revoked token must not wait out the inter-turn grace: no successor will
+      // ever be authorized for it, and a late holder may not acquire the next epoch's rights.
+      if (!activeChannel && !token.startsWith("host_") && contract !== "safe" && !this.terminatedTokens.has(token)) {
         const direct = this.channels.get(token);
         const threadId = direct?.threadId ?? this.retiredTokenThreads.get(token);
         if (threadId && threadId !== "unknown" && this.interTurnGraceWaitMs > 0) {
@@ -1041,6 +1055,7 @@ export class TurnBroker implements TurnBrokerOwner {
         );
       }
       const channel = this.channels.get(token);
+      const terminatedTurn = activeChannel ? undefined : this.terminatedTokens.get(token);
       const retiredTurn = activeChannel
         ? undefined
         : channel?.completionCommitted
@@ -1048,9 +1063,15 @@ export class TurnBroker implements TurnBrokerOwner {
           : this.retiredTokens.get(token);
       console.error(
         `[chatgpt-web] broker claim received (tokenChars=${token.length}, tokenHash=${handleFingerprint(token)}, valid=${Boolean(activeChannel)}` +
-          `${activeChannel ? "" : `, retiredTurn=${retiredTurn ?? "unknown"}`})`,
+          `${activeChannel ? "" : terminatedTurn !== undefined ? ", interrupted=true" : `, retiredTurn=${retiredTurn ?? "unknown"}`})`,
       );
       if (!activeChannel) {
+        if (terminatedTurn !== undefined) {
+          throw new Error(
+            `${contract === "safe" ? "This request_id" : "This turn_token"} was issued for ${retiredTurnLabel(terminatedTurn)}, which was interrupted before finishing.` +
+              " This Codex Native action can no longer run.",
+          );
+        }
         throw new Error(
           retiredTurn !== undefined
             ? `${contract === "safe" ? "This request_id" : "This turn_token"} was issued for ${retiredTurnLabel(retiredTurn)}, which has already finished.` +
