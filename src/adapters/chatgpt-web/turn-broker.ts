@@ -473,7 +473,21 @@ export class TurnBroker implements TurnBrokerOwner {
 
   revoke(token: string, reason = new Error("Codex turn binding was revoked"), options?: { terminal?: boolean }): void {
     const channel = this.channels.get(token);
-    if (!channel) return;
+    if (!channel) {
+      // A known compatible retirement can still be converted to terminal after its channel is
+      // gone: a cancellation that arrives late must terminate the capability. Unknown handles
+      // stay unknown, and repeating a terminal revocation keeps the terminal result.
+      if (options?.terminal === true) {
+        const record = this.retiredTurns.get(token);
+        if (record && !record.terminal) {
+          this.retireTurnRecord(token, { ...record, terminal: true });
+          for (const [alias, edge] of this.tokenAliases) {
+            if (edge.target === token || alias === token) this.tokenAliases.delete(alias);
+          }
+        }
+      }
+      return;
+    }
     console.info(
       `[chatgpt-web] broker_retired ${JSON.stringify({
         traceId: channel.traceId,
@@ -1190,7 +1204,9 @@ export class TurnBroker implements TurnBrokerOwner {
       );
     }
     if (request.method === "release") {
-      this.revoke(binding.token);
+      // The MCP coordinator releases an abandoned, cancelled or timed-out invocation: that is a
+      // terminal revocation of the whole turn capability, not a compatible retirement.
+      this.revoke(binding.token, undefined, { terminal: request.terminal === true });
       return { released: true };
     }
     if (request.method === "resolve") return { environment: binding.channel.environment };

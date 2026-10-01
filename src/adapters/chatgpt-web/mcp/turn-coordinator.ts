@@ -191,6 +191,7 @@ export class TurnCoordinator {
         await callTurnBroker(this.brokerSocketPath, {
           method: "release",
           bindingId,
+          terminal: true,
         });
       } catch (releaseError) {
         throw new AggregateError(
