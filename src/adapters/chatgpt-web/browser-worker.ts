@@ -545,36 +545,39 @@ export class ChatGptBrowserWorker {
   }
 
   async close(): Promise<void> {
-    if (this.launcherHelper) {
-      const helper = this.launcherHelper;
-      this.launcherHelper = undefined;
-      try {
-        await helper.close();
-      } catch (error) {
-        // A refused helper termination must not skip the browser disconnect and state cleanup
-        // below; the failure is surfaced here and shutdown still completes.
-        console.error(
-          `[chatgpt-web] ChatGPT browser helper failed to close: ${error instanceof Error ? error.message : String(error)}`,
-        );
+    try {
+      if (this.launcherHelper) {
+        const helper = this.launcherHelper;
+        this.launcherHelper = undefined;
+        try {
+          await helper.close();
+        } catch (error) {
+          // A refused helper termination must not skip the browser disconnect and state cleanup
+          // below; the failure is surfaced here and shutdown still completes.
+          console.error(
+            `[chatgpt-web] ChatGPT browser helper failed to close: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
+      await Promise.allSettled([...this.activeRuns.values()]);
+      await this.maintenanceTail;
+    } finally {
+      const browser = this.browser;
+      // Discard every lifecycle handle the composed session opened. The state object itself stays
+      // (fixtures may hold it); only the borrowed handles are cleared.
+      const state = this.sessionState;
+      if (state) {
+        state.browser = undefined;
+        state.context = undefined;
+        state.page = undefined;
+        state.managedBrowserReady = undefined;
+      }
+      this.contextPressureByConversation.clear();
+      // For connectOverCDP, Playwright implements Browser.close as a transport disconnect; it does
+      // not close the launcher-owned Electron process. Always release that connection and its
+      // artifact directory instead of leaking one per timeout/helper lifecycle.
+      if (browser) await browser.close();
     }
-    await Promise.allSettled([...this.activeRuns.values()]);
-    await this.maintenanceTail;
-    const browser = this.browser;
-    // Discard every lifecycle handle the composed session opened. The state object itself stays
-    // (fixtures may hold it); only the borrowed handles are cleared.
-    const state = this.sessionState;
-    if (state) {
-      state.browser = undefined;
-      state.context = undefined;
-      state.page = undefined;
-      state.managedBrowserReady = undefined;
-    }
-    this.contextPressureByConversation.clear();
-    // For connectOverCDP, Playwright implements Browser.close as a transport disconnect; it does
-    // not close the launcher-owned Electron process. Always release that connection and its
-    // artifact directory instead of leaking one per timeout/helper lifecycle.
-    if (browser) await browser.close();
   }
 
   private async runStage<T>(

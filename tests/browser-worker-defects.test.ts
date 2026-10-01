@@ -163,6 +163,32 @@ test("worker close cleans up browser state even when the launcher helper refuses
   }
 });
 
+test("worker close disconnects and clears state even when pending maintenance fails", async () => {
+  const maintenanceError = new Error("maintenance failed");
+  const state = {
+    maintenanceTail: Promise.reject(maintenanceError),
+    browser: {
+      close: async () => {
+        disconnected = true;
+      },
+    },
+    context: { marker: true },
+    page: { marker: true },
+    managedBrowserReady: Promise.resolve({ browser: {}, context: {} }),
+  };
+  let disconnected = false;
+  const pressure = new Map([["conversation", {}]]);
+  const worker = makeWorkerFixture({ fields: { sessionState: state, contextPressureByConversation: pressure } });
+  const ownedState = (worker as unknown as { sessionState: typeof state }).sessionState;
+  await expect(worker.close()).rejects.toBe(maintenanceError);
+  expect(disconnected).toBe(true);
+  expect(ownedState.browser).toBeUndefined();
+  expect(ownedState.context).toBeUndefined();
+  expect(ownedState.page).toBeUndefined();
+  expect(ownedState.managedBrowserReady).toBeUndefined();
+  expect(pressure.size).toBe(0);
+});
+
 test("launcher turn heartbeats while a slow onSurfaceLeased callback is still pending", async () => {
   const previousHelperEnv = process.env.CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS;
   process.env.CODEX_CHATGPT_WEB_BROWSER_HELPER_PROCESS = "1";
