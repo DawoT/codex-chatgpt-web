@@ -37,7 +37,7 @@ Gates ejecutados sobre el árbol final del Sprint 0 (serie serial):
 | Sprint | Objetivo | Estado | Commits / evidencia |
 | --- | --- | --- | --- |
 | S0 | Baseline, inventario, backlog | **Cerrado** (esta entrada; veredicto propuesto: aceptado, pendiente revisión) | `788f4aa`…`9998126` + este documento |
-| S1 | Revocación terminal del broker | **Pendiente** | — |
+| S1 | Revocación terminal del broker | **Implementado** (RED `6fe5f77` → GREEN `eb97206`; veredicto propuesto: aceptado, pendiente revisión) | `tests/turn-broker-terminal-revocation.test.ts` |
 | S2 | Interrupción confirmada y conservación del chat | **Parcial** (heredado + esta vuelta) | Retención de chats temporales: `47244a6`. Barrera de reconciliación tipada y rechazo de reemplazo de turno incierto: `84326ae`. Pendiente: `interrupt_requested`, ack ≤2 s, confirmación física ≤10 s, resultado `interrupted` |
 | S3 | Continuación segura y errores transparentes | **Parcial** (heredado) | Cursor/recuperación por journal: `d648f39`. Errores tipados de reconciliación: `788f4aa`. Pendiente: cobertura RED de los cinco escenarios del sprint |
 | S4 | Stream interrumpido, liveness, diagnóstico causal | **Sustancialmente implementado** | Detección localizada del aviso, separación Detener/progreso, gracia 180 s, fallo tipado sin reenvío: `533c219`. Clasificación causal de fallos de petición: `688eda1`. Diagnóstico del incidente: `9998126` |
@@ -135,11 +135,44 @@ ventana operacional real (S8).
 | Reconciliación independiente para efectos ambiguos | S2/S3 | `session-actor.test.ts` (reemplazo y duplicado rechazados) | `84326ae` |
 | Causas tipadas preservadas por IPC/diagnóstico | S3/S4 | `continuity-diagnostics-browser.test.ts` (contratos públicos) | `788f4aa`, `688eda1` |
 | Heurísticas de retención ≠ límite obligatorio de entrada | S5 | `predictive-context-pressure.test.ts` (prompt viable no fuerza compactación) | `a0cd9ab` |
-| Cero readmisiones del token interrumpido | S1 | Pendiente de RED | — |
+| Cero readmisiones del token interrumpido | S1 | `tests/turn-broker-terminal-revocation.test.ts` (readmisión, cadenas de alias, gracia de hilo, compatibilidad committed, invoke tardío) | RED `6fe5f77`, GREEN `eb97206` |
 
-## 6. Próxima actividad
+## 6. Cierre del Sprint 1 (2026-10-01)
 
-**S1 — Revocación terminal y aislamiento del broker.** Primer paso: RED en la
-frontera del broker (registrar A, revocar por interrupción, registrar B del mismo
-hilo, comprobar que A no resuelve/reclama/invoca sobre B; alias, cadenas y
-solicitudes tardías). Ningún trabajo de activación: el launcher sigue en uso.
+**Diseño aplicado.** `TurnBroker.revoke(token, reason?, { terminal })` diferencía
+explícitamente la retirada compatible de la revocación terminal:
+
+- Marcan terminal: cancelación del turno (ESC, tools y Zero Risk), fallo del
+  preparado del turno, `revokeTrace` (cancelación administrativa) y
+  `revokeExternalOwners` (drenaje). El flag cruza la frontera IPC vía
+  `owner_revoke { terminal }`.
+- Un token con revocación terminal no resuelve, no reclama, no invoca, no espera
+  sucesores de hilo, no crea alias desde sí (`register` con predecesor terminal
+  omite el alias) ni permite que cadenas de alias transiten por él. El claim
+  tardío falla con causa veraz: "interrupted before finishing" (antes mentía con
+  "already finished").
+- La retirada compatible (turnos finalizados o sustituidos con continuación
+  autorizada) conserva el routing por alias/trace/thread fijado por los tests
+  de lineage y los e2e de reanudación de sesión.
+
+**Evidencia RED → GREEN.** RED `6fe5f77`: tres regresiones fallaban porque el
+token interrumpido readmitía al sucesor vía lineage y el claim reportaba
+"already finished". GREEN `eb97206`: 48 tests del broker, 69 tests de las
+fronteras afectadas, suite completa 2379 pass / 14 skip / 0 fail (231,72 s),
+typecheck 0, lint 0 errores (88 warnings de baseline), `check:refactor-gates`
+PASS, `git diff --check` 0.
+
+**Riesgos residuales.** El default de `revoke` es compatible (no terminal) para
+preservar continuaciones legítimas; la protección de ESC depende de los call
+sites marcados, que S2 reforzará persistiendo `interrupt_requested` antes de
+revocar. Un resultado tardío de una capacidad terminada sigue fallando cerrado
+sin crear autorización; la reconciliación independiente de esos efectos sigue
+siendo la ruta del plan.
+
+## 7. Próxima actividad
+
+**S2 — Interrupción confirmada y conservación del chat.** Primer paso: RED para
+`interrupt_requested` persistido y admisión revocada antes de solicitar Detener,
+ack del hook ≤2 s, confirmación física asíncrona ≤10 s y resultado `interrupted`
+distinto de `completed`/`not_sent`. Ningún trabajo de activación: el launcher
+sigue en uso.
