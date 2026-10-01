@@ -1,5 +1,6 @@
 import type { ProviderAdapter } from "../adapters/base";
 import { chatGptWebExecutionNamespace, chatGptWebTraceId, createChatGptWebAdapter } from "../adapters/chatgpt-web";
+import { ChatGptWebAdapterError } from "../adapters/chatgpt-web/adapter-error";
 import { rememberCompactionContinuation } from "../adapters/chatgpt-web/compaction-continuation";
 import { chatGptConversationKey } from "../adapters/chatgpt-web/conversation-key";
 import {
@@ -336,8 +337,9 @@ export async function responseRequest(
   const adapter = adapterFactory(provider);
   const queue = new AsyncEventQueue<AdapterEvent>();
   const abort = new AbortController();
-  if (req.signal.aborted) abort.abort();
-  else req.signal.addEventListener("abort", () => abort.abort(), { once: true });
+  const onRequestAbort = () => abort.abort(req.signal.reason);
+  if (req.signal.aborted) onRequestAbort();
+  else req.signal.addEventListener("abort", onRequestAbort, { once: true });
   const run = async () => {
     try {
       await adapter.runTurn!(parsed, { headers: req.headers, abortSignal: abort.signal }, (event) => {
@@ -345,10 +347,17 @@ export async function responseRequest(
         queue.push(event);
       });
     } catch (error) {
-      const event: AdapterEvent = { type: "error", message: error instanceof Error ? error.message : String(error) };
+      const event: AdapterEvent = {
+        type: "error",
+        message: error instanceof Error ? error.message : String(error),
+        ...(error instanceof ChatGptWebAdapterError
+          ? { status: error.status, errorType: error.errorType, code: error.code, retryable: error.retryable }
+          : {}),
+      };
       options.onAdapterEvent?.(event);
       queue.push(event);
     } finally {
+      req.signal.removeEventListener("abort", onRequestAbort);
       queue.close();
     }
   };
