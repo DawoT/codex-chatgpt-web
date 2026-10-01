@@ -190,7 +190,7 @@ export class ChatGptModelControls {
       const expectedValue = sliderState.value + direction;
       let stepSucceeded = false;
       for (let attempt = 0; attempt < 3; attempt++) {
-        await (sliderControl as unknown as { focus?: () => Promise<void> }).focus?.().catch(() => {});
+        await sliderControl.focus().catch(() => {});
         await sliderControl
           .press(key)
           .catch(() => effortSlider.press(key))

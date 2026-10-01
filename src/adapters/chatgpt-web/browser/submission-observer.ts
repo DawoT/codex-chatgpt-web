@@ -272,15 +272,16 @@ export class SubmissionObserver {
               __CODEX_WEB_GPT_TURN_OBSERVER__?: ObserverState;
             };
             const observerState = (scope.__CODEX_WEB_GPT_TURN_OBSERVER__ ??= (() => {
-              const state: ObserverState = {
-                id: `${performance.timeOrigin}:${Math.random().toString(36).slice(2)}`,
-                revision: 0,
-                observer: undefined as unknown as MutationObserver,
-              };
-              state.observer = new MutationObserver(() => {
+              let state!: ObserverState;
+              const observer = new MutationObserver(() => {
                 state.revision += 1;
               });
-              state.observer.observe(document.documentElement, {
+              state = {
+                id: `${performance.timeOrigin}:${Math.random().toString(36).slice(2)}`,
+                revision: 0,
+                observer,
+              };
+              observer.observe(document.documentElement, {
                 subtree: true,
                 childList: true,
                 characterData: true,

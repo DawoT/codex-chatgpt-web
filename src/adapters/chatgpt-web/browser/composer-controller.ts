@@ -162,7 +162,7 @@ export class ComposerController {
               }
             };
             clampTitleElement();
-            const globalAny = globalThis as unknown as { __TITLE_OBSERVER_ATTACHED__?: boolean };
+            const globalAny = globalThis as typeof globalThis & { __TITLE_OBSERVER_ATTACHED__?: boolean };
             if (!globalAny.__TITLE_OBSERVER_ATTACHED__) {
               globalAny.__TITLE_OBSERVER_ATTACHED__ = true;
               const titleObserver = new MutationObserver(() => clampTitleElement());

@@ -54,17 +54,17 @@ export class ResponseObserver {
           });
           let observerState = registry.states.get(root);
           if (!observerState) {
-            observerState = {
-              id: ++registry.nextId,
-              revision: 0,
-              observer: undefined as unknown as MutationObserver,
-              rendered: new Map<HTMLElement, boolean>(),
-            };
-            const state = observerState;
-            state.observer = new MutationObserver(() => {
+            let state!: ObserverState;
+            const observer = new MutationObserver(() => {
               state.revision += 1;
             });
-            state.observer.observe(root, {
+            state = {
+              id: ++registry.nextId,
+              revision: 0,
+              observer,
+              rendered: new Map<HTMLElement, boolean>(),
+            };
+            observer.observe(root, {
               subtree: true,
               childList: true,
               characterData: true,
@@ -72,6 +72,7 @@ export class ResponseObserver {
               attributeFilter: options.attributeFilter,
             });
             registry.states.set(root, state);
+            observerState = state;
           }
           // Browser turn WebContents are intentionally allowed to run while their Electron view is
           // hidden or has no measured width. Layout geometry is therefore not response visibility:
