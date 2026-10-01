@@ -1,3 +1,5 @@
+> Actualización 2026-10-01: ver [diagnóstico causal y arranque](harness-causal-diagnostics.md), [handoff vigente](handoff-harness-continuity.md) y los recibos actuales en `docs/evidence/harness-continuity-{verification,gates}.json`. Los candidatos y métricas anteriores de este documento son históricos; no activarlos como esta entrega. Aceptación real pendiente.
+
 # Harness continuity: pruebas y operación
 
 Alcance B: replay determinista en Chromium, continuidad coding, lifecycle y gates.

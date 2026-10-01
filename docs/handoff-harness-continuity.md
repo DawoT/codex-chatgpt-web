@@ -38,7 +38,37 @@ consecuencia implícita de que los canarios pasen.
 
 ## 2. Estado de partida verificado
 
-### Actualización 2026-10-01 — preflight de canario implementado
+### Actualización vigente — diagnóstico causal y arranque congelado
+
+**Esta sección y los recibos actuales tienen precedencia sobre los candidatos históricos que aparecen más abajo.** Lee primero [la revisión causal](harness-causal-diagnostics.md), `docs/evidence/harness-continuity-verification.json` y `docs/evidence/harness-continuity-gates.json`. El código está en la rama `refactor/harness-continuity`; identifica HEAD de nuevo, pues commits de documentación posteriores no cambian los bytes del candidato. No uses los bundles in-memory ni el candidato de 98bef09 para activar esta entrega.
+
+Cambios integrados y autoridades que debes conservar:
+
+- `fe203a8` exige checkpoint v2 y procedencia de la solicitud original calculada por el host. `e501998` excluye esa procedencia del cache compartido y la conserva en reparación. No admitir hashes elegidos por HTTP ni inventar estado verificado.
+- `d648f39` persiste testigos de preparación y activación de Send. Recuperar sólo desde journal con owner, generación y hash exactos. Un Send activado sin final es incierto: no relanzar, incluso si el ACK expiró.
+- `02f79ea` elige el transporte válido más pequeño inline → 2 → 6; fragmentación UTF-8 reversible con offsets/hashes, reconstrucción host antes de Send y negociación explícita de capacidad.
+- `f32b8d9` / `3f70d7d` mantienen IDs de causa, DAG acotado, UTC de ocurrencia/escritura, reloj monotónico, identidad del productor, IPC y timeline durable. Revisar `diagnostic_health` junto con `telemetry_health`. No registrar error.message/stack arbitrarios ni atribuir identidad del receptor al productor.
+- `8ed2157` / `50c9f87` fijan CLI/helper al mismo snapshot y sus dependencias al lock capturado, sin symlink a módulos mutables. `ff6a729` hace que el gate mida ese mismo build ejecutable.
+- `ba4c802` / `bfbc053` corrigen pins de Hono y brace-expansion. Los módulos instalados del checkout activo se dejaron intactos deliberadamente; el nuevo candidato resuelve desde su staging congelado.
+- `1dd10e1` bloquea health causal malformado incluso durante bootstrap legacy. No convertir contadores ausentes en cero.
+
+Los incidentes recientes se observaron en artefactos predecesores (daemon SHA `289e6ace…025c`, helper SHA `14af41a0…16b7`), no en este candidato. ACK de parte 2 venció a 180001 ms; el checkpoint rechazado no mostraba tags en ninguna superficie capturada. Ahora se conserva la causa en las fronteras, pero la causa remota de ambos incidentes exige evidencia del canario; no declarar resuelta la obediencia del modelo por tests sintéticos.
+
+Procedimiento del siguiente agente, **antes de compactaciones reales**:
+
+1. Releer estado git, manifiesto y recibos. Confirmar el source tree, source-input digest, hashes del par, versión Bun y dependencias congeladas. Ejecutar typecheck/lint/tests afectados sólo si hubo cambios desde la evidencia.
+2. Ejecutar el preflight read-only con `--candidate-dir=<runtimeRoot>/app --rollback-dir=<rollback completo verificado> --require-ready --report=/tmp/cgw-preflight.json`. El `runtimeRoot` exacto está en el recibo. No crear un `source-commit.txt` especulativo para hacer pasar rollback.
+3. Preparar rollback del **CLI, helper, dependencias y configuración correspondientes** al runtime previo, además de preservar journals/locks. El helper legacy aislado por sí solo no acredita rollback completo. Su source graph anterior no está identificado con certeza; resolverlo antes de activar.
+4. La sesión actual mantenía un turno HTTP y uno de navegador. No drenar ni cerrar esta sesión desde ella misma. Tras una ventana inactiva real, comprobar admisión, contadores, workers, listeners, timers y conexiones. El flag bootstrap legacy sólo admite seams ausentes; no elude actividad o artefactos inválidos.
+5. Cerrar la revisión R2 con Approver y Verifier distintos de implementador y aislamiento comprobado. El ledger contiene evidencia local pendiente de firmas, **no aprobación formal**. Revisión independiente realizada en modo lectura no equivale a aislamiento mecánico.
+6. Activar el par completo exclusivamente con todos los gates operativos satisfechos; comprobar identidad cargada del daemon y de cada helper antes de Send. Conservar el candidato anterior y la evidencia.
+7. Ejecutar las 20 compactaciones / 2 sesiones >22 minutos descritas abajo. Registrar trace/request/turn/owner/documentGeneration/checkpointId, ruta observada, hash original, siguiente acción pendiente, llamada y resultado real de herramienta, comprobación final y retorno a baseline.
+8. Al fallar una sesión, detener expansión, conservar el journal y DAG, no reenviar efectos inciertos y aplicar rollback sólo en ventana segura. No declarar éxito de tarea sólo porque llegó una respuesta o el formato de checkpoint es válido.
+
+La aceptación operativa sigue pendiente. Los resultados exactos, comparación de p50/p95 y límites de cobertura se actualizan en el recibo; cinco muestras de replay no constituyen una distribución de producción ni acreditan ahorro de tokens facturados.
+
+### Histórico — preflight de canario de 98bef09
+
 
 El trabajo de continuación añadió el seam mínimo de quiescencia que faltaba y un
 preflight reproducible. El candidato local actual es
