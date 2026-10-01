@@ -248,7 +248,11 @@ export class TelemetryTraceSink {
 
     const line = `${JSON.stringify(record)}\n`;
     const incomingBytes = Buffer.byteLength(line, "utf8");
-    if (incomingBytes > this.maxFileBytes) throw new RangeError("Telemetry record exceeds the file budget");
+    if (incomingBytes > this.maxFileBytes) {
+      this.droppedRecords += 1;
+      this.fallback(record, "record_budget_exceeded");
+      throw new RangeError("Telemetry record exceeds the file budget");
+    }
     if (this.pendingRecords >= this.maxPendingRecords || this.pendingBytes + incomingBytes > this.maxPendingBytes) {
       this.droppedRecords += 1;
       this.fallback(record, "queue_budget_exceeded");

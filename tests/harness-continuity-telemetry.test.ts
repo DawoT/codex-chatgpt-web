@@ -49,3 +49,27 @@ test("new locks identify their owner and generation and live owners cannot be re
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("an oversized telemetry record degrades health without allocating queued resources", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "continuity-record-budget-"));
+  try {
+    const sink = new TelemetryTraceSink(directory, { maxFileBytes: 128 });
+    await expect(
+      sink.record({
+        traceId: "oversized-record",
+        kind: "turn",
+        terminalState: "pending",
+        metadata: { diagnostic: "x".repeat(400) },
+      }),
+    ).rejects.toThrow("file budget");
+    expect(sink.health()).toMatchObject({
+      status: "degraded",
+      droppedRecords: 1,
+      pendingRecords: 0,
+      pendingBytes: 0,
+    });
+    expect(await sink.flush()).toBe(true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
