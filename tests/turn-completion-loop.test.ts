@@ -731,3 +731,104 @@ test("compaction handoff publishes compaction_handoff_observed to the turn event
     rmSync(diagnostics, { recursive: true, force: true });
   }
 }, 15_000);
+
+test("a pending tool call without new accredited progress fails closed at the stall budget", async () => {
+  let now = 1_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const progress = new ChatGptExternalTurnProgress();
+  progress.recordClaim(now);
+  progress.recordToolBatch(1, now);
+  const h = completionHarness(
+    {
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += 60_000;
+        // A repeated claim is a heartbeat: the claim was already recorded, so no new
+        // accredited tool activity exists and the stall budget must still expire.
+        progress.recordClaim(now);
+        return `document:${now}`;
+      },
+    },
+    {
+      turn: makeLauncherTurn("tool_stall", { externalProgress: progress }),
+      deadline: 62 * 60_000,
+    },
+  );
+  try {
+    await expect(h.loop.run(h.input)).rejects.toMatchObject({
+      code: "chatgpt_tool_progress_stalled",
+      retryable: false,
+    });
+    expect(h.deltas).toEqual([]);
+    expect(now).toBe(1_000 + 30 * 60_000);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("new accredited tool activity renews the pending tool stall budget and the turn completes", async () => {
+  let now = 1_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const progress = new ChatGptExternalTurnProgress();
+  progress.recordToolBatch(1, now);
+  let renewals = 0;
+  const h = completionHarness(
+    {
+      responseDomSnapshot: async () => {
+        const text = progress.snapshot().activeToolCalls > 0 ? `Working ${renewals}` : "Done";
+        return {
+          ...responseSnapshot(),
+          visibleText: text,
+          fullHtml: `<p>${text}</p>`,
+          markdownSegments: [{ key: "answer", text, html: `<p>${text}</p>`, streamable: true }],
+        };
+      },
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += 20 * 60_000;
+        if (renewals < 3) {
+          // A fresh tool call is new accredited native activity: it renews the budget.
+          progress.recordToolBatch(1, now);
+          renewals += 1;
+        } else {
+          while (progress.snapshot().activeToolCalls > 0) progress.recordToolResult(now);
+        }
+        return `document:${now}`;
+      },
+    },
+    {
+      turn: makeLauncherTurn("tool_renewal", { externalProgress: progress }),
+      deadline: 4 * 60 * 60_000,
+    },
+  );
+  const result = await h.loop.run(h.input);
+  expect(result.text).toBe("Done");
+  expect(now).toBeGreaterThan(60 * 60_000);
+});
+
+test("a pending tool call bounds the wait even when the response DOM is absent", async () => {
+  let now = 1_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const progress = new ChatGptExternalTurnProgress();
+  progress.recordToolBatch(1, now);
+  const h = completionHarness(
+    {
+      responseDomSnapshot: async () => absentResponseDomSnapshot(),
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += 60_000;
+        return `document:${now}`;
+      },
+    },
+    {
+      turn: makeLauncherTurn("tool_stall_absent", { externalProgress: progress }),
+      deadline: 62 * 60_000,
+    },
+  );
+  try {
+    await expect(h.loop.run(h.input)).rejects.toMatchObject({
+      code: "chatgpt_tool_progress_stalled",
+      retryable: false,
+    });
+    expect(h.deltas).toEqual([]);
+  } finally {
+    clock.mockRestore();
+  }
+});
