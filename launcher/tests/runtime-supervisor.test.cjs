@@ -858,6 +858,20 @@ test("first launcher tunnel startup creates its missing profile and keeps the ve
   skip: process.platform === "win32", // Executable manager fixture uses a Unix shebang.
 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-web-gpt-first-tunnel-"));
+  fs.mkdirSync(path.join(root, "src/adapters/chatgpt-web"), { recursive: true });
+  fs.mkdirSync(path.join(root, "scripts"));
+  fs.copyFileSync(
+    path.resolve(__dirname, "../../scripts/build-development-runtime.ts"),
+    path.join(root, "scripts/build-development-runtime.ts"),
+  );
+  fs.writeFileSync(path.join(root, "src/cli.ts"), 'console.log("isolated CLI fixture");\n');
+  fs.writeFileSync(
+    path.join(root, "src/adapters/chatgpt-web/browser-helper-main.ts"),
+    'console.log("isolated helper fixture");\n',
+  );
+  fs.writeFileSync(path.join(root, "package.json"), "{}\n");
+  fs.writeFileSync(path.join(root, "bun.lock"), "fixture lock\n");
+  fs.writeFileSync(path.join(root, "tsconfig.json"), "{}\n");
   const health = await localHealthServer(
     () => 200,
     (pathname) => (pathname.startsWith("/api/logs") ? JSON.stringify({ events: [] }) : "ok"),

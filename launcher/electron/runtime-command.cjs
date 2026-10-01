@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { prepareDevelopmentRuntime } = require("./development-runtime.cjs");
 
 function runtimeBundlePaths(runtimeRoot, platform = process.platform) {
   return {
@@ -14,10 +15,11 @@ function packagedRuntimePaths(resourcesPath, platform = process.platform) {
 }
 
 function sourceRuntimeInvocation(sourceRoot, args) {
+  const snapshot = prepareDevelopmentRuntime(sourceRoot);
   return {
-    executable: process.env.CODEX_CHATGPT_WEB_BUN?.trim() || process.env.CODEX_WEB_GPT_BUN?.trim() || "bun",
-    args: ["run", path.join(sourceRoot, "src", "cli.ts"), ...args],
-    cwd: sourceRoot,
+    executable: snapshot.executable,
+    args: [snapshot.entrypoint, ...args],
+    cwd: snapshot.runtimeRoot,
   };
 }
 

@@ -7,7 +7,7 @@ const viteBin = path.join(path.dirname(vitePackage), "bin", "vite.js");
 const electronBin = require("electron");
 const bun = process.env.CODEX_WEB_GPT_BUN || process.execPath;
 
-const helperBuild = spawnSync(bun, ["run", "scripts/build-browser-helper.ts"], {
+const helperBuild = spawnSync(bun, ["run", "scripts/build-development-runtime.ts"], {
   cwd: path.resolve(root, ".."),
   env: process.env,
   stdio: "inherit",

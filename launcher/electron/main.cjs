@@ -35,6 +35,7 @@ const { RuntimeSupervisor } = require("./runtime-supervisor.cjs");
 const { createRuntimeStartupGate } = require("./runtime-startup-gate.cjs");
 const { DEVELOPMENT_PROFILE, resolveLauncherProfile } = require("./profile.cjs");
 const { runtimeBundlePaths } = require("./runtime-command.cjs");
+const { prepareDevelopmentRuntime } = require("./development-runtime.cjs");
 const { createUpdateController } = require("./update.cjs");
 const { createStateStore, nextSessionRefreshReminderAt, validateSidebarState } = require("./state.cjs");
 const { MIN_WINDOW_BOUNDS, readWindowState, trackWindowState } = require("./window-state.cjs");
@@ -45,9 +46,6 @@ const LAUNCHER_PROFILE = resolveLauncherProfile({ appData: app.getPath("appData"
 const IS_DEV_PROFILE = LAUNCHER_PROFILE.kind === DEVELOPMENT_PROFILE;
 const CORE_HOME = LAUNCHER_PROFILE.coreHome;
 const BROWSER_DESCRIPTOR_PATH = path.join(CORE_HOME, "runtime", "launcher-browser.json");
-const BROWSER_HELPER_PATH = app.isPackaged
-  ? path.join(process.resourcesPath, "runtime", "app", "browser-helper.cjs")
-  : path.join(SOURCE_ROOT, ".launcher-runtime", "browser-helper.cjs");
 const GITHUB_URL = "https://github.com/DawoT/codex-chatgpt-web";
 const X_URL = "https://x.com/miu21590";
 const CONNECTORS_URL = "https://chatgpt.com/#settings/Plugins";
@@ -1104,6 +1102,9 @@ async function start() {
     return installedRuntimeRoot;
   };
   installedRuntimeRoot = runtimeRootProvider();
+  const browserHelperPath = app.isPackaged
+    ? path.join(process.resourcesPath, "runtime", "app", "browser-helper.cjs")
+    : prepareDevelopmentRuntime(SOURCE_ROOT).helperPath;
 
   cdpPort = await findFreePort();
   if (process.platform === "linux") {
@@ -1209,7 +1210,7 @@ async function start() {
     cancelTurn: IS_DEV_PROFILE ? undefined : (traceId, reason) => runtimeSupervisor.cancelBrowserTurn(traceId, reason),
     getConnectorName: () => runtimeHost.browserConnectorName(),
     getUseSavedChats: () => runtimeHost.runtimeConfigSnapshot().config?.useSavedChats === true,
-    helper: { executable: process.execPath, script: BROWSER_HELPER_PATH },
+    helper: { executable: process.execPath, script: browserHelperPath },
     logger,
     loginWithPasskey: () => runtimeHost.capturePasskeyLogin(),
     partition: LAUNCHER_PROFILE.browserPartition,
