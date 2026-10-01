@@ -296,3 +296,59 @@ test("a compatibly retired turn routes while its record exists and loses routing
     rmSync(root, { recursive: true, force: true });
   }
 }, 15_000);
+
+test("an MCP release with terminal evidence converts the turn terminally and idempotently", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-terminal-mcp-release-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const tokenA = await broker.register(
+      environment(root),
+      60_000,
+      "trace-mcp-release",
+      false,
+      "turn",
+      undefined,
+      "thread-mcp-release",
+    );
+    const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token: tokenA,
+      activityId: "activity_mcp_release_123456789",
+    });
+
+    // The MCP coordinator releases an abandoned, cancelled or timed-out invocation as a
+    // terminal revocation of the whole turn capability.
+    await expect(
+      callTurnBroker(socketPath, { method: "release", bindingId: claimed.bindingId, terminal: true }),
+    ).resolves.toMatchObject({ released: true });
+
+    const tokenB = await broker.register(
+      environment(root),
+      60_000,
+      "trace-mcp-release",
+      false,
+      "turn",
+      tokenA,
+      "thread-mcp-release",
+    );
+
+    expect(broker.resolveActiveToken(tokenA)).toBeUndefined();
+    await expect(
+      callTurnBroker(socketPath, { method: "claim", token: tokenA, activityId: "activity_mcp_release_2_123456" }),
+    ).rejects.toThrow(/interrupted before finishing/);
+
+    // Repeated release and a later cancellation keep the terminal result after the channel is gone.
+    await expect(
+      callTurnBroker(socketPath, { method: "release", bindingId: claimed.bindingId, terminal: true }),
+    ).resolves.toMatchObject({ released: true, duplicate: true });
+    broker.revoke(tokenA, new Error("late cancellation"), { terminal: true });
+    await expect(
+      callTurnBroker(socketPath, { method: "claim", token: tokenA, activityId: "activity_mcp_release_3_123456" }),
+    ).rejects.toThrow(/interrupted before finishing/);
+    expect(broker.resolveActiveToken(tokenB)?.resolvedToken).toBe(tokenB);
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 15_000);
