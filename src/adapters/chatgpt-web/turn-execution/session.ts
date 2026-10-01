@@ -5,8 +5,8 @@ import type { ChatGptBrowserOutcome, ChatGptTurnRuntime } from "./types";
 
 export class ChatGptTurnSession {
   supersededError?: Error;
-  readonly createdAt = Date.now();
-  private lastTouchedAt = this.createdAt;
+  readonly createdAt: number;
+  private lastTouchedAt: number;
   readonly browserOutcome: Promise<ChatGptBrowserOutcome>;
   readonly physicalSettlement: Promise<void>;
   private readonly outstandingById = new Map<string, BrokerToolRequest>();
@@ -37,7 +37,10 @@ export class ChatGptTurnSession {
     readonly nativeTurnId?: string,
     readonly nativeThreadId?: string,
     readonly instruction?: string,
+    private readonly now: () => number = () => Date.now(),
   ) {
+    this.createdAt = this.now();
+    this.lastTouchedAt = this.createdAt;
     this.attachedConversationKey = runtime.conversationKey;
     this.physicalSettlement = runtime.physicalSettlement.then(
       () => {
@@ -86,7 +89,7 @@ export class ChatGptTurnSession {
   }
 
   touch(): void {
-    this.lastTouchedAt = Date.now();
+    this.lastTouchedAt = this.now();
   }
 
   lastUsedAt(): number {

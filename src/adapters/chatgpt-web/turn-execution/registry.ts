@@ -1,19 +1,19 @@
 import { chatGptBrowserTabClosedError, chatGptTurnSupersededError } from "../adapter-error";
 import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "../concurrency";
 import { awaitWithAbort } from "./abort";
+import { TurnRetirementCoordinator } from "./retirement";
 import { ChatGptTurnSession } from "./session";
 import type { ChatGptInstructionLineage, ChatGptTurnRuntime } from "./types";
 
 export class ChatGptTurnSessions {
   private readonly entries = new Map<string, ChatGptTurnSession>();
   private readonly conversationHeads = new Map<string, ChatGptTurnSession>();
-  private readonly retirements = new Map<string, Promise<void>>();
-  private readonly ownerRetirements = new Map<string, Promise<void>>();
-  private readonly conversationRetirements = new Map<string, Promise<void>>();
+  private readonly retirement = new TurnRetirementCoordinator();
 
   constructor(
     private readonly ttlMs = 30 * 60_000,
     private readonly maxEntries = 256,
+    private readonly now: () => number = () => Date.now(),
   ) {}
 
   getOrCreate(
@@ -44,7 +44,15 @@ export class ChatGptTurnSessions {
     }
     if (this.entries.size >= this.maxEntries)
       throw new Error(`ChatGPT web session registry is full (${this.maxEntries} entries)`);
-    const session = new ChatGptTurnSession(start(), traceId, ownerKey, nativeTurnId, nativeThreadId, instruction);
+    const session = new ChatGptTurnSession(
+      start(),
+      traceId,
+      ownerKey,
+      nativeTurnId,
+      nativeThreadId,
+      instruction,
+      this.now,
+    );
     this.entries.set(key, session);
     const conversationKey = session.conversationKey();
     if (conversationKey) this.conversationHeads.set(conversationKey, session);
@@ -70,7 +78,7 @@ export class ChatGptTurnSessions {
         existing.touch();
         return existing;
       }
-      const pending = this.retirements.get(key) ?? this.ownerRetirements.get(ownerKey);
+      const pending = this.retirement.pending(key) ?? this.retirement.pendingOwner(ownerKey);
       if (pending) {
         await awaitWithAbort(pending, signal);
         continue;
@@ -130,7 +138,7 @@ export class ChatGptTurnSessions {
 
   /** Wait for a retained conversation epoch that has been detached but not physically released. */
   async waitForConversationRetirement(conversationKey: string, signal?: AbortSignal): Promise<void> {
-    const pending = this.conversationRetirements.get(conversationKey);
+    const pending = this.retirement.pendingConversation(conversationKey);
     if (pending) await awaitWithAbort(pending, signal);
   }
 
@@ -164,7 +172,7 @@ export class ChatGptTurnSessions {
     conversationKey: string,
     preserved?: { session: ChatGptTurnSession; executionKey: string },
   ): Promise<number> {
-    const pending = this.conversationRetirements.get(conversationKey);
+    const pending = this.retirement.pendingConversation(conversationKey);
     if (pending) {
       await pending;
       return 0;
@@ -194,23 +202,16 @@ export class ChatGptTurnSessions {
     const retirement = Promise.all(matches.map(([, session]) => session.physicalSettlement)).then(async () => {
       await release?.();
     });
-    this.conversationRetirements.set(conversationKey, retirement);
-    try {
-      await retirement;
-    } finally {
-      if (this.conversationRetirements.get(conversationKey) === retirement) {
-        this.conversationRetirements.delete(conversationKey);
-      }
-    }
+    await this.retirement.trackConversation(conversationKey, retirement);
     return matches.length;
   }
 
   async waitForRetirement(key: string): Promise<void> {
-    await this.retirements.get(key);
+    await this.retirement.pending(key);
   }
 
   async retireAndWait(key: string, signal?: AbortSignal): Promise<boolean> {
-    const pending = this.retirements.get(key);
+    const pending = this.retirement.pending(key);
     if (pending) {
       await awaitWithAbort(pending, signal);
       return true;
@@ -326,7 +327,7 @@ export class ChatGptTurnSessions {
   }
 
   private prune(): void {
-    const cutoff = Date.now() - this.ttlMs;
+    const cutoff = this.now() - this.ttlMs;
     for (const [key, session] of this.entries) {
       if (session.isActive() || session.lastUsedAt() >= cutoff) continue;
       session.cancel();
@@ -343,50 +344,7 @@ export class ChatGptTurnSessions {
   }
 
   private beginRetirement(key: string, session: ChatGptTurnSession, reason?: Error): Promise<void> {
-    const existing = this.retirements.get(key);
-    if (existing) return existing;
-    const conversationKey = session.conversationKey();
-    session.cancel(reason);
-    const retirement = session.physicalSettlement;
-    this.retirements.set(key, retirement);
-    const forgetRetirement = () => {
-      if (this.retirements.get(key) === retirement) this.retirements.delete(key);
-    };
-    void retirement.then(forgetRetirement, forgetRetirement);
-    if (session.ownerKey) {
-      const ownerKey = session.ownerKey;
-      const previous = this.ownerRetirements.get(ownerKey);
-      const ownerRetirement = previous
-        ? Promise.allSettled([previous, retirement]).then(() => undefined)
-        : retirement.then(
-            () => undefined,
-            () => undefined,
-          );
-      this.ownerRetirements.set(ownerKey, ownerRetirement);
-      const forgetOwnerRetirement = () => {
-        if (this.ownerRetirements.get(ownerKey) === ownerRetirement) {
-          this.ownerRetirements.delete(ownerKey);
-        }
-      };
-      void ownerRetirement.then(forgetOwnerRetirement, forgetOwnerRetirement);
-    }
-    if (conversationKey) {
-      const previous = this.conversationRetirements.get(conversationKey);
-      const conversationRetirement = previous
-        ? Promise.allSettled([previous, retirement]).then(() => undefined)
-        : retirement.then(
-            () => undefined,
-            () => undefined,
-          );
-      this.conversationRetirements.set(conversationKey, conversationRetirement);
-      const forgetConversationRetirement = () => {
-        if (this.conversationRetirements.get(conversationKey) === conversationRetirement) {
-          this.conversationRetirements.delete(conversationKey);
-        }
-      };
-      void conversationRetirement.then(forgetConversationRetirement, forgetConversationRetirement);
-    }
-    return retirement;
+    return this.retirement.begin(key, session, reason);
   }
 }
 
