@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { estimateTokens } from "../../../lib/token-estimate";
 import {
   type CompiledBrowserPayloadMetrics,
   estimateChatGptWebImageTokens,
@@ -13,7 +12,6 @@ import {
   formatChatGptWebMultipartCommit,
   formatChatGptWebMultipartStage,
 } from "../prompt";
-import { skillFileTokens } from "../skill-attachments";
 import {
   assertChatGptWebInputWithinLimits,
   assertChatGptWebMultipartInputWithinLimits,
@@ -87,7 +85,7 @@ export function buildMultipartPlan(
     maxMessageChars,
   } = measureCompiledChatGptWebInput(prepared, modelId, browserPayload);
   const maxStageMessageTokens = multipartStages
-    ? Math.max(...multipartStages.map((stage) => estimateTokens(stage.text, modelId)))
+    ? Math.max(...browserPayload.messageTokensEstimated.slice(0, -1))
     : undefined;
   const maxStageChars = multipartStages ? Math.max(...multipartStages.map((stage) => stage.text.length)) : undefined;
   const stagingMode = multipartStages
@@ -107,8 +105,7 @@ export function buildMultipartPlan(
             stagingEffort: stagingMode.effort,
             maxStageMessageTokens,
             maxStageChars,
-            finalMessageTokens:
-              estimateTokens(multipartFinalPrompt, modelId) + skillFileTokens(prepared.skillFiles, modelId),
+            finalMessageTokens: browserPayload.messageTokensEstimated.at(-1)! + browserPayload.skillFileTokensEstimated,
             finalMessageChars: multipartFinalPrompt.length,
             finalImageTokens: estimateChatGptWebImageTokens(prepared),
             isCompaction: compaction,

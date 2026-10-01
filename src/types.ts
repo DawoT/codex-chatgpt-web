@@ -69,6 +69,8 @@ export interface CodexAssistantMessage {
 
 export interface CodexDeveloperMessage {
   role: "developer";
+  /** Trusted compiler provenance, never inferred from content. */
+  generatedContract?: "model_switch" | "skill_catalog";
   content: string | CodexContentPart[];
   timestamp: number;
 }

@@ -156,7 +156,7 @@ ${"unused ".repeat(2000)}
     expect(transformed).not.toContain("unused unused unused");
   });
 
-  test("compileChatGptWebPrompt compresses skills in history into a lazy index", async () => {
+  test("compileChatGptWebPrompt preserves supplied skill instructions literally", async () => {
     const { compileChatGptWebPrompt } = await import("../src/adapters/chatgpt-web/prompt");
     const { CHATGPT_WEB_MODEL_ID } = await import("../src/adapters/chatgpt-web/model");
 
@@ -198,10 +198,8 @@ ${massiveInstructions}
       "turn_token_test_123456789012345678",
     );
 
-    // The prompt should NOT contain the massive instructions
-    expect(compiled.text).not.toContain(massiveInstructions);
-    // The prompt SHOULD contain the lazy indexed table
-    expect(compiled.text).toContain("Available Skills (Load on Demand)");
+    expect(compiled.text).toContain(massiveInstructions);
+    expect(compiled.text).not.toContain("Available Skills (Load on Demand)");
     expect(compiled.text).toContain("heavy-dev-skill");
   });
 

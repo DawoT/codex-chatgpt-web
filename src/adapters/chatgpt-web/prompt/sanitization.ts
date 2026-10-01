@@ -8,15 +8,27 @@ const RETIRED_TURN_HANDLE = /(?<![A-Za-z0-9_-])(turn|request|binding)_[A-Za-z0-9
  * the current turn is supplied by the contract text, never by the replayed context.
  */
 export function withoutRetiredTurnHandles(contextJson: string): string {
-  // Match decoded string values: in serialized JSON a newline's `n` is a word character
-  // immediately before the handle. Leave structural keys and native tool-call IDs intact.
-  return JSON.stringify(
-    JSON.parse(contextJson, (_key, value: unknown) =>
-      typeof value === "string"
-        ? value.replace(RETIRED_TURN_HANDLE, (_handle, kind: string) => `[retired ${kind} handle]`)
-        : value,
-    ),
-  );
+  const visit = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => {
+        if (key === "broker_metadata" && child && typeof child === "object" && !Array.isArray(child)) {
+          const metadata = Object.fromEntries(
+            Object.entries(child).map(([field, data]) => [
+              field,
+              ["turn_token", "request_id", "binding_id"].includes(field) && typeof data === "string"
+                ? data.replace(RETIRED_TURN_HANDLE, (_handle, kind: string) => `[retired ${kind} handle]`)
+                : data,
+            ]),
+          );
+          return [key, metadata];
+        }
+        return [key, visit(child)];
+      }),
+    );
+  };
+  return JSON.stringify(visit(JSON.parse(contextJson)));
 }
 
 export function plainMessageText(message: CodexMessage): string | undefined {
@@ -43,7 +55,11 @@ export function startsWithControlBlock(message: CodexMessage, tag: string): bool
  */
 export function withoutSupersededModelSwitchContracts(messages: readonly CodexMessage[]): CodexMessage[] {
   const switchIndices = messages.flatMap((message, index) =>
-    startsWithControlBlock(message, "<model_switch>") ? [index] : [],
+    message.role === "developer" &&
+    message.generatedContract === "model_switch" &&
+    startsWithControlBlock(message, "<model_switch>")
+      ? [index]
+      : [],
   );
   if (switchIndices.length < 2) return [...messages];
 
@@ -52,9 +68,12 @@ export function withoutSupersededModelSwitchContracts(messages: readonly CodexMe
   for (const index of switchIndices.slice(0, -1)) {
     dropped.add(index);
     const skillCatalogIndex = index + 1;
+    const catalog = messages[skillCatalogIndex];
     if (
       skillCatalogIndex < newestSwitchIndex &&
-      startsWithControlBlock(messages[skillCatalogIndex]!, "<skills_instructions>")
+      catalog?.role === "developer" &&
+      catalog.generatedContract === "skill_catalog" &&
+      startsWithControlBlock(catalog, "<skills_instructions>")
     ) {
       dropped.add(skillCatalogIndex);
     }

@@ -1,4 +1,5 @@
 import { CHATGPT_WEB_INSTANT_AUTO_COMPACT_TOKEN_LIMIT } from "../../../chatgpt-web-models";
+import type { CompiledBrowserPayloadMetrics } from "../input-tokens";
 import type { ChatGptSkillFile } from "../skill-attachments";
 
 export interface ChatGptWebPromptImage {
@@ -7,7 +8,22 @@ export interface ChatGptWebPromptImage {
   detail?: string;
 }
 
+export interface PromptCompilationResult {
+  version: 1;
+  sourceSha256: string;
+  payloadSha256: string;
+  measurement: CompiledBrowserPayloadMetrics;
+  sections: {
+    stableInstructionsSha256: string;
+    capabilitiesSha256: string;
+    taskContextSha256: string;
+    toolHistorySha256: string;
+  };
+  transformations: string[];
+}
+
 export interface CompiledChatGptWebPrompt {
+  compilation?: PromptCompilationResult;
   text: string;
   images: ChatGptWebPromptImage[];
   skillFiles?: ChatGptSkillFile[];

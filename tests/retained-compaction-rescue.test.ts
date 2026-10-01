@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateCompactionQuality } from "../src/adapters/chatgpt-web/autonomous-compaction";
 import { requestRetainedCompactionHandoff } from "../src/adapters/chatgpt-web/compaction-handoff";
+import { inspectCompactionCheckpoint } from "../src/adapters/chatgpt-web/compaction-policy";
 import { chatGptConversationKey } from "../src/adapters/chatgpt-web/conversation-key";
 import { TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import { ChatGptTextFeed, ChatGptTraceFeed, ChatGptTurnSession } from "../src/adapters/chatgpt-web/turn-execution";
@@ -116,13 +116,13 @@ next_actions:
 
       expect(summary).toBeString();
       expect(summary).toContain("<compaction_state>");
-      expect(summary).toContain("CODEX_ORIGINAL_USER_REQUEST_JSON");
-      expect(summary).toContain("CODEX_LATEST_USER_PROMPT_JSON");
-
-      const quality = validateCompactionQuality(req.context.messages, summary, {
-        requireStructured: true,
-      });
-      expect(quality.valid).toBe(true);
+      expect(summary).toBe(mockAssistantText.trim());
+      expect(summary).toContain("original_request_ref: sha256:fedcba987654");
+      const inspection = inspectCompactionCheckpoint(req, summary);
+      expect(inspection.summary).toContain("CODEX_ORIGINAL_USER_REQUEST_JSON");
+      expect(inspection.summary).toContain("CODEX_LATEST_USER_PROMPT_JSON");
+      expect(inspection.valid).toBe(false);
+      expect(inspection.issues.length).toBeGreaterThan(0);
     } finally {
       await broker.close();
       rmSync(root, { recursive: true, force: true });

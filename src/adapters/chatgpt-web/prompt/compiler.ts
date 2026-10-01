@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   type ChatGptWebBackendModel,
   chatGptWebImageTokenReserve,
@@ -10,8 +11,7 @@ import { estimateTokens } from "../../../lib/token-estimate";
 import type { CodexMessage, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { isChatGptSubagentTurn } from "../environment";
-import { measureCompiledChatGptWebInput } from "../input-tokens";
-import { transformSkillsInstructionsBlock } from "../lazy-skills";
+import { measureCompiledBrowserPayload, measureCompiledChatGptWebInput } from "../input-tokens";
 import {
   CHATGPT_WEB_LUNA_MODEL_ID,
   CHATGPT_WEB_MODEL_ID,
@@ -29,7 +29,7 @@ import {
   isChatGptWebMultipartPartCount,
   partitionMultipartContext,
 } from "./multipart";
-import { plainMessageText, withoutRetiredTurnHandles, withoutSupersededModelSwitchContracts } from "./sanitization";
+import { withoutRetiredTurnHandles, withoutSupersededModelSwitchContracts } from "./sanitization";
 import {
   CHATGPT_COMPACTION_PROMPT_JSON_BYTE_BUDGET,
   CHATGPT_MAX_INPUT_IMAGES,
@@ -96,18 +96,7 @@ function compileChatGptWebPromptInternal(
   if (!mode.localTools && turnToken !== undefined) {
     throw new Error("A read-only ChatGPT Web effort must not receive a local-tool capability token");
   }
-  const latestUser = parsed.context.messages.findLast((m) => m.role === "user");
-  const userQuery = latestUser ? plainMessageText(latestUser) : undefined;
-  const system = (parsed.context.systemPrompt ?? []).flatMap((entry) => {
-    if (conversationalFreedom) {
-      if (entry.includes("<skills_instructions>") || entry.includes("You are Codex")) {
-        return [];
-      }
-    }
-    return entry.includes("<skills_instructions>")
-      ? [transformSkillsInstructionsBlock(entry, userQuery, { isContinuation })]
-      : [entry];
-  });
+  const system = [...(parsed.context.systemPrompt ?? [])];
   const isSubagent = isChatGptSubagentTurn(parsed);
   const buildStaticContracts = (): readonly string[] => {
     const sharedContract = conversationalFreedom
@@ -308,53 +297,7 @@ function compileChatGptWebPromptInternal(
       dropped: Math.max(0, countChatGptContextImages(sourceMessages) - CHATGPT_MAX_INPUT_IMAGES),
     };
     const skillFiles: ChatGptSkillFile[] = [];
-    const transformedSourceMessages: CodexMessage[] = sourceMessages.flatMap((message): CodexMessage[] => {
-      if (conversationalFreedom) {
-        if (message.role === "developer") {
-          const text = plainMessageText(message);
-          if (text?.includes("You are Codex") || text?.includes("<skills_instructions>")) {
-            return [];
-          }
-        }
-        if (message.role === "user") {
-          const text = plainMessageText(message);
-          if (text?.includes("# AGENTS.md instructions") || text?.includes("<INSTRUCTIONS>")) {
-            const envMatch = text.match(/<environment_context>[\s\S]*?<\/environment_context>/);
-            const envContent = envMatch ? `${envMatch[0]}\n` : "";
-            return [
-              {
-                ...message,
-                content:
-                  `${envContent}[Repository instructions: follow conventions in AGENTS.md; inspect with tools if needed.]`.trim(),
-              },
-            ];
-          }
-        }
-      }
-      if (message.role === "developer") {
-        const text = plainMessageText(message);
-        if (text?.includes("<skills_instructions>")) {
-          return [
-            {
-              ...message,
-              content: transformSkillsInstructionsBlock(text, userQuery, { isContinuation }),
-            },
-          ];
-        }
-      }
-      if (message.role === "user") {
-        const text = plainMessageText(message);
-        if (text?.includes("<skills_instructions>")) {
-          return [
-            {
-              ...message,
-              content: transformSkillsInstructionsBlock(text, userQuery, { isContinuation }),
-            },
-          ];
-        }
-      }
-      return [message];
-    });
+    const transformedSourceMessages = sourceMessages;
     const messages = transformedSourceMessages.map((message) => {
       if (attachSkills && message.role === "user" && message.origin === "codex_skill") {
         const file = selectedSkillFile(message);
@@ -482,6 +425,38 @@ export function compileChatGptWebPrompt(
   const startedAt = performance.now();
   try {
     const result = compileChatGptWebPromptInternal(parsed, capabilities, turnToken, options);
+    const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
+    const selected = withoutSupersededModelSwitchContracts(parsed.context.messages);
+    const instructionPrefix = (result.multipart?.commit ?? result.text)
+      .split("<codex_context_json>")[0]!
+      .split("<codex_transport_resume>")[0]!;
+    result.compilation = {
+      version: 1,
+      sourceSha256: hash(JSON.stringify(parsed.context)),
+      payloadSha256: hash(
+        result.multipart || result.images.length || result.skillFiles?.length
+          ? JSON.stringify({
+              text: result.text,
+              multipart: result.multipart,
+              images: result.images,
+              skillFiles: result.skillFiles,
+            })
+          : result.text,
+      ),
+      measurement: measureCompiledBrowserPayload(result, parsed.modelId),
+      sections: {
+        stableInstructionsSha256: hash(instructionPrefix),
+        capabilitiesSha256: hash(JSON.stringify(capabilities)),
+        taskContextSha256: hash(JSON.stringify(selected.filter((message) => message.role !== "toolResult"))),
+        toolHistorySha256: hash(JSON.stringify(selected.filter((message) => message.role === "toolResult"))),
+      },
+      transformations: [
+        ...(selected.length < parsed.context.messages.length ? ["superseded_generated_contracts"] : []),
+        ...(result.multipart ? ["lossless_multipart_staging"] : []),
+        ...(result.skillFiles?.length ? ["skill_file_attachments"] : []),
+        ...(options?.conversationalFreedom ? ["generated_instruction_selection"] : []),
+      ],
+    };
     defaultPromptContractCache.recordCompilation(performance.now() - startedAt);
     return result;
   } catch (error) {

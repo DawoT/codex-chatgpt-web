@@ -32,7 +32,7 @@ describe("Root-Level Zero Prompt Conditioning & MCP Access", () => {
     },
   });
 
-  test("conversationalFreedom: true produces completely unconditioned prompt with zero persona and zero hardcoded rules", () => {
+  test("conversationalFreedom selects concise bridge instructions while preserving task instructions", () => {
     const request: CodexParsedRequest = {
       modelId: "gpt-5.6-sol",
       stream: false,
@@ -76,14 +76,14 @@ describe("Root-Level Zero Prompt Conditioning & MCP Access", () => {
     expect(compiled.text).not.toContain("Codex requested low response verbosity");
     expect(compiled.text).not.toContain("Return only the answer that the outer Codex task should receive.");
 
-    // Zero developer persona or skill dumping
-    expect(compiled.text).not.toContain("You are Codex");
-    expect(compiled.text).not.toContain("<skills_instructions>");
+    // Task-authored instructions retain their original priority and literal content.
+    expect(compiled.text).toContain("You are Codex");
+    expect(compiled.text).toContain("<skills_instructions>");
 
-    // Zero hardcoded AGENTS.md rules or colors
-    expect(compiled.text).not.toContain("# AGENTS.md instructions");
-    expect(compiled.text).not.toContain("Midnight Code #08111F");
-    expect(compiled.text).not.toContain("Compiler Cyan #00E5FF");
+    // Repository requirements remain part of the supplied task context.
+    expect(compiled.text).toContain("# AGENTS.md instructions");
+    expect(compiled.text).toContain("Midnight Code #08111F");
+    expect(compiled.text).toContain("Compiler Cyan #00E5FF");
 
     // Clean user message and environment context preserved
     expect(compiled.text).toContain("Explain how this architecture works in detail.");

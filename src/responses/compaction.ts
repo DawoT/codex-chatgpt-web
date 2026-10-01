@@ -85,6 +85,44 @@ function outsideInlineCode(line: string, index: number): boolean {
   return activeTicks === 0;
 }
 
+/** Protect quoted literals and Markdown code from structural rewriting. */
+function compactionLiteralMask(text: string): Uint8Array {
+  const mask = new Uint8Array(text.length);
+  let quote = "";
+  let ticks = "";
+  let escaped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (ticks) {
+      mask[index] = 1;
+      if (text.startsWith(ticks, index)) {
+        mask.fill(1, index, index + ticks.length);
+        index += ticks.length - 1;
+        ticks = "";
+      }
+      continue;
+    }
+    if (quote) {
+      mask[index] = 1;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "`" || (char === "~" && text.startsWith("~~~", index))) {
+      let end = index + 1;
+      while (text[end] === char) end += 1;
+      ticks = text.slice(index, end);
+      mask.fill(1, index, end);
+      index = end - 1;
+    } else if (char === '"' || (char === "'" && !/[A-Za-z0-9]/.test(text[index - 1] ?? ""))) {
+      quote = char;
+      mask[index] = 1;
+    }
+  }
+  return mask;
+}
+
 /**
  * Normalizes raw or collapsed compaction state blocks, restoring standalone line breaks,
  * unescaping markdown-escaped field names/underscores, and separating inline list bullets.
@@ -136,38 +174,46 @@ export function normalizeCompactionStateBlock(raw: string): string {
   let inner = text.slice(openIdx + openTag.length, closeIdx);
   const after = text.slice(closeIdx + closeTag.length);
 
-  inner = inner.replace(/\\_/g, "_");
-
-  const insideQuote = new Uint8Array(inner.length);
-  let quoted = false;
-  let escaped = false;
-  for (let index = 0; index < inner.length; index += 1) {
-    insideQuote[index] = quoted ? 1 : 0;
-    if (escaped) {
-      escaped = false;
-    } else if (inner[index] === "\\" && quoted) {
-      escaped = true;
-    } else if (inner[index] === '"') {
-      quoted = !quoted;
-    }
-  }
-
-  const boundaryPattern =
-    /(?:^|\s+)(?:[-*•]\s+)?(?:#{1,4}\s*)?(?:\*{1,2}|_{1,2})?(version|original[_-]request[_-]ref|modified[_-]files|active[_-]hypothesis|requirements|closure[_-]criteria|verified[_-]achievements|decisions[_-]and[_-]invariants|blockers[_-]or[_-]test[_-]failures|blockers|pending[_-]obligations|next[_-]actions?)(?:\*{1,2}|_{1,2})?\s*:|\s+([-*•]\s+)/gi;
-  let currentField = "";
+  const literals = compactionLiteralMask(inner);
   inner = inner.replace(
-    boundaryPattern,
-    (match, header: string | undefined, bullet: string | undefined, index: number) => {
-      if (insideQuote[index]) return match;
-      if (header) {
-        currentField = header.toLowerCase().replace(/-/g, "_");
-        return `\n${currentField}:`;
-      }
-      if (currentField === "version" || currentField === "original_request_ref" || currentField === "active_hypothesis")
-        return match;
-      return `\n${bullet}`;
+    /(?:original(?:\\_|_)request(?:\\_|_)ref|modified(?:\\_|_)files|active(?:\\_|_)hypothesis|closure(?:\\_|_)criteria|verified(?:\\_|_)achievements|decisions(?:\\_|_)and(?:\\_|_)invariants|blockers(?:\\_|_)or(?:\\_|_)test(?:\\_|_)failures|pending(?:\\_|_)obligations|next(?:\\_|_)actions?)(?=\s*:)/gi,
+    (field, index: number) => {
+      if (literals.slice(index, index + field.length).some(Boolean)) return field;
+      const decoded = field.replace(/\\_/g, "_");
+      return /^(original_request_ref|modified_files|active_hypothesis|closure_criteria|verified_achievements|decisions_and_invariants|blockers_or_test_failures|pending_obligations|next_actions?)$/i.test(
+        decoded,
+      )
+        ? decoded
+        : field;
     },
   );
+  const insideQuote = compactionLiteralMask(inner);
+
+  const boundaryPattern =
+    /(?:[-*•][ \t]+)?(?:#{1,4}[ \t]*)?(?:\*{1,2}|_{1,2})?(version|original[_-]request[_-]ref|modified[_-]files|active[_-]hypothesis|requirements|closure[_-]criteria|verified[_-]achievements|decisions[_-]and[_-]invariants|blockers[_-]or[_-]test[_-]failures|blockers|pending[_-]obligations|next[_-]actions?)(?:\*{1,2}|_{1,2})?[ \t]*:|([-*•][ \t]+)/gi;
+  let currentField = "";
+  let cursor = 0;
+  const pieces: string[] = [];
+  for (const match of inner.matchAll(boundaryPattern)) {
+    const index = match.index;
+    if (index > 0 && !/\s/.test(inner[index - 1]!)) continue;
+    if (insideQuote.slice(index, index + match[0].length).some(Boolean)) continue;
+    const header = match[1];
+    if (!header && (!currentField || ["version", "original_request_ref", "active_hypothesis"].includes(currentField)))
+      continue;
+    let prefixEnd = index;
+    while (prefixEnd > cursor && /\s/.test(inner[prefixEnd - 1]!) && !insideQuote[prefixEnd - 1]) prefixEnd -= 1;
+    pieces.push(inner.slice(cursor, prefixEnd));
+    if (header) {
+      currentField = header.toLowerCase().replace(/-/g, "_");
+      pieces.push(`\n${currentField}:`);
+    } else {
+      pieces.push(`\n${match[2]}`);
+    }
+    cursor = index + match[0].length;
+  }
+  pieces.push(inner.slice(cursor));
+  inner = pieces.join("");
 
   const cleanInner = inner.trim();
   const prefix = before ? (before.endsWith("\n") ? before : `${before}\n`) : "";

@@ -176,7 +176,7 @@ function freeformCompactionState(parsed: CodexParsedRequest, summary: string, di
 export function canonicalizeCompactionHandoff(
   parsed: CodexParsedRequest,
   summary: string,
-  options?: { autoHeal?: boolean },
+  options?: { autoHeal?: boolean; strict?: boolean },
 ): string {
   const normalized = summary.trim();
   if (!normalized) throw new Error("ChatGPT returned an empty structured compaction handoff");
@@ -241,6 +241,7 @@ export function canonicalizeCompactionHandoff(
       body = body.slice(0, originalOffset).trimEnd();
     }
     if (
+      !options?.strict &&
       body.trim().length >= 50 &&
       !/<\/?compaction_state\b/i.test(body) &&
       !/^ {0,3}(?:`{3,}|~{3,})/m.test(body) &&
@@ -281,6 +282,7 @@ export function canonicalizeCompactionHandoff(
         countCompactionRequirementItems(body) === state.requirements.length &&
         state.closureCriteria?.length &&
         state.nextActions.length === 1 &&
+        (!options?.strict || (fields.has("original_request_ref") && state.originalRequestRef === `sha256:${digest}`)) &&
         [
           "version",
           "modified_files",
@@ -666,7 +668,7 @@ export async function requestRetainedCompactionHandoff(
         console.info(
           `[chatgpt-web] compaction_retained_text_rescue: Rescued compaction checkpoint from assistant text output (chars=${candidateText.length})`,
         );
-        return autoHealCompactionHandoff(parsed, candidateText);
+        return normalizeCompactionStateBlock(candidateText);
       }
       // The control handler accepts the summary before replying to ChatGPT. A fully
       // settled response without that receipt cannot become a successful checkpoint.

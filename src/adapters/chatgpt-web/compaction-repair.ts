@@ -13,11 +13,7 @@ import {
   resolveChatGptWebMultipartStagingMode,
 } from "./browser/staging-limits";
 import type { CompactionEvidenceObservation } from "./compaction-evidence";
-import {
-  compiledChatGptWebMessages,
-  estimateChatGptWebImageTokens,
-  measureCompiledChatGptWebInput,
-} from "./input-tokens";
+import { measureCompiledBrowserPayload, measureCompiledChatGptWebInput } from "./input-tokens";
 import type { ChatGptWebCapabilities } from "./model";
 import { resolveChatGptWebModelMode } from "./model";
 import {
@@ -26,7 +22,6 @@ import {
   preparePreflightInput,
 } from "./preflight-budget";
 import { compileChatGptWebPrompt } from "./prompt";
-import { skillFileTokens } from "./skill-attachments";
 import { resolveBiggerContextMultipartParts } from "./usage";
 
 export const MAX_COMPACTION_REPAIR_PROMPT_CHARS = PREFLIGHT_MAX_STAGE_CHAR_LIMIT;
@@ -115,17 +110,15 @@ export function checkpointCompiledRepairFits(
       );
       return true;
     }
-    const messages = compiledChatGptWebMessages(compiled);
-    const stages = messages.slice(0, -1);
-    const maxStageMessageTokens = Math.max(...stages.map((message) => estimateTokens(message, request.modelId)));
-    const maxStageChars = Math.max(...stages.map((message) => message.length));
+    const payload = measureCompiledBrowserPayload(compiled, request.modelId);
+    const maxStageMessageTokens = Math.max(...payload.messageTokensEstimated.slice(0, -1));
+    const maxStageChars = Math.max(...payload.messageChars.slice(0, -1));
     const stagingMode = resolveChatGptWebMultipartStagingMode(
       request.modelId,
       capabilities,
       maxStageMessageTokens,
       maxStageChars,
     );
-    const finalMessage = messages.at(-1)!;
     assertChatGptWebMultipartInputWithinLimits(
       measurement.inputTokens,
       measurement.maxMessageTokens,
@@ -138,10 +131,9 @@ export function checkpointCompiledRepairFits(
         stagingEffort: stagingMode.effort,
         maxStageMessageTokens,
         maxStageChars,
-        finalMessageTokens:
-          estimateTokens(finalMessage, request.modelId) + skillFileTokens(compiled.skillFiles, request.modelId),
-        finalMessageChars: finalMessage.length,
-        finalImageTokens: estimateChatGptWebImageTokens(compiled),
+        finalMessageTokens: payload.messageTokensEstimated.at(-1)! + payload.skillFileTokensEstimated,
+        finalMessageChars: payload.messageChars.at(-1)!,
+        finalImageTokens: payload.imageTokensEstimated,
         isCompaction: request._compactionRequest === true,
       },
       request._compactionRequest === true,

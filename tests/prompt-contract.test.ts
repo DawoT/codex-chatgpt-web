@@ -30,7 +30,7 @@ function request(reasoning: "low" | "medium" | "high" | "xhigh" | "max"): CodexP
   };
 }
 
-test("history handle cleanup works on decoded text and preserves native call identities", () => {
+test("history handle cleanup preserves literal content and native call identities", () => {
   const call = `call_${"A".repeat(32)}`;
   const context = {
     tool_call_id: call,
@@ -39,9 +39,7 @@ test("history handle cleanup works on decoded text and preserves native call ide
     literal: 'Keep \\\\path, \\"quotes\\", and $& exactly.',
   };
   const cleaned = JSON.parse(withoutRetiredTurnHandles(JSON.stringify(context)));
-  expect(cleaned.content).toEqual(
-    ["turn", "request", "binding"].map((kind) => `first line\n[retired ${kind} handle]\tlast line`),
-  );
+  expect(cleaned.content).toEqual(context.content);
   expect(cleaned.tool_call_id).toBe(call);
   expect(cleaned.ordinary).toEqual(context.ordinary);
   expect(cleaned.literal).toBe(context.literal);
@@ -66,8 +64,8 @@ test("Full-mode Pro prompts pass one stable turn token directly to native action
 
   expect(envelopeEnd).toBeGreaterThan(0);
   expect(resume).toBeGreaterThan(envelopeEnd);
-  expect(tokenMatches).toHaveLength(1);
-  expect(compiled.text).toContain("[retired turn handle]");
+  expect(tokenMatches).toHaveLength(2);
+  expect(compiled.text).toContain(JSON.stringify(parsed.context.messages[1]!.content));
   expect(transportOnly).toContain(
     "For local work required by the task, use the attached Codex Native tools directly according to their declared descriptions and schemas.",
   );
@@ -504,7 +502,7 @@ test("persisted one-pixel image sentinels are not attached to ChatGPT", () => {
   expect(compiled.text).not.toContain("older image not attached");
 });
 
-test("the replayed context never carries a finished turn's broker handles", () => {
+test("replayed tool evidence preserves finished handles while the transport binds the current turn", () => {
   const staleToken = "turn_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
   const staleBinding = "binding_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
   const token = "turn_12345678901234567890123456789012";
@@ -539,10 +537,10 @@ test("the replayed context never carries a finished turn's broker handles", () =
     token,
   );
 
-  expect(compiled.text).not.toContain(staleToken);
-  expect(compiled.text).not.toContain(staleBinding);
-  expect(compiled.text).toContain("[retired turn handle]");
-  expect(compiled.text).toContain("[retired binding handle]");
+  expect(compiled.text).toContain(staleToken);
+  expect(compiled.text).toContain(staleBinding);
+  expect(compiled.text).not.toContain("[retired turn handle]");
+  expect(compiled.text).not.toContain("[retired binding handle]");
   expect(compiled.text).toContain(token);
   expect(compiled.text).toContain("keep working");
   const envelope = compiled.text.split("<codex_context_json>")[1]!.split("</codex_context_json>")[0]!.trim();

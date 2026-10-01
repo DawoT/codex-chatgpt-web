@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { CHATGPT_WEB_PLATFORM_RESERVE_TOKENS, chatGptWebImageTokenReserve } from "../../chatgpt-web-models";
 import { estimateTokens } from "../../lib/token-estimate";
 import { formatChatGptWebMultipartCommit, formatChatGptWebMultipartStage } from "./prompt/multipart";
@@ -45,6 +46,15 @@ export interface CompiledBrowserPayloadMetrics {
   cacheReadTokens: null;
 }
 
+const payloadMeasurements = new WeakMap<
+  CompiledChatGptWebPrompt,
+  {
+    key: string;
+    payload: CompiledBrowserPayloadMetrics;
+    input?: { inputTokens: number; maxMessageTokens: number; maxMessageChars: number };
+  }
+>();
+
 export function measureCompiledBrowserPayload(
   compiled: CompiledChatGptWebPrompt,
   modelId: string,
@@ -54,7 +64,19 @@ export function measureCompiledBrowserPayload(
   if (messages.length !== (compiled.multipart?.parts.length ?? 1)) {
     throw new RangeError("Browser payload message count does not match the selected transport");
   }
-  return {
+  const key = createHash("sha256")
+    .update(
+      JSON.stringify({
+        modelId,
+        messages,
+        images: compiled.images,
+        skillFiles: compiled.skillFiles,
+      }),
+    )
+    .digest("hex");
+  const cached = payloadMeasurements.get(compiled);
+  if (cached?.key === key) return cached.payload;
+  const payload: CompiledBrowserPayloadMetrics = {
     messageCount: messages.length,
     messageChars: messages.map((message) => message.length),
     messageBytes: messages.map((message) => Buffer.byteLength(message, "utf8")),
@@ -66,6 +88,12 @@ export function measureCompiledBrowserPayload(
     imageTokensEstimated: estimateChatGptWebImageTokens(compiled),
     cacheReadTokens: null,
   };
+  Object.freeze(payload.messageChars);
+  Object.freeze(payload.messageBytes);
+  Object.freeze(payload.messageTokensEstimated);
+  Object.freeze(payload);
+  payloadMeasurements.set(compiled, { key, payload });
+  return payload;
 }
 
 /** Emits only aggregate quantities after semantic acceptance of a physical browser message. */
@@ -128,12 +156,10 @@ export function compiledChatGptWebMaxMessageChars(compiled: CompiledChatGptWebPr
 
 /** Tokens present in the one visible browser message, excluding hidden product/tool reserves. */
 export function estimateCompiledChatGptWebMessageTokens(compiled: CompiledChatGptWebPrompt, modelId: string): number {
-  const messages = compiledChatGptWebMessages(compiled);
+  const payload = measureCompiledBrowserPayload(compiled, modelId);
   return Math.max(
-    ...messages.map(
-      (message, index) =>
-        estimateTokens(message, modelId) +
-        (index === messages.length - 1 ? skillFileTokens(compiled.skillFiles, modelId) : 0),
+    ...payload.messageTokensEstimated.map(
+      (count, index) => count + (index === payload.messageCount - 1 ? payload.skillFileTokensEstimated : 0),
     ),
   );
 }
@@ -148,10 +174,12 @@ export function measureCompiledChatGptWebInput(
   modelId: string,
   payload?: CompiledBrowserPayloadMetrics,
 ): { inputTokens: number; maxMessageTokens: number; maxMessageChars: number } {
-  const imageTokens = payload?.imageTokensEstimated ?? estimateChatGptWebImageTokens(compiled);
-  const messages = payload ? undefined : compiledChatGptWebMessages(compiled);
-  const counts = payload?.messageTokensEstimated ?? messages!.map((message) => estimateTokens(message, modelId));
-  const attachments = payload?.skillFileTokensEstimated ?? skillFileTokens(compiled.skillFiles, modelId);
+  const measured = payload ?? measureCompiledBrowserPayload(compiled, modelId);
+  const cached = payloadMeasurements.get(compiled);
+  if (cached?.payload === measured && cached.input) return cached.input;
+  const imageTokens = measured.imageTokensEstimated;
+  const counts = measured.messageTokensEstimated;
+  const attachments = measured.skillFileTokensEstimated;
   const messageTokens = counts.reduce((total, count) => total + count, 0);
   const acknowledgementTokens = compiled.multipart
     ? compiled.multipart.parts
@@ -171,14 +199,17 @@ export function measureCompiledChatGptWebInput(
           0,
         )
     : 0;
-  return {
+  const input = {
     inputTokens:
       CHATGPT_WEB_PLATFORM_RESERVE_TOKENS + messageTokens + acknowledgementTokens + imageTokens + attachments,
     maxMessageTokens: Math.max(
       ...counts.map((count, index) => count + (index === counts.length - 1 ? attachments : 0)),
     ),
-    maxMessageChars: Math.max(...(payload?.messageChars ?? messages!.map((message) => message.length))),
+    maxMessageChars: Math.max(...measured.messageChars),
   };
+  Object.freeze(input);
+  if (cached?.payload === measured) cached.input = input;
+  return input;
 }
 
 export function estimateChatGptWebImageTokens(compiled: CompiledChatGptWebPrompt): number {

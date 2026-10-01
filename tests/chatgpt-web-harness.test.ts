@@ -1859,8 +1859,18 @@ describe("ChatGPT outer-native harness v4", () => {
 
   test("keeps only the newest complete Codex model-switch contract", () => {
     const history = [
-      { role: "developer" as const, content: "<model_switch>old contract</model_switch>", timestamp: 1 },
-      { role: "developer" as const, content: "<skills_instructions>old catalog</skills_instructions>", timestamp: 2 },
+      {
+        role: "developer" as const,
+        generatedContract: "model_switch" as const,
+        content: "<model_switch>old contract</model_switch>",
+        timestamp: 1,
+      },
+      {
+        role: "developer" as const,
+        generatedContract: "skill_catalog" as const,
+        content: "<skills_instructions>old catalog</skills_instructions>",
+        timestamp: 2,
+      },
       { role: "user" as const, content: "historical user message", timestamp: 3 },
       {
         role: "assistant" as const,
@@ -1869,9 +1879,15 @@ describe("ChatGPT outer-native harness v4", () => {
         timestamp: 4,
       },
       { role: "developer" as const, content: "unrelated developer instruction", timestamp: 5 },
-      { role: "developer" as const, content: "<model_switch>current contract</model_switch>", timestamp: 6 },
       {
         role: "developer" as const,
+        generatedContract: "model_switch" as const,
+        content: "<model_switch>current contract</model_switch>",
+        timestamp: 6,
+      },
+      {
+        role: "developer" as const,
+        generatedContract: "skill_catalog" as const,
         content: "<skills_instructions>current catalog</skills_instructions>",
         timestamp: 7,
       },

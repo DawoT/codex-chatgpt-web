@@ -4,7 +4,7 @@ import {
   assertChatGptWebMultipartInputWithinLimits,
   resolveChatGptWebMultipartStagingMode,
 } from "../adapters/chatgpt-web/browser/staging-limits";
-import { estimateChatGptWebImageTokens, measureCompiledChatGptWebInput } from "../adapters/chatgpt-web/input-tokens";
+import { measureCompiledBrowserPayload, measureCompiledChatGptWebInput } from "../adapters/chatgpt-web/input-tokens";
 import { enforceMissionHeadroom } from "../adapters/chatgpt-web/mission-headroom";
 import {
   CHATGPT_WEB_LUNA_MODEL_ID,
@@ -12,15 +12,9 @@ import {
   resolveChatGptWebModelMode,
 } from "../adapters/chatgpt-web/model";
 import { enforcePreflightDeliveryBudget, preparePreflightInput } from "../adapters/chatgpt-web/preflight-budget";
-import {
-  compileChatGptWebPrompt,
-  formatChatGptWebMultipartCommit,
-  formatChatGptWebMultipartStage,
-} from "../adapters/chatgpt-web/prompt";
-import { skillFileTokens } from "../adapters/chatgpt-web/skill-attachments";
+import { compileChatGptWebPrompt } from "../adapters/chatgpt-web/prompt";
 import { resolveBiggerContextMultipartParts } from "../adapters/chatgpt-web/usage";
 import type { AppConfig } from "../config";
-import { estimateTokens } from "../lib/token-estimate";
 import type { CodexParsedRequest } from "../types";
 
 // The broker issues opaqueId("host_turn"): 32 base64url characters after this prefix.
@@ -68,15 +62,9 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
     );
     return;
   }
-  const transaction = `ctx_${"0".repeat(32)}`;
-  const stages = compiled.multipart.parts
-    .slice(0, -1)
-    .map((payload, index) =>
-      formatChatGptWebMultipartStage(payload, transaction, index + 1, compiled.multipart!.parts.length),
-    );
-  const final = formatChatGptWebMultipartCommit(compiled.multipart, transaction);
-  const maxStageTokens = Math.max(...stages.map((stage) => estimateTokens(stage.text, parsed.modelId)));
-  const maxStageChars = Math.max(...stages.map((stage) => stage.text.length));
+  const payload = measureCompiledBrowserPayload(compiled, parsed.modelId);
+  const maxStageTokens = Math.max(...payload.messageTokensEstimated.slice(0, -1));
+  const maxStageChars = Math.max(...payload.messageChars.slice(0, -1));
   const stagingMode = resolveChatGptWebMultipartStagingMode(
     parsed.modelId,
     capabilities,
@@ -95,9 +83,9 @@ export function assertFirstHostPromptWithinLimits(parsed: CodexParsedRequest, co
       stagingEffort: stagingMode.effort,
       maxStageMessageTokens: maxStageTokens,
       maxStageChars,
-      finalMessageTokens: estimateTokens(final, parsed.modelId) + skillFileTokens(compiled.skillFiles, parsed.modelId),
-      finalMessageChars: final.length,
-      finalImageTokens: estimateChatGptWebImageTokens(compiled),
+      finalMessageTokens: payload.messageTokensEstimated.at(-1)! + payload.skillFileTokensEstimated,
+      finalMessageChars: payload.messageChars.at(-1)!,
+      finalImageTokens: payload.imageTokensEstimated,
     },
   );
 }

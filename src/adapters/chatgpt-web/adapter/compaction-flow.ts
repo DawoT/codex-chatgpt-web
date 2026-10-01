@@ -13,7 +13,6 @@ import {
   selectCompactionRepairEvidence,
 } from "../compaction-evidence";
 import {
-  canonicalizeCompactionHandoff,
   existingStructuredCompactionRun,
   MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
   ORIGINAL_USER_REQUEST_MARKER,
@@ -28,6 +27,7 @@ import {
   checkpointStructuralDiagnostic,
   logCompactionEvent,
 } from "../compaction-observability";
+import { type CompactionCheckpointInspection, CompactionCheckpointPolicy } from "../compaction-policy";
 import {
   buildCompactionFallbackRepairPrompt,
   checkpointCompiledRepairFits,
@@ -123,88 +123,17 @@ function repairObservations(parsed: CodexParsedRequest, query: string, limit = 6
   return boundedCompactionRepairObservations(selected);
 }
 
-/**
- * Fallback-compaction only: truncates messages and system prompt whose serialized text
- * exceeds the per-stage char boundary so the compaction browser turn can at least submit.
- * A notice is appended so the model knows content was omitted.
- * This is never called for normal task turns.
- */
+/** Legacy internal entry points now preserve evidence; transport preflight owns rejection. */
 export const FALLBACK_COMPACTION_TRUNCATION_LIMIT = CHATGPT_WEB_INSTANT_COMPOSER_CHAR_LIMIT - 500;
-
-function truncateString(text: string, limit = FALLBACK_COMPACTION_TRUNCATION_LIMIT): string {
-  if (text.length <= limit) return text;
-  const kept = text.slice(0, limit);
-  const dropped = text.length - limit;
-  return `${kept}\n[... ${dropped.toLocaleString("en-US")} characters truncated for compaction]`;
-}
 
 export function truncateOversizedMessagesForFallbackCompaction(
   messages: CodexParsedRequest["context"]["messages"],
 ): CodexParsedRequest["context"]["messages"] {
-  const getPartLength = (part: unknown): number => {
-    if (!part || typeof part !== "object") return 0;
-    const record = part as Record<string, unknown>;
-    if (typeof record.text === "string") return record.text.length;
-    if (typeof record.thinking === "string") return record.thinking.length;
-    return 0;
-  };
-
-  const truncateParts = (parts: Array<unknown>): Array<unknown> => {
-    const totalChars = parts.reduce<number>((sum, part) => sum + getPartLength(part), 0);
-    if (totalChars <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return parts;
-
-    // Progressively allocate remaining budget across parts.
-    let remainingBudget = FALLBACK_COMPACTION_TRUNCATION_LIMIT;
-    const result = [...parts];
-    for (let i = 0; i < result.length; i++) {
-      const part = result[i];
-      if (!part || typeof part !== "object") continue;
-      const record = part as Record<string, unknown>;
-      if (typeof record.text === "string") {
-        if (record.text.length > remainingBudget) {
-          result[i] = { ...(part as object), text: truncateString(record.text, Math.max(0, remainingBudget)) };
-          remainingBudget = 0;
-        } else {
-          remainingBudget -= record.text.length;
-        }
-      } else if (typeof record.thinking === "string") {
-        if (record.thinking.length > remainingBudget) {
-          result[i] = { ...(part as object), thinking: truncateString(record.thinking, Math.max(0, remainingBudget)) };
-          remainingBudget = 0;
-        } else {
-          remainingBudget -= record.thinking.length;
-        }
-      }
-    }
-    return result;
-  };
-
-  return messages.map((message) => {
-    if (typeof message.content === "string") {
-      if (message.content.length <= FALLBACK_COMPACTION_TRUNCATION_LIMIT) return message;
-      // Use unknown cast to bypass discriminated-union content type narrowing.
-      return { ...message, content: truncateString(message.content) } as unknown as typeof message;
-    }
-    if (Array.isArray(message.content)) {
-      const truncated = truncateParts(message.content as Array<unknown>);
-      if (truncated === message.content) return message;
-      return { ...message, content: truncated } as unknown as typeof message;
-    }
-    return message;
-  });
+  return messages;
 }
 
 export function truncateOversizedContextForFallbackCompaction(parsed: CodexParsedRequest): CodexParsedRequest {
-  const truncatedMessages = truncateOversizedMessagesForFallbackCompaction(parsed.context.messages);
-  const truncatedSystemPrompt = parsed.context.systemPrompt?.map((sys) => truncateString(sys));
-  return {
-    ...parsed,
-    context: {
-      ...parsed.context,
-      messages: truncatedMessages,
-      ...(truncatedSystemPrompt ? { systemPrompt: truncatedSystemPrompt } : {}),
-    },
-  };
+  return parsed;
 }
 
 function originalRequestFromCanonicalSummary(summary: string): string {
@@ -418,16 +347,14 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           const operationSignal = AbortSignal.any([operatorSignal, handoffDeadline.signal]);
           const browserRunner = new CompactionBrowserRunner(retainOwnershipUntil, operationSignal);
           const sourceConversationKey = chatGptConversationKey(parsed, executionNamespace);
+          const checkpointPolicy = new CompactionCheckpointPolicy(parsed, compactionSessionId(parsed));
           const runFreshCompaction = async (reason: string): Promise<string> => {
             route = freshConversationPerTurn ? "fresh" : "fallback";
             record("prepared", "pending", { reasonCode: reason });
             // Fresh compaction is bounded by the global compaction budget
             armHandoffDeadline();
-            // Truncate any individual messages that exceed the per-stage browser char limit.
-            // This is the only path where truncation is acceptable: the model is summarizing
-            // the conversation, so an approximate view of very large records is fine. Normal
-            // task turns never use this path and are never truncated.
-            const fallbackParsed = truncateOversizedContextForFallbackCompaction(parsed);
+            // Preserve every record. The compiler stages losslessly or fails before acceptance.
+            const fallbackParsed = parsed;
             const fallbackRuntime = startRuntime(
               fallbackParsed,
               manualRequest ? environment : undefined,
@@ -442,16 +369,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               record("received", "succeeded", { attempt: 1 });
               // Keep empty output in the validation/repair path; a fabricated draft
               // can never satisfy the structured checkpoint validator.
-              let summary = canonicalizeCompactionHandoff(
-                parsed,
-                rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
-              );
-              let quality = validateCompactionQuality(parsed.context.messages, summary, {
-                requireStructured: true,
-                evidenceSessionId: compactionSessionId(parsed),
-              });
+              let { summary, quality } = checkpointPolicy.inspect(rawSummary);
               recordValidation(summary, quality, false);
-              if (!quality.valid && !manualRequest) {
+              if (!quality.valid && !manualRequest && checkpointPolicy.canRepair) {
                 const previousCheckpoint = parsed.context.messages.findLast(
                   (message) => message.role === "user" && message.origin === "compaction_summary",
                 );
@@ -516,19 +436,16 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   );
                   let repairOutcome: "succeeded" | "failed" = "failed";
                   try {
-                    await browserRunner.run(repairRuntime, (repaired) => {
-                      record("received", "succeeded", { attempt: 2 });
-                      repairOutcome = "succeeded";
-                      summary = canonicalizeCompactionHandoff(
-                        parsed,
-                        repaired.trim() ? repaired : "Empty checkpoint draft",
-                      );
-                      quality = validateCompactionQuality(parsed.context.messages, summary, {
-                        requireStructured: true,
-                        evidenceSessionId: compactionSessionId(parsed),
-                      });
-                      recordValidation(summary, quality, true);
-                    });
+                    const inspection = await checkpointPolicy.repair(rawSummary, () =>
+                      browserRunner.run(repairRuntime, (repaired) => {
+                        record("received", "succeeded", { attempt: 2 });
+                        return repaired;
+                      }),
+                    );
+                    repairOutcome = "succeeded";
+                    summary = inspection.summary;
+                    quality = inspection.quality;
+                    recordValidation(summary, quality, true);
                   } finally {
                     recordRepairDuration(
                       observedRepairDurationsMs,
@@ -660,16 +577,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               );
             }
             if (route === "retained") record("received", "succeeded", { attempt: 1 });
-            let summary = canonicalizeCompactionHandoff(
-              parsed,
-              rawSummary.trim() ? rawSummary : "Empty checkpoint draft",
-            );
-            let quality = validateCompactionQuality(parsed.context.messages, summary, {
-              requireStructured: true,
-              evidenceSessionId: compactionSessionId(parsed),
-            });
+            let { summary, quality } = checkpointPolicy.inspect(rawSummary);
             recordValidation(summary, quality, false);
-            if (!quality.valid && !manualRequest && structuredBroker) {
+            if (!quality.valid && !manualRequest && structuredBroker && checkpointPolicy.canRepair) {
               const probeObservations = repairObservations(
                 parsed,
                 `${quality.missingInvariants.join(" ")} ${summary}`,
@@ -723,20 +633,22 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 repairAttempted = true;
                 record("repair_started", "pending", { attempt: 2 });
                 const repairStarted = Date.now();
-                let repaired: string;
+                let repaired: CompactionCheckpointInspection;
                 let repairOutcome: "succeeded" | "failed" = "failed";
                 try {
-                  repaired = await requestRetainedCompactionHandoff(
-                    worker,
-                    parsed,
-                    source,
-                    structuredBroker,
-                    configuredCapabilities,
-                    `${handoffTraceId}_repair`,
-                    operationSignal,
-                    handoffDeadlineAt - Date.now(),
-                    quality.missingInvariants,
-                    summary,
+                  repaired = await checkpointPolicy.repair(rawSummary, () =>
+                    requestRetainedCompactionHandoff(
+                      worker,
+                      parsed,
+                      source!,
+                      structuredBroker,
+                      configuredCapabilities,
+                      `${handoffTraceId}_repair`,
+                      operationSignal,
+                      handoffDeadlineAt - Date.now(),
+                      quality.missingInvariants,
+                      summary,
+                    ),
                   );
                   record("received", "succeeded", { attempt: 2 });
                   repairOutcome = "succeeded";
@@ -748,11 +660,8 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     operatorSignal.aborted ? "operator_cancelled" : repairOutcome,
                   );
                 }
-                summary = canonicalizeCompactionHandoff(parsed, repaired.trim() ? repaired : "Empty checkpoint draft");
-                quality = validateCompactionQuality(parsed.context.messages, summary, {
-                  requireStructured: true,
-                  evidenceSessionId: compactionSessionId(parsed),
-                });
+                summary = repaired.summary;
+                quality = repaired.quality;
                 recordValidation(summary, quality, true);
               }
             }
@@ -770,14 +679,17 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             if (operationSignal.aborted) throw operationSignal.reason;
             await checkpoint.receiveAndValidate(summary);
             try {
-              const persisted = await checkpoint.persist(() =>
-                persistTurnCompaction(environment, parsed.context.messages, summary),
+              const persisted = await checkpoint.persist(
+                () => persistTurnCompaction(environment, parsed.context.messages, summary),
+                undefined,
+                operationSignal,
               );
               record("persisted", persisted ? "succeeded" : "skipped", { localPersisted: persisted });
               if (persisted && environment?.cwd && sharedSummary) {
                 persistedStructuredRunRoots.set(sharedSummary, environment.cwd);
               }
             } catch {
+              if (operationSignal.aborted) throw operationSignal.reason;
               throw new ChatGptWebAdapterError(
                 "Context checkpoint could not be persisted; original history remains available",
                 {
@@ -939,8 +851,10 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
             ? true
             : persistTurnCompaction(environment, parsed.context.messages, summary),
         (persisted) => record("persisted", persisted ? "succeeded" : "skipped", { localPersisted: persisted }),
+        incoming.abortSignal,
       );
     } catch {
+      if (incoming.abortSignal?.aborted) return true;
       record("failed", "failed", { reasonCode: "context_checkpoint_persistence_failed" });
       emit({
         type: "error",
@@ -952,6 +866,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       });
       return true;
     }
+    if (incoming.abortSignal?.aborted) return true;
     await checkpoint.transition("compaction_accepted");
     record("accepted", "succeeded", { localPersisted });
     const checkpointState = extractStructuredCompactionHandoff(summary).state!;

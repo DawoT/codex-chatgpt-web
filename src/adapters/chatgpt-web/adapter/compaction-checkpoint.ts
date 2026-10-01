@@ -35,10 +35,17 @@ export class CompactionCheckpointTransaction {
     await this.transition("compaction_validated");
   }
 
-  async persist(effect: () => boolean, onLocalPersist?: (persisted: boolean) => void): Promise<boolean> {
+  async persist(
+    effect: () => boolean,
+    onLocalPersist?: (persisted: boolean) => void,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (signal?.aborted) throw new DOMException("Checkpoint persistence aborted", "AbortError");
     const persisted = effect();
     onLocalPersist?.(persisted);
     await this.transition("compaction_persisted");
+    // A completed local write remains journaled for reconciliation after cancellation.
+    if (signal?.aborted) throw new DOMException("Checkpoint persistence aborted", "AbortError");
     return persisted;
   }
 

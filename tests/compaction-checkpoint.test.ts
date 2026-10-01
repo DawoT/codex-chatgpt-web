@@ -103,3 +103,46 @@ test("structured ownership is mandatory when an actor manager is present", async
     await expect(transaction.transition("compaction_prepared")).rejects.toThrow("native turn ownership");
   });
 });
+
+test("cancellation during persistence records recoverable state without accepting history", async () => {
+  await withCheckpoint(async ({ transaction, journal }) => {
+    await transaction.transition("compaction_prepared");
+    await transaction.receiveAndValidate("checkpoint");
+    const before = journal.snapshot("thread")!.historyRevision;
+    const abort = new AbortController();
+    await expect(
+      transaction.persist(
+        () => {
+          abort.abort();
+          return true;
+        },
+        undefined,
+        abort.signal,
+      ),
+    ).rejects.toThrow("aborted");
+    expect(transaction.recovery()?.state).toBe("persisted");
+    expect(journal.snapshot("thread")!.historyRevision).toBe(before);
+    await transaction.rejectIfOpen();
+    expect(transaction.recovery()?.state).toBe("persisted");
+  });
+});
+
+test("already cancelled persistence never invokes its local write", async () => {
+  await withCheckpoint(async ({ transaction }) => {
+    await transaction.transition("compaction_prepared");
+    await transaction.receiveAndValidate("checkpoint");
+    let writes = 0;
+    await expect(
+      transaction.persist(
+        () => {
+          writes += 1;
+          return true;
+        },
+        undefined,
+        AbortSignal.abort(),
+      ),
+    ).rejects.toThrow("aborted");
+    expect(writes).toBe(0);
+    expect(transaction.recovery()?.state).toBe("validated");
+  });
+});
