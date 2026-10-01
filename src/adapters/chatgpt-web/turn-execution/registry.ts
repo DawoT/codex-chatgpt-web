@@ -172,7 +172,7 @@ export class ChatGptTurnSessions {
     conversationKey: string,
     preserved?: { session: ChatGptTurnSession; executionKey: string },
   ): Promise<number> {
-    const pending = this.retirement.pendingConversation(conversationKey);
+    const pending = this.retirement.pendingConversationClose(conversationKey);
     if (pending) {
       await pending;
       return 0;

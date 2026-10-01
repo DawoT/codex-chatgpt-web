@@ -368,3 +368,23 @@ test("conversation retirement blocks owner replacement through physical settleme
     await Promise.all([retirement, replacement]);
   }
 });
+
+test("closing a conversation after trace cancellation still releases its retained epoch once", async () => {
+  const sessions = new ChatGptTurnSessions(60_000, 256);
+  let releases = 0;
+  const turn = controlledRuntime("cancelled_conversation", async () => {
+    releases += 1;
+  });
+  const session = sessions.getOrCreate("cancelled", () => turn.runtime, "trace", "owner");
+  const cancelled = sessions.beginCancelTrace("trace", new Error("operator cancelled"));
+  const closing = sessions.retireConversationAndWait("cancelled_conversation");
+  const duplicate = sessions.retireConversationAndWait("cancelled_conversation");
+  turn.physical.resolve();
+  await Promise.all([cancelled.settlement, session.browserOutcome]);
+  expect(await closing).toBe(1);
+  expect(await duplicate).toBe(0);
+  expect(releases).toBe(1);
+  expect(turn.cancellations()).toBe(1);
+  expect(sessions.find("cancelled")).toBeUndefined();
+  expect(sessions.findConversationHead("cancelled_conversation")).toBeUndefined();
+});

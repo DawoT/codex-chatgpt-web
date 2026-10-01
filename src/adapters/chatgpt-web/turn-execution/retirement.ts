@@ -5,6 +5,7 @@ export class TurnRetirementCoordinator {
   private readonly retirements = new Map<string, Promise<void>>();
   private readonly ownerRetirements = new Map<string, Promise<void>>();
   private readonly conversationRetirements = new Map<string, Promise<void>>();
+  private readonly conversationClosures = new Map<string, Promise<void>>();
 
   pending(key: string): Promise<void> | undefined {
     return this.retirements.get(key);
@@ -18,18 +19,26 @@ export class TurnRetirementCoordinator {
     return this.conversationRetirements.get(conversationKey);
   }
 
+  pendingConversationClose(conversationKey: string): Promise<void> | undefined {
+    return this.conversationClosures.get(conversationKey);
+  }
+
   async trackConversation(
     conversationKey: string,
     retirement: Promise<void>,
     ownerKeys: Iterable<string> = [],
   ): Promise<void> {
     this.conversationRetirements.set(conversationKey, retirement);
+    this.conversationClosures.set(conversationKey, retirement);
     for (const ownerKey of new Set(ownerKeys)) this.trackScope(this.ownerRetirements, ownerKey, retirement);
     try {
       await retirement;
     } finally {
       if (this.conversationRetirements.get(conversationKey) === retirement) {
         this.conversationRetirements.delete(conversationKey);
+      }
+      if (this.conversationClosures.get(conversationKey) === retirement) {
+        this.conversationClosures.delete(conversationKey);
       }
     }
   }
