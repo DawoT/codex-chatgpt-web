@@ -28,7 +28,9 @@ export function createRuntimeIdentity(entrypoint: string | undefined = process.a
       const appDir = dirname(entrypoint);
       const artifactName = basename(entrypoint);
       if (basename(appDir) === "app" && (artifactName === "cli.js" || artifactName === "browser-helper.cjs")) {
-        const manifest = JSON.parse(readFileSync(join(appDir, "..", "manifest.json"), "utf8")) as {
+        const manifestBytes = readFileSync(join(appDir, "..", "manifest.json"), "utf8");
+        artifactVerification = "manifest_mismatch";
+        const manifest = JSON.parse(manifestBytes) as {
           buildCommit?: unknown;
           files?: Array<{ path?: unknown; sha256?: unknown }>;
         };
@@ -36,7 +38,10 @@ export function createRuntimeIdentity(entrypoint: string | undefined = process.a
         const listed = manifest.files?.find((file) => file.path === artifactPath);
         const pairedPaths = ["app/browser-helper.cjs", "app/cli.js"];
         const pairedFiles = pairedPaths.map((path) => manifest.files?.find((file) => file.path === path));
+        if (!pairedFiles.every((file) => file !== undefined)) artifactVerification = "entrypoint_only";
         if (pairedFiles.every((file) => file !== undefined)) {
+          // Once a paired manifest is declared, any missing or unreadable peer is a mismatch.
+          artifactVerification = "manifest_mismatch";
           const actual = pairedPaths.map((path) => ({
             path,
             sha256: createHash("sha256")
@@ -50,15 +55,17 @@ export function createRuntimeIdentity(entrypoint: string | undefined = process.a
             artifactVerification = "manifest_mismatch";
           }
         }
-        if (
-          listed?.sha256 === artifactSha256 &&
-          artifactVerification !== "manifest_mismatch" &&
-          typeof manifest.buildCommit === "string" &&
-          /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(manifest.buildCommit)
-        ) {
-          buildCommit = manifest.buildCommit;
-        } else {
+        if (listed?.sha256 !== artifactSha256) {
           artifactVerification = "manifest_mismatch";
+        } else if (artifactVerification !== "manifest_mismatch" && manifest.buildCommit != null) {
+          if (
+            typeof manifest.buildCommit === "string" &&
+            /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(manifest.buildCommit)
+          ) {
+            buildCommit = manifest.buildCommit;
+          } else {
+            artifactVerification = "manifest_mismatch";
+          }
         }
       }
     } catch {

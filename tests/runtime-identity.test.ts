@@ -292,3 +292,55 @@ test("runtime identity binds both executable artifacts rather than only the CLI 
   expect(changed.artifactVerification).toBe("manifest_mismatch");
   expect(changed.buildCommit).toBeNull();
 });
+
+test("a manifest declaring a missing helper cannot claim a verified commit", () => {
+  const root = mkdtempSync(join(tmpdir(), "runtime-missing-pair-"));
+  roots.push(root);
+  const app = join(root, "app");
+  mkdirSync(app);
+  const cli = join(app, "cli.js");
+  writeFileSync(cli, "const cliVersion = 1;\n");
+  writeFileSync(
+    join(root, "manifest.json"),
+    JSON.stringify({
+      buildCommit: "a".repeat(40),
+      files: [
+        { path: "app/cli.js", sha256: createHash("sha256").update(readFileSync(cli)).digest("hex") },
+        { path: "app/browser-helper.cjs", sha256: "b".repeat(64) },
+      ],
+    }),
+  );
+  expect(createRuntimeIdentity(cli)).toMatchObject({
+    artifactVerification: "manifest_mismatch",
+    artifactSetSha256: null,
+    buildCommit: null,
+  });
+});
+
+test("a dirty development checkout keeps a verified artifact pair without claiming a commit", () => {
+  const root = mkdtempSync(join(tmpdir(), "runtime-dirty-pair-"));
+  roots.push(root);
+  const app = join(root, "app");
+  mkdirSync(app);
+  const files = ["cli.js", "browser-helper.cjs"].map((name) => {
+    const path = join(app, name);
+    writeFileSync(path, "const version = 1;\n");
+    return { path: `app/${name}`, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
+  });
+  writeFileSync(join(root, "manifest.json"), JSON.stringify({ buildCommit: null, files }));
+  expect(createRuntimeIdentity(join(app, "cli.js"))).toMatchObject({
+    artifactVerification: "paired_manifest_verified",
+    artifactSetSha256: expect.any(String),
+    buildCommit: null,
+  });
+});
+
+test("a corrupt existing runtime manifest is a mismatch rather than a legacy source layout", () => {
+  const root = mkdtempSync(join(tmpdir(), "runtime-corrupt-manifest-"));
+  roots.push(root);
+  mkdirSync(join(root, "app"));
+  const cli = join(root, "app", "cli.js");
+  writeFileSync(cli, "const version = 1;\n");
+  writeFileSync(join(root, "manifest.json"), "{bad}");
+  expect(createRuntimeIdentity(cli)).toMatchObject({ artifactVerification: "manifest_mismatch", buildCommit: null });
+});
