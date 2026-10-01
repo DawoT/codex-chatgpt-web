@@ -1,16 +1,26 @@
 import { createHash } from "node:crypto";
-import { decodeCompactionSummary, isReadableCompactionSummaryText, SUMMARY_PREFIX } from "../../responses/compaction";
+import {
+  buildCompactV1Output,
+  decodeCompactionSummary,
+  extractCompactUserMessages,
+  isReadableCompactionSummaryText,
+  SUMMARY_PREFIX,
+} from "../../responses/compaction";
 import type { CodexParsedRequest } from "../../types";
 import type { ChatGptTurnIdentity, ChatGptTurnUserRevision } from "./environment";
+import { extractChatGptCompactionSourceRevision, extractChatGptTurnIdentity } from "./environment";
+import type { SessionActorManager } from "./session-actor/manager";
+import { chatGptTurnExecutionKey } from "./turn-execution/keys";
 
 interface CompletedCheckpoint {
   summaryHash: string;
   sourceHashes: ReadonlySet<string>;
   source: ChatGptTurnUserRevision;
+  stillAccepted?: () => boolean;
 }
 
 // Evidence of a checkpoint actually returned by this daemon, not authority inferred from text
-// that happens to look like a summary. A new process must not invent a missing handoff.
+// that happens to look like a summary. Restart recovery requires exact durable journal evidence.
 const checkpoints = new Map<string, CompletedCheckpoint>();
 const MAX_CHECKPOINTS = 256;
 
@@ -41,6 +51,89 @@ export function rememberCompactionContinuation(
     sourceHashes: new Set(sources.map(sourceDigest)),
     source: structuredClone(sources[0]),
   });
+  while (checkpoints.size > MAX_CHECKPOINTS) checkpoints.delete(checkpoints.keys().next().value!);
+}
+
+/** Wire before structured checkpoint execution; no new persistence authority is introduced. */
+export async function recordCompactionContinuationSource(
+  manager: SessionActorManager,
+  sessionId: string,
+  parsed: CodexParsedRequest,
+): Promise<void> {
+  const identity = extractChatGptTurnIdentity(parsed);
+  if (!parsed._compactionRequest || !identity.threadId || !identity.turnId) return;
+  const source = extractChatGptCompactionSourceRevision(parsed);
+  const body = parsed._rawBody as { input?: unknown[] };
+  // Retained v1 user messages are independent of summary text. Drop the output summary slot.
+  const retained = buildCompactV1Output(extractCompactUserMessages(body.input), "").slice(0, -1);
+  const v1Source =
+    retained.length > 0
+      ? extractChatGptCompactionSourceRevision({ ...parsed, _rawBody: { ...body, input: retained } })
+      : source;
+  const namespace = sessionId.slice(0, sessionId.lastIndexOf(":"));
+  const trace = createHash("sha256")
+    .update(`${namespace}:${chatGptTurnExecutionKey(parsed)}`)
+    .digest("hex")
+    .slice(0, 12);
+  await manager.recordCompactionContinuationSource(sessionId, identity.turnId, `checkpoint:${trace}`, {
+    threadId: identity.threadId,
+    modelId: parsed.modelId,
+    reasoning: parsed.options.reasoning,
+    sources: [source, v1Source],
+  });
+}
+
+/** Recover accepted source/hash/owner evidence before environment or instruction extraction. */
+export function rehydrateCompactionContinuation(
+  manager: SessionActorManager,
+  sessionId: string,
+  parsed: CodexParsedRequest,
+  identity: ChatGptTurnIdentity,
+): void {
+  const requestIdentity = extractChatGptTurnIdentity(parsed);
+  if (
+    !identity.threadId ||
+    !identity.turnId ||
+    requestIdentity.threadId !== identity.threadId ||
+    requestIdentity.turnId !== identity.turnId
+  )
+    return;
+  const acceptedCheckpoints = manager.acceptedCompactionContinuations(sessionId, identity.turnId);
+  // The durable owner fences route-local cache entries too, including entries remembered after response delivery.
+  for (const key of checkpoints.keys()) {
+    const candidate: unknown = JSON.parse(key);
+    if (Array.isArray(candidate) && candidate[0] === identity.threadId && candidate[1] === identity.turnId) {
+      checkpoints.delete(key);
+    }
+  }
+  for (const accepted of acceptedCheckpoints.reverse()) {
+    if (accepted.source.threadId !== identity.threadId) continue;
+    const key = JSON.stringify([
+      identity.threadId,
+      identity.turnId,
+      accepted.source.modelId,
+      accepted.source.reasoning,
+    ]);
+    const checkpoint: CompletedCheckpoint = {
+      summaryHash: digest(accepted.summary),
+      sourceHashes: new Set(accepted.source.sources.map(sourceDigest)),
+      source: structuredClone(accepted.source.sources[0]!),
+      stillAccepted: () => {
+        const current = manager.journal.snapshot(sessionId);
+        return (
+          current?.generation === accepted.generation &&
+          current.turnId === identity.turnId &&
+          manager.journal.compaction(sessionId, accepted.generation, accepted.operationId)?.state === "accepted"
+        );
+      },
+    };
+    // A retry may carry S1 even after S2 was accepted. Select the incoming exact hash,
+    // rather than replacing its authority with the newest checkpoint for the same mode.
+    if (acceptedCheckpointForKey(parsed, identity, key, checkpoint)) {
+      checkpoints.delete(key);
+      checkpoints.set(key, checkpoint);
+    }
+  }
   while (checkpoints.size > MAX_CHECKPOINTS) checkpoints.delete(checkpoints.keys().next().value!);
 }
 
@@ -104,6 +197,10 @@ function acceptedCheckpointForKey(
   key: string,
   checkpoint: CompletedCheckpoint,
 ): { checkpoint: CompletedCheckpoint; summaryIndex: number } | undefined {
+  if (checkpoint.stillAccepted && !checkpoint.stillAccepted()) {
+    checkpoints.delete(key);
+    return undefined;
+  }
   const input = (parsed._rawBody as { input?: unknown[] } | undefined)?.input;
   if (!Array.isArray(input)) return undefined;
   for (let index = input.length - 1; index >= 0; index -= 1) {

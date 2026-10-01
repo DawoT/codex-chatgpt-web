@@ -64,12 +64,14 @@ export class SessionActor {
     operationId: string,
     fields: Pick<
       SessionCommand,
+      | "operationKind"
       | "historyRevision"
       | "parentOperationId"
       | "toolBatchRevision"
       | "surfaceId"
       | "surfaceGeneration"
       | "checkpointRef"
+      | "continuationSourceJson"
     > = {},
     expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
@@ -116,7 +118,10 @@ export class SessionActor {
   async launch(
     intent: SessionCommand,
     effect: (
-      emit: (type: "operation_accepted" | "operation_completed", resultRef?: string) => Promise<void>,
+      emit: (
+        type: "operation_prepared" | "operation_send_activated" | "operation_accepted" | "operation_completed",
+        resultRef?: string,
+      ) => Promise<void>,
     ) => Promise<void>,
   ): Promise<{ acknowledgement: SessionAcknowledgement; settled: Promise<void> }> {
     if (intent.type !== "operation_intent") {
@@ -130,12 +135,15 @@ export class SessionActor {
     if (acknowledgement.status === "accepted" && operation?.state === "completed") {
       return { acknowledgement, settled: Promise.resolve() };
     }
-    if (acknowledgement.status !== "accepted" || (operation?.state !== "intent" && operation?.state !== "uncertain")) {
+    if (acknowledgement.status !== "accepted" || operation?.state !== "intent") {
       throw new Error("Session actor operation requires reconciliation before an external effect");
     }
     const effectProducerId = `effect:${intent.operationId}`;
     let producerSequence = this.journal.nextProducerSequence(this.sessionId, intent.generation, effectProducerId) - 1;
-    const emit = async (type: "operation_accepted" | "operation_completed", resultRef?: string): Promise<void> => {
+    const emit = async (
+      type: "operation_prepared" | "operation_send_activated" | "operation_accepted" | "operation_completed",
+      resultRef?: string,
+    ): Promise<void> => {
       producerSequence += 1;
       const result = await this.dispatch({
         ...intent,

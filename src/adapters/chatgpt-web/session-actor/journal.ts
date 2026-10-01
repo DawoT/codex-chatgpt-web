@@ -225,14 +225,17 @@ export class SessionActorJournal {
   }
 
   wasOperationAccepted(sessionId: string, generation: number, operationId: string): boolean {
-    const row = this.database
-      .query<{ count: number }, [string, number, string]>(`
-      SELECT COUNT(*) AS count FROM session_event
-      WHERE session_id = ? AND generation = ? AND producer_id = ?
-        AND command_json LIKE '%"type":"operation_accepted"%'
-    `)
-      .get(sessionId, generation, `effect:${operationId}`);
-    return (row?.count ?? 0) > 0;
+    return this.findLocalTransition(sessionId, generation, "operation_accepted", operationId) !== null;
+  }
+
+  /** New browser turns record preparation before exposing the mandatory pre-Send hook. */
+  wasOperationNotSent(sessionId: string, generation: number, operationId: string): boolean {
+    return (
+      this.operation(sessionId, generation, operationId)?.kind === "browser_send" &&
+      this.findLocalTransition(sessionId, generation, "operation_prepared", operationId) !== null &&
+      this.findLocalTransition(sessionId, generation, "operation_send_activated", operationId) === null &&
+      !this.wasOperationAccepted(sessionId, generation, operationId)
+    );
   }
 
   uncertainBrowserSendOperations(): Array<OperationRow> {
@@ -383,6 +386,25 @@ export class SessionActorJournal {
       .get(sessionId);
   }
 
+  /** Accepted rows alone are authority; open, rejected and revoked epochs never qualify. */
+  acceptedCompactions(
+    sessionId: string,
+    generation: number,
+    turnId: string,
+  ): Array<{ operationId: string; checkpointRef: string }> {
+    return this.database
+      .query<{ operationId: string; checkpointRef: string }, [string, number, string]>(`
+      SELECT checkpoint.operation_id AS operationId, checkpoint.checkpoint_ref AS checkpointRef
+      FROM session_compaction AS checkpoint
+      JOIN session_actor AS actor ON actor.session_id = checkpoint.session_id
+        AND actor.generation = checkpoint.generation AND actor.turn_id = checkpoint.turn_id
+      WHERE checkpoint.session_id = ? AND checkpoint.generation = ? AND checkpoint.turn_id = ?
+        AND checkpoint.state = 'accepted' AND checkpoint.checkpoint_ref IS NOT NULL
+      ORDER BY checkpoint.history_revision DESC
+    `)
+      .all(sessionId, generation, turnId);
+  }
+
   compaction(sessionId: string, generation: number, operationId: string): (CompactionRow & { turnId: string }) | null {
     return this.database
       .query<CompactionRow & { turnId: string }, [string, number, string]>(`
@@ -468,6 +490,13 @@ export class SessionActorJournal {
       const session = this.snapshot(sessionId);
       if (operation?.state !== "uncertain" || !session) {
         throw new Error("Session actor operation is not pending reconciliation");
+      }
+      if (
+        outcome === "not_sent" &&
+        (this.wasOperationAccepted(sessionId, generation, operationId) ||
+          this.findLocalTransition(sessionId, generation, "operation_send_activated", operationId))
+      ) {
+        throw new Error("Session actor send witness requires reconciliation with completion evidence");
       }
       const state = outcome === "not_sent" ? "abandoned" : "completed";
       this.database
@@ -696,6 +725,24 @@ export class SessionActorJournal {
         );
       return;
     }
+    if (command.type === "operation_prepared" || command.type === "operation_send_activated") {
+      const pending = operation();
+      if (
+        pending?.kind !== "browser_send" ||
+        pending.turnId !== command.turnId ||
+        pending.historyRevision !== session.historyRevision ||
+        pending.state !== "intent"
+      ) {
+        throw new Error("Session actor send preparation or activation ownership mismatch");
+      }
+      if (
+        command.type === "operation_send_activated" &&
+        !this.findLocalTransition(command.sessionId, command.generation, "operation_prepared", command.operationId)
+      ) {
+        throw new Error("Session actor send activation requires durable preparation");
+      }
+      return;
+    }
     if (
       command.type === "operation_accepted" ||
       command.type === "operation_completed" ||
@@ -792,6 +839,12 @@ export class SessionActorJournal {
           throw new Error("Session actor tool emission requires a prepared call");
         }
       }
+      return;
+    }
+    if (command.type === "compaction_source_recorded") {
+      if (!command.continuationSourceJson) throw new Error("Session actor checkpoint source is required");
+      const checkpoint = this.compaction(command.sessionId, command.generation, command.operationId);
+      if (checkpoint) throw new Error("Session actor checkpoint source must precede preparation");
       return;
     }
     if (command.type.startsWith("compaction_")) {

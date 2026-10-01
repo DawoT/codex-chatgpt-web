@@ -1,9 +1,13 @@
+import type { ChatGptTurnUserRevision } from "../environment/types";
+
 /** Wire and storage shapes shared by session actors, the journal and their callers. */
 export const SESSION_ACTOR_PROTOCOL_VERSION = 5;
 
 export type SessionEventType =
   | "turn_started"
   | "operation_intent"
+  | "operation_prepared"
+  | "operation_send_activated"
   | "operation_accepted"
   | "operation_completed"
   | "operation_uncertain"
@@ -13,6 +17,7 @@ export type SessionEventType =
   | "surface_claimed"
   | "surface_released"
   | "surface_reconciled"
+  | "compaction_source_recorded"
   | "compaction_prepared"
   | "compaction_received"
   | "compaction_validated"
@@ -36,6 +41,7 @@ export interface SessionCommand {
   surfaceGeneration?: number;
   resultRef?: string;
   checkpointRef?: string;
+  continuationSourceJson?: string;
   parentOperationId?: string;
   toolBatchRevision?: number;
 }
@@ -44,3 +50,11 @@ export type SessionAcknowledgement =
   | { status: "accepted"; sequence: number }
   | { status: "recovery_required"; expectedProducerSequence: number }
   | { status: "stale_generation"; currentGeneration: number };
+
+/** Authored source evidence stored in the existing journal, before checkpoint execution. */
+export interface SessionCompactionContinuationSource {
+  threadId: string;
+  modelId: string;
+  reasoning?: string;
+  sources: ChatGptTurnUserRevision[];
+}

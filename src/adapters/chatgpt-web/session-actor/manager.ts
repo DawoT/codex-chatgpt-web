@@ -3,7 +3,7 @@ import { chatGptNativeThreadOwnershipKey } from "../turn-execution/keys";
 import { SessionActor } from "./actor";
 import type { SessionActorJournal } from "./journal";
 import type { SessionResultStore } from "./results";
-import type { SessionAcknowledgement } from "./types";
+import type { SessionAcknowledgement, SessionCompactionContinuationSource } from "./types";
 import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
 
 /** Holds only actor mailboxes; the WAL journal owns session state. */
@@ -66,59 +66,59 @@ export class SessionActorManager {
     return this.actor(sessionId).recordLocal("turn_started", nativeTurnId, `turn:${nativeTurnId}`);
   }
 
-  /**
-   * Auto-abandon or complete uncertain operations for a specific session at runtime.
-   * If an operation has no result on disk (ENOENT), it was never completed and is
-   * auto-abandoned so it does not block future turns or effects. If currentTurnId
-   * and currentOperationId match, that operation is actively being retried and is skipped.
-   */
+  /** Missing completion is ambiguous unless the journal positively proves Send was not activated. */
   recoverUncertainOperationsForSession(sessionId: string, currentTurnId?: string, currentOperationId?: string): void {
-    if (!this.results) return;
-    const uncertain = this.journal.uncertainOperationsForSession(sessionId);
-    for (const op of uncertain) {
+    for (const operation of this.journal.uncertainOperationsForSession(sessionId)) {
       if (
         currentTurnId &&
-        op.turnId === currentTurnId &&
-        (!currentOperationId || op.operationId === currentOperationId)
+        operation.turnId === currentTurnId &&
+        (!currentOperationId || operation.operationId === currentOperationId)
       ) {
         continue;
       }
-      const ref = this.results.referenceFor({
-        sessionId: op.sessionId,
-        generation: op.generation,
-        turnId: op.turnId,
-        operationId: op.operationId,
-      });
-      let hasResult = false;
-      try {
-        this.results.get(ref);
-        hasResult = true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          console.error(
-            `[session-actor] session ${sessionId} uncertain op ${op.operationId} result check failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          continue;
-        }
+      this.recoverUncertainOperation(operation);
+    }
+  }
+
+  private recoverUncertainOperation(operation: NonNullable<ReturnType<SessionActorJournal["operation"]>>): void {
+    if (!this.results) return;
+    const ref = this.results.referenceFor(operation);
+    try {
+      const result = this.results.get(ref);
+      if (
+        result.sessionId !== operation.sessionId ||
+        result.generation !== operation.generation ||
+        result.turnId !== operation.turnId ||
+        result.operationId !== operation.operationId
+      ) {
+        throw new Error("Session actor recovery result ownership mismatch");
       }
-      try {
-        if (hasResult) {
-          this.journal.reconcileOperation(op.sessionId, op.generation, op.operationId, "completed", ref);
-          console.info(
-            `[session-actor] reconciled completed uncertain op ${op.operationId} for session ${op.sessionId}`,
-          );
-        } else {
-          const evidenceRef = `not-sent:${ref}`;
-          this.journal.reconcileOperation(op.sessionId, op.generation, op.operationId, "not_sent", evidenceRef);
-          console.info(
-            `[session-actor] abandoned unrecoverable uncertain op ${op.operationId} for session ${op.sessionId}`,
-          );
-        }
-      } catch (error) {
-        console.error(
-          `[session-actor] could not reconcile uncertain op ${op.operationId}: ${error instanceof Error ? error.message : String(error)}`,
+      // Tool result files are prepared before delivery; they do not prove its completion.
+      if (operation.kind === "browser_send") {
+        this.journal.reconcileOperation(
+          operation.sessionId,
+          operation.generation,
+          operation.operationId,
+          "completed",
+          ref,
         );
       }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (this.journal.wasOperationNotSent(operation.sessionId, operation.generation, operation.operationId)) {
+          this.journal.reconcileOperation(
+            operation.sessionId,
+            operation.generation,
+            operation.operationId,
+            "not_sent",
+            `prepared:${ref}`,
+          );
+        }
+        return;
+      }
+      console.error(
+        `[session-actor] uncertain op ${operation.operationId} recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -226,52 +226,71 @@ export class SessionActorManager {
     return revoked;
   }
 
-  /**
-   * Called once during server startup after the journal has run recoverInterrupted().
-   * For each uncertain browser_send operation that has no result file (i.e. the browser
-   * never completed the send before the server was killed), the operation is immediately
-   * abandoned so it no longer blocks future operation_intent commands.
-   */
+  /** Startup recovery uses the same evidence rules as recovery of a live session. */
   recoverUncertainOperations(): void {
-    if (!this.results) return;
-    const uncertain = this.journal.uncertainOperations();
-    for (const op of uncertain) {
-      const ref = this.results.referenceFor({
-        sessionId: op.sessionId,
-        generation: op.generation,
-        turnId: op.turnId,
-        operationId: op.operationId,
-      });
-      let hasResult = false;
-      try {
-        this.results.get(ref);
-        hasResult = true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          console.error(
-            `[session-actor] uncertain op ${op.operationId} result check failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          continue;
-        }
-      }
-      if (hasResult) {
-        // Result exists — will be auto-reconciled as completed when the next turn starts.
-        continue;
-      }
-      // No result file: the browser never sent. Mark as abandoned so new turns can proceed.
-      try {
-        // Use a stable synthetic evidence ref that fits within the 256-char limit.
-        const evidenceRef = `not-sent:${ref}`;
-        this.journal.reconcileOperation(op.sessionId, op.generation, op.operationId, "not_sent", evidenceRef);
-        console.info(
-          `[session-actor] abandoned unrecoverable uncertain op ${op.operationId} for session ${op.sessionId}`,
-        );
-      } catch (error) {
-        console.error(
-          `[session-actor] could not abandon uncertain op ${op.operationId}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+    for (const operation of this.journal.uncertainOperations()) this.recoverUncertainOperation(operation);
+  }
+
+  async recordCompactionContinuationSource(
+    sessionId: string,
+    nativeTurnId: string,
+    operationId: string,
+    source: SessionCompactionContinuationSource,
+  ): Promise<void> {
+    if (!sessionId.endsWith(`:${chatGptNativeThreadOwnershipKey(source.threadId)}`) || !source.sources[0]) {
+      throw new Error("Session actor checkpoint source ownership mismatch");
     }
+    const admission = await this.beginTurn(sessionId, nativeTurnId);
+    if (admission.status !== "accepted") throw new Error("Session actor checkpoint source requires recovery");
+    const generation = this.journal.snapshot(sessionId)!.generation;
+    const acknowledgement = await this.actor(sessionId).recordLocal(
+      "compaction_source_recorded",
+      nativeTurnId,
+      operationId,
+      { continuationSourceJson: JSON.stringify(source) },
+      generation,
+    );
+    if (acknowledgement.status !== "accepted") throw new Error("Session actor checkpoint source requires recovery");
+  }
+
+  acceptedCompactionContinuations(
+    sessionId: string,
+    nativeTurnId: string,
+  ): Array<{
+    generation: number;
+    operationId: string;
+    summary: string;
+    source: SessionCompactionContinuationSource;
+  }> {
+    const snapshot = this.journal.snapshot(sessionId);
+    if (!snapshot || snapshot.turnId !== nativeTurnId || !this.results) return [];
+    return this.journal.acceptedCompactions(sessionId, snapshot.generation, nativeTurnId).flatMap((checkpoint) => {
+      const recorded = this.journal.findLocalTransition(
+        sessionId,
+        snapshot.generation,
+        "compaction_source_recorded",
+        checkpoint.operationId,
+        nativeTurnId,
+      );
+      if (!recorded?.command.continuationSourceJson) return [];
+      const source = JSON.parse(recorded.command.continuationSourceJson) as SessionCompactionContinuationSource;
+      if (
+        typeof source.threadId !== "string" ||
+        typeof source.modelId !== "string" ||
+        (source.reasoning !== undefined && typeof source.reasoning !== "string") ||
+        !sessionId.endsWith(`:${chatGptNativeThreadOwnershipKey(source.threadId)}`) ||
+        !Array.isArray(source.sources) ||
+        !source.sources[0] ||
+        source.sources.some((revision) => !revision || !("content" in revision))
+      ) {
+        throw new Error("Session actor checkpoint source identity mismatch");
+      }
+      const recovered = this.checkpointRecovery(sessionId, nativeTurnId, checkpoint.operationId);
+      if (recovered?.state !== "accepted") return [];
+      return [
+        { generation: snapshot.generation, operationId: checkpoint.operationId, summary: recovered.summary, source },
+      ];
+    });
   }
 
   checkpointRecovery(
@@ -544,10 +563,47 @@ export class SessionActorManager {
       onSurfaceLeased: (surfaceId: string) => Promise<void>,
       onSurfaceReleased: (surfaceId: string) => Promise<void>,
       onResultReady: (text: string) => Promise<void>,
+      onSendActivated: () => Promise<void>,
     ) => Promise<string>,
     onAdmitted?: (generation: number) => void,
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
+    const current = this.journal.snapshot(sessionId);
+    if (current?.turnId === nativeTurnId) {
+      const replay = this.journal.operation(sessionId, current.generation, operationId);
+      if (replay?.state === "completed" || replay?.state === "uncertain") {
+        if (replay.kind !== "browser_send" || replay.turnId !== nativeTurnId) {
+          throw new Error("Session actor browser replay ownership mismatch");
+        }
+        const ref = replay.state === "completed" ? replay.resultRef : this.results.referenceFor(replay);
+        if (!ref) throw new Error("Session actor browser replay has no durable result reference");
+        let result: ReturnType<SessionResultStore["get"]> | undefined;
+        try {
+          result = this.results.get(ref);
+        } catch (error) {
+          if (replay.state === "completed" || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        if (result) {
+          if (
+            result.sessionId !== sessionId ||
+            result.generation !== current.generation ||
+            result.turnId !== nativeTurnId ||
+            result.operationId !== operationId
+          ) {
+            throw new Error("Session actor browser replay result ownership mismatch");
+          }
+          if (replay.state === "uncertain") {
+            await this.actor(sessionId).reconcile(operationId, current.generation, "completed", ref);
+          }
+          const owner = this.journal.snapshot(sessionId);
+          if (owner?.generation !== current.generation || owner.turnId !== nativeTurnId) {
+            throw new Error("Session actor browser replay ownership changed during reconciliation");
+          }
+          onAdmitted?.(current.generation);
+          return result.text;
+        }
+      }
+    }
     this.recoverUncertainOperationsForSession(sessionId, nativeTurnId, operationId);
     await this.reconcileRevokedSurfaces(sessionId);
     const admission = await this.beginTurn(sessionId, nativeTurnId);
@@ -566,29 +622,13 @@ export class SessionActorManager {
       if (existing.turnId !== nativeTurnId) {
         throw new Error("Session actor uncertain operation belongs to another turn");
       }
-      const ref = this.results.referenceFor({
-        sessionId,
-        generation,
-        turnId: nativeTurnId,
-        operationId,
-      });
-      let recovered: ReturnType<SessionResultStore["get"]> | undefined;
-      try {
-        recovered = this.results.get(ref);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw error;
-        }
-      }
-      if (recovered) {
-        await actor.reconcile(operationId, generation, "completed", ref);
-        return recovered.text;
-      }
-      if (this.journal.wasOperationAccepted(sessionId, generation, operationId)) {
+      const ref = this.results.referenceFor(existing);
+      if (!this.journal.wasOperationNotSent(sessionId, generation, operationId)) {
         throw new Error("Session actor browser send requires reconciliation before retry");
       }
+      await actor.reconcile(operationId, generation, "not_sent", `prepared:${ref}`);
     }
-    if (existing?.state === "abandoned") {
+    if (this.journal.operation(sessionId, generation, operationId)?.state === "abandoned") {
       this.journal.resetAbandonedOperation(sessionId, generation, operationId);
     }
     const intent = {
@@ -604,6 +644,12 @@ export class SessionActorManager {
       historyRevision: snapshot.historyRevision,
     };
     const launched = await actor.launch(intent, async (emit) => {
+      await emit("operation_prepared");
+      let activation: Promise<void> | undefined;
+      const onSendActivated = (): Promise<void> => {
+        activation ??= emit("operation_send_activated");
+        return activation;
+      };
       let acceptance: Promise<void> | undefined;
       const onAccepted = (): Promise<void> => {
         acceptance ??= emit("operation_accepted");
@@ -726,7 +772,14 @@ export class SessionActorManager {
           text,
         });
       };
-      const text = await run(onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased, onResultReady);
+      const text = await run(
+        onAccepted,
+        onToolBatchObserved,
+        onSurfaceLeased,
+        onSurfaceReleased,
+        onResultReady,
+        onSendActivated,
+      );
       await onAccepted();
       assertResultOwner();
       const resultRef = this.results!.put({

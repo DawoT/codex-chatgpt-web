@@ -675,7 +675,7 @@ test("tool observation is durably acknowledged before the browser result and ded
       },
     );
     expect(answer).toBe("Answer after tools");
-    expect(home.journal.snapshot("namespace/thread-A")?.sequence).toBe(5);
+    expect(home.journal.snapshot("namespace/thread-A")?.sequence).toBe(6);
   } finally {
     home.close();
   }
@@ -1586,7 +1586,7 @@ test("global cancellation selects a pending checkpoint but ignores a rejected on
   }
 });
 
-test("recoverUncertainOperations abandons unrecoverable uncertain operations regardless of kind", async () => {
+test("recoverUncertainOperations preserves accepted browser sends and interrupted tool deliveries", async () => {
   const home = fixture();
   try {
     const results = new SessionResultStore(join(dirname(home.path), "results"));
@@ -1638,23 +1638,17 @@ test("recoverUncertainOperations abandons unrecoverable uncertain operations reg
       const recoveredManager = new SessionActorManager(reopened, results);
       recoveredManager.recoverUncertainOperations();
 
-      // Both operations should now be abandoned because neither had a persisted result file
-      expect(reopened.operation(sessionId, 1, "tool-result:call-1")?.state).toBe("abandoned");
-      expect(reopened.operation(sessionId, 1, browserOpId)?.state).toBe("abandoned");
-
-      // Verify that starting a new turn and launching an operation is not blocked by uncertain effects
-      await recoveredManager.beginTurn(sessionId, "turn-2");
-      const actor2 = recoveredManager.actor(sessionId);
-      const admission = await actor2.dispatch({
-        ...command(sessionId, 1, "operation_intent", {
-          turnId: "turn-2",
-          operationId: "browser:trace-2",
-          operationKind: "browser_send",
-          historyRevision: 0,
+      // Missing completion evidence cannot erase either accepted external effect.
+      expect(reopened.operation(sessionId, 1, "tool-result:call-1")?.state).toBe("uncertain");
+      expect(reopened.operation(sessionId, 1, browserOpId)?.state).toBe("uncertain");
+      let effects = 0;
+      await expect(
+        recoveredManager.runBrowserTurn(sessionId, "turn-2", "browser:trace-2", async () => {
+          effects += 1;
+          return "unsafe replacement";
         }),
-        producerId: "test-2",
-      });
-      expect(admission.status).toBe("accepted");
+      ).rejects.toThrow("reconciliation");
+      expect(effects).toBe(0);
     } finally {
       reopened.close();
     }
@@ -1744,7 +1738,7 @@ test("hot runtime self-healing: aborted browser turn without result auto-abandon
     expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
 
     // 2. Retry of the same operation should NOT fail with "requires reconciliation before retry"
-    // Instead, it should detect ENOENT on result file, auto-abandon the unsent operation, and execute cleanly!
+    // Durable preparation without Send activation proves that this retry is safe.
     const retryResult = await manager.runBrowserTurn(
       sessionId,
       "turn-1",
@@ -1818,7 +1812,7 @@ test("hot runtime self-healing: unrecovered uncertain operation does not block a
   }
 });
 
-test("hot runtime self-healing: accepted but failed browser turn without result auto-abandons and allows a new turn in the same session", async () => {
+test("accepted browser failure without result preserves uncertainty and blocks a replacement send", async () => {
   const home = fixture();
   try {
     const results = new SessionResultStore(join(dirname(home.path), "results"));
@@ -1838,21 +1832,16 @@ test("hot runtime self-healing: accepted but failed browser turn without result 
     expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
     expect(home.journal.wasOperationAccepted(sessionId, 1, "browser:trace-1")).toBe(true);
 
-    // 2. Client launches turn-2 with a new operationId:
-    const turn2Result = await manager.runBrowserTurn(
-      sessionId,
-      "turn-2",
-      "browser:trace-2",
-      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
-        await onAccepted();
-        await onResultReady("Turn 2 succeeded");
-        return "Turn 2 succeeded";
-      },
-    );
-
-    expect(turn2Result).toBe("Turn 2 succeeded");
-    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("abandoned");
-    expect(home.journal.operation(sessionId, 1, "browser:trace-2")?.state).toBe("completed");
+    let effects = 0;
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-2", "browser:trace-2", async () => {
+        effects += 1;
+        return "unsafe replacement";
+      }),
+    ).rejects.toThrow("reconciliation");
+    expect(effects).toBe(0);
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-2")).toBeNull();
   } finally {
     home.close();
   }

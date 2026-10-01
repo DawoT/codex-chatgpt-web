@@ -35,6 +35,7 @@ import {
   codexTurnBindingRetiredError,
 } from "./adapter-error";
 import { type BrowserTurn, ChatGptBrowserWorker } from "./browser-worker";
+import { recordCompactionContinuationSource, rehydrateCompactionContinuation } from "./compaction-continuation";
 import {
   defaultSubagentGovernor,
   MAX_CHATGPT_BROWSER_TABS,
@@ -183,13 +184,18 @@ export function createChatGptWebAdapter(
       if (!manager || !identity.threadId || !identity.turnId) return worker.run(turn);
       const sessionId = `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`;
       const originalSubmitted = turn.onSubmitted;
+      const originalSendActivated = turn.onSendActivated;
       return manager.runBrowserTurn(
         sessionId,
         identity.turnId,
         `browser:${traceId}`,
-        (onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased, onResultReady) =>
+        (onAccepted, onToolBatchObserved, onSurfaceLeased, onSurfaceReleased, onResultReady, onSendActivated) =>
           worker.run({
             ...turn,
+            onSendActivated: async () => {
+              await onSendActivated();
+              await originalSendActivated?.();
+            },
             onSubmitted: async () => {
               await onAccepted();
               await originalSubmitted?.();
@@ -573,6 +579,17 @@ export function createChatGptWebAdapter(
           ? undefined
           : createChatGptStructuredOutputValidator(parsed.options.outputFormat);
         const bufferStructuredOutput = structuredOutputValidator !== undefined;
+        if (dependencies.sessionActorManager) {
+          const identity = extractChatGptTurnIdentity(parsed);
+          if (identity.threadId && identity.turnId) {
+            rehydrateCompactionContinuation(
+              dependencies.sessionActorManager,
+              `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`,
+              parsed,
+              identity,
+            );
+          }
+        }
         const retryKey = `${executionNamespace}:${chatGptTurnRetryKey(parsed)}`;
         const exhaustedRetry = chatGptWebTurnRetryPolicy.exhaustedError(retryKey);
         if (exhaustedRetry) {
@@ -624,6 +641,13 @@ export function createChatGptWebAdapter(
         }
 
         if (parsed._compactionRequest) {
+          if (dependencies.sessionActorManager) {
+            await recordCompactionContinuationSource(
+              dependencies.sessionActorManager,
+              `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`,
+              parsed,
+            );
+          }
           const handled = await executeCompactionFlow({
             worker,
             parsed,
