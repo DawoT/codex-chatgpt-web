@@ -188,3 +188,111 @@ test("an interrupted turn cannot invoke through a binding captured before the in
     rmSync(root, { recursive: true, force: true });
   }
 }, 15_000);
+
+test("terminal revocation survives catalog eviction: a pre-existing alias cannot readmit the turn", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-terminal-evict-1-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const tokenA = await broker.register(environment(root), 60_000, "trace-evict-alias");
+    // C was an authorized successor while A lived, so an alias A -> C exists and C stays live.
+    const tokenC = await broker.register(environment(root), 60_000, "trace-evict-alias", false, "turn", tokenA);
+    broker.revoke(tokenA, new Error("interrupted by the operator"), { terminal: true });
+
+    // Evict A's retirement record with 64+ further revocations.
+    for (let index = 0; index < 70; index += 1) {
+      const churn = await broker.register(environment(root), 60_000, `trace-evict-churn-${index}`);
+      broker.revoke(churn, new Error("churn"), { terminal: true });
+    }
+
+    // The eviction must reduce permissions, never restore them: A stays unreadmissible even
+    // though its record is gone and C is still active.
+    expect(broker.resolveActiveToken(tokenA)).toBeUndefined();
+    await expect(
+      callTurnBroker(socketPath, { method: "claim", token: tokenA, activityId: "activity_evict_alias_1234567" }),
+    ).rejects.toThrow();
+    expect(broker.resolveActiveToken(tokenC)?.resolvedToken).toBe(tokenC);
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 15_000);
+
+test("an explicit predecessor whose retirement record was evicted cannot authorize or route to a successor", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-terminal-evict-2-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const tokenA = await broker.register(
+      environment(root),
+      60_000,
+      "trace-evict-pred",
+      false,
+      "turn",
+      undefined,
+      "thread-evict-pred",
+    );
+    broker.revoke(tokenA, new Error("interrupted by the operator"), { terminal: true });
+    expect(() => broker.registerAlias(tokenA, "turn_owner_regrant_xxxxxxxxxxxx")).toThrow();
+
+    for (let index = 0; index < 70; index += 1) {
+      const churn = await broker.register(environment(root), 60_000, `trace-evict-churn-b-${index}`);
+      broker.revoke(churn, new Error("churn"), { terminal: true });
+    }
+
+    // The continuation registers B declaring A as predecessor exactly like production does,
+    // but A no longer carries accredited authorization: no alias may be established from it.
+    const tokenB = await broker.register(
+      environment(root),
+      60_000,
+      "trace-evict-pred",
+      false,
+      "turn",
+      tokenA,
+      "thread-evict-pred",
+    );
+
+    expect(broker.resolveActiveToken(tokenA)).toBeUndefined();
+    await expect(
+      callTurnBroker(socketPath, { method: "claim", token: tokenA, activityId: "activity_evict_pred_1234567" }),
+    ).rejects.toThrow();
+    expect(broker.resolveActiveToken(tokenB)?.resolvedToken).toBe(tokenB);
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 15_000);
+
+test("a compatibly retired turn routes while its record exists and loses routing after eviction", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cgw-terminal-evict-3-"));
+  const socketPath = defaultBrokerEndpoint(root);
+  const broker = TurnBroker.forSocket(socketPath);
+  try {
+    const tokenA = await broker.register(environment(root), 60_000, "trace-evict-compat");
+    const tokenC = await broker.register(environment(root), 60_000, "trace-evict-compat", false, "turn", tokenA);
+    broker.revoke(tokenA);
+
+    // Positive compatible evidence: the finished turn still routes to its live successor.
+    const claimed = await callTurnBroker<{ bindingId: string }>(socketPath, {
+      method: "claim",
+      token: tokenA,
+      activityId: "activity_evict_compat_1234567",
+    });
+    expect(claimed.bindingId).toBeDefined();
+
+    for (let index = 0; index < 70; index += 1) {
+      const churn = await broker.register(environment(root), 60_000, `trace-evict-churn-c-${index}`);
+      broker.revoke(churn);
+    }
+
+    // Once the record is evicted the handle is unknown: routing fails closed even though the
+    // lineage alias and the live successor still exist.
+    await expect(
+      callTurnBroker(socketPath, { method: "claim", token: tokenA, activityId: "activity_evict_gone_1234567" }),
+    ).rejects.toThrow("turn token is invalid, expired, or revoked");
+    expect(broker.resolveActiveToken(tokenC)?.resolvedToken).toBe(tokenC);
+  } finally {
+    await broker.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 15_000);
