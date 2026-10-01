@@ -48,12 +48,12 @@ export interface ChatGptAssistantTurnBinding {
 }
 
 /**
- * Dispatch surface the turn observation diagnostics rely on through their `this`.
- * The worker owns the DOM observation primitives and lends them to the borrowed
- * prototype dispatch, so stubs installed on the worker instance or on
- * `ChatGptBrowserWorker.prototype` keep steering every internal call.
+ * Dependencies the turn observation diagnostics borrow from the worker, injected as late-bound
+ * functions: the DOM observation primitives owned by the composed SubmissionObserver and
+ * ResponseObserver. The worker supplies lambdas closing over `this`, so stubs installed on the
+ * worker instance or on `ChatGptBrowserWorker.prototype` keep steering every internal call.
  */
-export interface ChatGptTurnDiagnosticsHost {
+export interface TurnDiagnosticsDeps {
   submissionDomState(
     page: Page,
     cache?: ChatGptSubmissionDomCache,
@@ -91,8 +91,9 @@ export interface ChatGptTurnDiagnosticsHost {
 }
 
 export class TurnDiagnostics {
+  constructor(private readonly deps: TurnDiagnosticsDeps) {}
+
   async waitForNewAssistantTurn(
-    this: ChatGptTurnDiagnosticsHost,
     page: Page,
     baseline: ChatGptSubmissionBaseline,
     deadline: number | undefined,
@@ -125,7 +126,7 @@ export class TurnDiagnostics {
       await throwIfChatGptRateLimitDialog(observationPage);
       let state: ChatGptSubmissionDomState;
       try {
-        state = await this.submissionDomState(observationPage, observationBaseline.domCache, signal);
+        state = await this.deps.submissionDomState(observationPage, observationBaseline.domCache, signal);
       } catch (error) {
         const latestProgress = externalProgress?.snapshot();
         const isRunning = await observationPage
@@ -144,7 +145,7 @@ export class TurnDiagnostics {
           multiChannelLivenessActive
         ) {
           const prevKey = domSignalKey;
-          domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+          domSignalKey = await this.deps.waitForTurnDomRevisionOrExternalProgress(
             observationPage,
             domSignalKey,
             latestProgress?.revision ?? 0,
@@ -172,7 +173,7 @@ export class TurnDiagnostics {
         }
         if (!chatGptExternalProgressIsLive(latestProgress, Date.now(), graceMs)) throw error;
         const prevKey = domSignalKey;
-        domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+        domSignalKey = await this.deps.waitForTurnDomRevisionOrExternalProgress(
           observationPage,
           domSignalKey,
           latestProgress?.revision ?? 0,
@@ -200,7 +201,7 @@ export class TurnDiagnostics {
           boundaryText = identity
             ? (
                 await withChatGptBrowserObservationTimeout(
-                  this.responseDomSnapshot(observationPage.locator(chatGptAssistantTurnSelector(identity)), {}),
+                  this.deps.responseDomSnapshot(observationPage.locator(chatGptAssistantTurnSelector(identity)), {}),
                   3_000,
                 )
               ).visibleText
@@ -231,7 +232,7 @@ export class TurnDiagnostics {
         throw new Error("ChatGPT accepted the message but did not expose its assistant turn in the DOM");
       }
       const prevKey = domSignalKey;
-      domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+      domSignalKey = await this.deps.waitForTurnDomRevisionOrExternalProgress(
         observationPage,
         domSignalKey,
         progress?.revision ?? 0,
@@ -245,7 +246,6 @@ export class TurnDiagnostics {
   }
 
   async reconcileAssistantTurnBinding(
-    this: ChatGptTurnDiagnosticsHost,
     page: Page,
     baseline: ChatGptSubmissionBaseline,
     binding: ChatGptAssistantTurnBinding,
@@ -258,7 +258,7 @@ export class TurnDiagnostics {
     if (boundCount > 1) {
       throw new Error(`ChatGPT exposed ${boundCount} DOM nodes for the bound assistant turn`);
     }
-    const state = await this.submissionDomState(page, baseline.domCache, signal);
+    const state = await this.deps.submissionDomState(page, baseline.domCache, signal);
     const acceptedTurns = new Set(binding.acceptedTurnIdentities);
     const identity = chatGptReboundTurnIdentity(
       baseline.initialTurnIdentities,
@@ -303,7 +303,7 @@ export class TurnDiagnostics {
               ),
             ));
         if (matches) {
-          const response = await this.responseDomSnapshot(locator, {});
+          const response = await this.deps.responseDomSnapshot(locator, {});
           matches = response.responsePresent && response.completionActionVisible;
         }
       }
@@ -323,7 +323,6 @@ export class TurnDiagnostics {
   }
 
   async waitForSubmissionAcceptedWithRecovery(
-    this: ChatGptTurnDiagnosticsHost,
     page: Page,
     baseline: ChatGptSubmissionBaseline,
     abortSignal?: AbortSignal,
@@ -338,7 +337,7 @@ export class TurnDiagnostics {
     let domSignalKey: string | undefined;
     for (;;) {
       try {
-        const evidence = await this.waitForSubmissionAccepted(
+        const evidence = await this.deps.waitForSubmissionAccepted(
           observationPage,
           observationBaseline,
           abortSignal,
@@ -369,17 +368,13 @@ export class TurnDiagnostics {
           multiChannelLivenessActive ||
           chatGptExternalProgressIsLive(latestProgress, Date.now(), CHATGPT_RESPONSE_DOM_GRACE_MS)
         ) {
-          if (typeof this.waitForTurnDomRevisionOrExternalProgress === "function") {
-            domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
-              observationPage,
-              domSignalKey,
-              latestProgress?.revision ?? 0,
-              externalProgress,
-              abortSignal,
-            );
-          } else {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-          }
+          domSignalKey = await this.deps.waitForTurnDomRevisionOrExternalProgress(
+            observationPage,
+            domSignalKey,
+            latestProgress?.revision ?? 0,
+            externalProgress,
+            abortSignal,
+          );
           continue;
         }
         if (!recoverObservation) throw error;

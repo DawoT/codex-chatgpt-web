@@ -49,7 +49,6 @@ import {
   type ChatGptAssistantTurnBinding,
   type ChatGptObservationRecovery,
   type ChatGptSubmissionObservationRecovery,
-  type ChatGptTurnDiagnosticsHost,
   TurnDiagnostics,
 } from "./browser/turn-diagnostics";
 import { ChatGptTurnEventBus } from "./browser/turn-events";
@@ -395,6 +394,51 @@ export class ChatGptBrowserWorker {
     return this.submissionObserverInstance;
   }
 
+  private turnDiagnosticsInstance?: TurnDiagnostics;
+  private get turnDiagnostics(): TurnDiagnostics {
+    if (!this.turnDiagnosticsInstance) {
+      this.turnDiagnosticsInstance = new TurnDiagnostics({
+        submissionDomState: (page, cache, signal) => this.submissionDomState(page, cache, signal),
+        waitForTurnDomOrExternalProgress: (page, afterProgressRevision, externalProgress, signal) =>
+          this.waitForTurnDomOrExternalProgress(page, afterProgressRevision, externalProgress, signal),
+        waitForTurnDomRevisionOrExternalProgress: (
+          page,
+          afterDomKey,
+          afterProgressRevision,
+          externalProgress,
+          signal,
+          options,
+        ) =>
+          this.waitForTurnDomRevisionOrExternalProgress(
+            page,
+            afterDomKey,
+            afterProgressRevision,
+            externalProgress,
+            signal,
+            options,
+          ),
+        responseDomSnapshot: (locator, cache) => this.responseDomSnapshot(locator, cache),
+        waitForSubmissionAccepted: (
+          page,
+          baseline,
+          signal,
+          externalProgress,
+          initialToolBatchRevision,
+          completionTracker,
+        ) =>
+          this.waitForSubmissionAccepted(
+            page,
+            baseline,
+            signal,
+            externalProgress,
+            initialToolBatchRevision,
+            completionTracker,
+          ),
+      });
+    }
+    return this.turnDiagnosticsInstance;
+  }
+
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
     // A page can be recycled for a different chat. Its old pressure must not follow
     // the new conversation, while response snapshots can still resolve by page.
@@ -718,8 +762,7 @@ export class ChatGptBrowserWorker {
     recoverObservation?: ChatGptObservationRecovery,
     turnEvents?: ChatGptTurnEventBus,
   ): Promise<ChatGptAssistantTurnBinding> {
-    return TurnDiagnostics.prototype.waitForNewAssistantTurn.call(
-      this as unknown as ChatGptTurnDiagnosticsHost,
+    return this.turnDiagnostics.waitForNewAssistantTurn(
       page,
       baseline,
       deadline,
@@ -738,13 +781,7 @@ export class ChatGptBrowserWorker {
     binding: ChatGptAssistantTurnBinding,
     signal?: AbortSignal,
   ): Promise<ChatGptAssistantTurnBinding> {
-    return TurnDiagnostics.prototype.reconcileAssistantTurnBinding.call(
-      this as unknown as ChatGptTurnDiagnosticsHost,
-      page,
-      baseline,
-      binding,
-      signal,
-    );
+    return this.turnDiagnostics.reconcileAssistantTurnBinding(page, baseline, binding, signal);
   }
 
   private async attachedPromptText(page: Page, abortSignal?: AbortSignal): Promise<string> {
@@ -863,8 +900,7 @@ export class ChatGptBrowserWorker {
     completionTracker?: ChatGptCompletionTracker,
     recoverObservation?: ChatGptObservationRecovery,
   ): Promise<ChatGptSubmissionEvidence> {
-    return TurnDiagnostics.prototype.waitForSubmissionAcceptedWithRecovery.call(
-      this as unknown as ChatGptTurnDiagnosticsHost,
+    return this.turnDiagnostics.waitForSubmissionAcceptedWithRecovery(
       page,
       baseline,
       abortSignal,
