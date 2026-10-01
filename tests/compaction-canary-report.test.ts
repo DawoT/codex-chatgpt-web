@@ -8,7 +8,7 @@ function event(traceId: string, phase: string, options: Record<string, unknown> 
     phase,
     outcome: "succeeded",
     route: "retained",
-    runtime: { generation: "gen-a", artifactSha256: "build-a", protocolVersion: 1 },
+    runtime: { generation: "gen-a", artifactSha256: "a".repeat(64), protocolVersion: 1 },
     ...options,
   })}`;
 }
@@ -42,7 +42,7 @@ test("mixed build identity cannot certify a durable canary", () => {
     event("aaa", "persisted", { localPersisted: true }),
     event("aaa", "accepted"),
     event("aaa", "delivered", {
-      runtime: { generation: "gen-b", artifactSha256: "build-b", protocolVersion: 1 },
+      runtime: { generation: "gen-b", artifactSha256: "b".repeat(64), protocolVersion: 1 },
     }),
   ]);
   expect(report).toMatchObject({ durableCompleted: 0, mixedBuildTraces: 1 });
@@ -76,4 +76,38 @@ test("a completed browser draft and repair with repeated validation failures cou
     deliveredWithoutLocalPersistence: 0,
     fallbackDurableCompleted: 0,
   });
+});
+
+test("missing artifact or protocol identity cannot certify a durable canary", () => {
+  for (const runtime of [{ generation: "gen-a" }, { generation: "gen-a", protocolVersion: 1, artifactSha256: null }]) {
+    const report = summarizeCompactionCanaryLines([
+      event("incomplete-build", "persisted", { runtime, localPersisted: true }),
+      event("incomplete-build", "accepted", { runtime }),
+      event("incomplete-build", "delivered", { runtime }),
+    ]);
+    expect(report.durableCompleted).toBe(0);
+    expect(report.malformedEvents).toBe(3);
+  }
+});
+
+test("rejected acceptance or delivery never counts as durable completion", () => {
+  for (const phase of ["accepted", "delivered"]) {
+    const report = summarizeCompactionCanaryLines([
+      event("rejected-terminal", "persisted", { localPersisted: true }),
+      event("rejected-terminal", "accepted", { outcome: phase === "accepted" ? "rejected" : "succeeded" }),
+      event("rejected-terminal", "delivered", { outcome: phase === "delivered" ? "rejected" : "succeeded" }),
+    ]);
+    expect(report.durableCompleted).toBe(0);
+    expect(report.rejected).toBe(1);
+  }
+});
+
+test("non-object JSON events are counted as malformed without crashing reporting", () => {
+  const report = summarizeCompactionCanaryLines([
+    "[chatgpt-web] compaction_event null",
+    "[chatgpt-web] compaction_event []",
+    '[chatgpt-web] compaction_event "invalid"',
+  ]);
+  expect(report.malformedEvents).toBe(3);
+  expect(report.traces).toBe(0);
 });

@@ -55,10 +55,19 @@ export class CompactionCanaryAccumulator {
       return;
     }
     if (
+      !event ||
+      typeof event !== "object" ||
       event.schemaVersion !== 1 ||
       typeof event.traceId !== "string" ||
+      !event.traceId ||
       typeof event.phase !== "string" ||
-      !event.runtime?.generation
+      !["pending", "succeeded", "skipped", "rejected", "failed"].includes(event.outcome) ||
+      typeof event.runtime?.generation !== "string" ||
+      !event.runtime.generation ||
+      !Number.isSafeInteger(event.runtime.protocolVersion) ||
+      Number(event.runtime.protocolVersion) <= 0 ||
+      typeof event.runtime.artifactSha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(event.runtime.artifactSha256)
     ) {
       this.malformedEvents += 1;
       return;
@@ -72,7 +81,7 @@ export class CompactionCanaryAccumulator {
       failed: false,
       rejected: false,
     };
-    trace.phases.add(event.phase);
+    if (event.outcome === "succeeded") trace.phases.add(event.phase);
     trace.builds.add(
       JSON.stringify([event.runtime.protocolVersion, event.runtime.artifactSha256, event.runtime.generation]),
     );
@@ -81,9 +90,9 @@ export class CompactionCanaryAccumulator {
       trace.persisted ||= event.outcome === "succeeded" && event.localPersisted === true;
       trace.skippedPersistence ||= event.outcome === "skipped" && event.localPersisted === false;
     }
-    if (event.phase === "failed") {
+    if (event.phase === "failed" || event.phase === "accepted" || event.phase === "delivered") {
       trace.rejected ||= event.outcome === "rejected";
-      trace.failed ||= event.outcome !== "rejected";
+      trace.failed ||= event.outcome === "failed" || (event.phase === "failed" && event.outcome !== "rejected");
     }
     this.traces.set(event.traceId, trace);
   }
