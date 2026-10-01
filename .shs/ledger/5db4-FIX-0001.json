@@ -1,0 +1,42 @@
+{
+  "id": "5db4-FIX-0001",
+  "timestamp_utc": "2026-10-01T17:36:09.617224+00:00",
+  "session_id": "5db4dc01-498a-4f7b-9316-8ca27784e12f",
+  "agente_responsable": "R: current Codex conversation, direct implementation; no independent A/V identities claimed",
+  "tipo": "Bugfix (corrección de código)",
+  "referencias_entradas": [
+    "b025-FEAT-0001"
+  ],
+  "prev_id": "b025-FEAT-0001",
+  "prev_hash": "94e2dd27db2855e1af3de85d64c5c705a5bdcb7484e84333db3b664411339770",
+  "ticket_or_adr": "docs/harness-usage-accounting-incident.md",
+  "evidencia": {
+    "risk": "R2xM",
+    "recordStatus": "Unsigned local evidence; formal release approval pending.",
+    "sessionIdMeaning": "Locally generated namespace for this record, not a verified harness identity.",
+    "receipt": {
+      "path": "docs/evidence/usage-accounting-20261001/verification.json",
+      "sha256": "c767f78285e19348dcf4e77bf27ff80f08dc956f4b790006ab48e6760c790195"
+    },
+    "adr": {
+      "path": "docs/harness-usage-accounting-incident.md",
+      "sha256": "8b6fd846997d052464bc335610e73b811e60881c95e6448b4faf23b8fc4eb9c1"
+    },
+    "red": {
+      "src/adapters/chatgpt-web/usage.ts": "b7e6a3246b4578345207e2b4b40aca609b5882c2002089bd32ef8d2be08c06ae",
+      "tests/chatgpt-web-harness.test.ts": "510af2e3746f726cb70ed1e266332689c0d7658e1bf2a615aa47dc9ea926aa0e",
+      "tests/chatgpt-web-usage-boundary.test.ts": "fbb72aa581d776ab927ab61246d0cbbf7a6495e763b5d9dbd3a5d4cd15f42a76"
+    },
+    "green": {
+      "src/adapters/chatgpt-web/usage.ts": "70803e859c4ea02a79edbc32907cb38241d1caa8c20a42b13f715cdcd4142fb3",
+      "tests/chatgpt-web-harness.test.ts": "510af2e3746f726cb70ed1e266332689c0d7658e1bf2a615aa47dc9ea926aa0e",
+      "tests/chatgpt-web-usage-boundary.test.ts": "fbb72aa581d776ab927ab61246d0cbbf7a6495e763b5d9dbd3a5d4cd15f42a76"
+    },
+    "baseHead": "8be1ef0830245e0c954d5f38710626d3ef9ed76b",
+    "provenanceLimit": "Exact baseline/overlay reproduction; no separate RED commit.",
+    "independentApproval": false
+  },
+  "aprobaciones": [],
+  "estado": "Vigente",
+  "entry_hash": "977455f2ba573723c4cd9db5f854da6117249a0572bc8b28ec60202771bb296f"
+}

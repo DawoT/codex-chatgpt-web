@@ -110,14 +110,16 @@ export function estimateChatGptWebUsage(
   parsed: CodexParsedRequest,
   evidence: ChatGptWebRoundEvidence,
   capabilities: ChatGptWebCapabilities,
-  experimentalBiggerContext = false,
+  _experimentalBiggerContext = false,
   experimentalSkillAttachments = false,
 ): CodexUsage {
+  // Tool rounds accumulate in an already running browser conversation. Usage
+  // describes that logical context; it does not authorize another Send. Planning
+  // a hypothetical resend here can reject completed tools or the final answer
+  // once history exceeds a physical message boundary. Delivery validates its
+  // selected transport separately before Send.
   const inputTokens = estimateChatGptWebInputTokens(parsed, capabilities, {
     experimentalSkillAttachments,
-    experimentalMultipartParts: experimentalBiggerContext
-      ? resolveBiggerContextMultipartParts(parsed, capabilities, experimentalSkillAttachments)
-      : undefined,
   });
   const outputTokens = conservativeTextTokens(roundEvidenceText(evidence), parsed.modelId);
   return {

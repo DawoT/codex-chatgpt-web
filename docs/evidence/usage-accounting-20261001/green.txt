@@ -1,0 +1,28 @@
+bun test v1.4.2 (744846f84)
+
+tests/chatgpt-web-usage-boundary.test.ts:
+(pass) usage measures accumulated tool history even when a fresh transport cannot carry it [797.54ms]
+
+tests/chatgpt-web-harness.test.ts:
+[chatgpt-web] broker trace=2ccdc4ad7264 registered tokenHash=<redacted> threadId=thread_test_123
+[chatgpt-web] broker claim received (tokenChars=37, tokenHash=<redacted>, valid=true)
+[chatgpt-web] broker trace=2ccdc4ad7264 queued call=call_qXuWVDj_xFOx tool=exec_command waiters=1
+[chatgpt-web] broker trace=2ccdc4ad7264 delivered call=call_qXuWVDj_xFOx path=waiter replay=false
+[chatgpt-web] broker trace=2ccdc4ad7264 completed call=call_qXuWVDj_xFOx count=1 pending=0
+[chatgpt-web] browser_settled {"traceId":"2ccdc4ad7264","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"2ccdc4ad7264","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":1,"completionCommitted":false}
+(pass) ChatGPT outer-native harness v4 > recalculates active-turn usage with Bigger Context=%s [139.20ms]
+[chatgpt-web] broker trace=d8082aa6027a registered tokenHash=<redacted> threadId=thread_test_123
+[chatgpt-web] broker claim received (tokenChars=37, tokenHash=<redacted>, valid=true)
+[chatgpt-web] broker trace=d8082aa6027a queued call=call_Jn2LMDZLDWYe tool=exec_command waiters=1
+[chatgpt-web] broker trace=d8082aa6027a delivered call=call_Jn2LMDZLDWYe path=waiter replay=false
+[chatgpt-web] broker trace=d8082aa6027a completed call=call_Jn2LMDZLDWYe count=1 pending=0
+[chatgpt-web] browser_settled {"traceId":"d8082aa6027a","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"d8082aa6027a","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":1,"completionCommitted":false}
+(pass) ChatGPT outer-native harness v4 > recalculates active-turn usage with Bigger Context=%s [101.26ms]
+
+ 3 pass
+ 94 filtered out
+ 0 fail
+ 19 expect() calls
+Ran 3 tests across 2 files. [1336.00ms]

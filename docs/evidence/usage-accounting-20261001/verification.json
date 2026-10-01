@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-01T17:36:09.617007+00:00",
+  "scope": "Local incident diagnosis and usage-accounting fix, without live activation or delegated agents.",
+  "risk": "R2xM",
+  "incident": {
+    "occurredAt": "2026-10-01T17:19:45.158Z",
+    "traceId": "cc59d5d5464c",
+    "model": "chatgpt-web/gpt-5.6-sol",
+    "effort": "high",
+    "code": "context_length_exceeded",
+    "origin": "host_usage_accounting_hypothetical_transport",
+    "messageChars": 46726,
+    "messageCharLimit": 45000,
+    "lastInputTokensEstimated": 64921,
+    "advertisedCodexContextWindow": 240300,
+    "completedToolResults": 11,
+    "pendingToolCallsAtRetirement": 1,
+    "submission": "accepted",
+    "helperCaptureCode": "abort_unknown"
+  },
+  "privateSourceSnapshots": [
+    {
+      "reference": "launcher.jsonl",
+      "bytes": 3700038,
+      "sha256": "2dee4c336886f24e6bde191ca1743ef1c8b2998cd2ec5eba51b2dd2de5ebbe0b",
+      "capturedAt": "2026-10-01T17:36:09.613753+00:00",
+      "rawPrivate": true,
+      "mutableSource": true
+    },
+    {
+      "reference": "host-telemetry.jsonl",
+      "bytes": 99568,
+      "sha256": "f668025036d01055b08d9890c3b98a32abbbc739f053ec5b089d93f6933a03fa",
+      "capturedAt": "2026-10-01T17:36:09.614350+00:00",
+      "rawPrivate": true,
+      "mutableSource": true
+    },
+    {
+      "reference": "failed-browser-capture.json",
+      "bytes": 222162,
+      "sha256": "5a60b4d26e6cf3b4c32467bf5c790fe4c3fec42831a2fdb18423806faf2b1714",
+      "capturedAt": "2026-10-01T17:36:09.614872+00:00",
+      "rawPrivate": true,
+      "mutableSource": true
+    },
+    {
+      "reference": "codex-rollout.jsonl",
+      "bytes": 1058131,
+      "sha256": "206916705d4c0cb312c4d6ae60752517e89b105e70869f197be28f82b5c7124a",
+      "capturedAt": "2026-10-01T17:36:09.615860+00:00",
+      "rawPrivate": true,
+      "mutableSource": true
+    }
+  ],
+  "snapshot": {
+    "baseHead": "8be1ef0830245e0c954d5f38710626d3ef9ed76b",
+    "baseSourceTree": "afe3bc270f4a43a75d2dd54e07b67714b5bee35d",
+    "redFiles": {
+      "src/adapters/chatgpt-web/usage.ts": "b7e6a3246b4578345207e2b4b40aca609b5882c2002089bd32ef8d2be08c06ae",
+      "tests/chatgpt-web-harness.test.ts": "510af2e3746f726cb70ed1e266332689c0d7658e1bf2a615aa47dc9ea926aa0e",
+      "tests/chatgpt-web-usage-boundary.test.ts": "fbb72aa581d776ab927ab61246d0cbbf7a6495e763b5d9dbd3a5d4cd15f42a76"
+    },
+    "greenFiles": {
+      "src/adapters/chatgpt-web/usage.ts": "70803e859c4ea02a79edbc32907cb38241d1caa8c20a42b13f715cdcd4142fb3",
+      "tests/chatgpt-web-harness.test.ts": "510af2e3746f726cb70ed1e266332689c0d7658e1bf2a615aa47dc9ea926aa0e",
+      "tests/chatgpt-web-usage-boundary.test.ts": "fbb72aa581d776ab927ab61246d0cbbf7a6495e763b5d9dbd3a5d4cd15f42a76"
+    },
+    "isolation": "Archived committed source with overlaid regression tests; external dependencies symlinked to the installed checkout. No separate RED commit; no independent verifier."
+  },
+  "commands": [
+    {
+      "command": "bun test tests/chatgpt-web-usage-boundary.test.ts tests/chatgpt-web-harness.test.ts -t 'usage measures accumulated|recalculates active-turn usage'",
+      "phase": "red",
+      "exitCode": 1,
+      "pass": 1,
+      "fail": 2,
+      "filtered": 94,
+      "privateRawSha256": "1f60fdcc89984739d96e9831860bd6e9a63ade08e7f9e47ded472a2087e2feb2"
+    },
+    {
+      "command": "bun test tests/chatgpt-web-usage-boundary.test.ts tests/chatgpt-web-harness.test.ts -t 'usage measures accumulated|recalculates active-turn usage'",
+      "phase": "green",
+      "exitCode": 0,
+      "pass": 3,
+      "fail": 0,
+      "filtered": 94,
+      "privateRawSha256": "b613bfad9d6f2a644db57fd5075a96911e8a4574e4ac758a3ee836b236ca5d07"
+    },
+    {
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "privateRawSha256": "e576e4d30f5392d9dec436980fdafe8b9b900832b6fe6adc3043841047674093"
+    },
+    {
+      "command": "bun run lint",
+      "exitCode": 0,
+      "warnings": 88,
+      "privateRawSha256": "6b385fce756022352f351b9a7c2e4e3c7709b2efb2efd1788156ab6f81ead109"
+    },
+    {
+      "command": "bun run check:refactor-gates",
+      "exitCode": 0,
+      "gatesPassed": 4,
+      "privateRawSha256": "836f6dec213a681113ab4f8daa2d4f0e3b20cdc347f84fe9a911d74c51fa4e93"
+    },
+    {
+      "command": "bun test ./tests",
+      "exitCode": 0,
+      "pass": 2341,
+      "skip": 14,
+      "fail": 0,
+      "durationSeconds": 230.68,
+      "privateRawSha256": "801861fac6d2f3f6b420bda89a04e74c539ff5eafe6cb2560c57365795d578bb"
+    },
+    {
+      "command": "bun run test:browser-contracts",
+      "exitCode": 0,
+      "pass": 37,
+      "fail": 0,
+      "durationSeconds": 259.29,
+      "privateRawSha256": "eb2423ea1ae31bfac436bb514f3de60070094b4182d730ed8c373e982c1bf6ed"
+    }
+  ],
+  "sanitization": [
+    {
+      "path": "docs/evidence/usage-accounting-20261001/red.txt",
+      "originalSha256": "1f60fdcc89984739d96e9831860bd6e9a63ade08e7f9e47ded472a2087e2feb2",
+      "sanitizedSha256": "2b9f094daa3b878d2a9d6009215cf06f9a6a0680179746144086251433a9c04f",
+      "transformation": "Replace private paths and synthetic capability hashes; strip trailing whitespace. Test outcomes preserved."
+    },
+    {
+      "path": "docs/evidence/usage-accounting-20261001/green.txt",
+      "originalSha256": "b613bfad9d6f2a644db57fd5075a96911e8a4574e4ac758a3ee836b236ca5d07",
+      "sanitizedSha256": "84110fee9c07cbac91f1aa79b43d0ff59cf0a470735d05d9dc64ae8f27b8117c",
+      "transformation": "Replace private paths and synthetic capability hashes; strip trailing whitespace. Test outcomes preserved."
+    }
+  ],
+  "isolatedBuild": {
+    "command": "bun run scripts/build-development-runtime.ts <private archived reproduction root>",
+    "commandPathRedaction": true,
+    "sourceInputsSha256": "aae1b6c206616c233ed7e2627af7107c354ed58e1369db3942acf13c95530b61",
+    "artifactSetSha256": "2f24bc88acfaf95d04984b9b0541f0b1d90fcbacb0130c60afe666e9ac69bcd5",
+    "files": [
+      {
+        "path": "app/browser-helper.cjs",
+        "size": 1191457,
+        "sha256": "b6a1169c10b48feb5b60d14db5b55ea225eb623cfb9065a4189f5cfdac9f9148"
+      },
+      {
+        "path": "app/cli.js",
+        "size": 3094188,
+        "sha256": "276981d4c182d306bd31bd1a51d4c1de167b64ae5f5019eebeb10c55a297f821"
+      }
+    ],
+    "dependencies": "frozen-lockfile-copy",
+    "buildCommit": null,
+    "cliSmoke": {
+      "exitCode": 0,
+      "version": "6.2.0"
+    },
+    "helperSmoke": {
+      "exitCode": 0,
+      "protocolVersion": 2,
+      "artifactSetSha256": "2f24bc88acfaf95d04984b9b0541f0b1d90fcbacb0130c60afe666e9ac69bcd5",
+      "artifactVerification": "paired_manifest_verified",
+      "browserStarted": false,
+      "isolatedHome": true
+    },
+    "activated": false
+  },
+  "limitations": [
+    "No separate RED commit; baseline HEAD and exact overlay file hashes recorded.",
+    "No independent Approver or Verifier, no A/V signatures.",
+    "Broker tests use a controlled worker; no authenticated live acceptance of this fix.",
+    "Original frozen receipt and original ledger unchanged."
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-01T17:38:58.575205+00:00",
+  "verificationReceipt": {
+    "path": "docs/evidence/usage-accounting-20261001/verification.json",
+    "sha256": "c767f78285e19348dcf4e77bf27ff80f08dc956f4b790006ab48e6760c790195"
+  },
+  "runtimeRoot": ".launcher-runtime/aae1b6c206616c233ed7e2627af7107c354ed58e1369db3942acf13c95530b61",
+  "sourceInputsSha256": "aae1b6c206616c233ed7e2627af7107c354ed58e1369db3942acf13c95530b61",
+  "artifactSetSha256": "d4459e8451b366b71cfbc20c9b492cb41a8691ebc47c6008d41711afd64aca19",
+  "buildCommit": null,
+  "files": [
+    {
+      "path": "app/browser-helper.cjs",
+      "size": 1184993,
+      "sha256": "1c0b38d5941342a63f4c6220efa7923dca11ab2764fb9e23dfc603ba899624e4"
+    },
+    {
+      "path": "app/cli.js",
+      "size": 3074737,
+      "sha256": "821e71828e59e94ff5560c6fbca74c968a1ee9514540315f01b7b6475bb38bf4"
+    }
+  ],
+  "cliSmoke": {
+    "exitCode": 0,
+    "version": "6.2.0"
+  },
+  "helperSmoke": {
+    "exitCode": 0,
+    "protocolVersion": 2,
+    "artifactVerification": "paired_manifest_verified",
+    "isolatedHome": true,
+    "browserStarted": false
+  },
+  "activated": false,
+  "note": "Prepared in the checkout after the isolated build. Artifact bytes differ across build roots; this exact pair was independently smoked locally. Launcher pins its snapshot for its lifetime; relaunch is needed to select new source inputs."
+}

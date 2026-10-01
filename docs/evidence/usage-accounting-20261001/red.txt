@@ -1,0 +1,88 @@
+bun test v1.4.2 (744846f84)
+
+tests/chatgpt-web-usage-boundary.test.ts:
+208 |     } catch (error) {
+209 |       if (!(error instanceof ChatGptWebAdapterError) && !(error instanceof RangeError)) throw error;
+210 |       lastError = error;
+211 |     }
+212 |   }
+213 |   throw lastError;
+              ^
+ChatGptWebAdapterError: A Bigger Context message contains 76,613 characters, exceeding the 45,000-character safe browser boundary. An individual record cannot be split or discarded; compact earlier.
+      at selectCompiledChatGptWebTransport (<archived-reproduction>/src/adapters/chatgpt-web/browser/multipart-plan.ts:213:9)
+      at resolveBiggerContextMultipartParts (<archived-reproduction>/src/adapters/chatgpt-web/usage.ts:71:20)
+      at estimateChatGptWebUsage (<archived-reproduction>/src/adapters/chatgpt-web/usage.ts:119:9)
+      at <anonymous> (<archived-reproduction>/tests/chatgpt-web-usage-boundary.test.ts:41:17)
+(fail) usage measures accumulated tool history even when a fresh transport cannot carry it [1313.83ms]
+
+tests/chatgpt-web-harness.test.ts:
+[chatgpt-web] broker trace=755b89fa1b11 registered tokenHash=<redacted> threadId=thread_test_123
+[chatgpt-web] broker claim received (tokenChars=37, tokenHash=<redacted>, valid=true)
+[chatgpt-web] broker trace=755b89fa1b11 queued call=call_nQfWtJRckyCy tool=exec_command waiters=1
+[chatgpt-web] broker trace=755b89fa1b11 delivered call=call_nQfWtJRckyCy path=waiter replay=false
+[chatgpt-web] broker trace=755b89fa1b11 completed call=call_nQfWtJRckyCy count=1 pending=0
+[chatgpt-web] browser_settled {"traceId":"755b89fa1b11","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"755b89fa1b11","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":1,"completionCommitted":false}
+(pass) ChatGPT outer-native harness v4 > recalculates active-turn usage with Bigger Context=%s [121.67ms]
+[chatgpt-web] broker trace=af616548f048 registered tokenHash=<redacted> threadId=thread_test_123
+[chatgpt-web] broker claim received (tokenChars=37, tokenHash=<redacted>, valid=true)
+[chatgpt-web] broker trace=af616548f048 queued call=call_taHQN_W2rTNo tool=exec_command waiters=1
+[chatgpt-web] broker trace=af616548f048 delivered call=call_taHQN_W2rTNo path=waiter replay=false
+[chatgpt-web] broker trace=af616548f048 completed call=call_taHQN_W2rTNo count=1 pending=0
+[chatgpt-web] browser_settled {"traceId":"af616548f048","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"af616548f048","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":1,"completionCommitted":false}
+[chatgpt-web] browser turn failed: 127 |   };
+128 |   const compaction = isCompaction ?? transport?.isCompaction ?? false;
+129 |   if (transport) {
+130 |     const oversized = Math.max(transport.maxStageChars, transport.finalMessageChars);
+131 |     if (!compaction && oversized > PREFLIGHT_MAX_STAGE_CHAR_LIMIT) {
+132 |       throw new ChatGptWebAdapterError(
+                  ^
+ChatGptWebAdapterError: A Bigger Context message contains 114,704 characters, exceeding the 45,000-character safe browser boundary. An individual record cannot be split or discarded; compact earlier.
+    status: 400,
+ errorType: "invalid_request_error",
+ retryable: false,
+      code: "context_length_exceeded"
+
+      at assertChatGptWebMultipartInputWithinLimits (<archived-reproduction>/src/adapters/chatgpt-web/browser/staging-limits.ts:132:13)
+      at buildMultipartPlan (<archived-reproduction>/src/adapters/chatgpt-web/browser/multipart-plan.ts:114:5)
+      at selectCompiledChatGptWebTransport (<archived-reproduction>/src/adapters/chatgpt-web/browser/multipart-plan.ts:180:20)
+      at resolveBiggerContextMultipartParts (<archived-reproduction>/src/adapters/chatgpt-web/usage.ts:71:20)
+      at estimateChatGptWebUsage (<archived-reproduction>/src/adapters/chatgpt-web/usage.ts:119:9)
+      at <anonymous> (<archived-reproduction>/src/adapters/chatgpt-web/index.ts:984:21)
+      at emitRoundBatch (<archived-reproduction>/src/adapters/chatgpt-web/index.ts:706:11)
+      at <anonymous> (<archived-reproduction>/src/adapters/chatgpt-web/index.ts:981:17)
+      at async <anonymous> (<archived-reproduction>/src/adapters/chatgpt-web/index.ts:1031:25)
+
+2752 |
+2753 |       const finalEvents: AdapterEvent[] = [];
+2754 |       await adapter.runTurn!(continuation, { headers: new Headers() }, (event) => finalEvents.push(event));
+2755 |       const finalDone = finalEvents.at(-1) as Extract<AdapterEvent, { type: "done" }>;
+2756 |       expect(browserStarts).toBe(1);
+2757 |       expect(finalDone).toMatchObject({ type: "done", stopReason: "stop", endTurn: true });
+                               ^
+error: expect(received).toMatchObject(expected)
+
+  {
+-   "endTurn": true,
+-   "stopReason": "stop",
+-   "type": "done",
++   "code": "context_length_exceeded",
++   "errorType": "invalid_request_error",
++   "message": "A Bigger Context message contains 114,704 characters, exceeding the 45,000-character safe browser boundary. An individual record cannot be split or discarded; compact earlier.",
++   "retryable": false,
++   "status": 400,
++   "type": "error",
+  }
+
+- Expected  - 3
++ Received  + 6
+
+      at <anonymous> (<archived-reproduction>/tests/chatgpt-web-harness.test.ts:2757:25)
+(fail) ChatGPT outer-native harness v4 > recalculates active-turn usage with Bigger Context=%s [922.99ms]
+
+ 1 pass
+ 94 filtered out
+ 2 fail
+ 11 expect() calls
+Ran 3 tests across 2 files. [2.66s]

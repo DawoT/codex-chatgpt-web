@@ -2654,12 +2654,13 @@ describe("ChatGPT outer-native harness v4", () => {
     await broker.close();
   });
 
-  test("recalculates usage from tool results added during the active browser turn", async () => {
+  test.each([false, true])("recalculates active-turn usage with Bigger Context=%s", async (biggerContext) => {
     const socketPath = brokerTestEndpoint(`cgw-h3-usage-${process.pid}-${Date.now()}`);
     const provider: CodexProviderConfig = {
       adapter: "chatgpt-web",
       baseUrl: "browser://chatgpt-usage-test",
       chatgptWeb: {
+        experimentalBiggerContext: biggerContext,
         brokerSocketPath: socketPath,
         turnTimeoutMs: 30_000,
         localToolsEnabled: true,
