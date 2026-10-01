@@ -20,9 +20,7 @@ jobs:
       - name: Install deterministic DOM browser
         run: bunx --no-install playwright-core install --with-deps chromium
       - name: Exercise browser DOM contracts
-        run: |
-          CHATGPT_DOM_TEST_BROWSER="$(bun -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')" \
-            bun test tests/chatgpt-effort-browser.test.ts tests/browser-turn-binding.test.ts tests/chatgpt-limits-browser.test.ts
+        run: bun run test:browser-contracts
       - name: Install Codex 0.158.0
         run: |
           bun add --global @openai/codex@0.158.0

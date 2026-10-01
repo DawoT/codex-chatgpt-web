@@ -29,6 +29,7 @@
     "dev:launcher": "bun run src/cli.ts dev launcher",
     "dev:chat": "bun run src/cli.ts dev chat",
     "test": "bun test ./tests",
+    "test:browser-contracts": "bun run scripts/check-browser-contracts.ts",
     "audit": "bun audit",
     "audit:dogfood": "bun run scripts/dogfood-audit.ts",
     "prune:sessions": "bun run scripts/prune-codex-rollouts.ts",
