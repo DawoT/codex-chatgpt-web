@@ -11,6 +11,7 @@ import {
   chatGptNewChatUrl,
   detectChatGptAccountCapabilities,
 } from "../src/chatgpt-session";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 test("saved chats start empty and cannot reuse an arbitrary conversation or a Temporary Chat", async () => {
   expect(chatGptNewChatUrl()).toBe("https://chatgpt.com/?temporary-chat=true");
@@ -607,8 +608,10 @@ test("effort confirmation tolerates disappearing Pro only while the requested ef
       maxAfterClose: "3",
       locksAfterClose: ["false", "false", "false", String(locked)],
     });
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-      activeComposer: async () => fixture.composer,
+    const worker = makeWorkerFixture({
+      fields: {
+        activeComposer: async () => fixture.composer,
+      },
     }) as any;
     const result = worker.selectModelAndEffort(fixture.page, "gpt-5.6-sol", "xhigh", {
       localToolsEnabled: false,
@@ -624,8 +627,10 @@ test("effort confirmation tolerates disappearing Pro only while the requested ef
 
 test("effort confirmation rejects a newly locked selection even when the range and value are unchanged", async () => {
   const fixture = reasoningPicker({ locksAfterClose: ["false", "false", "true", "true", "true"] });
-  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-    activeComposer: async () => fixture.composer,
+  const worker = makeWorkerFixture({
+    fields: {
+      activeComposer: async () => fixture.composer,
+    },
   }) as any;
   await expect(
     worker.selectModelAndEffort(fixture.page, "gpt-5.6-sol", "high", {
@@ -683,9 +688,11 @@ test("power picker omission of lock attributes requires its enabled structural o
 test("stale saved capabilities cannot activate a locked effort; High remains selectable", async () => {
   for (const effort of ["xhigh", "high"] as const) {
     const fixture = reasoningPicker({ max: "3", locks: ["false", "false", "false", "true"] });
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-      activeComposer: async () => fixture.composer,
-    }) as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
+    const worker = makeWorkerFixture({
+      fields: {
+        activeComposer: async () => fixture.composer,
+      },
+    }) as unknown as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
     const selection = worker.selectModelAndEffort(fixture.page, "gpt-5.6-sol", effort, {
       localToolsEnabled: false,
       solAvailable: true,
@@ -705,9 +712,11 @@ test("stale saved capabilities cannot activate a locked effort; High remains sel
 test("Pro selection verifies the persisted hidden slider through its visible owner, never model rows", async () => {
   for (const loseSelectionOnClose of [false, true]) {
     const fixture = reasoningPicker({ delay: 50, loseSelectionOnClose });
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-      activeComposer: async () => fixture.composer,
-    }) as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
+    const worker = makeWorkerFixture({
+      fields: {
+        activeComposer: async () => fixture.composer,
+      },
+    }) as unknown as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
     const selection = worker.selectModelAndEffort(fixture.page, "gpt-5.6-sol", "max", {
       localToolsEnabled: false,
       solAvailable: true,
@@ -723,9 +732,11 @@ test("Pro selection verifies the persisted hidden slider through its visible own
 
 test("selectModelAndEffort retries keyboard press when initial slider movement does not immediately register", async () => {
   const fixture = reasoningPicker({ droppedPresses: 1 });
-  const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-    activeComposer: async () => fixture.composer,
-  }) as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
+  const worker = makeWorkerFixture({
+    fields: {
+      activeComposer: async () => fixture.composer,
+    },
+  }) as unknown as { selectModelAndEffort(...args: unknown[]): Promise<{ selection: { label: string } }> };
   const selection = await worker.selectModelAndEffort(fixture.page, "gpt-5.6-sol", "medium", {
     localToolsEnabled: false,
     solAvailable: true,

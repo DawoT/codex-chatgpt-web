@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chromium, type Locator, type Page } from "playwright-core";
 import { ChatGptPageDomObserver } from "../src/adapters/chatgpt-web/browser/context-pressure";
-import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import type { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 function createDomWorker(): ChatGptBrowserWorker {
-  const worker = Object.create(ChatGptBrowserWorker.prototype) as Record<string, unknown>;
+  const worker = makeWorkerFixture() as unknown as Record<string, unknown>;
   worker.contextPressureByConversation = new Map();
   worker.contextPressureByPage = new WeakMap();
   worker.pageDomObserver = new ChatGptPageDomObserver();

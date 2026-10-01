@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { chromium } from "playwright-core";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { detectChatGptAccountCapabilities } from "../src/chatgpt-session";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 for (const modern of [false, true])
   test.skipIf(!process.env.CHATGPT_DOM_TEST_BROWSER)(
@@ -58,7 +59,7 @@ for (const modern of [false, true])
           }
         });
       </script>`);
-        const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+        const worker = makeWorkerFixture() as unknown as any;
         const result = await worker.selectModelAndEffort(
           page,
           "gpt-5.6-sol",
@@ -120,7 +121,7 @@ for (const scenario of ["hydrate", "shrink", "locked", "pro-disappears"])
             proAvailable: false,
           });
         } else {
-          const worker = Object.create(ChatGptBrowserWorker.prototype) as any;
+          const worker = makeWorkerFixture() as unknown as any;
           const effort = scenario === "pro-disappears" ? "max" : scenario === "locked" ? "high" : "xhigh";
           const result = worker.selectModelAndEffort(page, "gpt-5.6-sol", effort, {
             localToolsEnabled: false,

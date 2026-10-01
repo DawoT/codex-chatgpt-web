@@ -12,9 +12,10 @@ import {
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 import { ChatGptTurnEventBus } from "../src/adapters/chatgpt-web/browser/turn-events";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 function signalWorker(counters: { signalWaits: number; mutationWaits: number }) {
-  const worker = Object.create(ChatGptBrowserWorker.prototype) as Record<string, unknown>;
+  const worker = makeWorkerFixture() as unknown as Record<string, unknown>;
   worker.submissionDomState = async () => ({
     userTurnCount: 0,
     assistantTurnCount: 0,
@@ -228,7 +229,7 @@ test("waitForMultipartAcknowledgement waits on the DOM revision signal without f
     };
   };
 
-  const observe = (ChatGptBrowserWorker.prototype as any).waitForMultipartAcknowledgement;
+  const observe = (makeWorkerFixture() as any).waitForMultipartAcknowledgement;
   const mockLocator: Record<string, any> = {
     filter: () => mockLocator,
     last: () => mockLocator,
@@ -304,7 +305,7 @@ test("waitForSubmissionAcceptedWithRecovery uses DOM revision signal and suppres
   } as unknown as Page;
 
   const baseline = { initialTurnIdentities: [], domCache: {} };
-  const recoverObserve = (ChatGptBrowserWorker.prototype as any).waitForSubmissionAcceptedWithRecovery;
+  const recoverObserve = (makeWorkerFixture() as any).waitForSubmissionAcceptedWithRecovery;
   const evidence = await recoverObserve.call(worker, runningPage, baseline);
 
   expect(evidence).toBe("user_turn");

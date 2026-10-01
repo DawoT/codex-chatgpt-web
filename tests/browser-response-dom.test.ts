@@ -10,6 +10,7 @@ import {
 } from "../src/adapters/chatgpt-web/browser-worker";
 import { ChatGptMarkdownBuffer, type ChatGptMarkdownSegment } from "../src/adapters/chatgpt-web/markdown";
 import { parseCompactionState } from "../src/responses/compaction";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 const smokeHtml = readFileSync(new URL("./fixtures/chatgpt-dil-smoke.html", import.meta.url), "utf8");
 const powerCompleteHtml = readFileSync(new URL("./fixtures/chatgpt-power-complete.html", import.meta.url), "utf8");
@@ -79,11 +80,13 @@ async function snapshot(html: string): Promise<Snapshot> {
       },
       page: () => ({ isClosed: () => false, evaluate: async () => html.length }),
     } as unknown as Locator;
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-      pageDomObserver: new ChatGptPageDomObserver(),
-      contextPressureByConversation: new Map(),
-      contextPressureByPage: new WeakMap(),
-    }) as {
+    const worker = makeWorkerFixture({
+      fields: {
+        pageDomObserver: new ChatGptPageDomObserver(),
+        contextPressureByConversation: new Map(),
+        contextPressureByPage: new WeakMap(),
+      },
+    }) as unknown as {
       responseDomSnapshot(locator: Locator): Promise<Snapshot>;
     };
     const result = await worker.responseDomSnapshot(locator);

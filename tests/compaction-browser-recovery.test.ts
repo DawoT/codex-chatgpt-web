@@ -7,6 +7,7 @@ import { chatGptBrowserTabClosedError } from "../src/adapters/chatgpt-web/adapte
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import { resolveChatGptWebModelMode } from "../src/adapters/chatgpt-web/model";
 import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 test.each([
   [true, false, true],
@@ -37,87 +38,89 @@ test.each([
       isClosed: () => false,
       mainFrame: () => frame,
     });
-    const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-      config: {
-        appName: "Codex Native2",
-        browserDiagnosticsPath: diagnostics,
-        ...(owned ? { browserHostDescriptorPath: "owned-descriptor" } : {}),
-      },
-      contextPressureByConversation: new Map(),
-      contextPressureByPage: new WeakMap(),
-      runStage: async (
-        _trace: string,
-        name: string,
-        timeout: number,
-        action: (signal: AbortSignal) => Promise<unknown>,
-      ) => {
-        stage = name;
-        if (name === "send" || name.endsWith("_send")) sendBudgets.push(timeout);
-        return action(new AbortController().signal);
-      },
-      prepareChatSurface: async () => {},
-      selectModelAndEffort: async (
-        _page: unknown,
-        model: string,
-        effort: string,
-        _capabilities: unknown,
-        _diagnostic: unknown,
-        trackUsage: boolean,
-        family: string,
-      ) => {
-        expect(trackUsage).toBe(false);
-        expect(family).toBe("5.6");
-        actions.push(`effort:${effort}`);
-        return resolveChatGptWebModelMode(model, effort, capabilities);
-      },
-      captureSubmissionBaseline: async () => ({}),
-      attachPrompt: async (_page: unknown, _text: string, localTools: boolean) => {
-        expect(localTools).toBe(false);
-        actions.push("attach:plain");
-      },
-      attachPromptWithCompactionRetry: async (_page: unknown, _text: string, localTools: boolean) => {
-        expect(localTools).toBe(tools);
-        actions.push(localTools ? "attach:tools" : "attach:plain");
-      },
-      attachFiles: async () => {
-        actions.push("files");
-      },
-      sendAttachedPrompt: async (...args: unknown[]) => {
-        // Context ingestion cannot mistake tool activity for acknowledgement of a part.
-        expect(args[4]).toBe(stage === "send" ? progress : undefined);
-        const lifecycle = args[5] as { onSendActivated(): Promise<void>; onSubmitted?: () => void };
-        // Every physical multipart stage now has an acceptance-only payload meter.
-        expect(lifecycle.onSubmitted).toBeDefined();
-        await lifecycle.onSendActivated();
-        if (cancellationCase) {
-          // An observed size rejection must not replace the user's explicit tab-close verdict.
-          const request = {
-            method: () => "POST",
-            url: () => "https://chatgpt.com/backend-api/f/conversation",
-            frame: () => frame,
-          };
-          page.emit("request", request);
-          page.emit("response", {
-            request: () => request,
-            status: () => 413,
-            headers: () => ({ "content-type": "application/json" }),
-            json: async () => ({ detail: { code: "message_length_exceeds_limit" } }),
-          });
-        }
-        recoveryCallbacks.push(args[7]);
-        actions.push("send");
-        lifecycle.onSubmitted?.();
-        return "user_turn";
-      },
-      waitForNewAssistantTurn: async (...args: unknown[]) => {
-        expect(args[4]).toBe(stage === "send" ? progress : undefined);
-        recoveryCallbacks.push(args[7]);
-        actions.push("observe");
-        if (stage === "send") throw finalResponse;
-        return {};
-      },
-      waitForMultipartAcknowledgement: async () => {
-        actions.push("ack");
+    const worker: any = makeWorkerFixture({
+      fields: {
+        config: {
+          appName: "Codex Native2",
+          browserDiagnosticsPath: diagnostics,
+          ...(owned ? { browserHostDescriptorPath: "owned-descriptor" } : {}),
+        },
+        contextPressureByConversation: new Map(),
+        contextPressureByPage: new WeakMap(),
+        runStage: async (
+          _trace: string,
+          name: string,
+          timeout: number,
+          action: (signal: AbortSignal) => Promise<unknown>,
+        ) => {
+          stage = name;
+          if (name === "send" || name.endsWith("_send")) sendBudgets.push(timeout);
+          return action(new AbortController().signal);
+        },
+        prepareChatSurface: async () => {},
+        selectModelAndEffort: async (
+          _page: unknown,
+          model: string,
+          effort: string,
+          _capabilities: unknown,
+          _diagnostic: unknown,
+          trackUsage: boolean,
+          family: string,
+        ) => {
+          expect(trackUsage).toBe(false);
+          expect(family).toBe("5.6");
+          actions.push(`effort:${effort}`);
+          return resolveChatGptWebModelMode(model, effort, capabilities);
+        },
+        captureSubmissionBaseline: async () => ({}),
+        attachPrompt: async (_page: unknown, _text: string, localTools: boolean) => {
+          expect(localTools).toBe(false);
+          actions.push("attach:plain");
+        },
+        attachPromptWithCompactionRetry: async (_page: unknown, _text: string, localTools: boolean) => {
+          expect(localTools).toBe(tools);
+          actions.push(localTools ? "attach:tools" : "attach:plain");
+        },
+        attachFiles: async () => {
+          actions.push("files");
+        },
+        sendAttachedPrompt: async (...args: unknown[]) => {
+          // Context ingestion cannot mistake tool activity for acknowledgement of a part.
+          expect(args[4]).toBe(stage === "send" ? progress : undefined);
+          const lifecycle = args[5] as { onSendActivated(): Promise<void>; onSubmitted?: () => void };
+          // Every physical multipart stage now has an acceptance-only payload meter.
+          expect(lifecycle.onSubmitted).toBeDefined();
+          await lifecycle.onSendActivated();
+          if (cancellationCase) {
+            // An observed size rejection must not replace the user's explicit tab-close verdict.
+            const request = {
+              method: () => "POST",
+              url: () => "https://chatgpt.com/backend-api/f/conversation",
+              frame: () => frame,
+            };
+            page.emit("request", request);
+            page.emit("response", {
+              request: () => request,
+              status: () => 413,
+              headers: () => ({ "content-type": "application/json" }),
+              json: async () => ({ detail: { code: "message_length_exceeds_limit" } }),
+            });
+          }
+          recoveryCallbacks.push(args[7]);
+          actions.push("send");
+          lifecycle.onSubmitted?.();
+          return "user_turn";
+        },
+        waitForNewAssistantTurn: async (...args: unknown[]) => {
+          expect(args[4]).toBe(stage === "send" ? progress : undefined);
+          recoveryCallbacks.push(args[7]);
+          actions.push("observe");
+          if (stage === "send") throw finalResponse;
+          return {};
+        },
+        waitForMultipartAcknowledgement: async () => {
+          actions.push("ack");
+        },
       },
     });
     try {
