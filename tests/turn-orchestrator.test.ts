@@ -266,6 +266,27 @@ test("turn-end failure after success is visible to the caller", async () => {
   await expect(h.orchestrator.run(makeLauncherTurn("end_failed_success"))).rejects.toThrow("host unavailable");
 });
 
+test.each([0, false, "", null, undefined])(
+  "a turn-end failure preserves a falsy thrown value (%s)",
+  async (failure) => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    const h = harness({
+      notifyLauncherTurn: async (_path, activity) => {
+        if (activity.phase === "start") return { surfaceId: "surface" };
+        throw new Error("host unavailable");
+      },
+      runBrowserTurn: async () => {
+        throw failure;
+      },
+    });
+    try {
+      await expect(h.orchestrator.run(makeLauncherTurn("falsy_error"))).rejects.toBe(failure);
+    } finally {
+      log.mockRestore();
+    }
+  },
+);
+
 test("heartbeat starts before slow callbacks, does not overlap and stops at turn end", async () => {
   const enteredHeartbeat = deferred<void>();
   const finishHeartbeat = deferred<void>();

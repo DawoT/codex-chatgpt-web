@@ -72,7 +72,7 @@ export class TurnOrchestrator {
     let reused = false;
     let terminal: "completed" | "failed" | "aborted" = "completed";
     let terminalMessage: string | undefined;
-    let originalError: unknown;
+    let turnFailed = false;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatInFlight = false;
     let lastHeartbeatFailureAt = 0;
@@ -157,7 +157,7 @@ export class TurnOrchestrator {
       resultReadyConfirmed = turn.onResultReady !== undefined;
       return answer;
     } catch (error) {
-      originalError = error;
+      turnFailed = true;
       terminal =
         error instanceof ChatGptCompactionHandoffAccepted
           ? "completed"
@@ -192,7 +192,7 @@ export class TurnOrchestrator {
           if (controlError instanceof ChatGptWebAdapterError && controlError.code === "client_cancelled") {
             throw controlError;
           }
-          if (!originalError) throw controlError;
+          if (!turnFailed) throw controlError;
           console.error(
             `[chatgpt-web] launcher turn-end notification failed after browser error: ${controlError instanceof Error ? controlError.message : String(controlError)}`,
           );
