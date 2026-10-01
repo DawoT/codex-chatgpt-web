@@ -2,7 +2,12 @@ import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { type HelperMessage, parseHelperMessage } from "../src/adapters/chatgpt-web/helper-protocol";
+import {
+  type HelperMessage,
+  type InputMessage,
+  parseHelperInputMessage,
+  parseHelperMessage,
+} from "../src/adapters/chatgpt-web/helper-protocol";
 
 const root = resolve(import.meta.dir, "..");
 const unsupportedFrame = '{"type":"unsupported_operation","id":"unsupported_id"}';
@@ -200,4 +205,62 @@ test("output decoder reconstructs identity without forwarding unvalidated fields
       JSON.stringify({ type: "ready", protocolVersion: 2, identity: { ...identity, extra: "discard" } }),
     ),
   ).toEqual({ type: "ready", protocolVersion: 2, identity });
+});
+
+const validInputFrames: InputMessage[] = [
+  { type: "shutdown" },
+  { type: "release_context_pressure", conversationKey: "a".repeat(64) },
+  { type: "send_activation_ack", id: "turn_ack" },
+  { type: "abort", id: "turn_ack" },
+  { type: "abort", id: "turn_ack", reason: "compaction_handoff_accepted" },
+  { type: "surface_ownership_ack", id: "turn_ack", phase: "leased", surfaceId: "a".repeat(32), accepted: true },
+  { type: "surface_ownership_ack", id: "turn_ack", phase: "released", surfaceId: "a".repeat(32), accepted: false },
+  { type: "result_ready_ack", id: "turn_ack", textSha256: "a".repeat(64), accepted: false },
+  { type: "tool_batch_observed_ack", id: "turn_ack", requestId: 1, revision: 1, accepted: false },
+  { type: "completion_fence_begin_ack", id: "turn_ack", requestId: 1, revision: null },
+  { type: "completion_fence_begin_ack", id: "turn_ack", requestId: 1, revision: 0 },
+  { type: "completion_fence_commit_ack", id: "turn_ack", requestId: 1, committed: false },
+  {
+    type: "inspect",
+    id: "maintenance_legacy_id",
+    config: { appName: "Codex Native", browserHostDescriptorPath: "/workspace/launcher.json" },
+    detectCapabilities: false,
+  },
+];
+
+test.each(validInputFrames.map((frame) => ({ frame })))(
+  "input decoder preserves valid control payload %j",
+  ({ frame }) => {
+    expect(parseHelperInputMessage(JSON.stringify(frame))).toEqual(frame);
+  },
+);
+
+test.each([
+  { type: "surface_ownership_ack", id: "turn_ack", phase: "leased", surfaceId: "a".repeat(32), accepted: "false" },
+  { type: "surface_ownership_ack", id: "turn_ack", phase: "released", surfaceId: "a".repeat(32), accepted: 1 },
+  { type: "result_ready_ack", id: "turn_ack", textSha256: "a".repeat(64), accepted: "false" },
+  { type: "tool_batch_observed_ack", id: "turn_ack", requestId: 1, revision: 1, accepted: "false" },
+  { type: "completion_fence_commit_ack", id: "turn_ack", requestId: 1, committed: "false" },
+  { type: "completion_fence_commit_ack", id: "turn_ack", requestId: 1, committed: 1 },
+])("input decoder rejects a non-boolean acknowledgement flag %j", (frame) => {
+  expect(() => parseHelperInputMessage(JSON.stringify(frame))).toThrow();
+});
+
+test.each([
+  { type: "send_activation_ack" },
+  { type: "send_activation_ack", id: "" },
+  { type: "send_activation_ack", id: 42 },
+  { id: "turn_ack" },
+  { type: 42, id: "turn_ack" },
+  { type: "unsupported_operation", id: "unsupported_id" },
+  { type: "surface_ownership_ack", id: "turn_ack", phase: "invalid", surfaceId: "a".repeat(32), accepted: true },
+  { type: "surface_ownership_ack", id: "turn_ack", phase: "leased", surfaceId: "short", accepted: true },
+  { type: "result_ready_ack", id: "turn_ack", textSha256: "short", accepted: true },
+  { type: "tool_batch_observed_ack", id: "turn_ack", requestId: 0, revision: 1, accepted: true },
+  { type: "tool_batch_observed_ack", id: "turn_ack", requestId: 1, revision: -1, accepted: true },
+  { type: "completion_fence_begin_ack", id: "turn_ack", requestId: 0, revision: null },
+  { type: "completion_fence_begin_ack", id: "turn_ack", requestId: 1, revision: "0" },
+  { type: "completion_fence_commit_ack", id: "turn_ack", requestId: 1.5, committed: true },
+])("input decoder rejects malformed control framing %j", (frame) => {
+  expect(() => parseHelperInputMessage(JSON.stringify(frame))).toThrow();
 });

@@ -334,11 +334,99 @@ export function parseHelperMessage(line: string): HelperMessage {
 /** Maintenance responses share the framing but carry a structured value. */
 export type HelperOutputMessage = HelperMessage | { type: "result"; id: string; value: unknown };
 
-/** Validate framing here; prompt/progress evidence stays with its owning handler. */
+export class HelperInputProtocolError extends Error {
+  constructor(
+    message: string,
+    readonly id = "protocol",
+    readonly abortTurn = false,
+  ) {
+    super(message);
+    this.name = "HelperInputProtocolError";
+  }
+}
+
+/** Prompt and progress evidence is validated by the handler that owns that evidence. */
 export function parseHelperInputMessage(line: string): InputMessage {
   const value: unknown = JSON.parse(line);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Browser helper message is not an object");
+    throw new HelperInputProtocolError("Browser helper message is not an object");
   }
-  return value as InputMessage;
+  const message = value as Record<string, unknown>;
+  const id = typeof message.id === "string" && message.id ? message.id : "unknown";
+  const fail = (detail: string, abortTurn = false): never => {
+    throw new HelperInputProtocolError(detail, id, abortTurn);
+  };
+  if (message.type === "shutdown") return { type: "shutdown" };
+  if (message.type === "release_context_pressure") {
+    if (typeof message.conversationKey !== "string" || !/^[a-f0-9]{64}$/.test(message.conversationKey)) {
+      fail("Browser helper conversation key is invalid");
+    }
+    return message as InputMessage;
+  }
+  if (
+    ![
+      "run",
+      "verify",
+      "inspect",
+      "smoke",
+      "limits",
+      "prepared_selected_ack",
+      "send_activation_ack",
+      "surface_ownership_ack",
+      "result_ready_ack",
+      "tool_batch_observed_ack",
+      "completion_fence_begin_ack",
+      "completion_fence_commit_ack",
+      "progress",
+      "abort",
+    ].includes(String(message.type))
+  ) {
+    fail(`Browser helper received an unsupported message type: ${String(message.type)}`);
+  }
+  if (typeof message.id !== "string" || !message.id) {
+    fail("Browser helper message has no turn identity");
+  }
+  const positiveInteger = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+  const revision = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  switch (message.type) {
+    case "surface_ownership_ack":
+      if (
+        (message.phase !== "leased" && message.phase !== "released") ||
+        typeof message.surfaceId !== "string" ||
+        !/^[A-Za-z0-9_-]{32}$/.test(message.surfaceId) ||
+        typeof message.accepted !== "boolean"
+      ) {
+        fail("Browser helper surface ownership acknowledgement is invalid", true);
+      }
+      break;
+    case "result_ready_ack":
+      if (
+        typeof message.textSha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(message.textSha256) ||
+        typeof message.accepted !== "boolean"
+      ) {
+        fail("Browser helper result persistence acknowledgement is invalid", true);
+      }
+      break;
+    case "tool_batch_observed_ack":
+      if (
+        !positiveInteger(message.requestId) ||
+        !positiveInteger(message.revision) ||
+        typeof message.accepted !== "boolean"
+      ) {
+        fail("Browser helper tool boundary acknowledgement is invalid", true);
+      }
+      break;
+    case "completion_fence_begin_ack":
+      if (!positiveInteger(message.requestId) || (message.revision !== null && !revision(message.revision))) {
+        fail("Browser helper completion fence revision is invalid", true);
+      }
+      break;
+    case "completion_fence_commit_ack":
+      if (!positiveInteger(message.requestId) || typeof message.committed !== "boolean") {
+        fail("Browser helper completion fence result is invalid", true);
+      }
+      break;
+  }
+  return message as InputMessage;
 }

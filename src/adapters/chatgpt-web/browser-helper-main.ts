@@ -7,6 +7,7 @@ import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adap
 import { createBrowserHelperPromptSelection } from "./browser-helper-prompt-selection";
 import { type BrowserTurn, ChatGptBrowserWorker, closeChatGptBrowserWorkers } from "./browser-worker";
 import {
+  HelperInputProtocolError,
   type HelperOutputMessage,
   type InputMessage,
   type InspectMessage,
@@ -497,8 +498,13 @@ input.on("line", (line) => {
   let message: InputMessage;
   try {
     message = parseHelperInputMessage(line);
-  } catch {
-    writeProtocol({ type: "error", id: "protocol", message: "Browser helper received invalid JSON" });
+  } catch (error) {
+    if (error instanceof HelperInputProtocolError) {
+      writeProtocol({ type: "error", id: error.id, message: error.message });
+      if (error.abortTurn) abortControllers.get(error.id)?.abort();
+    } else {
+      writeProtocol({ type: "error", id: "protocol", message: "Browser helper received invalid JSON" });
+    }
     return;
   }
   if (message.type === "prepared_selected_ack") {
@@ -562,25 +568,11 @@ input.on("line", (line) => {
     if (message.accepted === true) waiter.resolve();
     else waiter.reject(new Error("Daemon rejected the observed Codex tool boundary"));
   } else if (message.type === "completion_fence_begin_ack") {
-    if (
-      !Number.isSafeInteger(message.requestId) ||
-      message.requestId <= 0 ||
-      (message.revision !== null && (!Number.isSafeInteger(message.revision) || message.revision < 0))
-    ) {
-      writeProtocol({ type: "error", id: message.id, message: "Browser helper completion fence revision is invalid" });
-      abortControllers.get(message.id)?.abort();
-      return;
-    }
     const waiter = completionFenceBeginWaiters.get(message.id);
     if (!waiter || waiter.requestId !== message.requestId) return;
     completionFenceBeginWaiters.delete(message.id);
     waiter.resolve(message.revision ?? undefined);
   } else if (message.type === "completion_fence_commit_ack") {
-    if (!Number.isSafeInteger(message.requestId) || message.requestId <= 0 || typeof message.committed !== "boolean") {
-      writeProtocol({ type: "error", id: message.id, message: "Browser helper completion fence result is invalid" });
-      abortControllers.get(message.id)?.abort();
-      return;
-    }
     const waiter = completionFenceCommitWaiters.get(message.id);
     if (!waiter || waiter.requestId !== message.requestId) return;
     completionFenceCommitWaiters.delete(message.id);
@@ -627,11 +619,7 @@ input.on("line", (line) => {
       new DOMException("Browser helper turn aborted before tool-boundary confirmation", "AbortError"),
     );
   } else if (message.type === "release_context_pressure") {
-    if (!/^[a-f0-9]{64}$/.test(message.conversationKey)) {
-      writeProtocol({ type: "error", id: "unknown", message: "Browser helper conversation key is invalid" });
-    } else {
-      ChatGptBrowserWorker.releaseContextPressureForConversation(message.conversationKey);
-    }
+    ChatGptBrowserWorker.releaseContextPressureForConversation(message.conversationKey);
   } else if (message.type === "shutdown") {
     void requestShutdown();
   } else if (message.type === "verify") {
