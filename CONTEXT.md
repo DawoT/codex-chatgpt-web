@@ -78,7 +78,7 @@ contract assertions and compiler limits are preserved while measuring contract l
 ## Acceptance checks
 
 `bun run check:refactor-gates` enforces strict targets: zero double casts and unused-private-member
-suppressions in the worker/controllers/orchestrator/completion module, zero direct worker
+suppressions in the worker and every browser module, zero direct worker
 prototype references anywhere in tests (including child-process scripts), and zero statically
 resolved production-source reads in tests. Unrelated Object.create fixtures are permitted.
 The scanner resolves common static paths and allows temporary diagnostic/tool outputs; it is
@@ -93,14 +93,16 @@ coverage, rather than attributing its results to the launcher module.
 ## Recorded focused validation (2026-09-30)
 
 Initial user-verified baseline: clean HEAD 80dadbf, 161 contract tests passing in roughly 15s.
-These notes record the refactor/browser-worker branch before final acceptance; they do not claim
-that the branch has merged to main. MCP scope approval remains pending with the parent/user.
+These notes record acceptance on refactor/browser-worker before merge to main. The user explicitly
+approved including the MCP fix and validating everything; the approved fix is committed in bcb703b.
+The branch has not yet merged to main at this documentation checkpoint.
 
 - Worker contract: 158 passing tests, 1.89s standalone; the heavy compiler case remains in
   `browser-multipart-compilation.test.ts` with its original transport limits and assertions.
 - `bun test tests/turn-orchestrator.test.ts tests/turn-completion-loop.test.ts --coverage`:
-  48 passing tests, 11.31s (latest parent coverage run). TurnOrchestrator: 100% functions / 100% lines. TurnCompletionLoop:
-  52.63% functions / 96.76% lines. Callback function coverage remains reported explicitly.
+  48 passing tests, 11.31s in the focused coverage run. TurnOrchestrator: 100% functions / 100%
+  lines. TurnCompletionLoop: 52.63% functions / 96.76% lines. Callback function coverage remains
+  reported explicitly; the complete acceptance run confirms the same module percentages.
 - Helper client: 14 passing tests, 2.70s, including close during pending browser work.
 - Safe MCP lifecycle: seven passing tests, 11.04s, including both image aliases and schemas.
 - Nine controlled scanner checks include future browser modules, child-process prototype strings,
@@ -109,12 +111,19 @@ that the branch has merged to main. MCP scope approval remains pending with the 
 These are focused measurements. The complete acceptance suite and its coverage are separate
 checks; passing these files does not substitute for their result.
 
-Full coverage run before the cross-provider registry fix: 2,032 passed, 14 skipped and one
-failed across 2,047 tests / 192 files, 216.52s (`/tmp/browser-refactor-full-coverage.log`).
-The failing Chat-First schema assertion remains intact and MCP production scope approval is
-pending. This is an observed failing acceptance run, not full-green acceptance or a merge.
-The registry fix subsequently passed its own RED/GREEN regression and independent read-only
-review; this earlier complete-suite result is retained without claiming a later full-green run.
+## Final acceptance (2026-09-30, before merge)
+
+The complete `bun run test:coverage` run passed: 2,034 passed, 14 skipped, zero failed across
+2,048 tests / 192 files, 11,485 assertions, 212.57s. Evidence:
+`/tmp/browser-refactor-acceptance-final-coverage.log`. The skips are reported explicitly.
+The aggregate Bun coverage report is 82.34% functions / 82.19% lines.
+TurnOrchestrator coverage is 100% functions / 100% lines; TurnCompletionLoop is 52.63%
+functions / 96.76% lines. The launcher module exceeds its 85% line-coverage requirement.
+
+The standalone worker contract passed all 158 tests in 1.89s. Strict gates passed with zero
+violations across 29 production modules and 195 test/fixture files. Final typecheck and lint
+exited zero; lint reports 88 warnings. These results establish acceptance on the branch, while
+merge to main remains a separate action owned by the parent.
 
 ## Liveness and cleanup invariants
 
@@ -127,7 +136,7 @@ review; this earlier complete-suite result is retained without claiming a later 
 - Close aborts pending helper runs, then disconnects browser resources and clears lifecycle state
   in finally, including when maintenance rejects. Graceful draining would be a behavior change.
 
-## Final read-only review and pending gaps
+## Final read-only review and resolved gaps
 
 The extracted session/controllers use constructed instances and explicit dependencies. Launcher
 orchestration preserves lease/heartbeat/retirement and interactive-lock cleanup. Completion
@@ -139,14 +148,15 @@ helper characterization confirms abort and exactly one prepared-prompt release. 
 initialization connects its observer only after its state is assigned. These slices have no
 additional blocking findings from the read-only review.
 
-One external gap remains before complete acceptance:
+The Chat-First image schema gap is resolved in bcb703b with explicit user approval. Registration
+now passes contract: "chat-first" while preserving scopeFor, so both image aliases advertise the
+correct token-free schema. The original absence-of-authority assertions remain intact. Both
+aliases were called through real MCP without turn_token/request_id against a missing local input
+image and controlled child credentials; the handler error proves dispatch before any image HTTP
+request. Independent read-only review found no blocker; the focused regression passed in 682ms,
+and the complete acceptance run passed it as well. A owned the one-line production change and
+included B's delegated regression test in the same atomic commit.
 
-- Chat-First image registration: `mcp/chat-first-tools.ts` calls registerImageTools with scopeFor
-  but omits contract. `mcp/image-tools.ts` defaults to native and advertises optional turn_token,
-  contradicting the Chat-First schema assertion. Keep that assertion. The parent owns scope
-  escalation and the prepared `/tmp/chat-first-image-contract.patch`; B changes no MCP production.
-  Tests additionally exercise both aliases without turn authority using a nonexistent local input
-  image and controlled child credentials, stopping before any image HTTP request.
 The cross-provider registry race is resolved in commit 5f9ea42. Shutdown captures key/worker
 entries, waits for their closes through allSettled, then removes only entries whose current worker
 still matches that snapshot. A different provider created during the await remains registered for
@@ -156,6 +166,6 @@ The regression observed RED (seven pass / one fail) before the fix in
 and reran the defect suite: eight pass / zero fail in 369ms
 (`/tmp/track-b-registry-review-green.log`). No blocking finding remains for this fix.
 
-Only the unapproved MCP gap remains unresolved. Its correct Chat-First schema assertions stay
-in the uncommitted test patch; MCP production was not changed by B. Final complete-suite
-acceptance and disposition of that gap remain prerequisites for merge. No merge is claimed.
+Both identified gaps are resolved and reviewed. No unresolved scope approval or acceptance
+blocker remains from these reviews. The working branch is ready for the parent's local fast-forward
+merge; this document does not claim that merge has already happened.
