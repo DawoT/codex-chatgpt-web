@@ -372,6 +372,7 @@ describe("Zero Risk public MCP ABI", () => {
         "codex_apply_patch",
         "codex_exec",
         "codex_grep",
+        "codex_image_generate",
         "codex_list_dir",
         "codex_patch_file",
         "codex_read_file",
@@ -383,7 +384,18 @@ describe("Zero Risk public MCP ABI", () => {
         "codex_wait_tasks",
         "codex_write_file",
         "codex_write_stdin",
+        "image_gen",
       ]);
+      for (const name of ["codex_image_generate", "image_gen"]) {
+        expect(listed.tools.find((tool) => tool.name === name)?.inputSchema).toMatchObject({
+          required: ["prompt"],
+          properties: {
+            prompt: { type: "string", minLength: 1, maxLength: 4_000 },
+            request_id: { type: "string" },
+            input_image_path: { type: "string" },
+          },
+        });
+      }
       expect(listed.tools.find((tool) => tool.name === "codex_turn_start")?.description).toContain(
         "request_id included in the pasted Codex Web GPT request",
       );
@@ -427,8 +439,13 @@ describe("Zero Risk public MCP ABI", () => {
       });
       const inventory = await inventoryAfterStart;
       expect(inventory.structuredContent).toMatchObject({
-        total: 2,
-        tools: [{ wire_name: "exec_command" }, { wire_name: "mcp__useful__useful_tool" }],
+        total: 4,
+        tools: [
+          { wire_name: "exec_command" },
+          { wire_name: "mcp__useful__useful_tool" },
+          { wire_name: "codex_image_generate", parameters: { required: ["prompt"] } },
+          { wire_name: "image_gen", parameters: { required: ["prompt"] } },
+        ],
       });
       expect(JSON.stringify(inventory)).not.toContain(ownNamespace);
       expect(JSON.stringify(inventory)).not.toContain("Top-level recursive bridge");
