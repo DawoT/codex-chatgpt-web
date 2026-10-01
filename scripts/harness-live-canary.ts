@@ -89,7 +89,20 @@ export interface LiveCanaryPreparationOptions {
   healthUrl?: string;
   candidateDir?: string;
   rollbackDir?: string;
+  verificationReceipt?: string;
+  gatesReceipt?: string;
   runtimePredatesQuiescenceSeam?: boolean;
+}
+
+export interface EvidenceReceiptSelection {
+  verification: {
+    path: string;
+    sha256: string;
+  };
+  gates: {
+    path: string;
+    sha256: string;
+  };
 }
 
 interface HealthPayload {
@@ -402,6 +415,21 @@ function sha256(path: string): string | null {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+export function resolveEvidenceReceiptSelection(
+  options: Pick<LiveCanaryPreparationOptions, "verificationReceipt" | "gatesReceipt"> = {},
+): EvidenceReceiptSelection {
+  const verificationPath = resolve(options.verificationReceipt ?? "docs/evidence/harness-continuity-verification.json");
+  const gatesPath = resolve(options.gatesReceipt ?? "docs/evidence/harness-continuity-gates.json");
+  const verificationSha256 = sha256(verificationPath);
+  const gatesSha256 = sha256(gatesPath);
+  if (verificationSha256 === null) throw new Error(`Verification receipt does not exist: ${verificationPath}`);
+  if (gatesSha256 === null) throw new Error(`Gates receipt does not exist: ${gatesPath}`);
+  return {
+    verification: { path: verificationPath, sha256: verificationSha256 },
+    gates: { path: gatesPath, sha256: gatesSha256 },
+  };
+}
+
 export function verifyRollbackPreparation(appDirectory: string): boolean {
   try {
     const cli = resolve(appDirectory, "cli.js");
@@ -571,12 +599,9 @@ export async function collectLiveCanaryPreparation(
   const shortHead = head.slice(0, 7);
   const sourceTree = git("rev-parse", "HEAD:src");
   const status = git("status", "--porcelain=v1");
-  const verification = JSON.parse(
-    readFileSync(resolve("docs/evidence/harness-continuity-verification.json"), "utf8"),
-  ) as VerificationEvidence;
-  const gates = JSON.parse(
-    readFileSync(resolve("docs/evidence/harness-continuity-gates.json"), "utf8"),
-  ) as GatesEvidence;
+  const evidenceReceipts = resolveEvidenceReceiptSelection(options);
+  const verification = JSON.parse(readFileSync(evidenceReceipts.verification.path, "utf8")) as VerificationEvidence;
+  const gates = JSON.parse(readFileSync(evidenceReceipts.gates.path, "utf8")) as GatesEvidence;
   const expectedBundles = Object.fromEntries(
     (gates.build?.bundles ?? [])
       .filter((bundle) => typeof bundle.name === "string" && typeof bundle.sha256 === "string")
@@ -652,6 +677,7 @@ export async function collectLiveCanaryPreparation(
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     risk: "R2xL",
+    evidenceReceipts,
     candidate: {
       head,
       sourceTree,
@@ -704,6 +730,8 @@ if (import.meta.main) {
   const healthUrl = takeOption(args, "--health-url");
   const candidateDir = takeOption(args, "--candidate-dir");
   const rollbackDir = takeOption(args, "--rollback-dir");
+  const verificationReceipt = takeOption(args, "--verification-receipt");
+  const gatesReceipt = takeOption(args, "--gates-receipt");
   const legacyBootstrapShutdown = takeFlag(args, "--legacy-bootstrap-shutdown");
   const requireReady = takeFlag(args, "--require-ready");
   if (args.length > 0) throw new Error(`Unknown arguments: ${args.join(" ")}`);
@@ -712,6 +740,8 @@ if (import.meta.main) {
     ...(healthUrl ? { healthUrl } : {}),
     ...(candidateDir ? { candidateDir } : {}),
     ...(rollbackDir ? { rollbackDir } : {}),
+    ...(verificationReceipt ? { verificationReceipt } : {}),
+    ...(gatesReceipt ? { gatesReceipt } : {}),
     ...(legacyBootstrapShutdown ? { runtimePredatesQuiescenceSeam: true } : {}),
   });
   const encoded = `${JSON.stringify(result, null, 2)}\n`;

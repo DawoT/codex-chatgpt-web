@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildLiveCanaryMatrix,
   evaluateInactiveRuntimeGate,
   evaluateLegacyBootstrapShutdownGate,
   type InactiveRuntimeSnapshot,
+  resolveEvidenceReceiptSelection,
 } from "../scripts/harness-live-canary";
 
 function readySnapshot(): InactiveRuntimeSnapshot {
@@ -199,4 +203,23 @@ test("a malformed advertised diagnostic health cannot pass as healthy telemetry"
       diagnostic_health: { status: "healthy" },
     }),
   ).toEqual({ observed: false, invalid: true });
+});
+
+test("live canary preflight fingerprints explicitly selected immutable receipts", () => {
+  const directory = mkdtempSync(join(tmpdir(), "cgw-canary-receipts-"));
+  const verificationPath = join(directory, "verification.json");
+  const gatesPath = join(directory, "gates.json");
+  writeFileSync(verificationPath, '{"verifiedProductionTree":"abc"}\n', { mode: 0o600 });
+  writeFileSync(gatesPath, '{"build":{"bundles":[]}}\n', { mode: 0o600 });
+
+  const selected = resolveEvidenceReceiptSelection({
+    verificationReceipt: verificationPath,
+    gatesReceipt: gatesPath,
+  });
+
+  expect(selected.verification.path).toBe(verificationPath);
+  expect(selected.gates.path).toBe(gatesPath);
+  expect(selected.verification.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(selected.gates.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(selected.verification.sha256).not.toBe(selected.gates.sha256);
 });
