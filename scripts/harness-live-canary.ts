@@ -59,6 +59,7 @@ export interface InactiveRuntimeSnapshot {
   telemetry:
     | {
         observed: false;
+        invalid?: true;
       }
     | {
         observed: true;
@@ -102,6 +103,7 @@ interface HealthPayload {
   helper_runtimes?: unknown;
   resource_diagnostics?: unknown;
   telemetry_health?: unknown;
+  diagnostic_health?: unknown;
 }
 
 interface AdmissionPayload {
@@ -339,6 +341,8 @@ export function evaluateInactiveRuntimeGate(snapshot: InactiveRuntimeSnapshot): 
   }
 
   if (!snapshot.telemetry.observed) {
+    if (snapshot.telemetry.invalid)
+      addBlocker(blockers, "telemetry_invalid", "Advertised runtime telemetry health is malformed.");
     addBlocker(
       blockers,
       "telemetry_evidence_missing",
@@ -452,7 +456,7 @@ function resourcesFromHealth(health: HealthPayload): InactiveRuntimeSnapshot["re
   };
 }
 
-function telemetryFromHealth(health: HealthPayload): InactiveRuntimeSnapshot["telemetry"] {
+export function readRuntimeTelemetryHealth(health: HealthPayload): InactiveRuntimeSnapshot["telemetry"] {
   const value = health.telemetry_health;
   if (!value || typeof value !== "object" || Array.isArray(value)) return { observed: false };
   const record = value as Record<string, unknown>;
@@ -466,6 +470,32 @@ function telemetryFromHealth(health: HealthPayload): InactiveRuntimeSnapshot["te
     [pendingRecords, pendingBytes, failedWrites, droppedRecords].some((entry) => entry === undefined)
   ) {
     return { observed: false };
+  }
+  const diagnostic = health.diagnostic_health;
+  if (diagnostic !== undefined) {
+    if (!diagnostic || typeof diagnostic !== "object" || Array.isArray(diagnostic))
+      return { observed: false, invalid: true };
+    const causal = diagnostic as Record<string, unknown>;
+    const counters = [causal.pendingRecords, causal.pendingBytes, causal.failedWrites, causal.droppedRecords].map(
+      finiteInteger,
+    );
+    if (
+      (causal.status !== "healthy" && causal.status !== "degraded") ||
+      counters.some((counter) => counter === undefined)
+    )
+      return { observed: false, invalid: true };
+    const combined = [pendingRecords!, pendingBytes!, failedWrites!, droppedRecords!].map(
+      (counter, index) => counter + counters[index]!,
+    );
+    if (combined.some((counter) => !Number.isSafeInteger(counter))) return { observed: false, invalid: true };
+    return {
+      observed: true,
+      status: status === "healthy" && causal.status === "healthy" ? "healthy" : "degraded",
+      pendingRecords: combined[0]!,
+      pendingBytes: combined[1]!,
+      failedWrites: combined[2]!,
+      droppedRecords: combined[3]!,
+    };
   }
   return {
     observed: true,
@@ -589,7 +619,7 @@ export async function collectLiveCanaryPreparation(
       helperRuntimes,
     },
     resources: resourcesFromHealth(health),
-    telemetry: telemetryFromHealth(health),
+    telemetry: readRuntimeTelemetryHealth(health),
   };
   const gate = evaluateInactiveRuntimeGate(snapshot);
   const legacyBootstrapShutdownGate = options.runtimePredatesQuiescenceSeam

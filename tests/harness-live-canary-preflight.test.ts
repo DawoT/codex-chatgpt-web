@@ -164,3 +164,39 @@ test("legacy bootstrap shutdown gate preserves known resource and telemetry bloc
     ]),
   );
 });
+
+test("canary preflight includes the causal diagnostic queue in runtime telemetry health", async () => {
+  const { readRuntimeTelemetryHealth } = await import("../scripts/harness-live-canary");
+  const telemetry = readRuntimeTelemetryHealth({
+    telemetry_health: { status: "healthy", pending_records: 0, pending_bytes: 0, failed_writes: 0, dropped_records: 0 },
+    diagnostic_health: { status: "degraded", pendingRecords: 2, pendingBytes: 128, failedWrites: 1, droppedRecords: 3 },
+  });
+  expect(telemetry).toEqual({
+    observed: true,
+    status: "degraded",
+    pendingRecords: 2,
+    pendingBytes: 128,
+    failedWrites: 1,
+    droppedRecords: 3,
+  });
+  const snapshot = readySnapshot();
+  snapshot.telemetry = telemetry;
+  expect(evaluateInactiveRuntimeGate(snapshot).ready).toBeFalse();
+  expect(evaluateLegacyBootstrapShutdownGate(snapshot, { runtimePredatesQuiescenceSeam: true }).ready).toBeFalse();
+});
+
+test("a malformed advertised diagnostic health cannot pass as healthy telemetry", async () => {
+  const { readRuntimeTelemetryHealth } = await import("../scripts/harness-live-canary");
+  expect(
+    readRuntimeTelemetryHealth({
+      telemetry_health: {
+        status: "healthy",
+        pending_records: 0,
+        pending_bytes: 0,
+        failed_writes: 0,
+        dropped_records: 0,
+      },
+      diagnostic_health: { status: "healthy" },
+    }),
+  ).toEqual({ observed: false, invalid: true });
+});
