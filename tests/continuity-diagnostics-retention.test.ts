@@ -12,8 +12,7 @@ test("retention bounds dead writer archives and preserves live writers and journ
       options: { now: number; maxAgeMs: number; maxBytes: number; isWriterActive(pid: number): boolean },
     ): Promise<{ removedFiles: number }>;
   };
-  const generation =
-    "a".repeat(8) + "-" + "a".repeat(4) + "-" + "a".repeat(4) + "-" + "a".repeat(4) + "-" + "a".repeat(12);
+  const generation = `${"a".repeat(8)}-${"a".repeat(4)}-${"a".repeat(4)}-${"a".repeat(4)}-${"a".repeat(12)}`;
   const name = (pid: number) => `telemetry.${pid}.${generation}.${generation}.jsonl`;
   const now = Date.now();
   try {

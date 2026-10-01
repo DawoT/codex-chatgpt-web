@@ -326,8 +326,7 @@ export function createDiagnosticProducer(
 
 export function parseDiagnosticEvent(value: DiagnosticEventV2): DiagnosticEventV2 {
   if (
-    !value ||
-    value.version !== 2 ||
+    value?.version !== 2 ||
     !/^[a-f0-9-]{36}$/.test(value.eventId) ||
     !/^[a-f0-9-]{36}$/.test(value.producerId) ||
     !Number.isSafeInteger(value.sequence) ||
