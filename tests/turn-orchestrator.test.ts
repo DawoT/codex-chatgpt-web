@@ -1,13 +1,18 @@
 import { expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
 import { TurnOrchestrator, type TurnOrchestratorDeps } from "../src/adapters/chatgpt-web/browser/turn-orchestrator";
 import { InteractiveBrowserTurnMutex } from "../src/adapters/chatgpt-web/browser-mutex";
+import { resolveChatGptWebModelMode } from "../src/adapters/chatgpt-web/model";
 import type { LauncherTurnActivity } from "../src/launcher-browser/types";
 import {
   LauncherBrowserTurnCancelledError,
   LauncherRetainedConversationUnavailableError,
 } from "../src/launcher-browser-host";
-import { makeLauncherTurn } from "./fixtures/worker-harness";
+import { fakeLocator, fakePage } from "./fixtures/browser-fakes";
+import { makeLauncherTurn, makeWorkerFixture, type WorkerFixtureRunBrowserTurn } from "./fixtures/worker-harness";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -352,3 +357,134 @@ test("concurrent turns share input ownership while their passive response observ
   expect(await first).toBe("first");
   expect(h.mutex.isLocked()).toBe(false);
 });
+
+test.each([false, true])(
+  "multipart orchestration validates each acknowledgement before advancing (mismatch=%s)",
+  async (mismatch) => {
+    const root = mkdtempSync(join(tmpdir(), "orchestrator-multipart-"));
+    const page = fakePage();
+    const submissions: string[] = [];
+    const efforts: string[] = [];
+    const acknowledged: number[] = [];
+    const deltas: string[] = [];
+    let fileSubmissions = 0;
+    let released = 0;
+    let clock = 1_800_000_000_000;
+    let currentPrompt = "";
+    const now = spyOn(Date, "now").mockImplementation(() => {
+      clock += 2_100;
+      return clock;
+    });
+    const worker = makeWorkerFixture({
+      config: { browserDiagnosticsPath: root },
+      fields: {
+        runStage: async (
+          _trace: string,
+          _stage: string,
+          _timeout: number,
+          action: (signal: AbortSignal) => Promise<unknown>,
+        ) => action(new AbortController().signal),
+        prepareChatSurface: async () => fakeLocator(),
+        selectModelAndEffort: async (
+          _page: unknown,
+          model: string,
+          effort: string,
+          capabilities: Parameters<typeof resolveChatGptWebModelMode>[2],
+        ) => {
+          efforts.push(effort);
+          return resolveChatGptWebModelMode(model, effort, capabilities);
+        },
+        captureSubmissionBaseline: async () => ({
+          userTurns: fakeLocator(),
+          responseTurns: fakeLocator(),
+          initialTurnIdentities: [],
+          domCache: {},
+        }),
+        attachPrompt: async (_page: unknown, prompt: string) => {
+          currentPrompt = prompt;
+        },
+        attachFiles: async () => {
+          fileSubmissions += 1;
+        },
+        sendAttachedPrompt: async (...args: unknown[]) => {
+          const lifecycle = args[5] as { onSendActivated(): Promise<void>; onSubmitted(): Promise<void> };
+          const settled = args[9] as (() => void) | undefined;
+          await lifecycle.onSendActivated();
+          submissions.push(currentPrompt);
+          settled?.();
+          await lifecycle.onSubmitted();
+          return "user_turn";
+        },
+        waitForNewAssistantTurn: async () => ({
+          identity: `assistant-${submissions.length}`,
+          locator: fakeLocator({ count: async () => 1 }),
+          acceptedTurnIdentities: [],
+        }),
+        responseDomSnapshot: async () => {
+          const ack = currentPrompt.match(/CODEX_MULTIPART_ACK [A-Za-z0-9_]+ \d\/6 [a-f0-9]+/)?.[0];
+          const text = ack ? (mismatch ? "unexpected acknowledgement" : ack) : "Task complete";
+          return {
+            responsePresent: true,
+            visibleText: text,
+            fullHtml: `<p>${text}</p>`,
+            markdownSegments: [{ key: "answer", text, html: `<p>${text}</p>`, streamable: true }],
+            completionActionVisible: true,
+            stoppedThinkingVisible: false,
+            traceBlocks: [],
+          };
+        },
+        waitForTurnDomRevisionOrExternalProgress: async () => "document:1",
+      },
+    });
+    const runBrowserTurn = (worker as unknown as { runBrowserTurn: WorkerFixtureRunBrowserTurn }).runBrowserTurn.bind(
+      worker,
+    );
+    const h = harness({
+      runBrowserTurn: (turn, surface, _page, reused, track, settled, acquire) =>
+        runBrowserTurn(turn, surface, page, reused, track, settled, acquire),
+    });
+    try {
+      const turn = makeLauncherTurn("multipart_regression", {
+        reasoning: "high",
+        onTextDelta: (delta) => {
+          deltas.push(delta);
+        },
+        onMultipartStageAcknowledged: (index) => {
+          acknowledged.push(index);
+        },
+        prepare: async () => ({
+          text: "canonical prompt",
+          images: [],
+          multipart: {
+            parts: Array.from({ length: 6 }, (_, index) => JSON.stringify({ part: index + 1, records: [] })),
+            commit: "Complete the task.",
+          },
+          release: () => {
+            released += 1;
+          },
+        }),
+      });
+      if (mismatch) {
+        await expect(h.orchestrator.run(turn)).rejects.toMatchObject({ code: "multipart_protocol_violation" });
+        expect(submissions).toHaveLength(1);
+        expect(acknowledged).toEqual([]);
+        expect(fileSubmissions).toBe(0);
+        expect(deltas).toEqual([]);
+        expect(h.activities.at(-1)).toMatchObject({ status: "failed" });
+      } else {
+        expect(await h.orchestrator.run(turn)).toBe("Task complete");
+        expect(submissions).toHaveLength(6);
+        expect(acknowledged).toEqual([1, 2, 3, 4, 5]);
+        expect(efforts).toEqual(["low", "low", "low", "low", "low", "high"]);
+        expect(fileSubmissions).toBe(1);
+        expect(deltas.join("")).toBe("Task complete");
+        expect(h.activities.at(-1)).toMatchObject({ status: "completed" });
+      }
+      expect(released).toBe(1);
+      expect(h.mutex.isLocked()).toBe(false);
+    } finally {
+      now.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
