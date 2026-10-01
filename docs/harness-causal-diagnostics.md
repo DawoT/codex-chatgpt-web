@@ -94,7 +94,7 @@ Las nuevas capturas son estructurales y sanitizadas. Screenshots siguen siendo o
 
 ## Artefactos, dependencias y gates
 
-El gate de continuidad utiliza ahora `buildDevelopmentRuntime` y registra hashes de los archivos que ejecutaría el launcher. Se eliminó la receta in-memory con todos los packages externos: no era el mismo artefacto y podía producir una falsa discrepancia al preparar el canario. La regresión ejecuta el builder con una fixture y compara los bytes efectivos.
+El gate de continuidad utiliza ahora `buildDevelopmentRuntime` y registra hashes de los archivos que ejecutaría el launcher. Se eliminó la receta in-memory con todos los packages externos: no era el mismo artefacto y podía producir una falsa discrepancia al preparar el canario. La regresión ejecuta el builder con una fixture y compara los bytes efectivos. El gate de rollback ahora exige CLI y helper con hashes de manifiesto verificados, un commit exacto y la presencia de una copia física de dependencias si se declara. No acepta un helper aislado y un archivo de texto como rollback. Este control no reemplaza el smoke del rollback ni identifica retroactivamente el grafo source del proceso viejo.
 
 El audit del lock raíz pasó de un advisory moderado a cero al fijar Hono 4.13.7. El del launcher pasó de nueve hallazgos a cero con overrides de brace-expansion 1.1.21, 2.1.7 y 5.0.12, conservando sus versiones mayores. Referencias: [Hono](https://github.com/advisories/GHSA-hxh3-vqpv-xpqv), [brace-expansion](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr). Estos hallazgos transitivos no acreditan que el flujo de esta aplicación sea explotable.
 

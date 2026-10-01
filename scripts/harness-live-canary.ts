@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { RUNTIME_PROTOCOL_VERSION } from "../src/runtime-identity";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { createRuntimeIdentity, RUNTIME_PROTOCOL_VERSION } from "../src/runtime-identity";
 
 export type CanaryRoute = "retained" | "fallback";
 
@@ -402,6 +402,28 @@ function sha256(path: string): string | null {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+export function verifyRollbackPreparation(appDirectory: string): boolean {
+  try {
+    const cli = resolve(appDirectory, "cli.js");
+    const helper = resolve(appDirectory, "browser-helper.cjs");
+    if (!lstatSync(cli).isFile() || !lstatSync(helper).isFile()) return false;
+    const sourceCommit = readFileSync(resolve(appDirectory, "source-commit.txt"), "utf8").trim();
+    if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(sourceCommit)) return false;
+    const identity = createRuntimeIdentity(cli);
+    if (identity.artifactVerification !== "paired_manifest_verified" || identity.buildCommit !== sourceCommit) {
+      return false;
+    }
+    const manifest = JSON.parse(readFileSync(resolve(dirname(appDirectory), "manifest.json"), "utf8"));
+    if (manifest.artifactSetSha256 !== identity.artifactSetSha256) return false;
+    if (manifest.dependencies === "none") return true;
+    if (manifest.dependencies !== "frozen-lockfile-copy") return false;
+    const dependencies = lstatSync(resolve(appDirectory, "node_modules"));
+    return dependencies.isDirectory() && !dependencies.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 function run(command: string[]): string {
   const result = Bun.spawnSync(command, {
     cwd: process.cwd(),
@@ -587,7 +609,7 @@ export async function collectLiveCanaryPreparation(
     candidateHelperSha256 !== null &&
     candidateCliSha256 === expectedBundles.cli &&
     candidateHelperSha256 === expectedBundles["browser-helper"];
-  const rollbackPrepared = rollbackHelperSha256 !== null && existsSync(rollbackSourceCommit);
+  const rollbackPrepared = verifyRollbackPreparation(rollbackDir);
   const snapshot: InactiveRuntimeSnapshot = {
     candidate: {
       sourceTreeMatchesMeasuredGate:
