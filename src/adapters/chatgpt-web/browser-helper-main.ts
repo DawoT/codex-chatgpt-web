@@ -562,7 +562,11 @@ input.on("line", (line) => {
   if (shuttingDown) return;
   let message: InputMessage;
   try {
-    message = JSON.parse(line) as InputMessage;
+    const value: unknown = JSON.parse(line);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Browser helper message is not an object");
+    }
+    message = value as InputMessage;
   } catch {
     writeProtocol({ type: "error", id: "protocol", message: "Browser helper received invalid JSON" });
     return;
