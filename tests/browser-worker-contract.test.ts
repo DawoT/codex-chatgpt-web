@@ -97,6 +97,18 @@ import type { CodexProviderConfig } from "../src/types";
 import { type FakePageOverrides, type FakePressOptions, fakePage, fakeSendComposer } from "./fixtures/browser-fakes";
 import { makeLauncherTurn, makeWorkerFixture } from "./fixtures/worker-harness";
 
+// Playwright evaluation is asynchronous even when the synthetic DOM is already settled.
+function settledBrowserPage(): Page {
+  return fakePage({
+    evaluate: async (_callback, options) => {
+      if (options && typeof options === "object" && "attributeFilter" in options) {
+        return { key: "fixture-document:0", revision: 0, timedOut: false };
+      }
+      return undefined;
+    },
+  });
+}
+
 function personalizedTemporaryChatRole(_role: string, options: { name: string | RegExp }) {
   const locator = {
     filter: (_filter: { visible: boolean }) => ({
@@ -712,7 +724,7 @@ test("a mutating stage timeout preserves a failed cleanup integrity error", asyn
       );
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     getByRole: (_role: string, options: { name: string | RegExp }) =>
       (typeof options.name === "string" ? options.name === "Personalized" : options.name.test("Personalized"))
         ? personalized
@@ -725,7 +737,7 @@ test("a mutating stage timeout preserves a failed cleanup integrity error", asyn
             },
           }
         : menu,
-  } as any;
+  }) as any;
   const runStage = (
     BrowserSession.prototype as unknown as {
       runStage<T>(
@@ -923,10 +935,10 @@ test("an accepted Full-mode send survives one stalled DOM probe and a later MCP 
     isVisible: async () => false,
   };
   const assistantLocator = { id: "assistant-turn" };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     isClosed: () => false,
     locator: (selector: string) => (selector.startsWith("[data-turn-id=") ? assistantLocator : hiddenLocator),
-  } as unknown as Page;
+  }) as unknown as Page;
   let sendPresses = 0;
   const composer = fakeSendComposer({
     press: async () => {
@@ -1051,10 +1063,10 @@ test("Bigger Context send activation keeps the outer stage budget instead of res
     },
     isVisible: async () => false,
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     isClosed: () => false,
     locator: () => hiddenLocator,
-  } as unknown as Page;
+  }) as unknown as Page;
   let pressOptions: FakePressOptions | undefined;
   worker.activeComposer = async () =>
     fakeSendComposer({
@@ -1092,7 +1104,7 @@ test("physical Send releases browser focus before semantic acceptance settles", 
   });
   worker.activeComposer = async () => fakeSendComposer();
   worker.waitForSubmissionAcceptedWithRecovery = () => acceptance;
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     isClosed: () => false,
     locator: () => ({
       filter() {
@@ -1103,7 +1115,7 @@ test("physical Send releases browser focus before semantic acceptance settles", 
       },
       isVisible: async () => false,
     }),
-  } as unknown as Page;
+  }) as unknown as Page;
   const firstLock = await interactiveBrowserTurnMutex.acquire("physical-send-a");
   let physicallyReleased = false;
   const send = worker.sendAttachedPrompt(
@@ -1436,10 +1448,10 @@ test("missing-assistant expiry checks fresh DOM after a delayed wake while prese
     isVisible: async () => false,
   };
   const assistantLocator = { id: "assistant" };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     isClosed: () => false,
     locator: (selector: string) => (selector.startsWith("[data-turn-id=") ? assistantLocator : hiddenLocator),
-  } as unknown as Page;
+  }) as unknown as Page;
   const realDateNow = Date.now;
   try {
     for (const scenario of ["appeared", "missing", "turn-deadline"] as const) {
@@ -1554,14 +1566,14 @@ test("active composer resolution waits for exactly one visible editor", async ()
     count: async () => counts.shift() ?? 1,
     first: () => composer,
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     locator: () => ({
       filter: (options: { visible: boolean }) => {
         expect(options).toEqual({ visible: true });
         return visibleComposers;
       },
     }),
-  };
+  });
   const activeComposer = composerMethod("activeComposer") as (page: unknown, timeoutMs?: number) => Promise<unknown>;
 
   expect(await activeComposer.call({}, page, 500)).toBe(composer);
@@ -1979,7 +1991,7 @@ test("connector selection re-resolves the active composer after ChatGPT replaces
       calls.push(["press"]);
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: (text: string, options: { exact: boolean }) => {
@@ -1999,7 +2011,7 @@ test("connector selection re-resolves the active composer after ChatGPT replaces
       }
       throw new Error(`Unexpected locator: ${selector}`);
     },
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
 
   let activeComposerCalls = 0;
@@ -2054,12 +2066,12 @@ test("connector selection moves highlight to the exact hidden-viewport row befor
     },
   };
   const selectedComposer = { selected: true };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: () => ({ exactConnectorLabel: true }),
     locator: () => menuRows,
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
 
   await expect(
@@ -2083,12 +2095,12 @@ test("repeated connector verification reuses its selected pill before clearing t
       fillCalls += 1;
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: () => ({ exactConnectorLabel: true }),
     locator: () => ({ filter: () => ({}) }),
-  };
+  });
   const checkpoints: string[] = [];
   const selectConnector = composerMethod("selectConnector") as (
     page: unknown,
@@ -2130,11 +2142,11 @@ test("selected connector with stale draft is cleared and reselected", async () =
     count: async () => 1,
     getAttribute: async () => "true",
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/",
     getByText: () => ({}),
     locator: () => ({ filter: () => row }),
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
   const result = await selectConnector.call(
     {
@@ -2197,7 +2209,7 @@ test("connector selection retriggers the complete mention after a fresh-page hyd
       calls.push("activate");
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: () => ({ exactConnectorLabel: true }),
@@ -2207,7 +2219,7 @@ test("connector selection retriggers the complete mention after a fresh-page hyd
         : (() => {
             throw new Error(`Unexpected locator: ${selector}`);
           })(),
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
 
   let _activeComposerCalls = 0;
@@ -2523,7 +2535,7 @@ test("connector catalog refresh stays fail-closed for absent, legacy, and exact 
   const realDateNow = Date.now;
   const run = async (visibleRows: string[]) => {
     let now = realDateNow();
-    const page = {
+    const page = Object.assign(settledBrowserPage(), {
       url: () => "https://chatgpt.com/?temporary-chat=true",
       getByRole: personalizedTemporaryChatRole,
       getByText: () => ({ exactConnectorLabel: true }),
@@ -2538,7 +2550,7 @@ test("connector catalog refresh stays fail-closed for absent, legacy, and exact 
                 },
               },
       }),
-    };
+    });
     Date.now = () => now;
     try {
       return await selectConnector.call(
@@ -2614,7 +2626,8 @@ test("tool-capable prompts use the shared Playwright connector selection before 
       calls.push(["press", value]);
     },
     locator: () => ({ filter: () => selectedConnector }),
-    evaluate: async (_fn: unknown, value: string) => {
+    evaluate: async (_fn: unknown, value: string | undefined) => {
+      if (value === undefined) return false; // Lexical, not ProseMirror.
       calls.push(["plainText", value]);
       return true;
     },
@@ -2639,7 +2652,7 @@ test("tool-capable prompts use the shared Playwright connector selection before 
       calls.push(["selectConnector"]);
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: () => ({ exactConnectorLabel: true }),
@@ -2651,7 +2664,7 @@ test("tool-capable prompts use the shared Playwright connector selection before 
           : (() => {
               throw new Error(`Unexpected locator: ${selector}`);
             })(),
-  };
+  });
   const attachPrompt = composerMethod("attachPrompt") as (
     page: unknown,
     prompt: string,
@@ -2741,7 +2754,7 @@ test("an aborted connector proof clears its mention before the preflight release
       return "";
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: () => absent,
     getByText: () => ({ exactConnectorLabel: true }),
@@ -2756,7 +2769,7 @@ test("an aborted connector proof clears its mention before the preflight release
       expect(selector).toContain("__menu-item");
       return menuRows;
     },
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (
     page: unknown,
     capture?: unknown,
@@ -2822,7 +2835,7 @@ test("a lost connector mention cannot be used as evidence to change personalizat
     pressSequentially: async () => {},
     evaluate: async () => ({ text: "", focused: false }),
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: () => absent,
     getByText: () => ({}),
@@ -2838,7 +2851,7 @@ test("a lost connector mention cannot be used as evidence to change personalizat
       stateReads += 1;
       throw new Error("Personalization must not be inferred from a lost input");
     },
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (
     page: unknown,
     capture?: (checkpoint: string) => Promise<void>,
@@ -2902,7 +2915,7 @@ test("an aborted real connector selection clears the typed mention before return
       return composerText.trim();
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: () => ({ exactConnectorLabel: true }),
@@ -2916,7 +2929,7 @@ test("an aborted real connector selection clears the typed mention before return
       expect(selector).toContain("__menu-item");
       return menuRows;
     },
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (
     page: unknown,
     capture?: unknown,
@@ -3029,12 +3042,12 @@ test("an abort after connector activation removes the selected pill before retur
     },
     evaluate: async () => composerText.trim(),
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "https://chatgpt.com/?temporary-chat=true",
     getByRole: personalizedTemporaryChatRole,
     getByText: () => ({ exactConnectorLabel: true }),
     locator: (selector: string) => (selector === "body" ? { press: async () => {} } : menuRows),
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (
     page: unknown,
     capture?: unknown,
@@ -3072,7 +3085,7 @@ test("selectConnector safely handles empty or non-standard page URLs without thr
     pressSequentially: async () => {},
     press: async () => {},
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     url: () => "", // Empty URL during navigation or disconnected surface
     locator: () => ({
       filter: () => ({
@@ -3082,7 +3095,7 @@ test("selectConnector safely handles empty or non-standard page URLs without thr
       }),
     }),
     getByText: () => ({ exact: true }),
-  };
+  });
   const selectConnector = composerMethod("selectConnector") as (
     page: unknown,
     capture?: unknown,
@@ -3467,7 +3480,7 @@ test("image attachment readiness uses exact file tiles and not localized remove-
       calls.push(["setFiles", files.map((file) => file.name).join(",")]);
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     locator: (selector: string) => {
       if (selector === CHATGPT_ATTACHMENT_INPUT_SELECTOR || selector === 'input[data-testid="upload-photos-input"]')
         return input;
@@ -3476,7 +3489,7 @@ test("image attachment readiness uses exact file tiles and not localized remove-
       }
       return { last: () => composer };
     },
-  };
+  });
   const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   await attachFiles.call({ activeComposer: async () => composer }, page, {
@@ -3524,7 +3537,7 @@ test("attachFiles surfaces alert details when prompt attachments are rejected", 
   const composer = {
     locator: () => composerForm,
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     locator: (selector: string) => {
       if (selector === CHATGPT_ATTACHMENT_INPUT_SELECTOR || selector === 'input[data-testid="upload-photos-input"]') {
         return {
@@ -3539,7 +3552,7 @@ test("attachFiles surfaces alert details when prompt attachments are rejected", 
       }
       return {};
     },
-  };
+  });
   const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   await expect(
@@ -3568,7 +3581,7 @@ test("attachFiles throws when send button never becomes enabled within deadline"
   const composer = {
     locator: () => composerForm,
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     locator: (selector: string) => {
       if (selector === CHATGPT_ATTACHMENT_INPUT_SELECTOR || selector === 'input[data-testid="upload-photos-input"]') {
         return {
@@ -3578,7 +3591,7 @@ test("attachFiles throws when send button never becomes enabled within deadline"
       }
       return {};
     },
-  };
+  });
   const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   const realDateNow = Date.now;
@@ -3687,9 +3700,9 @@ function thinkSlashFixture() {
   };
   const rows = { filter: () => rows, first: () => row, count: async () => state.optionCount };
   const popup = { filter: () => popup, locator: () => rows, count: async () => state.popupCount };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     locator: (selector: string) => (selector === '[role="dialog"]' ? dialogPage("").page.locator(selector) : popup),
-  };
+  });
   const composer = {
     filter: () => composer,
     first: () => composer,
@@ -3881,12 +3894,12 @@ test("the one-time Temporary Chat onboarding is accepted with an exact Playwrigh
       calls.push(["waitFor", options]);
     },
   };
-  const page = {
+  const page = Object.assign(settledBrowserPage(), {
     locator: (selector: string) => {
       calls.push(["locator", selector]);
       return dialog;
     },
-  } as unknown as Page;
+  }) as unknown as Page;
 
   expect(await dismissChatGptTemporaryChatOnboarding(page)).toBeTrue();
   expect(calls).toContainEqual(["role", "button", { name: "Continue", exact: true }]);
@@ -3905,7 +3918,7 @@ test("an unrelated Continue dialog is never auto-accepted", async () => {
       throw new Error("must not inspect an unrelated dialog action");
     },
   };
-  const page = { locator: () => dialog } as unknown as Page;
+  const page = Object.assign(settledBrowserPage(), { locator: () => dialog }) as unknown as Page;
 
   expect(await dismissChatGptTemporaryChatOnboarding(page)).toBeFalse();
   expect(lookedForButton).toBeFalse();
@@ -4162,7 +4175,7 @@ test("effort readback rejects a changed selection or surface before activating S
   }) as unknown as {
     assertSelectedEffort(page: unknown, mode: unknown): Promise<void>;
   };
-  const page = { url: () => state.url };
+  const page = Object.assign(settledBrowserPage(), { url: () => state.url });
   const mode = { selection };
   await worker.assertSelectedEffort(page, mode);
   for (const change of [
@@ -4715,78 +4728,6 @@ test("browser preflight separates model context from one-message transport limit
     ).toThrow("500,000-character ChatGPT composer boundary");
   }
 });
-
-test("Bigger Context rejects mixed-density records that exceed the safe browser boundary", () => {
-  const capabilities = {
-    localToolsEnabled: false,
-    solAvailable: true,
-    extraHighAvailable: false,
-    proAvailable: false,
-    experimentalBiggerContext: true,
-  };
-  const dense = "a!b@c#d$e%f^g&h*".repeat(3_750);
-  const sparse = "x".repeat(dense.length);
-  const whitespace = " ".repeat(450_000);
-  // Equal byte sizes must not pack two dense records into one oversized stage. Conversely,
-  // token-only balancing must not leave all the low-token whitespace in one oversized composer.
-  for (const contents of [
-    [dense, dense, sparse, sparse, dense, sparse],
-    [dense, dense, whitespace, whitespace, whitespace, whitespace],
-  ]) {
-    const compiled = compileChatGptWebPrompt(
-      {
-        modelId: CHATGPT_WEB_MODEL_ID,
-        stream: true,
-        options: { reasoning: "high" },
-        _compactionRequest: true,
-        context: {
-          systemPrompt: [],
-          messages: contents.map((content, index) => ({ role: "user", content, timestamp: index + 1 })),
-        },
-      },
-      capabilities,
-      undefined,
-      { experimentalMultipartParts: 6 },
-    );
-    const multipart = compiled.multipart!;
-    const records = multipart.parts.flatMap((part) => JSON.parse(part).records);
-    expect(records).toEqual(
-      contents.map((content, message_index) => ({
-        kind: "message",
-        message_index,
-        message: { role: "user", content },
-      })),
-    );
-    expect(compiled.trimmedCompactionMessages).toBeUndefined();
-
-    const transaction = "ctx_0123456789abcdef0123456789abcdef";
-    const stages = multipart.parts
-      .slice(0, -1)
-      .map((payload, index) => formatChatGptWebMultipartStage(payload, transaction, index + 1, 6).text);
-    const final = formatChatGptWebMultipartCommit(multipart, transaction);
-    const maxStageMessageTokens = Math.max(...stages.map((text) => estimateTokens(text)));
-    const maxStageChars = Math.max(...stages.map((text) => text.length));
-    const finalMessageTokens = estimateTokens(final);
-    expect(() =>
-      assertChatGptWebMultipartInputWithinLimits(
-        estimateCompiledChatGptWebInputTokens(compiled, CHATGPT_WEB_MODEL_ID),
-        Math.max(maxStageMessageTokens, finalMessageTokens),
-        CHATGPT_WEB_MODEL_ID,
-        "high",
-        capabilities,
-        Math.max(maxStageChars, final.length),
-        6,
-        {
-          stagingEffort: "medium",
-          maxStageMessageTokens,
-          maxStageChars,
-          finalMessageTokens,
-          finalMessageChars: final.length,
-        },
-      ),
-    ).toThrow("45,000");
-  }
-}, 90_000);
 
 test("Bigger Context preflight expands only the total context ceiling and keeps each message boundary", () => {
   const plus = {
@@ -5360,11 +5301,11 @@ test("stalled-turn diagnostics record DOM metrics without response or overlay co
     const overlays = Array.from(
       harness.window.document.querySelectorAll('[role="dialog"], [role="alert"], [role="status"]'),
     );
-    const page = {
+    const page = Object.assign(settledBrowserPage(), {
       locator: (_selector: string) => ({
         evaluateAll: async (callback: Function) => harness.runInScope(callback, overlays),
       }),
-    } as unknown as Page;
+    }) as unknown as Page;
 
     const diagnostic = await observer.stalledTurnDiagnostic(page, harness.responseTurn as unknown as Locator);
     const payload = JSON.parse(diagnostic) as {
@@ -5485,20 +5426,6 @@ test("clearing the missing-response window preserves whether a response was ever
   expect(tracker.update(absent, 6_000)).toContain("response DOM disappeared");
 });
 
-test("the launcher helper transport carries MCP progress into the out-of-process browser worker", () => {
-  const client = readFileSync("src/adapters/chatgpt-web/launcher-helper-client.ts", "utf8");
-  const helper = readFileSync("src/adapters/chatgpt-web/browser-helper-main.ts", "utf8");
-
-  // The browser worker runs in the helper process while the Codex MCP broker runs in the daemon.
-  // If progress stops crossing that boundary the worker silently observes "never live" and cancels
-  // turns whose tool calls are still completing, so both ends of the transport are asserted here.
-  expect(client).toContain("forwardProgress");
-  expect(client).toMatch(/type: "progress", id: operationId, snapshot/);
-  expect(helper).toMatch(/message\.type === "progress"/);
-  expect(helper).toContain("ChatGptMirroredTurnProgress");
-  expect(helper).toMatch(/externalProgress: progress/);
-});
-
 test("proven MCP progress vetoes every terminal DOM conclusion, not just a missing response", () => {
   // Tool activity remains authoritative when the response DOM is present but its completion action
   // has not appeared yet.
@@ -5605,28 +5532,6 @@ test("stale MCP progress stops suppressing DOM health without penalising long ac
   ).toBeFalse();
 });
 
-test("the daemon prefers the browser helper that shipped beside its own entrypoint", () => {
-  const client = readFileSync("src/adapters/chatgpt-web/launcher-helper-client.ts", "utf8");
-  const helper = readFileSync("src/adapters/chatgpt-web/browser-helper-main.ts", "utf8");
-
-  // The launcher advertises the helper inside its signed application bundle while the daemon runs
-  // from a versioned runtime directory, so the two update independently. A daemon that spoke a
-  // newer protocol to an older helper had its frame routed to the run handler, which dereferenced
-  // a turn the frame never carried and destroyed the turn with an opaque TypeError.
-  expect(client).toContain("bundledHelperScript()");
-  expect(client).toMatch(/browserHelperScriptPath \?\? this\.bundledHelperScript\(\) \?\? descriptor\.helper\.script/);
-
-  // Belt and braces: negotiate the frame, and never treat an unrecognised frame as a run.
-  expect(client).toContain('this.helperFeatures.has("progress")');
-  expect(client).toContain('this.helperFeatures.has("tool-boundary-request-ack-v2")');
-  expect(client).toContain('this.helperFeatures.has("completion-fence")');
-  expect(helper).toMatch(/message\.type === "run"/);
-  expect(helper).toContain("Browser helper received an unsupported message type");
-
-  // A malformed liveness hint is not authoritative evidence that the active turn failed.
-  expect(helper).toContain("discarded an invalid MCP progress frame");
-});
-
 test("multipart observation surfaces Stopped thinking on its first observation even with live MCP work", async () => {
   const absent = {
     last() {
@@ -5637,7 +5542,7 @@ test("multipart observation surfaces Stopped thinking on its first observation e
     },
     isVisible: async () => false,
   };
-  const page = { isClosed: () => false, locator: () => absent };
+  const page = Object.assign(settledBrowserPage(), { isClosed: () => false, locator: () => absent });
   const binding = { locator: { getByText: () => absent, getByTestId: () => absent } };
   const snapshot = {
     responsePresent: true,

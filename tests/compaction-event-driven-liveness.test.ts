@@ -4,8 +4,8 @@ import { ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-erro
 import { ChatGptTurnDomHealthTracker } from "../src/adapters/chatgpt-web/browser/dom-trackers";
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 import { ChatGptTurnEventBus } from "../src/adapters/chatgpt-web/browser/turn-events";
-import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
 import type { ChatGptTurnSession } from "../src/adapters/chatgpt-web/turn-execution";
+import { makeWorkerFixture } from "./fixtures/worker-harness";
 
 describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
   describe("ChatGptTurnDomHealthTracker with Multi-Channel Liveness", () => {
@@ -216,7 +216,7 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
         identity: "turn-1",
       };
 
-      const observe = (ChatGptBrowserWorker.prototype as any).waitForMultipartAcknowledgement;
+      const observe = (makeWorkerFixture() as any).waitForMultipartAcknowledgement;
       const turnEvents = new ChatGptTurnEventBus({ sessionId: "test-session", turnId: "turn-1" });
 
       // Run observation that ticks clock past 5,000ms to verify heartbeat trigger
@@ -226,21 +226,23 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
 
       try {
         await observe.call(
-          {
-            responseDomSnapshot: async () => {
-              iterations += 1;
-              fakeTime += 2_600; // 2 iterations will exceed 5,000ms
-              return {
-                responsePresent: true,
-                stoppedThinkingVisible: false,
-                visibleText: iterations >= 3 ? "STAGED_OK" : "Staging...",
-                completionActionVisible: iterations >= 3,
-                fullHtml: "<p>test</p>",
-              };
+          makeWorkerFixture({
+            fields: {
+              responseDomSnapshot: async () => {
+                iterations += 1;
+                fakeTime += 2_600; // 2 iterations will exceed 5,000ms
+                return {
+                  responsePresent: true,
+                  stoppedThinkingVisible: false,
+                  visibleText: iterations >= 3 ? "STAGED_OK" : "Staging...",
+                  completionActionVisible: iterations >= 3,
+                  fullHtml: "<p>test</p>",
+                };
+              },
+              // The wake between iterations: a quiet fake page keeps the same revision key.
+              waitForTurnDomRevisionOrExternalProgress: async () => "stub:0",
             },
-            // The wake between iterations: a quiet fake page keeps the same revision key.
-            waitForTurnDomRevisionOrExternalProgress: async () => "stub:0",
-          },
+          }),
           fakePage,
           fakeBinding,
           {},
@@ -273,7 +275,7 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
         identity: "turn-1",
       };
 
-      const observe = (ChatGptBrowserWorker.prototype as any).waitForMultipartAcknowledgement;
+      const observe = (makeWorkerFixture() as any).waitForMultipartAcknowledgement;
 
       const originalNow = Date.now;
       let fakeTime = 1_000_000;
@@ -281,20 +283,22 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
 
       try {
         const observationPromise = observe.call(
-          {
-            responseDomSnapshot: async () => {
-              fakeTime += 200_000; // Exceeds CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS (180s)
-              return {
-                responsePresent: false,
-                stoppedThinkingVisible: false,
-                visibleText: "",
-                completionActionVisible: false,
-                fullHtml: "",
-              };
+          makeWorkerFixture({
+            fields: {
+              responseDomSnapshot: async () => {
+                fakeTime += 200_000; // Exceeds CHATGPT_MULTIPART_RESPONSE_DOM_GRACE_MS (180s)
+                return {
+                  responsePresent: false,
+                  stoppedThinkingVisible: false,
+                  visibleText: "",
+                  completionActionVisible: false,
+                  fullHtml: "",
+                };
+              },
+              // The wake between iterations: a quiet fake page keeps the same revision key.
+              waitForTurnDomRevisionOrExternalProgress: async () => "stub:0",
             },
-            // The wake between iterations: a quiet fake page keeps the same revision key.
-            waitForTurnDomRevisionOrExternalProgress: async () => "stub:0",
-          },
+          }),
           fakePage,
           fakeBinding,
           {},
@@ -325,7 +329,7 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
         identity: "turn-1",
       };
 
-      const observe = (ChatGptBrowserWorker.prototype as any).waitForMultipartAcknowledgement;
+      const observe = (makeWorkerFixture() as any).waitForMultipartAcknowledgement;
       const turnEvents = new ChatGptTurnEventBus({ sessionId: "test-session", turnId: "turn-1" });
 
       let attempts = 0;
@@ -336,27 +340,29 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
 
       try {
         await observe.call(
-          {
-            responseDomSnapshot: async () => {
-              attempts += 1;
-              fakeTime += 2_500;
-              if (attempts <= 2) {
-                // First 2 probes fail with probe timeout due to Chromium rendering 135k characters
-                throw new ChatGptBrowserObservationTimeoutError(5250);
-              }
-              // Third probe succeeds once React completes rendering
-              return {
-                responsePresent: true,
-                stoppedThinkingVisible: false,
-                visibleText: "STAGED_OK",
-                completionActionVisible: true,
-                fullHtml: "<p>STAGED_OK</p>",
-              };
+          makeWorkerFixture({
+            fields: {
+              responseDomSnapshot: async () => {
+                attempts += 1;
+                fakeTime += 2_500;
+                if (attempts <= 2) {
+                  // First 2 probes fail with probe timeout due to Chromium rendering 135k characters
+                  throw new ChatGptBrowserObservationTimeoutError(5250);
+                }
+                // Third probe succeeds once React completes rendering
+                return {
+                  responsePresent: true,
+                  stoppedThinkingVisible: false,
+                  visibleText: "STAGED_OK",
+                  completionActionVisible: true,
+                  fullHtml: "<p>STAGED_OK</p>",
+                };
+              },
+              waitForTurnDomRevisionOrExternalProgress: async () => {
+                return "key-1";
+              },
             },
-            waitForTurnDomRevisionOrExternalProgress: async () => {
-              return "key-1";
-            },
-          },
+          }),
           fakePage,
           fakeBinding,
           {},

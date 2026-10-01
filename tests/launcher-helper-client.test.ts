@@ -4,11 +4,16 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
-import type { BrowserTurn, ResolvedBrowserConfig } from "../src/adapters/chatgpt-web/browser-worker";
+import {
+  type BrowserTurn,
+  type ResolvedBrowserConfig,
+  resolveBrowserConfig,
+} from "../src/adapters/chatgpt-web/browser-worker";
 import { LauncherBrowserHelperClient } from "../src/adapters/chatgpt-web/launcher-helper-client";
 import { selectedSkillFile } from "../src/adapters/chatgpt-web/skill-attachments";
 import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
 import { LAUNCHER_BROWSER_HOST_KIND, LAUNCHER_BROWSER_IDLE_URL } from "../src/launcher-browser-host";
+import { makeLauncherTurn } from "./fixtures/worker-harness";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -25,7 +30,14 @@ test("daemon streams browser lifecycle through the real helper process", async (
     import { ChatGptBrowserWorker } from ${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url).href)};
     // Substitute only the browser. Both sides of the production IPC protocol run unchanged.
     let previousText;
-    ChatGptBrowserWorker.prototype.run = async function(turn) {
+    const resolveWorker = ChatGptBrowserWorker.forProvider.bind(ChatGptBrowserWorker);
+    const configured = new WeakSet();
+    ChatGptBrowserWorker.forProvider = (provider) => {
+      const worker = resolveWorker(provider);
+      if (configured.has(worker)) return worker;
+      configured.add(worker);
+      // The browser boundary is replaced; both production IPC endpoints remain real.
+      worker.run = async function(turn) {
       if (this.config.useSavedChats !== true) throw new Error("Saved chat preference lost in helper IPC");
       if (turn.modelFamily !== "5.6") throw new Error("Pinned model family lost in helper IPC");
       if (turn.traceId === "abcdef123459") {
@@ -38,6 +50,10 @@ test("daemon streams browser lifecycle through the real helper process", async (
         return "second";
       }
       if (turn.traceId === "abcdef123458") {
+        const initial = turn.externalProgress.snapshot();
+        if (initial.revision !== 0 || initial.activeToolCalls !== 0) {
+          throw new Error("Fresh helper run inherited prior MCP progress");
+        }
         await turn.onSurfaceLeased?.("a".repeat(32));
         await turn.onPreparedSelected(false);
         const prepared = await turn.prepare();
@@ -85,6 +101,8 @@ test("daemon streams browser lifecycle through the real helper process", async (
         },
       });
       return "done";
+      };
+      return worker;
     };
     await import(${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-helper-main.ts", import.meta.url).href)});
   `,
@@ -273,6 +291,39 @@ test("daemon streams browser lifecycle through the real helper process", async (
       onTextDelta() {},
     });
     await thirdPrepared;
+    const transport = client as unknown as {
+      pending: Map<string, unknown>;
+      child: { stdout: NodeJS.ReadableStream };
+      send(message: unknown): Promise<void>;
+    };
+    const [operationId] = transport.pending.keys();
+    let resolveUnsupported!: (message: Record<string, unknown>) => void;
+    const unsupported = new Promise<Record<string, unknown>>((resolve) => {
+      resolveUnsupported = resolve;
+    });
+    let received = "";
+    const onOutput = (chunk: Buffer) => {
+      received += chunk.toString();
+      let newline = received.indexOf("\n");
+      while (newline >= 0) {
+        const message = JSON.parse(received.slice(0, newline));
+        received = received.slice(newline + 1);
+        if (message.id === "unsupported-contract-frame") resolveUnsupported(message);
+        newline = received.indexOf("\n");
+      }
+    };
+    transport.child.stdout.on("data", onOutput);
+    try {
+      await transport.send({ type: "future-frame", id: "unsupported-contract-frame" });
+      expect(await unsupported).toMatchObject({
+        type: "error",
+        message: expect.stringContaining("unsupported message type"),
+      });
+      // Invalid liveness is ignored by the real helper while the accepted turn stays active.
+      await transport.send({ type: "progress", id: operationId, snapshot: { revision: -1 } });
+    } finally {
+      transport.child.stdout.off("data", onOutput);
+    }
     const revision = progress.recordToolBatch(1);
     await journalRequested;
     let memoryAcknowledged = false;
@@ -292,6 +343,23 @@ test("daemon streams browser lifecycle through the real helper process", async (
     expect(await third).toBe("observed");
     expect(surfaceEvents).toEqual([`claimed:${"a".repeat(32)}`, "persisted:observed", `released:${"a".repeat(32)}`]);
     await expect(progress.waitForToolBatchObservation(revision)).resolves.toBeUndefined();
+    // The same trace id gets a fresh mirror, even after a prior tool batch was acknowledged.
+    const repeatedProgress = new ChatGptExternalTurnProgress();
+    const repeated = client.run({
+      traceId: "abcdef123458",
+      modelId: "gpt-5.6-sol",
+      modelFamily: "5.6",
+      capabilities: { localToolsEnabled: true, solAvailable: true, extraHighAvailable: false, proAvailable: false },
+      externalProgress: repeatedProgress,
+      completionFence: { begin: async () => 0, commit: async () => true },
+      prepare: async () => {
+        queueMicrotask(() => repeatedProgress.recordToolBatch(1));
+        return { text: "repeat", images: [], release() {} };
+      },
+      onTextDelta() {},
+    });
+    expect(await repeated).toBe("observed");
+    await expect(repeatedProgress.waitForToolBatchObservation(1)).resolves.toBeUndefined();
     const repeatedDeltas: string[] = [];
     const repeatedTurn = () => ({
       traceId: "abcdef123459",
@@ -317,8 +385,14 @@ test("accepted compaction retires through the helper as completed without hiding
     helper,
     `
     import { ChatGptBrowserWorker } from ${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-worker.ts", import.meta.url).href)};
-    const run = ChatGptBrowserWorker.prototype.run;
-    ChatGptBrowserWorker.prototype.run = function(turn) {
+    const resolveWorker = ChatGptBrowserWorker.forProvider.bind(ChatGptBrowserWorker);
+    const configured = new WeakSet();
+    ChatGptBrowserWorker.forProvider = (provider) => {
+      const worker = resolveWorker(provider);
+      if (configured.has(worker)) return worker;
+      configured.add(worker);
+      const run = worker.run.bind(worker);
+      worker.run = function(turn) {
       // Substitute the browser wait only. Actual worker catch/finally, IPC and launcher end run.
       this.runStage = async () => {
         const stopped = new Promise((resolve, reject) => {
@@ -331,7 +405,9 @@ test("accepted compaction retires through the helper as completed without hiding
         turn.onSubmitted();
         return stopped;
       };
-      return run.call(this, turn);
+        return run(turn);
+      };
+      return worker;
     };
     await import(${JSON.stringify(new URL("../src/adapters/chatgpt-web/browser-helper-main.ts", import.meta.url).href)});
   `,
@@ -895,4 +971,107 @@ test("an older helper cannot silently drop selected skill files and releases the
   ).rejects.toThrow("does not support skill attachments");
   expect(sent).toEqual(["run", "abort"]);
   expect(released).toBe(true);
+});
+
+function helperContractConfig(root: string, advertisedScript: string): ResolvedBrowserConfig {
+  const descriptor = join(root, "launcher.json");
+  writeFileSync(
+    descriptor,
+    JSON.stringify({
+      version: 3,
+      kind: LAUNCHER_BROWSER_HOST_KIND,
+      profile: "production",
+      pid: process.pid,
+      endpoint: "http://127.0.0.1:39001",
+      control: { endpoint: "http://127.0.0.1:39002", token: "contract-token-0123456789abcdefghijklmnopqrstuvwxyz" },
+      helper: { executable: process.execPath, script: advertisedScript },
+      partition: "persist:codex-web-gpt-chatgpt",
+      idleUrl: LAUNCHER_BROWSER_IDLE_URL,
+      surfaceId: "a".repeat(32),
+      surfaceTargets: { ["a".repeat(32)]: "contract-target" },
+      createdAt: new Date().toISOString(),
+    }),
+    { mode: 0o600 },
+  );
+  return resolveBrowserConfig({
+    adapter: "chatgpt-web",
+    baseUrl: "browser://helper-contract",
+    chatgptWeb: { browserHost: "launcher", browserHostDescriptorPath: descriptor },
+  });
+}
+
+function writeProtocolPeer(path: string, answer: string, features: string[] = ["session-operation-id-v2"]): void {
+  // This peer is the external process boundary. Selection and negotiation run in the real client.
+  writeFileSync(
+    path,
+    `
+const { createInterface } = require("node:readline");
+process.stdout.write(JSON.stringify({ type: "ready", features: ${JSON.stringify(features)} }) + "\\n");
+const input = createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.type === "run") {
+    process.stdout.write(JSON.stringify({ type: "result", id: message.id, text: ${JSON.stringify(answer)} }) + "\\n");
+  } else if (message.type === "shutdown") {
+    input.close();
+    process.exit(0);
+  }
+});
+`,
+    { mode: 0o700 },
+  );
+}
+
+test.each([
+  ["packaged sibling", "cli.js", true, false, "sibling"],
+  ["explicit override", "cli.js", true, true, "explicit"],
+  ["source entrypoint", "cli.ts", true, false, "advertised"],
+  ["missing sibling", "cli.js", false, false, "advertised"],
+] as const)(
+  "helper selection launches the correct process: %s",
+  async (_name, entrypoint, siblingExists, explicit, wanted) => {
+    const root = mkdtempSync(join(tmpdir(), "helper-selection-contract-"));
+    roots.push(root);
+    const advertised = join(root, "advertised.cjs");
+    const override = join(root, "explicit.cjs");
+    const sibling = join(root, "browser-helper.cjs");
+    writeProtocolPeer(advertised, "advertised");
+    writeProtocolPeer(override, "explicit");
+    if (siblingExists) writeProtocolPeer(sibling, "sibling");
+    const client = new LauncherBrowserHelperClient({
+      ...helperContractConfig(root, advertised),
+      ...(explicit ? { browserHelperScriptPath: override } : {}),
+    });
+    const previousEntrypoint = process.argv[1];
+    process.argv[1] = join(root, entrypoint);
+    try {
+      expect(await client.run(makeLauncherTurn("helper_selection"))).toBe(wanted);
+    } finally {
+      process.argv[1] = previousEntrypoint;
+      await client.close();
+    }
+  },
+);
+
+test.each([
+  [["session-operation-id-v2"], "causal Codex tool-boundary acknowledgement"],
+  [["session-operation-id-v2", "tool-boundary-request-ack-v2"], "MCP completion fence"],
+] as const)("negotiation prevents dispatch to a helper missing the MCP boundary: %s", async (features, error) => {
+  const root = mkdtempSync(join(tmpdir(), "helper-negotiation-contract-"));
+  roots.push(root);
+  const script = join(root, "legacy.cjs");
+  writeProtocolPeer(script, "UNSAFE_DISPATCH", [...features]);
+  const client = new LauncherBrowserHelperClient(helperContractConfig(root, script));
+  try {
+    await expect(
+      client.run(
+        makeLauncherTurn("legacy_negotiation", {
+          externalProgress: new ChatGptExternalTurnProgress(),
+          completionFence: { begin: async () => 0, commit: async () => true },
+        }),
+      ),
+    ).rejects.toThrow(error);
+  } finally {
+    await client.close();
+  }
 });
