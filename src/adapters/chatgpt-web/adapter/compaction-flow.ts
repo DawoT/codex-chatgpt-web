@@ -57,6 +57,7 @@ import {
 import { estimateChatGptWebUsage } from "../usage";
 import { persistTurnCompaction } from "../workspace-persistence";
 import { withAbort } from "./cancellation";
+import { CompactionBrowserRunner } from "./compaction-browser-runner";
 import {
   compactionControlPolicy,
   initialCompactionRoute,
@@ -436,6 +437,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           };
           armHandoffDeadline();
           const operationSignal = AbortSignal.any([operatorSignal, handoffDeadline.signal]);
+          const browserRunner = new CompactionBrowserRunner(retainOwnershipUntil, operationSignal);
           const sourceConversationKey = chatGptConversationKey(parsed, executionNamespace);
           const runFreshCompaction = async (reason: string): Promise<string> => {
             route = freshConversationPerTurn ? "fresh" : "fallback";
@@ -457,10 +459,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 onHeartbeat: () => emit({ type: "heartbeat" }),
               },
             );
-            retainOwnershipUntil(fallbackRuntime.physicalSettlement);
-            try {
-              const rawSummary = await withAbort(fallbackRuntime.browser, operationSignal);
-              await withAbort(fallbackRuntime.physicalSettlement, operationSignal);
+            return browserRunner.run(fallbackRuntime, async (rawSummary) => {
               record("received", "succeeded", { attempt: 1 });
               // Keep empty output in the validation/repair path; a fabricated draft
               // can never satisfy the structured checkpoint validator.
@@ -536,25 +535,21 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                     turnCapabilities,
                     { onHeartbeat: () => emit({ type: "heartbeat" }) },
                   );
-                  retainOwnershipUntil(repairRuntime.physicalSettlement);
                   let repairOutcome: "succeeded" | "failed" = "failed";
                   try {
-                    const repaired = await withAbort(repairRuntime.browser, operationSignal);
-                    await withAbort(repairRuntime.physicalSettlement, operationSignal);
-                    record("received", "succeeded", { attempt: 2 });
-                    repairOutcome = "succeeded";
-                    summary = canonicalizeCompactionHandoff(
-                      parsed,
-                      repaired.trim() ? repaired : "Empty checkpoint draft",
-                    );
-                    quality = validateCompactionQuality(parsed.context.messages, summary, {
-                      requireStructured: true,
-                      evidenceSessionId: compactionSessionId(parsed),
+                    await browserRunner.run(repairRuntime, (repaired) => {
+                      record("received", "succeeded", { attempt: 2 });
+                      repairOutcome = "succeeded";
+                      summary = canonicalizeCompactionHandoff(
+                        parsed,
+                        repaired.trim() ? repaired : "Empty checkpoint draft",
+                      );
+                      quality = validateCompactionQuality(parsed.context.messages, summary, {
+                        requireStructured: true,
+                        evidenceSessionId: compactionSessionId(parsed),
+                      });
+                      recordValidation(summary, quality, true);
                     });
-                    recordValidation(summary, quality, true);
-                  } catch (error) {
-                    repairRuntime.cancel(error instanceof Error ? error : new Error(String(error)));
-                    throw error;
                   } finally {
                     recordRepairDuration(
                       observedRepairDurationsMs,
@@ -566,12 +561,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 }
               }
               return summary;
-            } catch (error) {
-              fallbackRuntime.cancel(error instanceof Error ? error : new Error(String(error)));
-              // The shared owner retains physical settlement independently of this error.
-              // Neither a timeout nor operator cancellation can open a competing trace.
-              throw error;
-            }
+            });
           };
           let source: ChatGptTurnSession | undefined;
           let preserveFinalResponse = false;
