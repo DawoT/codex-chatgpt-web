@@ -294,3 +294,43 @@ test("a forProvider call racing an in-flight close keeps receiving the worker be
   // Leave the module-level worker registry empty for the remaining tests.
   await closeChatGptBrowserWorkers();
 });
+
+test("closing registered workers preserves a different provider created during the close", async () => {
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web",
+    baseUrl: "browser://test-cross-provider-close-race",
+    chatgptWeb: { storageStatePath: "/tmp/browser-worker-defects-initial-provider.json" },
+  };
+  const lateProvider: CodexProviderConfig = {
+    ...provider,
+    chatgptWeb: { storageStatePath: "/tmp/browser-worker-defects-late-provider.json" },
+  };
+  const first = ChatGptBrowserWorker.forProvider(provider);
+  let releaseClose!: () => void;
+  const closeGate = new Promise<void>((resolve) => {
+    releaseClose = resolve;
+  });
+  const closeSpy = spyOn(first, "close").mockImplementation(() => closeGate);
+  const closing = closeChatGptBrowserWorkers();
+  const late = ChatGptBrowserWorker.forProvider(lateProvider);
+  const lateCloseSpy = spyOn(late, "close").mockResolvedValue(undefined);
+  try {
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(ChatGptBrowserWorker.forProvider(provider)).toBe(first);
+    releaseClose();
+    await closing;
+
+    expect(lateCloseSpy).not.toHaveBeenCalled();
+    expect(ChatGptBrowserWorker.forProvider(lateProvider)).toBe(late);
+    expect(ChatGptBrowserWorker.forProvider(provider)).not.toBe(first);
+
+    await closeChatGptBrowserWorkers();
+    expect(lateCloseSpy).toHaveBeenCalledTimes(1);
+  } finally {
+    releaseClose();
+    await closing;
+    closeSpy.mockRestore();
+    lateCloseSpy.mockRestore();
+    await closeChatGptBrowserWorkers();
+  }
+});

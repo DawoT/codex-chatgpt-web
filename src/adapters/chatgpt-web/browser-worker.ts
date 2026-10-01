@@ -70,11 +70,13 @@ export { MAX_CHATGPT_BROWSER_TABS } from "./concurrency";
 const workers = new Map<string, ChatGptBrowserWorker>();
 
 export async function closeChatGptBrowserWorkers(): Promise<void> {
-  const active = [...workers.values()];
-  const results = await Promise.allSettled(active.map((worker) => worker.close()));
-  // Cleared only after every close settled: a forProvider call racing an in-flight close must
-  // keep receiving the worker being closed instead of silently constructing a second one.
-  workers.clear();
+  const active = [...workers.entries()];
+  const results = await Promise.allSettled(active.map(([, worker]) => worker.close()));
+  // Retire the snapshot after every close settles. Same-provider calls keep receiving the
+  // closing worker, while a different provider registered during the await remains owned.
+  for (const [key, worker] of active) {
+    if (workers.get(key) === worker) workers.delete(key);
+  }
   const failures = results
     .filter((result): result is PromiseRejectedResult => result.status === "rejected")
     .map((result) => result.reason);
