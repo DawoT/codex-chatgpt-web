@@ -9,6 +9,7 @@ import type { ChatGptTurnEnvironment } from "./environment";
 import { McpTelemetry } from "./mcp-telemetry";
 import type { ToolDeliveryPhase } from "./tool-delivery-lifecycle";
 import { BrokerAdmission } from "./turn-broker/admission";
+import { BrokerCompletionFence } from "./turn-broker/completion-fence";
 import {
   TurnBrokerProtocolError,
   TurnBrokerRequestError,
@@ -113,6 +114,10 @@ export class TurnBroker implements TurnBrokerOwner {
     waitForSafeStart: (token, signal) => this.waitForSafeStart(token, signal),
     recordToolObservation: (request, event, isError, started, evidence) =>
       this.recordToolObservation(request, event, isError, started, evidence),
+  });
+  private readonly completionFence = new BrokerCompletionFence({
+    prune: () => this.prune(),
+    getChannel: (token) => this.channels.get(token),
   });
   private readonly threadSuccessorWaiters = new Map<string, Set<(token: string) => void>>();
   private acceptingExternalOwners = true;
@@ -317,28 +322,11 @@ export class TurnBroker implements TurnBrokerOwner {
   }
 
   beginCompletionFence(token: string): number | undefined {
-    this.prune();
-    const channel = this.channels.get(token);
-    if (!channel) throw new TurnBrokerTokenError("turn token is invalid or expired");
-    if (channel.completionCommitted) return channel.completionRevision;
-    if (channel.activities.size > 0 || channel.invocations.size > 0) return undefined;
-    return channel.activityRevision;
+    return this.completionFence.beginCompletionFence(token);
   }
 
   commitCompletionFence(token: string, revision: number): boolean {
-    this.prune();
-    if (!Number.isSafeInteger(revision) || revision < 0) {
-      throw new TurnBrokerProtocolError("turn completion fence revision is invalid");
-    }
-    const channel = this.channels.get(token);
-    if (!channel) throw new TurnBrokerTokenError("turn token is invalid or expired");
-    if (channel.completionCommitted) return channel.completionRevision === revision;
-    if (channel.activityRevision !== revision || channel.activities.size > 0 || channel.invocations.size > 0)
-      return false;
-    channel.completionCommitted = true;
-    channel.completionRevision = revision;
-    console.info(`[chatgpt-web] broker trace=${channel.traceId} committed browser completion revision=${revision}`);
-    return true;
+    return this.completionFence.commitCompletionFence(token, revision);
   }
 
   waitForRetirement(token: string, signal?: AbortSignal): Promise<void> {
