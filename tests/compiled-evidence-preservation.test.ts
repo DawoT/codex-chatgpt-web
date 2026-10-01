@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
+import { reconstructMultipartRecords } from "../src/adapters/chatgpt-web/prompt/record-fragments";
 import type { CodexParsedRequest } from "../src/types";
 
 test("ordinary compiled prompts retain old failed tool evidence and its exact source reference", () => {
@@ -75,7 +76,7 @@ test("oversized automatic compaction stages the complete history within the base
     proAvailable: true,
   });
   expect(compiled.multipart?.parts).toHaveLength(6);
-  const records = compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records);
+  const records = reconstructMultipartRecords(compiled.multipart!.parts).filter((record) => record.kind === "message");
   expect(records.map((record) => record.message.content)).toEqual(
     request.context.messages.map((message) => message.content),
   );
@@ -116,7 +117,7 @@ test("multipart compaction retains the checkpoint, failed output and image evide
     undefined,
     { experimentalMultipartParts: 6 },
   );
-  const records = compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records);
+  const records = reconstructMultipartRecords(compiled.multipart!.parts).filter((record) => record.kind === "message");
   expect(records.map((record) => record.message_index)).toEqual([0, 1, 2, 3]);
   expect(records[0].message.content).toContain("deployment forbidden");
   expect(records[1].message.content).toBe(evidence);
@@ -145,7 +146,7 @@ test("automatic staging cannot multiply the base model context window", () => {
       extraHighAvailable: false,
       proAvailable: false,
     }),
-  ).toThrow("base model context window");
+  ).toThrow("existing model context ceiling");
 });
 
 test("manual compaction never automatically stages browser messages", () => {

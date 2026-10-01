@@ -368,7 +368,14 @@ describe("Loopback Host header guard", () => {
     config.port = 0;
     config.host = "127.0.0.1";
     config.rateLimitRpm = 2;
-    const server = startServer(config);
+    const server = startServer(config, {
+      adapterFactory: () => ({
+        name: "rate-limit-fixture",
+        async runTurn(_parsed, _incoming, emit) {
+          emit({ type: "done", stopReason: "stop", endTurn: true });
+        },
+      }),
+    });
     try {
       const makeRequest = (auth: string) =>
         fetch(`http://127.0.0.1:${server.port}/v1/responses`, {

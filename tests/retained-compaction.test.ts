@@ -33,6 +33,7 @@ import {
   CODEX_ACTIVE_COMPACTION_REQUEST_MARKER,
   structuredCompactionHandoffInstruction,
 } from "../src/adapters/chatgpt-web/native-compaction-control";
+import { reconstructMultipartRecords } from "../src/adapters/chatgpt-web/prompt/record-fragments";
 import { type BrokerToolResult, callTurnBroker, TurnBroker } from "../src/adapters/chatgpt-web/turn-broker";
 import {
   ChatGptTextFeed,
@@ -2342,12 +2343,16 @@ test.each([false, true])(
       expect(turn.conversationKey).toBeUndefined();
       expect(turn.compaction).toBeTrue();
       const prepared = await turn.prepare();
-      const contextText = prepared.multipart?.parts.join("\n") ?? prepared.text;
+      const contextText = prepared.multipart
+        ? JSON.stringify(reconstructMultipartRecords(prepared.multipart.parts))
+        : prepared.text;
       expect(contextText).toContain("Original task");
       expect(contextText).toContain("Continue with the next step");
       expect(prepared.multipart!.parts).toHaveLength(6);
       expect(prepared.trimmedCompactionMessages).toBeUndefined();
-      const lastRecord = prepared.multipart!.parts.flatMap((part) => JSON.parse(part).records).at(-1);
+      const lastRecord = reconstructMultipartRecords(prepared.multipart!.parts)
+        .filter((record) => record.kind === "message")
+        .at(-1)!;
       expect(lastRecord.message.content).toBe(compact.context.messages.at(-1)!.content);
       prepared.release();
       return missionCheckpoint("Fallback checkpoint from canonical Codex context");

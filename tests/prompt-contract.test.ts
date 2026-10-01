@@ -11,6 +11,7 @@ import {
   formatChatGptWebMultipartStage,
   withoutRetiredTurnHandles,
 } from "../src/adapters/chatgpt-web/prompt";
+import { reconstructMultipartRecords } from "../src/adapters/chatgpt-web/prompt/record-fragments";
 import { biggerContextPartCount } from "../src/adapters/chatgpt-web/usage";
 import { SUMMARY_PREFIX } from "../src/responses/compaction";
 import type { CodexParsedRequest } from "../src/types";
@@ -195,12 +196,12 @@ test("Bigger Context sends six semantic record envelopes and starts work from th
   expect(commit.match(new RegExp(token, "g"))).toHaveLength(1);
 });
 
-test("Bigger Context uses the minimum transport and reserves six parts for compaction", () => {
+test("Bigger Context uses the minimum transport for normal and compaction requests", () => {
   expect(biggerContextPartCount(94_999, 95_000, false)).toBeUndefined();
   expect(biggerContextPartCount(95_000, 95_000, false)).toBe(2);
   expect(biggerContextPartCount(189_999, 95_000, false)).toBe(2);
   expect(biggerContextPartCount(190_000, 95_000, false)).toBe(6);
-  expect(biggerContextPartCount(1, 95_000, true)).toBe(6);
+  expect(biggerContextPartCount(1, 95_000, true)).toBeUndefined();
 
   const compiled = compileChatGptWebPrompt(
     request("high"),
@@ -269,7 +270,7 @@ test("automatic compaction stages a required checkpoint that exceeds inline capa
     extraHighAvailable: true,
     proAvailable: true,
   });
-  const records = compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records);
+  const records = reconstructMultipartRecords(compiled.multipart!.parts).filter((record) => record.kind === "message");
   expect(records.map((record) => record.message_index)).toEqual([0, 1, 2]);
   expect(records[0].message.content).toBe(compact.context.messages[0]!.content);
 });
@@ -298,7 +299,7 @@ test("Bigger Context compaction preserves history above the retired inline byte 
     chatGptPromptJsonBytes(formatChatGptWebMultipartStage(payload, transactionId, index + 1).text),
   );
   expect(Math.max(...stageBytes)).toBeGreaterThan(CHATGPT_COMPACTION_PROMPT_JSON_BYTE_BUDGET);
-  const staged = multipart.multipart!.parts.join("\n");
+  const staged = JSON.stringify(reconstructMultipartRecords(multipart.multipart!.parts));
   for (let index = 1; index <= 6; index += 1) {
     expect(staged).toContain(`multipart-history-${index}-`);
   }
@@ -326,8 +327,14 @@ test("Bigger Context minimizes the largest ordered stage instead of overfilling 
   const parts = multipart.multipart!.parts.map((part) => JSON.parse(part) as { records: unknown[] });
 
   expect(parts).toHaveLength(6);
-  expect(parts.flatMap((part) => part.records)).toHaveLength(8);
-  expect(Math.max(...multipart.multipart!.parts.map((part) => part.length))).toBeLessThan(120_000);
+  expect(reconstructMultipartRecords(multipart.multipart!.parts)).toHaveLength(8);
+  expect(
+    Math.max(
+      ...multipart.multipart!.parts.map(
+        (part, index) => formatChatGptWebMultipartStage(part, `ctx_${"0".repeat(32)}`, index + 1).text.length,
+      ),
+    ),
+  ).toBeLessThan(120_000);
 });
 
 test("Luna rejects a separate compaction prompt because continuity is already rolling", () => {
@@ -356,7 +363,7 @@ test("automatic compaction stages a large atomic instruction without truncating 
     extraHighAvailable: true,
     proAvailable: true,
   });
-  const records = compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records);
+  const records = reconstructMultipartRecords(compiled.multipart!.parts).filter((record) => record.kind === "message");
   expect(records.map((record) => record.message.content)).toEqual(["z".repeat(120_000)]);
 });
 
