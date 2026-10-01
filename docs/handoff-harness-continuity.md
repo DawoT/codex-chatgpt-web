@@ -1,480 +1,805 @@
-# Prompt de handoff — aceptación operativa del harness de continuidad
+# Handoff Staff Engineer — roadmap completo de continuidad y aceptación
 
-Copia este documento como instrucción inicial del siguiente agente. Es un handoff
-técnico de trabajo existente, no una certificación de release ni una orden de
-reiniciar un runtime activo.
+Actualizado: 2026-10-01. Rama esperada: `refactor/harness-continuity`.
+HEAD leído antes de esta actualización documental: `2e75c3a`.
 
-## 1. Rol, objetivo y definición de terminado
+Este documento es el prompt de continuidad para el siguiente agente. Sustituye las
+secciones operativas y métricas históricas del handoff anterior. Es una instrucción
+para completar trabajo existente, no una aprobación de release ni autorización
+para interrumpir turnos ajenos. Relee HEAD y salud al comenzar: las identidades y
+lecturas de abajo son evidencia histórica, no estado vivo garantizado.
 
-Actúa como Staff Software Engineer responsable de cerrar la aceptación operativa
-del refactor de continuidad del agente de codificación en `codex-chatgpt-web`.
-Continúa desde la implementación verificada; no reinicies el proyecto ni sustituyas
-sus autoridades durables por una orquestación nueva.
+## 1. Mandato, alcance y definición de terminado
 
-El objetivo pendiente es demostrar, con un modelo y una sesión ChatGPT reales,
-que la compactación conserva la tarea, sus requisitos y la evidencia, que el agente
-retoma la siguiente acción correcta, que ejecuta herramientas y verificaciones
-reales y que entrega el resultado sin duplicar envíos ni dejar recursos activos.
+Actúa como Staff Software Engineer responsable de cerrar la continuidad fiable del
+agente de codificación desde el arranque de Codex/ChatGPT Web hasta ejecución de
+herramientas, checkpoint, recuperación, entrega y liberación de recursos.
 
-Para terminar deben existir:
+El usuario autorizó implementar el plan, investigar incidentes, mejorar logs,
+trabajar con TDD y corregir gaps relacionados que aparezcan durante la ejecución.
+El usuario pidió este handoff **antes de compactaciones reales**. La implementación
+local está integrada; falta demostrar su comportamiento con integración real.
+No rehagas el adaptador ni sustituyas sus autoridades por una arquitectura nueva.
 
-1. Un candidato identificado por commit, artefactos cargados, protocol y generación.
-2. Una ventana demostrablemente inactiva para activar ese candidato.
-3. Dos sesiones independientes reales, cada una de duración estrictamente mayor
-   que 22 minutos, con trabajo efectivo del agente y navegador.
-4. Veinte (20) compactaciones reales con continuación, diez por sesión, que cubran
-   retained y fallback con rutas observadas, no inferidas.
-5. Evaluación independiente de fidelidad, ejecución y cierre para cada checkpoint.
-6. Evidencia de limpieza, salud de telemetría y ausencia de reenvíos automáticos
-   después de un Send ambiguo o un timeout posterior al envío.
-7. Un informe final reproducible que distinga aceptación local, canarios,
-   cobertura faltante y decisión de expansión o rollback.
+El cierre requiere TODOS estos resultados:
 
-La preparación y lectura pueden avanzar autónomamente. La activación está
-condicionada por la inactividad exigida en el plan original. Si no puedes demostrar
-esa condición, prepara todo lo revisable y comunica el bloqueo concreto; no mates
-trabajo ajeno para fabricar la ventana. No merges ni publiques una release como
-consecuencia implícita de que los canarios pasen.
+- Candidato ejecutable congelado e identificado, con CLI/helper/dependencias
+  compatibles y evidencia de identidad realmente cargada.
+- Revisión/validación independiente y controles R2 satisfechos, incluyendo SAST,
+  secretos, procedencia de tests y firmas válidas; limitaciones resueltas o
+  declaradas mediante el proceso aplicable, nunca escondidas.
+- Rollback completo, probado en aislamiento, y procedimiento operativo revisable.
+- Ventana inactiva demostrada antes de activar o restaurar artefactos.
+- Dos sesiones reales independientes, cada una estrictamente mayor de 22 minutos,
+  con trabajo efectivo y diez compactaciones con continuación por sesión.
+- Veinte checkpoints distintos, durables, con rutas retained/fallback observadas,
+  requisitos conservados, herramientas realmente ejecutadas y checks finales reales.
+- Retorno de recursos observables al baseline, salud diagnóstica comprobada y
+  ausencia de reenvíos automáticos tras efectos enviados o ambiguos.
+- Análisis causal de incidentes y métricas de fidelidad, resultado y eficiencia
+  separados; incertidumbre residual explícita.
+- Informe final y decisión operacional: aceptación, bloqueo o rollback.
 
-## 2. Estado de partida verificado
+Merge, publicación de release, actualización de conectores de terceros y mensajes
+externos no forman parte de una autorización implícita de este handoff. Preparar
+lo necesario para revisión sí está dentro del alcance.
 
-### Actualización vigente — diagnóstico causal y arranque congelado
+## 2. Fuentes de autoridad y reglas del proyecto
 
-**Esta sección y los recibos actuales tienen precedencia sobre los candidatos históricos que aparecen más abajo.** Lee primero [la revisión causal](harness-causal-diagnostics.md), `docs/evidence/harness-continuity-verification.json` y `docs/evidence/harness-continuity-gates.json`. El código está en la rama `refactor/harness-continuity`; identifica HEAD de nuevo, pues commits de documentación posteriores no cambian los bytes del candidato. No uses los bundles in-memory ni el candidato de 98bef09 para activar esta entrega.
+### 2.1 Orden de lectura y precedencia
 
-Cambios integrados y autoridades que debes conservar:
+1. Instrucciones vigentes del usuario y del entorno de ejecución.
+2. `AGENTS.md` aplicables al checkout y directorios afectados. En la revisión de
+   esta entrega no se encontró un archivo local; el usuario aportó las reglas
+   AGENTS en la conversación. Reinspecciona: podrían existir en la siguiente sesión.
+3. [CONTRIBUTING](../CONTRIBUTING.md), [arquitectura](architecture.md),
+   [validación de release](release-validation.md) y package scripts reales.
+4. Este handoff, [revisión causal](harness-causal-diagnostics.md),
+   [operación de continuidad](harness-continuity.md) y
+   [observabilidad de compactación](compaction-observability.md).
+5. [Recibo vigente](evidence/harness-continuity-verification.json),
+   [gates vigentes](evidence/harness-continuity-gates.json),
+   [preflight observado](evidence/continuity-causal-20261001/live-preflight.json),
+   [índice de evidencia](evidence/continuity-causal-20261001/log-index.json) y
+   [ledger local](../.shs/ledger/b025-FEAT-0001.json).
+6. Skills pertinentes disponibles: staff-harness-standard, TDD,
+   staff-orchestration y Playwright para concurrencia/navegador. Usa su ubicación
+   real del catálogo, no una ruta heredada de otra máquina.
 
-- `fe203a8` exige checkpoint v2 y procedencia de la solicitud original calculada por el host. `e501998` excluye esa procedencia del cache compartido y la conserva en reparación. No admitir hashes elegidos por HTTP ni inventar estado verificado.
-- `d648f39` persiste testigos de preparación y activación de Send. Recuperar sólo desde journal con owner, generación y hash exactos. Un Send activado sin final es incierto: no relanzar, incluso si el ACK expiró.
-- `02f79ea` elige el transporte válido más pequeño inline → 2 → 6; fragmentación UTF-8 reversible con offsets/hashes, reconstrucción host antes de Send y negociación explícita de capacidad.
-- `f32b8d9` / `3f70d7d` mantienen IDs de causa, DAG acotado, UTC de ocurrencia/escritura, reloj monotónico, identidad del productor, IPC y timeline durable. Revisar `diagnostic_health` junto con `telemetry_health`. No registrar error.message/stack arbitrarios ni atribuir identidad del receptor al productor.
-- `8ed2157` / `50c9f87` fijan CLI/helper al mismo snapshot y sus dependencias al lock capturado, sin symlink a módulos mutables. `ff6a729` hace que el gate mida ese mismo build ejecutable.
-- `ba4c802` / `bfbc053` corrigen pins de Hono y brace-expansion. Los módulos instalados del checkout activo se dejaron intactos deliberadamente; el nuevo candidato resuelve desde su staging congelado.
-- `1dd10e1` bloquea health causal malformado incluso durante bootstrap legacy. No convertir contadores ausentes en cero.
+Los documentos y recibos `98bef09` son históricos/baseline. No activarlos como
+esta entrega. `docs/harness-continuity.md` también contiene historia: sus cifras
+anteriores no reemplazan los recibos vigentes.
 
-Los incidentes recientes se observaron en artefactos predecesores (daemon SHA `289e6ace…025c`, helper SHA `14af41a0…16b7`), no en este candidato. ACK de parte 2 venció a 180001 ms; el checkpoint rechazado no mostraba tags en ninguna superficie capturada. Ahora se conserva la causa en las fronteras, pero la causa remota de ambos incidentes exige evidencia del canario; no declarar resuelta la obediencia del modelo por tests sintéticos.
+### 2.2 Reglas funcionales y de arquitectura
 
-Procedimiento del siguiente agente, **antes de compactaciones reales**:
+- Mantener foco en modelos Codex respaldados por ChatGPT Web. Sin proveedores
+  genéricos ni superficies ajenas a esta tarea.
+- Seleccionar modelo y esfuerzo explícitamente y verificarlos antes de Send.
+  Un fallo no autoriza cambiar de modelo, cuenta, esfuerzo o familia silenciosamente.
+- Resolver capacidades/límites desde cuenta y modelo realmente seleccionados.
+  No asumir funciones de Responses API disponibles en la superficie web.
+- Full mode usa el registro activo del Codex exterior y el túnel MCP oficial,
+  con capacidad ligada al turno. Browser-only no crea broker/túnel/conector.
+- Conservar nombres/esquemas públicos MCP, identidades de conectores, checkpoint
+  v2 y semántica abort de `close()`. No cambiar ABI para facilitar un test.
+- Reutilizar session actor, retirement y journal. El journal es autoridad durable;
+  no crear un store de recuperación competidor.
+- Fallar de forma explícita ante identidad, selector, capacidad, protocolo o
+  transporte inválidos. Ausencia de evidencia nunca equivale a éxito.
+- No reinterpretar DEV como integración real: sus recibos de herramientas son
+  simulados y declaran ausencia de efectos. No cuentan para aceptación end-to-end.
+- Preservar packaging de macOS/Windows/Linux. Los paquetes se construyen en su
+  sistema correspondiente; pruebas Linux no acreditan aceptación de otras plataformas.
+- La arquitectura y publicación siguen bajo responsabilidad del maintainer.
+  El refactor actual fue encargado por el usuario; eso no autoriza ampliarlo a
+  una reescritura ni enviar una PR externa sin alcance acordado.
 
-1. Releer estado git, manifiesto y recibos. Confirmar el source tree, source-input digest, hashes del par, versión Bun y dependencias congeladas. Ejecutar typecheck/lint/tests afectados sólo si hubo cambios desde la evidencia.
-2. Ejecutar el preflight read-only con `--candidate-dir=<runtimeRoot>/app --rollback-dir=<rollback completo verificado> --require-ready --report=/tmp/cgw-preflight.json`. El `runtimeRoot` exacto está en el recibo. El rollback debe tener layout `<runtimeRoot>/app`, `manifest.json` en su padre y `source-commit.txt` dentro de `app` con el commit exacto del manifiesto. El gate verifica ambos bundles y exige las dependencias físicas declaradas; ejecutar también smoke/readiness del rollback en aislamiento. No crear un `source-commit.txt` especulativo para hacer pasar rollback.
-3. Preparar rollback del **CLI, helper, dependencias y configuración correspondientes** al runtime previo, además de preservar journals/locks. El helper legacy aislado por sí solo no acredita rollback completo. Su source graph anterior no está identificado con certeza; resolverlo antes de activar.
-4. La última lectura de salud conservaba dos turnos HTTP y dos de navegador; verificar nuevamente porque estos contadores son dinámicos. No drenar ni cerrar esta sesión desde ella misma. Tras una ventana inactiva real, comprobar admisión, contadores, workers, listeners, timers y conexiones. El flag bootstrap legacy sólo admite seams ausentes; no elude actividad o artefactos inválidos.
-5. Cerrar la revisión R2 con Approver y Verifier distintos de implementador y aislamiento comprobado. El ledger contiene evidencia local pendiente de firmas, **no aprobación formal**. Revisión independiente realizada en modo lectura no equivale a aislamiento mecánico.
-6. Activar el par completo exclusivamente con todos los gates operativos satisfechos; comprobar identidad cargada del daemon y de cada helper antes de Send. Conservar el candidato anterior y la evidencia.
-7. Ejecutar las 20 compactaciones / 2 sesiones >22 minutos descritas abajo. Registrar trace/request/turn/owner/documentGeneration/checkpointId, ruta observada, hash original, siguiente acción pendiente, llamada y resultado real de herramienta, comprobación final y retorno a baseline.
-8. Al fallar una sesión, detener expansión, conservar el journal y DAG, no reenviar efectos inciertos y aplicar rollback sólo en ventana segura. No declarar éxito de tarea sólo porque llegó una respuesta o el formato de checkpoint es válido.
+### 2.3 Reglas de implementación y calidad
 
-La aceptación operativa sigue pendiente. Los resultados exactos, comparación de p50/p95 y límites de cobertura se actualizan en el recibo; cinco muestras de replay no constituyen una distribución de producción ni acreditan ahorro de tokens facturados.
+- Aplicar el ciclo entender → diseñar → construir → observar → criticar → iterar.
+  Inspeccionar filesystem, runtimes, gestores, herramientas y puertos antes de editar.
+- Separar responsabilidades; código fuente legible, multilínea, con indentación
+  de dos espacios. Sin stubs, TODOs de implementación ni código colapsado.
+- Bugs: test de comportamiento RED → cambio mínimo GREEN → refactor con checks.
+  Extracciones: caracterización antes de mover código. No tests que lean source
+  para demostrar comportamiento ni asserts triviales que reflejen la implementación.
+- Registrar comando, commit/snapshot, exit code, assertions y motivo del RED.
+  Si sólo existe un overlay, declararlo; no fabricar un SHA de commit RED.
+- Commits convencionales y atómicos. Revisar cambios del usuario antes de staging.
+  No reset, force checkout, rebase, borrado de worktrees o pull implícitos.
+- Usar `rg` para búsquedas. Paralelizar lecturas independientes; ejecutar suites
+  pesadas serialmente. No borrar asserts, ampliar selectores especulativamente,
+  ocultar skips ni repetir hasta verde sin explicar el fallo.
+- Typecheck, lint, tests afectados y gates adecuados al cambio. Suite completa
+  antes de aceptar un candidato de producción nuevo. Contrato worker <5 segundos.
+- Si se modifica UI: leer skills pertinentes, preservar accesibilidad y validar
+  visualmente en preview. Paleta/Code Arena del AGENTS aportado sólo aplican a
+  nuevas interfaces o plataformas de evaluación, no obligan a introducirlas aquí.
+- UI de producto explica acciones al usuario; detalles de harness se mantienen
+  en diagnósticos salvo que ayuden a una decisión real.
+- Corregir gaps relacionados bajo demanda con alcance/evidencia claros. Si cambia
+  arquitectura, ABI o riesgo, revisar el diseño antes de integrar.
 
-El [preflight final read-only](evidence/continuity-causal-20261001/live-preflight.json) se ejecutó sobre el commit limpio `ac4fc55`: source tree y artefactos coincidían, pero devolvió exit 2 por actividad, rollback ausente y seams de recursos/telemetría no expuestos. El [registro local de evidencia](../.shs/ledger/b025-FEAT-0001.json) tiene hash canónico verificado y ninguna firma A/V. Mantén NO-GO para release R2 hasta cerrar esas condiciones y ejecutar SAST dedicado. Los logs RED conservan el resultado de overlays de tests, pero no tienen un commit limpio RED separado; no inventar esa procedencia al completar la revisión.
+### 2.4 Reglas operativas, privacidad y gobernanza
 
-### Histórico — preflight de canario de 98bef09
+- No activar, reiniciar, drenar, cerrar o sustituir un runtime con trabajo activo.
+  Admission vacío no prueba inactividad. No cerrar la sesión propia desde ella misma.
+- No usar `build:bundles`, `deploy`, setup/update/restart/stop como preparación
+  inocua: algunos copian artefactos, cambian integración o reinician servicios.
+- Preparar candidato, rollback y plan concreto antes de solicitar intervención
+  del operador que sea imprescindible. No pedir de nuevo autorización ya otorgada;
+  sí coordinar una ventana real cuando la acción depende de trabajo ajeno.
+- No eliminar journals, browser state o configuración para fabricar un arranque
+  limpio. Locks ambiguos se conservan; recuperación exige owner muerto comprobado
+  y runtime inactivo, con revalidación antes de mover el lock.
+- Nunca publicar cookies, claves, bearer/capability tokens, tunnel IDs, historial
+  Codex, prompts privados, outputs privados, browser state ni paths personales.
+  Los logs nuevos se revisan/redactan; preferir recibos estructurados sanitizados.
+- Los logs versionados ya existentes en la carpeta de evidencia son fixtures y
+  ejecuciones locales con redacción documentada, no permiso general para subir logs.
+- Screenshots opt-in y revisión de contenido antes de compartir. Sin tracing global
+  del BrowserContext de una cuenta real.
+- SHS de esta implementación: R2×L por concurrencia, efectos y persistencia.
+  Documentar aislamiento real R/A/V; instrucciones de rol no son enforcement.
+- Ledger append-only: no editar `b025-FEAT-0001.json`, sus hashes o recibos
+  referenciados para hacer que parezcan aprobados. Añadir entradas posteriores.
+- Hash canónico verificado no equivale a firma. No inventar claves, firmas,
+  sesiones independientes, coverage, comandos ejecutados o duración real.
+- No declarar captura universal de todos los errores: presupuestos, drops,
+  truncado y causas desconocidas deben quedar visibles.
 
+## 3. Estado vigente de implementación y evidencia
 
-El trabajo de continuación añadió el seam mínimo de quiescencia que faltaba y un
-preflight reproducible. El candidato local actual es
-`98bef093fa2b9614939aae9e164a6a1d416ec74b`, con árbol `src`
-`a045530001a0cd714700467a150a67099890b800` y source digest del gate
-`4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d`.
-Los bundles in-memory medidos son CLI
-`fc6d2eab0070738e6b512c8eeef70280e084459d3a4966cd201a59b9e39a3fc3`
-y browser helper
-`c93bd474d6830bd4750d0a8fb656c4fe71d73a59fd7dc57defafb37d1d153011`.
+### 3.1 Identidad del candidato preparado
 
-El helper que estaba cargado al preparar rollback tenía SHA-256
-`14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7`.
-El candidato no se activó: el runtime observado seguía atendiendo el turno de esta
-sesión y cargaba artefactos anteriores. No drenes, reinicies ni reemplaces ese
-runtime para fabricar una ventana inactiva.
-
-La continuación posterior añadió un gate explícito de bootstrap para ese caso
-legacy. `scripts/harness-live-canary.ts --legacy-bootstrap-shutdown --require-ready`
-reutiliza el gate estricto y sólo permite que falten `resource_diagnostics` y
-`telemetry_health` cuando el operador ya identificó el runtime como anterior al
-seam. Sigue bloqueando candidato/rollback inválidos, admisión, runtime no drenado,
-actividad HTTP/browser/subagents y cualquier helper todavía observado. Este gate
-autoriza únicamente apagar el runtime predecesor; no acredita por sí solo una
-ventana apta para instalar el candidato.
-
-`scripts/harness-live-canary.ts` fija veinte checkpoints en dos sesiones, verifica
-hashes/candidato/rollback y evalúa la ventana de inactividad de forma fail-closed.
-`/healthz` del candidato expone `resource_diagnostics` y `telemetry_health` con
-contadores agregados de waiters, timers, transacciones, persistencias, releases
-retenidos y cola de telemetría. El runtime antiguo ya cargado no puede exponer esas
-claves hasta una activación legítima; esa ausencia debe conservarse como bloqueo,
-no reinterpretarse como cero.
-
-- Repositorio esperado: `/home/deuz/projects/codex-chatgpt-web`. Algunas superficies
-  muestran `/home/deuz/Proyectos/codex-chatgpt-web`; resuelve `pwd` y el root Git
-  antes de usar rutas absolutas. No crees un segundo checkout por esa diferencia.
-- Rama: `refactor/harness-continuity`.
-- HEAD anterior a la creación de este handoff:
-  `a5388acfb6491e5044909f5b25eef6292d51c884`.
-- Base del refactor: `main` local en `9c6e02a`. No se hizo pull/rebase ni se
-  resolvió la divergencia del remoto. Reinspecciona antes de cualquier integración.
-- Candidato previo del reporte final de gates:
-  `bedd09464cd5975963c90b422b7387e1b4b63077`. Fue sustituido por `98bef09`
-  porque la aceptación operacional requería superficies de quiescencia adicionales.
-- El commit `a5388ac` añadió únicamente documentación y reportes; no modificó
-  producción, scripts ni tests respecto al candidato medido.
-- Árbol de producción previo verificado (`git rev-parse HEAD:src`):
-  `a01fd551d77be8105e014cfa70185d0f383c9f68`. El árbol actual medido es
-  `a045530001a0cd714700467a150a67099890b800`.
-- Source digest previo del gate:
-  `f1c77ad7e12fa7b08dc810f46c9d6127298183d68b22d87f53fe431739d2be1f`.
-  El digest actual es
-  `4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d`.
-  La función del gate incluye HEAD en este digest: un commit sólo documental puede
-  cambiarlo sin cambiar producción. Comprueba ambas identidades, no confundas eso
-  con alteración del código.
-- Durante el cierre había un runtime de desarrollo en ejecución. Admission no
-  mostraba activos ni esperas; `service status` no identificaba un servicio
-  instalado. Esas lecturas no demostraban inactividad física.
-- Candidato no activado, canarios reales ejecutados: **0**; sesiones largas reales
-  acreditadas: **0**. No se reinició, desplegó ni sustituyó el helper instalado.
-
-No dependas de PIDs, puertos, subagentes anteriores o ficheros `/tmp` de otra
-sesión. Todo estado operacional es histórico y requiere lectura nueva.
-
-## 3. Lecturas obligatorias y mapa de código
-
-Primero lee las instrucciones del usuario y las `AGENTS.md` que existan en el
-checkout. Usa las skills pertinentes disponibles, especialmente staff-harness,
-TDD y Playwright para cambios de concurrencia o navegador. El riesgo del trabajo
-es **R2×L** por lifecycle, persistencia y activación.
-
-Lee completos estos documentos y reportes:
-
-- `docs/harness-continuity.md`: arquitectura, revisiones, runbook y límites.
-- `docs/evidence/harness-continuity-verification.json`: cobertura y alcance.
-- `docs/evidence/harness-continuity-gates.json`: suites, runtime/browser,
-  hashes de builds en memoria y muestras p50/p95.
-- `docs/evidence/harness-continuity-prompts.json`: comparación real con main.
-- `docs/compaction-observability.md`, `docs/release-validation.md` y
-  `docs/architecture.md`: operación, evidencia y contratos existentes.
-
-Mapa de superficies de producción que debes comprender antes de instrumentar:
-
-| Responsabilidad | Archivos |
+| Campo | Valor registrado |
 | --- | --- |
-| Compilación y provenance | `src/adapters/chatgpt-web/prompt/compiler.ts`, `prompt/types.ts`, `prompt/sanitization.ts`, `src/types.ts` |
-| Medición y límites | `input-tokens.ts`, `browser/multipart-plan.ts`, `compaction-repair.ts`, `src/server/host-prompt-preflight.ts` |
-| Política única de checkpoint | `compaction-policy.ts`, `compaction-handoff.ts`, `adapter/compaction-flow.ts`, `src/responses/compaction.ts` |
-| Persistencia y recuperación | `adapter/compaction-checkpoint.ts`, `session-actor.ts`, `turn-execution/`, `rolling-checkpoint.ts` |
-| Turno, documento y despertar | `browser/turn-events.ts`, `turn-page-binding.ts`, `turn-wake.ts`, `turn-completion-loop.ts`, `browser-worker.ts` |
-| Cancelación renderer y feeds | `browser/dom-signal.ts`, `dom-events.ts`, `submission-observer.ts`, `turn-execution/feeds.ts`, `compaction-transaction.ts` |
-| Causa terminal y observabilidad | `turn-terminal.ts`, `mcp-observation.ts`, `mcp-telemetry.ts`, `telemetry-trace.ts`, `turn-broker.ts`, `turn-broker/tool-queue.ts`, `mcp-server.ts` |
-| Identidad cargada | `src/runtime-identity.ts` y las superficies diagnósticas existentes del launcher/helper |
-| Gates y evaluación local | `scripts/check-harness-continuity.ts`, `compare-harness-prompts.ts`, `compaction-canary-report.ts`, `tests/fixtures/continuity-replay.ts` |
+| Source tree `src` verificado | `afe3bc270f4a43a75d2dd54e07b67714b5bee35d` |
+| Commit de gates completos | `5479f97a7766c80b3fcc64df89b75b556744f978` |
+| Commit capturado por builder | `a25e1ef9c5e3c9488fc47952b6d9176bb8a3b301` |
+| Bun de la medición | `1.4.2` |
+| Source-input digest | `31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1` |
+| Artifact-set SHA-256 | `0d84b435ab0459319019e596aaf5ee94c68dfcf8c5f4032659b2bc818ae1ae7f` |
+| CLI SHA-256 | `6fe17b7f0cb2f042c27dec4e545126455446030dfc2f8400b58e8445b05b3e20` |
+| Helper SHA-256 | `f9329682a068756bafa42fa1196b94265f8da0d003d89dd771d7f381b67f28c6` |
+| Dependencias | `frozen-lockfile-copy`, sin symlink al checkout mutable |
+| Directorio relativo | `.launcher-runtime/31467e0365b1fd849153ce88de48035ea54e6876c68aa13bd3c0a01b646ed2b1/app` |
 
-Las rutas abreviadas de la tabla pertenecen a `src/adapters/chatgpt-web/` salvo
-cuando llevan prefijo explícito `src/`, `scripts/` o `tests/`.
+Los commits posteriores a `a25e1ef` del recibo cambiaron gates/tests/docs, no sus
+inputs capturados `src`, `package.json`, `bun.lock`, `tsconfig.json`. Verifica esto
+otra vez. HEAD, source tree, source-input digest y hashes de artefactos son
+identidades diferentes. Un commit documental no demuestra alteración del build.
 
-## 4. Invariantes implementados que debes preservar
+El builder produce un snapshot y no activa servicios. Un árbol sucio puede generar
+`buildCommit: null`; no atribuirle un commit inventado. Para esta aceptación usa
+un candidato limpio, reproducible y revisado. Si el directorio desapareció,
+reconstruye y mide el artefacto nuevo: no recuperes hashes de un bundle distinto.
+El builder sólo atribuye commit cuando el checkout completo está limpio, incluso
+si los únicos cambios pendientes son documentales. No descartar trabajo ajeno para
+cumplirlo: integrar lo propio o preparar un checkout aislado del snapshot aprobado.
 
-### 4.1 Compilación y fidelidad
+### 3.2 Trabajo integrado que no debe rehacerse
 
-`PromptCompilationResult` v1 acompaña el payload con source hash, payload hash,
-hashes de secciones, transformaciones y medición congelada. En multipart la
-identidad incluye parts, commit, imágenes y skill files; no basta hashear el commit.
-La memoización es local al objeto y se invalida si cambia contenido/modelo/adjuntos.
+| Slice | Commits principales | Comportamiento conservado |
+| --- | --- | --- |
+| Checkpoint/procedencia | `fe203a8`, `e501998` | Contrato v2 explícito, origen host fuera del cache compartido, reparación con origen privado |
+| Send/recuperación | `d648f39` | Preparación/activación durables, incertidumbre sin final y recovery exacto por journal |
+| Transporte | `02f79ea` | Selección inline → 2 → 6, fragments UTF-8 con offsets/hashes, reconstrucción host |
+| Diagnóstico | `b7e9f2c`, `f32b8d9`, `3f70d7d` | Identidad productora, DAG causal, timeline, fronteras IPC/MCP y flush al cierre |
+| HTTP/lifecycle | `9c0d2a8`, `506f8c8` | Causas tipadas, retirada de listeners y regresiones de aislamiento |
+| Startup/build | `8ed2157`, `50c9f87`, `ff6a729` | Par congelado, dependencias físicas y gate del build realmente ejecutable |
+| Preflight | `d2f4827`, `1dd10e1`, `5479f97` | Bootstrap legacy acotado, health causal validado y rollback de par verificado |
+| Dependencias | `ba4c802`, `bfbc053` | Pins corregidos sin cambiar los módulos instalados del runtime activo |
+| Evidencia/handoff | `a25e1ef`, `ac4fc55`, `2e75c3a` | Recibos, historia archivada, preflight bloqueado y ledger sin aprobación |
 
-Se preservan instrucciones system/developer/user, código, rutas, IDs y evidencia.
-La retirada de handles sólo opera sobre campos identificados de `broker_metadata`.
-La eliminación de contratos superseded exige provenance explícita
-`generatedContract`; no puede inferirse de un tag que aparece en texto del usuario.
-El pruning heurístico permanece sin cablear en la compilación ordinaria.
+### 3.3 Verificación registrada y límites
 
-El fallback ya no trunca system/user. Se usa staging sin pérdida cuando cabe;
-si el transporte no representa el contenido, debe fallar explícitamente antes
-de aceptar un checkpoint. No reintroduzcas truncado para hacer pasar un canario.
-
-### 4.2 Compactación y journal
-
-La política compartida es:
-
-`normalize → parse → validate → repair (máximo una vez) → revalidate → persist → accept → deliver`.
-
-Normalización protege strings citados y código y debe ser idempotente. La inspección
-strict conserva defectos como `original_request_ref` ausente/incorrecto. No fabrica
-requisitos, estados verificados, evidencias ni obligaciones. Algunas exportaciones
-legacy de autoheal/canonicalización siguen existiendo para compatibilidad interna;
-su disponibilidad no autoriza a reincorporarlas a la política strict productiva.
-
-Retained, rescate y fallback comparten un único presupuesto de reparación por
-operación. El rescate devuelve el draft normalizado y lo somete a esa política.
-El checkpoint sigue siendo v2. El journal existente conserva autoridad sobre
-persistencia y recuperación; no añadas un store competidor.
-
-Si abort llega durante un write local, se journaliza el estado persistido para
-recovery y no se acepta nueva historia. No declares ese write inexistente ni una
-entrega exitosa. Handoffs recibidos sin consumir mantienen TTL y consumo único.
-
-### 4.3 Lifecycle, identidad y envío
-
-El bus pertenece al turno; expone sequence, documentGeneration y afterSequence.
-Waits después de dispose o con señal abortada fallan inmediatamente. Un predicado
-defectuoso sólo rechaza a su waiter. Un cursor vencido exige resynchronization.
-
-Las esperas productivas suscriben antes de observar el snapshot. DOM, progreso
-externo y red despiertan la FSM; no acreditan finalización. La FSM y el completion
-fence conservan esa autoridad. Los perdedores de una carrera se cancelan y liberan.
-
-Rebind desmonta el listener de la Page anterior, incrementa generación y conserva
-identidad del turno. La selección depende de identidad estable y submission
-demostrado. La ambigüedad permanece explícita. **Un timeout posterior a Send no
-autoriza un reenvío automático.**
-
-Las esperas de elementos reclaman ownership del ElementHandle antes del handoff
-de su Promise. Abort temprano/tardío dispone el handle y libera observer/timer.
-No regreses a una carrera que sólo cancela la Promise Node y deja vivo el renderer.
-
-### 4.4 Telemetría y locks
-
-El resultado funcional y la observabilidad son independientes. `reply_sent` acredita
-entrega, no ejecución; `result_received` es un hecho diferente. Cancelación MCP
-retira la correlación incluso si no llega una respuesta posterior.
-
-La telemetría tiene límites de cantidad/bytes, flush acotado, health y fallback
-estructurado a stderr. Un descarte por file budget degrada health. No ocultes
-drops para obtener un reporte verde. Causas terminales: user_cancelled,
-handoff_accepted, deadline, transport, internal_failure, además de completed.
-
-Locks nuevos identifican PID, host, generación y owner. La recuperación exige
-runtime inactivo y propietario local muerto comprobado; revalida antes de mover
-el lock y conserva su diagnóstico. Locks legacy/ambiguos no se eliminan. Un callback
-constante `true` usado por un fixture no es evidencia operativa de inactividad.
-
-## 5. Evidencia local existente y sus límites
-
-| Verificación | Resultado registrado |
+| Check | Resultado |
 | --- | --- |
-| Suite completa con cobertura | 2.225 pass, 14 skip, 0 fail; 12.294 assertions; 210,04 s |
-| Cobertura impresa por Bun | Funciones 82,87 %; líneas 82,88 % |
-| Contratos Chrome obligatorios | 37 pass, 0 fail; 228 assertions; 261,54 s |
-| Gates finales seriales | 242 pass, cero skips/fallos; 12 suites; stableBuild true |
-| Contrato worker | 1.754,8 ms; presupuesto inferior a 5.000 ms |
-| Checks | Typecheck y gates estructurales verdes; lint cero errores y 88 warnings |
-| Revisión | Dos revisiones semánticas independientes; sin aislamiento mecánico ni aprobación humana de merge acreditados |
+| Suite completa serial | 2.338 pass, 14 skip, 0 fail; 13.230 assertions; 220 archivos; 268,70 s |
+| Cobertura agregada lcov | Funciones 81,575 %; líneas 76,364 %; SHA en el recibo |
+| Launcher | 368 pass, 1 skip de plataforma, 0 fail |
+| Contratos Chrome real | 37 pass, 0 fail; 228 assertions; 257,02 s |
+| Gates continuidad | 12 suites, 242 pass, sin fallos; stableBuild true |
+| Contrato worker | 2.279,052 ms, presupuesto 5.000 ms |
+| Typecheck / gates estructurales | Verdes en root/launcher y cuatro gates strict |
+| Lint | 0 errores; 88 warnings existentes, no ocultados |
+| Audits de lock | Root 0 hallazgos/118 packages; launcher 0/351 |
+| Smoke del par físico | CLI version, helper ready/shutdown y MCP initialize/tools-list: 14 herramientas; sin navegador ni Send |
+| Build launcher aislado | Lock congelado, typecheck y renderer Vite; 441 módulos |
+| Secret scanning | Gitleaks con checksum verificado y control positivo sintético; evidencia final redactada sin hallazgos |
+| Lifecycle | Loops locales de 100 ciclos por scopes declarados, no 100 sesiones completas de producción |
 
-La cobertura completa precede al test adicional de recuperación de owner muerto;
-producción no cambió. Ese test pasó en su suite y en el gate final. No atribuyas
-su cobertura a una ejecución completa que no lo incluyó. Las cifras impresas de
-cobertura y los totales lcov usan agregaciones distintas; cita la medida utilizada.
+La cobertura es lcov, no una cifra intercambiable con la agregación impresa por
+Bun. Los skips se conservan y el recibo distingue la ejecución separada de browser.
+Auditar el lock nuevo no prueba las dependencias cargadas por el daemon anterior.
+Sus módulos instalados permanecieron intactos deliberadamente.
 
-De los 14 skips, doce contratos opcionales de Chrome se ejecutaron después en el
-gate obligatorio de navegador. Los otros dos son plataforma/servicio opcionales.
-Una ejecución conjunta con Chrome explícito tuvo fallos esperando navegación tras
-clic; los casos aislados pasaron en main y después los 37 contratos pasaron en el
-candidato. La causa de esa variabilidad no quedó demostrada. Evita concurrencia
-de suites pesadas, no reduzcas asserts ni escondas fallos mediante reruns sin razón.
+Replay usa navegador real sobre fixtures controlados. No demuestra obediencia del
+modelo, continuidad semántica real, túnel autenticado ni ejecución del Codex exterior.
+La comparación final tiene cinco muestras por caso; nearest-rank p95 es el máximo.
+ACK tardío aumentó p95 unos 31,686 ms. Bytes/tokens de esos payloads no se redujeron;
+no hay evidencia de tokens facturados o cache hits. No vender estos datos como
+mejora estadística de producción.
 
-El replay ejercita Chromium real, hidratación, virtualización, ACK tardío/perdido,
-Send ambiguo, persist/reload y 100 ciclos de recursos Node y otros 100 renderer.
-Usa fixtures controlados; no reconstruye el incidente remoto original ni acredita
-roundtrip real daemon/helper/MCP/ChatGPT. Sus contadores no son prueba universal de
-ausencia de fugas de heap, timers o conexiones de todo el proceso.
+### 3.4 Invariantes ya implementados: condiciones de no regresión
 
-La evaluación coding local ejecutó un baseline en Bun y preservó resultados,
-requisitos y próxima acción a través de un checkpoint v2 escrito para el escenario.
-No demuestra que un modelo produjera ese checkpoint o resolviera la tarea después
-de compactar. Esa evaluación end-to-end está pendiente.
+- `PromptCompilationResult` acompaña el payload con hashes de fuente, payload y
+  secciones, transformaciones y medición congelada. Multipart incluye todas las
+  partes y adjuntos, no sólo el commit final. Reutilizar la medición seleccionada
+  en preflight, planificación y telemetría; invalidarla si cambia el input.
+- Preservar literalmente system/developer/user, código, IDs, paths, resultados
+  y evidencia. Retirar handles sólo en campos explícitos de `broker_metadata`.
+  Dedupe sólo contratos generados con provenance y sustitución demostrables;
+  pruning heurístico de historial sigue sin cablear.
+- Mantener instrucciones/capacidades estables donde corresponda y procedencia
+  específica de tarea fuera de la LRU de contratos. No hashear la solicitud de
+  reparación como si fuera la solicitud original.
+- Transporte sin pérdida: inline → dos → seis partes, con selección sobre payload
+  físico. Fragmentos UTF-8 reconstruidos/verificados por el host antes de Send;
+  negociación de capacidad explícita. No truncar system/user ni aceptar checkpoint
+  cuando el transporte no puede representar el contenido.
+- Política compartida retained/rescate/fallback:
+  `normalize → parse → validate → repair → revalidate → persist → accept → deliver`.
+  Normalización idempotente protege strings citados y código; reparación semántica
+  máximo una vez por operación, con issues y revalidación. Sin inventar requisitos,
+  evidencia, estado verificado ni referencia original ausente para ocultar un defecto.
+- Abort durante persistencia conserva el write real en journal para recovery y
+  no acepta nueva historia. Handoffs recibidos sin consumir conservan TTL,
+  consumo único y carreras de cancelación. Recovery requiere owner, generación,
+  source y hash exactos; Send activado sin final continúa incierto.
+- Bus/feeds cerrados rechazan nuevas esperas; señal abortada gana al replay.
+  Predicado defectuoso rechaza sólo su waiter. Cursor fuera de historial exige
+  resincronización con snapshot, no espera indefinida ni evento inventado.
+- Suscribir antes de leer snapshot. DOM/progreso/red despiertan la FSM; sólo
+  FSM/completion fence acredita finalización. Cancelar y liberar perdedores de
+  carreras. Rebind retira listeners de Page anterior, incrementa generación y
+  conserva identidad del turno.
+- Cancelación DOM retira recursos físicos del renderer, observers/timers y
+  ElementHandles incluso en abort temprano/tardío; cancelar una Promise Node
+  sin settlement del renderer es insuficiente.
+- Correlación MCP se retira tras cancelación aunque no llegue respuesta: el
+  transporte puede terminar una solicitud cancelada sin responder. No contar
+  delivery como ejecución ni aceptación de checkpoint como continuación correcta.
+- Clasificar terminal por hechos: completed, user_cancelled, handoff_accepted,
+  deadline, transport, internal_failure. Conservar causa tipada por IPC/HTTP/MCP;
+  una cadena genérica de error no permite inferir automáticamente otra causa.
 
-La comparación real del compilador con `9c6e02a` pasó de 8/12 a 12/12 literales
-preservados. Los payloads crecieron +16/+75/+262/+16 bytes y los tokens estimados
-+0/+16/+67/+10. Son cuatro escenarios, cinco muestras y latencia del compilador
-más medición, no latencia de ChatGPT, facturación, tokens reportados ni cache hits.
-Los builds del gate son CLI/helper en memoria, packages external, minify false;
-no son prueba de que esos artefactos estén instalados o cargados.
+## 4. Pendientes completos y orden de dependencias
 
-## 6. Secuencia de trabajo pendiente
+| ID | Trabajo pendiente | Dependencia | Criterio para cerrar |
+| --- | --- | --- | --- |
+| M0 | Reconocimiento y actualización de inventario vivo | Ninguna | Rutas, procesos, cuenta/modelo, fuentes y owners identificados sin secretos |
+| M1 | Gobernanza R2, revisión final, SAST y procedencia TDD | M0 | Controles/firma/aislamiento verificables; gaps tratados con decisión explícita |
+| M2 | Recuperar y probar rollback completo | M0 | Par + deps + config + source graph verificados y smoke aislado verde |
+| M3 | Preparar runner/matriz/evidencia de canarios reales | M0 | 20 casos, evaluadores y capturas listos; ninguna herramienta simulada contada |
+| M4 | Congelar/revalidar candidato final | M1, M2, M3 y fixes | Snapshot limpio, gates seriales y hashes exactos del artefacto que se activará |
+| M5 | Coordinar/demostrar ventana inactiva | M4 | Gate estricto o transición legacy válida; cero actividad y teardown acreditado |
+| M6 | Activar par completo y verificar readiness | M5 | Identidades cargadas coinciden, salud válida, sin owners heredados |
+| M7 | Revisar startup → Codex → web → MCP de extremo a extremo | M6 | Herramienta local real y entrega final correlacionadas; modos preservados |
+| M8 | Ejecutar 2 sesiones >22 min / 20 compactaciones | M7 | Continuaciones reales, rutas observadas y requisitos/checks conservados |
+| M9 | Cerrar diagnóstico de incidentes y gaps nuevos | M8 | Causalidad demostrada o desconocido explícito; fixes con TDD cuando proceda |
+| M10 | Evaluar recursos, fidelidad y eficiencia | M8, M9 | Baselines, muestras y outcomes auditables, sin regresión funcional |
+| M11 | Decisión operacional y cierre de documentación | M1–M10 | Informe aprobado, ledger posterior y runbook de expansión/rollback |
+| M12 | Integración/publicación/plataformas, si se encarga | M11 + alcance explícito | Gates de maintainer/CI/cuentas/plataformas satisfechos |
 
-### Fase A — Reconocimiento sin mutar el runtime
+M1, M2 y M3 pueden avanzar en paralelo con ownership exclusivo. No paralelizar
+mutaciones dependientes ni suites pesadas. M4 se repite si cambia producción,
+lockfile o build. Un fallo durante M6–M10 detiene expansión; analizar/fijar y volver
+a medir el candidato afectado, sin elegir sólo intentos exitosos del mismo build.
 
-1. Relee Git, archivos, runtimes, browser instalado, package scripts y puertos.
-   Detecta cambios del usuario; no reset, force checkout ni pull/rebase implícitos.
-2. Resuelve la ruta real del launcher, helper, daemon y Codex CLI. Descubre modelo,
-   cuenta y capabilities disponibles sin volcar credenciales. No asumas que una
-   capacidad documentada de Responses API existe en ChatGPT web.
-3. Localiza journals, JSONL, stderr y locks actuales en el entorno realmente usado.
-   Verifica permisos/owners y salud. La existencia de un lock sin JSONL no demuestra
-   dónde falló MCP. No elimines journals o locks ambiguos.
-4. Comprueba el source tree contra el recibo y decide qué checks necesitan repetir
-   por cambios reales. No reclames equivalencia sólo porque coincide el branch name.
+## 5. M0 — Reconocimiento read-only y blockers iniciales
 
-Lecturas auxiliares conocidas, sin reinicio:
+Primero leer Git/archivos, browser instalado, runtimes/gestores, procesos, puertos,
+launcher, Codex CLI, integración Responses, connector y homes reales. No depender
+de PIDs, `/tmp`, aliases o subagentes de la sesión anterior.
 
 ```bash
 git status --short
 git branch --show-current
 git rev-parse HEAD
 git rev-parse HEAD:src
+git worktree list
+bun --version
+node --version
+python3 --version
 bun run src/cli.ts --help
 bun run src/cli.ts admission status --json
 bun run src/cli.ts service status
 ```
 
-### Fase B — Preparar evaluación e instrumentación revisables
+Descubrir ubicación real de journals, JSONL, stderr, locks, browser partition y
+config. Comprobar permisos, owners, generaciones y clocks. Inspeccionar salud por
+la URL configurada; `service status` puede no representar al daemon del launcher.
+No imprimir dumps completos de configuración o environment con credenciales.
 
-Antes de activar nada, prepara un manifiesto de canario y una matriz de evaluación.
-Usa un workspace de evaluación aislado; fija requisitos antes de ejecutar la tarea.
-Cada caso debe incluir IDs estables, tests funcionales reales, archivos previstos,
-restricciones, evidencia previa y siguiente acción. Incluye continuidad de una
-tarea de código, una obligación pendiente y una verificación aún no realizada;
-no reduzcas todos los casos a comprobar el formato del resumen.
+Último preflight: `2026-10-01T15:39:23.024Z`, commit limpio `ac4fc55`, exit 2.
+Source tree y artefactos coincidían; admission estaba vacío. Bloqueos observados:
 
-Para cada una de las veinte compactaciones registra al menos:
+| Código | Hecho observado | Acción pendiente |
+| --- | --- | --- |
+| `rollback_missing` | Rollback completo no preparado | M2; no aceptar helper suelto |
+| `runtime_accepting_turns` | Daemon todavía admitía turnos | Coordinar cierre de admisión en ventana segura |
+| `active_http_turns` | Dos turnos HTTP | Esperar finalización/cancelación por sus owners |
+| `active_browser_turns` | Dos turnos de navegador | Demostrar settlement físico, no sólo Promise resuelta |
+| `helper_runtime_present` | Un helper anterior observado | Teardown por ruta soportada después del settlement |
+| `resource_evidence_missing` | Predecesor sin seam de recursos | Transición legacy acotada o evidencia adicional revisada |
+| `telemetry_evidence_missing` | Predecesor sin seam de health | No convertir ausencia en cero; transición legacy acotada |
 
-- Session/thread/turn/trace/operation IDs y ruta observada retained/fallback.
-- Commit, artifact SHA-256, protocol y generación realmente cargados.
-- Inicio/fin UTC y duración monotónica de la sesión y operación.
-- Modelo/cuenta/capabilities seleccionados y límites efectivamente utilizados.
-- Input, requisitos antes/después, original request, latest request y checkpoint v2.
-- Estado de cada requisito, referencias de evidencia y resultados reales de tools.
-- Próxima acción prevista y primera acción efectiva después de compactar.
-- Comandos finales ejecutados, exit codes y resultado funcional de la tarea.
-- Estados received/validated/persisted/accepted/delivered y outcome de cada fase.
-- Submission evidence, número de Sends, secuencias/generación y causa terminal.
-- Baseline/final de waiters, listeners, timers, transacciones y conexiones observables.
-- Health, pending records/bytes, drops, flush y destino de fallback de telemetría.
+Daemon anterior: artifact `289e6ace…025c`; helper `14af41a0…16b7`; commits no
+identificados. La actividad puede haber cambiado: nueva lectura obligatoria.
+Salida M0: inventario sanitizado y lista actual de blockers con timestamp/identidad.
 
-Guarda el contenido de evaluación sólo en evidencia local privada apropiada;
-mantén la telemetría productiva libre de prompts/secretos. En reportes compartibles
-usa referencias o hashes y extractos sanitizados que sigan siendo auditables.
+## 6. M1 — Cerrar evidencia y gobernanza R2
 
-Si falta una superficie para demostrar un requisito, implementa primero un seam
-interno mínimo y verificable. Conserva nombres/esquemas públicos MCP y checkpoint
-v2. No abras un endpoint privilegiado para facilitar el test. Bugs RED→GREEN;
-extracciones con caracterización; commits atómicos y checks afectados. Reevalúa
-riesgo y actualiza evidencia si cambia producción.
+La entrada `b025-FEAT-0001` está vigente como registro local, **sin firmas A/V**.
+No hay claves registradas ni aislamiento mecánico R/A/V acreditado. Las revisiones
+readonly encontraron/corrigieron seis bugs, pero leyeron fuentes mutables; no son
+aprobación formal del snapshot final. El ledger no es un bootstrap SHS completo.
 
-Scripts de smoke existentes pueden usar mocks, modificar integración o asumir rutas
-macOS. Léelos antes de invocarlos. `smoke:interrupt`, `smoke:cancel` o el replay
-coding no sustituyen una compactación real. No inventes un comando de canario que
-el repo todavía no proporciona.
+Trabajo concreto:
 
-### Fase C — Demostrar inactividad y congelar candidato/rollback
+1. Fijar snapshot del candidato para revisión. Approver y Verifier distintos del
+   implementador; declarar responsabilidades y evidenciar aislamiento contra el
+   harness real, incluyendo delegación anidada cuando aplique. Worktree separado
+   por sí solo no prueba bloqueo de escrituras al checkout principal.
+2. Si el control técnico no está verificado, aplicar la ruta conservadora de SHS:
+   separación de agentes más revisión humana real y control demostrado aplicable.
+   Documentar el gap y el veredicto; no autoaprobar ni crear identidades ficticias.
+3. Revisar fronteras de confianza: provenance host, capability por owner/turno,
+   parser remoto, getters/ciclos/DAG compartido, readback, recuperación durable,
+   lifecycle, locks, flush y cambio de artefactos.
+4. Ejecutar SAST dedicado pendiente. Elegir herramienta compatible, fijar versión,
+   origen/checksum cuando corresponda y ruleset identificado; escanear código
+   relevante root/launcher y gates. Capturar archivos/reglas analizados, exclusiones,
+   resultados, exit code y control positivo seguro que compruebe el detector.
+   Typecheck, lint, audit y Gitleaks no sustituyen SAST. Triage con evidencia de
+   explotabilidad/alcance, sin allowlists genéricas para forzar verde.
+5. Repetir secret scan sobre los artefactos que se vayan a compartir, con redacción.
+   Mantener raw privado, hash del original y transformaciones documentadas.
+6. Resolver la procedencia RED incompleta: los logs históricos son overlays sin
+   commit RED separado ni digest exacto del overlay. No reescribir Git ni el ledger.
+   Reproducir, si hace falta, en una rama/worktree aislado desde un parent conocido:
+   añadir sólo la regresión, ejecutar y commitear RED; aplicar la corrección,
+   ejecutar GREEN y comprobar ancestry. Eso acredita una reproducción nueva,
+   nunca un commit RED histórico inexistente. A/V deben decidir si satisface el
+   gate; si no, conservar NO-GO y registrar la acción requerida.
+7. Inventariar controles SHS realmente instalados: U-00 autotest; U-01 ledger;
+   U-02 referencias; U-03 firmas; U-04 ancestry; U-05 aislamiento; U-06 tests
+   auténticos/patrones; U-07 catálogo/ratchet si existe; U-08 sello de gates si existe.
+   Distinguir aprobado, fallido, pendiente o no aplicable con motivo. Los cuatro
+   gates de refactor no equivalen al pipeline completo SHS. No afirmar que existen
+   scripts/hooks/catálogos/sellos que no están instalados.
+8. Añadir nueva entrada de ledger referenciando el ID/hash anterior y snapshot
+   evaluado. Firmas criptográficas con identidades/keys verificadas y sin acceso
+   del implementador a claves ajenas. No modificar recibos ya hasheados por la
+   entrada original; emitir recibos nuevos y enlazarlos.
 
-No uses admission vacío como único gate. Debes comprobar ausencia de requests y
-streams abiertos, ejecuciones y esperas admitidas, ownership de browser/helper,
-teardown físico, retained releases y persistencias pendientes. Flush debe terminar
-con cola vacía. Un proceso idle puede existir; su mera existencia o inexistencia
-tampoco prueba por sí sola que las autoridades del runtime estén libres.
+Salida M1: revisión del snapshot final, SAST/secretos triados, declaración de
+aislamiento, matriz de controles y decisión formal verificable. Los umbrales de
+cobertura sugeridos por una skill no son mínimos adoptados automáticamente:
+revisar cobertura por dominio, no inventar un threshold legal de release.
 
-Registra cómo se verificó cada condición y sobre qué runtime/generación. Si no
-existen superficies suficientes, explicita lo que falta y pide sólo la intervención
-necesaria del operador después de preparar el candidato y el plan concretos.
+## 7. M2 — Rollback completo y seguro
 
-Conserva el artefacto previo y el procedimiento de rollback antes de instalar.
-Valida hashes y compatibilidad. No borres journals, sesiones o configuración para
-hacer que el candidato arranque. Inspecciona el procedimiento de instalación real;
-no ejecutes ciegamente `deploy`.
+El material histórico del helper no identifica el CLI/dependencias/config/source
+graph del runtime vivo. Está pendiente recuperar procedencia por manifiestos,
+instalación, artifacts y configuración realmente usados. No fabricar
+`source-commit.txt` a partir del branch actual.
 
-**`build:bundles` copia el helper a `.launcher-runtime`; `deploy` instala y reinicia.**
-No los ejecutes con runtime activo. El gate de continuidad construye en memoria
-y no necesita esa copia. El empaquetador existente puede requerir árbol limpio y
-produce artefactos distintos de los builds sin minificar del gate; registra los
-hashes efectivamente instalados, no reutilices hashes de otro tipo de build.
+Preparar layout esperado por el gate:
 
-Tras instalar dentro de la ventana inactiva, verifica la identidad de procesos
-realmente cargados. Un `buildCommit` puede ser null fuera del layout con manifest;
-no lo fabriques. Cruza artifact hash y generación con el candidato preparado.
-
-### Fase D — Ejecutar sesiones reales y evaluar continuidad
-
-Realiza dos sesiones independientes de más de 22 minutos, diez compactaciones por
-sesión, con actividad efectiva del agente. No cuentan sleep, relojes virtuales ni
-timestamps de fixtures. No conviertas las mismas veinte operaciones en muestras
-adicionales mediante duplicación de logs. Registra rutas observadas y distribución.
-
-En cada compactación verifica persistencia antes de aceptación y que la continuación
-retome la tarea correcta. Comprueba requisitos completos, evidencias conservadas,
-obligaciones pendientes y ausencia de logros inventados. Observa ejecución de tools
-y tests finales reales; formato v2 válido es necesario pero insuficiente.
-
-Mide resultado y eficiencia por separado. Reporta éxito de tarea, fidelidad y fallos
-independientemente de tokens/bytes/latencias. Para comparar usa los mismos casos y
-runtime identificado; no aceptes reducción de contexto que empeore éxito/fidelidad.
-P50/p95 deben derivarse de muestras guardadas, con población y método explícitos.
-
-La cobertura de incidentes debe registrar hidratación/virtualización, ACK tardío o
-perdido y submission ambiguo cuando se observen realmente o exista fault injection
-soportado y autorizado. Conserva la incertidumbre si no ocurre un caso. No fuerces
-reenvíos para salir de un timeout y no cuentes el fixture local como incidente real.
-
-### Fase E — Analizar, decidir y cerrar
-
-El acumulador existente se usa sobre el log real exclusivo de canario:
-
-```bash
-bun run scripts/compaction-canary-report.ts /ruta/local/continuity-live-canary.log
+```text
+rollback-root/
+  manifest.json
+  app/
+    cli.js
+    browser-helper.cjs
+    source-commit.txt
+    node_modules/             (si declara frozen-lockfile-copy)
 ```
 
-Exige veinte traces distintos durables, cobertura retained/fallback y cero failed,
-rejected, incomplete, malformedEvents, mixedBuildTraces y
-deliveredWithoutLocalPersistence. Revisa raw events y journal además del agregado:
-el acumulador comprueba hechos de fases/outcomes e identidad; no valida duración
-de sesión, causalidad completa, fidelidad, éxito de tarea ni Send único.
+Exigir archivos regulares, hashes del par y artifact-set concordantes, commit
+exacto del manifiesto y dependencias físicas correspondientes. El gate comprueba
+presencia de la copia declarada: no verifica todos sus bytes ni su ejecutabilidad.
+Completar por fuera su inventario/checksums, resolución de módulos y smoke.
+Preservar configuración, rutas de arranque, protocolo, partición y compatibilidad
+con journals existentes. Almacenar snapshots sensibles sólo en ubicación privada.
 
-Si un canario falla, detén expansión, guarda diagnóstico y conserva journals. Si
-corresponde rollback, ejecuta únicamente con runtime nuevamente inactivo y valida
-el artefacto previo cargado. No marques el plan completo porque sólo pasó el gate
-local. Identifica acceptance achieved/pending/failed y causas con evidencia.
+Ejecutar smoke aislado del rollback: CLI, handshake helper, MCP initialize/list,
+shutdown y lectura compatible de journal-fixture, sin puerto/connector/home de
+producción. Registrar los comandos reales soportados tras leer scripts. No lanzar
+herramientas mutantes contra el workspace del usuario para comprobar readiness.
 
-## 7. Verificación local y trabajo con dos agentes
+Documentar selección del rollback, parada segura, restauración del par/config,
+readiness posterior y verificación de identidad cargada. No downgrade de journal
+por truncado. Si el artefacto anterior no es identificable/compatible, bloquear
+activación y resolverlo con el operador; no aceptar una copia especulativa.
 
-La organización original usa dos ownerships:
+## 8. M3 — Preparar campaña, runner y evaluadores
 
-- A: kernel/productivo — prompt, compaction, worker, bus, feeds y lifecycle, con
-  regresiones específicas declaradas en cada dispatch.
-- B: tests/infra — fixtures, replay, evaluación, gates, evidencia y revisión readonly
-  de producción, con lista de archivos exclusiva declarada antes de editar.
+Existe `scripts/harness-live-canary.ts`: colecta preflight y genera una matriz de
+20 entradas. **No ejecuta las sesiones, no fuerza compaction y no demuestra
+continuidad.** `compaction-canary-report.ts` agrega logs; tampoco es un runner.
+Falta preparar una ruta reproducible de ejecución real y evidencia semántica.
 
-Los agentes anteriores no son recursos disponibles garantizados. Si delegas,
-recrea briefs y ownership explícitos. No atribuyas aislamiento mecánico a una
-instrucción de no editar archivos. No ejecutes suites pesadas concurrentemente.
-La revisión humana previa al merge exigida por el runbook sigue pendiente.
+Crear en workspace aislado una campaña con manifest versionado/sanitizado que fije:
 
-Comandos locales conocidos, en serie:
+- ID de campaña/build; dos IDs de sesión/thread; 20 IDs de checkpoint únicos.
+- Cuenta/plan/modelo/esfuerzo/capacidades observados y límites usados, sin secretos.
+- Requisitos con IDs, solicitud original, último steering, restricciones y oracle.
+- Baseline de tarea, archivos esperados, tests reales, obligación pendiente y
+  siguiente acción aún no ejecutada antes de compactar.
+- Disparador de compaction soportado, scheduling y captura de ruta efectiva.
+- Reloj monotónico, referencias privadas de evidencia y hashes compartibles.
+- Evaluador de fidelidad/ejecución/cierre independiente y política de fallo.
+
+Matriz actual: A-CP-01..10 y B-CP-01..10, con tres requisitos por checkpoint.
+ExpectedRoute alterna retained/fallback; es una expectativa, no evidencia de ruta.
+Usar escenarios como cobertura inicial, adaptando tareas a un workspace benchmark
+con trabajo genuinamente pendiente; no fingir que un bug ya corregido sigue abierto.
+
+| CP por sesión | Caso del generador | Obligación que debe cruzar la compactación |
+| --- | --- | --- |
+| 01 | `unicode-regression` | Literal Unicode/escapes y test focalizado pendiente |
+| 02 | `abort-settlement` | Listener/renderer settlement aún por verificar |
+| 03 | `multipart-digest` | Identidad completa de payload y comparación real |
+| 04 | `checkpoint-reference` | Procedencia original strict sin estado fabricado |
+| 05 | `telemetry-budget` | Límites/drops/flush con comandos reales |
+| 06 | `deadline-classification` | Causa tipada preservada hasta terminal |
+| 07 | `retained-release` | Ownership/liberación antes del reemplazo |
+| 08 | `tool-delivery` | Ejecución de tool distinguida de respuesta transportada |
+| 09 | `browser-rebind` | Nueva generación y cleanup de página anterior |
+| 10 | `single-send` | Incertidumbre tras Send sin reenvío automático |
+
+Estas tareas no deben modificar silenciosamente el harness activado. Copiar o
+preparar fixtures de trabajo aisladas y congelar el harness de la campaña.
+DEV puede ayudar a preparar datos; sus herramientas simuladas no cuentan.
+Usar Codex instalado real y connector correcto para la aceptación Full.
+
+Si se necesita un runner/evaluador nuevo, declararlo como trabajo pendiente, con
+brief, archivos exclusivos, TDD y schemas internos. No documentar un comando como
+existente hasta que se implemente. Evitar endpoints privilegiados o nuevos ABI.
+
+Gap de preparación para candidatos futuros: el collector de preflight lee hoy
+las rutas fijas `docs/evidence/harness-continuity-verification.json` y
+`docs/evidence/harness-continuity-gates.json`. Esos archivos están hasheados por el
+ledger original. Si cambia el candidato, preparar primero selección explícita de
+recibos nuevos en el collector, con regresiones de mismatch/provenance, o un
+mecanismo equivalente revisado. No sobrescribir recibos históricos para conseguir
+que el preflight acepte un build nuevo. Esa selección todavía no tiene flags
+implementados; no inventarlos al ejecutar los comandos actuales.
+
+Por checkpoint capturar en evidencia privada/referenciada:
+
+| Grupo | Datos mínimos |
+| --- | --- |
+| Correlación | campaign/session/thread/turn/trace/operation/checkpoint IDs, owner, generation, sequence/documentGeneration |
+| Runtime | Commit verificado cuando existe, SHA CLI/helper/set, protocol, capacidades realmente negociadas |
+| Tiempo | UTC inicio/fin/ocurrencia/escritura y duración monotónica real |
+| Tarea | Original/latest request, requisitos antes/después, checkpoint v2 y siguiente acción esperada/efectiva |
+| Ejecución | Tool name/call/result IDs, recepción/claim/emisión/resultado/entrega, exit codes y archivos/commit resultantes |
+| Compactación | prepared/received/validated/repair_started/persisted/accepted/delivered, issues, reparación y ruta observada |
+| Browser | Composer/readback/adjuntos/pills, submission evidence, Sends físicos, ACK, fence, rebind y terminal |
+| Recursos | Baseline/final de waiters/listeners/timers/transacciones/persistencias/releases/conexiones observables |
+| Diagnóstico | DAG/error IDs, queue/bytes/drops/truncado/flush/status y fallback de sink |
+| Evaluación | Fidelidad, próxima acción correcta, resultado de tarea, checks finales y motivos de fallo/incompletitud |
+
+No pedir que la telemetría pública contenga prompts o IDs privados excluidos por
+su schema. Correlacionar los hashes diagnósticos con un manifiesto privado local.
+Preservar el schema de compaction events v1 y el causal v2; no mezclarlos.
+
+## 9. M4 — Congelar candidato final y ejecutar gates
+
+Si M1–M3 revelan un bug, corregir primero con TDD, revisar y crear un candidato
+nuevo. Nueva fuente/lock/receta exige nueva identidad y nueva campaña. No mezclar
+resultados de builds distintos ni actualizar sólo un helper.
+
+En checkout/staging aislado, instalar root y launcher con locks congelados. No
+mutar módulos que consume el runtime activo. `bun run verify` es el gate de
+contribución: incluye audits/typecheck/lint/gates/coverage/launcher/build/smoke.
+Leer su script y correrlo aislado, pues también escribe renderer/dist y artefactos.
+La última entrega tiene checks separados; no hay recibo de un `verify` completo
+que permita atribuirle packaging/smoke de release no ejecutados.
+
+Secuencia local conocida, sin suites pesadas simultáneas:
 
 ```bash
 bun run typecheck
 bun run lint
 bun run check:refactor-gates
-bun test ./tests --coverage
+bun test ./tests --coverage --coverage-reporter=lcov --coverage-dir=/tmp/cgw-coverage-new
+bun run launcher:typecheck
+node --test launcher/tests/*.test.cjs
 CHATGPT_DOM_TEST_BROWSER=/usr/bin/google-chrome bun run test:browser-contracts
-bun run scripts/check-harness-continuity.ts --samples=5 --report=/tmp/continuity-candidate.json
+bun run scripts/build-development-runtime.ts
+bun run scripts/check-harness-continuity.ts --samples=5 --report=/tmp/cgw-gates-new.json
 ```
 
-El browser del último gate de continuidad fue Chromium instalado por Playwright;
-el gate obligatorio de browser usó `/usr/bin/google-chrome`. Lee los reportes para
-atribuir resultados al ejecutable correcto. Revalida disponibilidad en el entorno
-nuevo. El gate exige browser ejecutable y cero skips en sus suites focalizadas.
+Revalidar el browser ejecutable antes de usar esa ruta. Gates de continuidad
+usaron Chromium Playwright; contratos separados usaron Chrome del sistema.
+Para comparación emplear `--compare=` sólo con baseline compatible: mismo fixture,
+scenarios, Bun/browser, sample count y reportes passing/stable. Reportar población
+real, warmup/outliers/método y límites; no repetir para elegir una latencia favorable.
 
-Para comparación del compilador existe `scripts/compare-harness-prompts.ts` con
-`--baseline-root=`. Un worktree temporal en `/tmp/continuity-baseline-9c6e02a` pudo
-existir; comprueba `git worktree list`. No supongas que sigue presente ni borres
-checkouts desconocidos. La comparación del gate con `--compare=` exige mismo
-fixture, runtime, escenarios y sample count, ambos reportes verdes y estables.
+Conservar manifest, captured inputs, pair hashes, dependencias y smoke del par
+físico. Código/reports de evidencia nuevos se guardan con IDs nuevos; los recibos
+hasheados por el ledger anterior quedan históricos e inmutables.
+Confirmar que A/V evaluaron ese mismo snapshot y recipe. Si M4 cambia la fuente,
+lock o composición del artefacto, renovar revisión/firma; no heredar aprobación de
+otro par por tener el mismo nombre de rama.
 
-## 8. Entregables y siguiente acción concreta
+## 10. M5–M6 — Inactividad, transición legacy y activación
 
-Produce un manifiesto del canario, matriz de tareas/criterios, evidencia por sesión
-y checkpoint, reportes agregados, inventario de recursos y una decisión operacional
-con rollback documentado. Versiona scripts/tests y documentación útiles, sin
-credenciales ni prompts privados. Mantén commits convencionales y atómicos.
+Ejecutar preflight read-only usando los directorios reales de la campaña:
 
-El informe final debe distinguir:
+```bash
+bun run scripts/harness-live-canary.ts \
+  --candidate-dir=<candidate-root>/app \
+  --rollback-dir=<rollback-root>/app \
+  --require-ready \
+  --report=/tmp/cgw-preflight-new.json
+```
 
-1. Qué cambió desde el candidato local y por qué, con archivos/commits.
-2. Qué se probó realmente y qué sigue siendo fixture o inferencia.
-3. Resultado de las veinte continuaciones y duración efectiva de ambas sesiones.
-4. Éxito funcional/fidelidad y costes, con muestras y denominadores.
-5. Estado de recursos/telemetría, incidencias y acciones de recuperación.
-6. Decisión de expansión, bloqueo o rollback, sin merge/release implícitos.
+Los marcadores `<...>` requieren sustitución por rutas verificadas; no copiar esa
+plantilla como comando listo. La herramienta no drena ni instala. Exit 2 significa
+NO-GO del gate, no licencia para matar procesos o ignorar blockers.
 
-**Tu primera acción:** reconoce Git y runtime en modo lectura, lee el runbook y los
-tres JSON de evidencia, y prepara la matriz de canarios y el gate de inactividad.
-La primera compactación real sólo empieza después de congelar el candidato,
-preparar rollback y demostrar la ventana inactiva.
+La ventana debe demostrar admisión cerrada, cero ejecuciones/esperas, cero HTTP/
+browser/subagents, ausencia de helpers/owners pendientes, teardown físico,
+waiters/timers/transacciones/persistencias/releases resueltos y colas flush/vacías.
+Revisar `telemetry_health` **y** `diagnostic_health`; contadores ausentes son
+inobservados, no cero. Health malformado o degradado debe bloquear.
+
+Para predecesor identificado anterior al seam existe
+`--legacy-bootstrap-shutdown`. Sólo calcula elegibilidad de su apagado y tolera
+seams ausentes dentro de esa transición; no elude actividad, helper presente,
+rollback/artifacts inválidos o health anunciado malformado. No acredita instalar
+el candidato. Coordinar shutdown por la ruta soportada una vez que los owners
+hayan terminado y conservar la evidencia de salida/settlement.
+
+Inspeccionar launcher supervisor/servicio y su método real de selección de
+artefactos antes de activar. No hay aquí un comando universal de instalación.
+Evitar TOCTOU: identificar generación evaluada, impedir nuevos turnos entre
+preflight y cambio y revalidar inmediatamente antes de la mutación. Si se pierde
+la ventana o cambia generación, repetir el gate.
+
+Activar CLI/helper/dependencias como unidad. Comprobar identidad cargada en daemon
+**y cada helper**, readiness, protocolo, features, homes, partition y rutas de
+Codex. Configuración y journals se conservan. Ningún Send antes de readiness y
+verificación de modelo/capacidad/superficie.
+
+Si falla readiness, no iniciar campaña: preservar DAG/logs, mantener expansión
+cerrada y restaurar el rollback verificado sólo tras nueva ventana segura.
+
+## 11. M7 — Verificar viaje completo desde abrir Codex
+
+Revisar y demostrar estos pasos con correlación, no sólo lectura de source:
+
+1. Launcher selecciona snapshot; startup gate/supervisor verifica daemon y par.
+2. Descriptor/route llegan al Codex instalado; catálogo refleja cuenta/modelo/
+   esfuerzo sin duplicar ni eliminar modelos nativos. Reiniciar Codex sólo en
+   ventana coordinada si la integración real lo requiere.
+3. Request Responses/SSE vincula owner/session/operation y listeners de abort.
+4. Host compila literalmente instrucciones/historial, mide payload una vez,
+   selecciona transporte y negocia features con helper verificado.
+5. Browser lease pertenece al turno; documento/modelo/adjuntos/pills/readback
+   coinciden con payload seleccionado antes de autorizar Send.
+6. Journal registra preparación/activación del efecto y submission demuestra
+   aceptación. ACK es observación separada; ausencia no dispara reenvío.
+7. Full-mode MCP llega por conector/túnel correctos: call_received → claim →
+   emisión al Codex exterior → ejecución local real → result_received → entrega.
+   Demostrar efecto y exit code; `reply_sent` solo no basta.
+8. Completion fence/FSM determina finalización; persistencia precede entrega
+   durable y cleanup no deja listeners/tabs/streams huérfanos.
+9. Compactación aplica política compartida y siguiente epoch conserva tarea.
+
+Verificar Browser-only sin capacidades MCP; Full con la misma capacidad de turno
+para todos los esfuerzos disponibles; distinguir Automatic/Zero Risk si son
+rutas afectadas. Zero Risk no permite leer/mutar DOM para facilitar el canario.
+No seleccionar `Codex Native` legacy ni confundir `Codex Native2 DEV` con el
+connector de producción. No renombrar/refrescar/borrar connectors para resolver
+una discrepancia de identidad sin seguir su migración documentada.
+
+Salida M7: una tarea real con tool local, final y cleanup correlacionados; inventory
+startup actualizado con puntos de fallo observables. Pruebas de cancelación/
+reconnect se hacen sobre turnos de evaluación propios, no trabajo ajeno.
+
+## 12. M8 — Ejecutar y evaluar 20 compactaciones reales
+
+Dos sesiones independientes con identidad estable, diez checkpoints por sesión y
+más de 22 minutos reales cada una. No cuentan sleeps, clocks virtuales, timestamps
+inventados o duplicación de traces. Registrar tiempo transcurrido monotónico y
+actividad efectiva del agente, herramientas y navegador.
+
+Para cada checkpoint:
+
+1. Capturar tarea vigente y siguiente acción pendiente antes de compaction.
+2. Disparar compaction por mecanismo soportado del Codex real; registrar motivo,
+   límites/capacidades y ruta efectiva. No asumir que el expectedRoute ocurrió.
+3. Verificar normalización/validación/reparación máximo una vez; persistencia
+   durable precede aceptación y entrega. Checkpoint v2 correcto es condición
+   necesaria, no suficiente.
+4. Observar la primera acción de continuación y contrastarla con la obligación
+   pendiente. Requisitos/instrucciones/evidencia deben conservarse sin invención.
+5. Verificar herramienta ejecutada realmente, sus resultados y comprobaciones
+   finales. Entrega MCP, texto de éxito o comando citado no prueban ejecución.
+6. Registrar baseline/final de recursos y health; comprobar cierre físico.
+7. Evaluador independiente emite pass/fail/incomplete con referencias auditables.
+
+Cubrir retained y fallback observados. La matriz alterna cinco de cada ruta por
+sesión como objetivo; si la superficie no permite provocar una ruta, registrar el
+gap y preparar un mecanismo soportado antes de continuar. No relabelar traces ni
+fabricar fallback. Intentos adicionales se registran aparte con denominadores
+reales. Un fallo del build invalida expansión: investigar y repetir campaña del
+candidato corregido; no reemplazar silenciosamente un caso fallido por uno verde.
+
+Guardar hechos de abort durante persistencia, handoff sin consumir, cierre tardío,
+rebind/cursor vencido y carreras cuando se ejecuten realmente. Las pruebas locales
+ya cubren estos escenarios; fault injection adicional debe estar soportado,
+acotado y aplicado a sesiones propias, sin ocultar la diferencia con tráfico normal.
+
+## 13. M9–M10 — Incidentes, recursos y eficiencia
+
+### 13.1 Preguntas causales que siguen abiertas
+
+- ACK multipart parte 2: expiró a 180001 ms, pero no se sabe si falló generación,
+  entrega, hidratación, selección/identidad o extracción. Capturar timestamps,
+  submission, baseline/surface/generación, eventos de red sanitizados y DAG;
+  reproducir con fixture mínima cuando haya evidencia suficiente.
+- Checkpoint `missing_state`: cero tags en visible/HTML/markdown en la captura
+  inspeccionada. Contrato/provenance más estrictos no prueban obediencia real.
+  Distinguir salida inválida del modelo, entrega y representación/extracción.
+- Identidades múltiples observadas: fixtures prueban virtualización/hidratación;
+  falta atribuir causalmente el incidente real con identidad estable y submission.
+- 401 históricos: sin endpoint/request/build correlacionados no atribuirlos a
+  MCP, sesión del navegador o credenciales específicas.
+
+Si no se reproduce un incidente, decirlo; canario verde no demuestra causa raíz
+resuelta. Un bug probado exige RED→GREEN, revisión y candidato nuevo. Cambios a
+selectores requieren evidencia DOM y fixture; usar locators/condiciones observables.
+**Timeout posterior a Send no autoriza resend automático.**
+
+### 13.2 Recursos y observabilidad
+
+Contrastar baselines por turno/documento y runtime: waiters, listeners, timers,
+transacciones, persistencias, retained releases y conexiones observables. Los loops
+locales de 100 ciclos son evidencia por scope, no prueba universal de no fugas.
+Si falta un contador, declarar inobservado; añadir seam mínimo si es necesario.
+
+Validar bounded queue por cantidad/bytes, degradación por drops/fallo I/O, circuit,
+retención de writers muertos, flush con deadline y fallback stderr. Un fallo del
+sink no modifica el resultado funcional, pero puede bloquear aceptación operativa.
+Preservar causa del productor en cada frontera; no sustituirla por PID/generación
+receptora. Causas desconocidas y flags de truncado deben seguir visibles.
+
+Presupuestos vigentes a preservar: DAG 16 KiB/depth 8/16 hijos agregados; ring y
+cola 256 registros/1 MiB; segmentos por writer 5×10 MiB; retención elegible de
+writers muertos 7 días/128 MiB; flush 1000 ms. Verificar source si se cambian.
+No eliminar locks legacy ambiguos ni writers vivos para cumplir retención.
+
+### 13.3 Métricas y evaluación separadas
+
+Reportar fidelidad, éxito funcional, herramienta ejecutada, continuidad y cleanup
+con denominadores distintos de coste/latencia. Medir bytes y tokens estimados del
+payload físico seleccionado, latencia p50/p95 por fase y end-to-end con muestras
+conservadas. No atribuir cache hits o facturación que ChatGPT Web no expone.
+Comparar mismos casos/builds identificados, cuenta/modelo/esfuerzo y condiciones.
+Ninguna reducción de contexto se acepta si empeora requisitos o éxito de tarea.
+No aumentar silenciosamente deadlines para tapar regresiones.
+
+## 14. M11 — Agregación, decisión, cierre y rollback
+
+Sobre un log exclusivo y real de campaña, el acumulador existente se ejecuta así:
+
+```bash
+bun run scripts/compaction-canary-report.ts /ruta/privada/canary.log
+```
+
+Exigir 20 traces distintos durables de la campaña aceptada, cobertura retained/
+fallback y cero failed/rejected/incomplete/malformedEvents/mixedBuildTraces/
+deliveredWithoutLocalPersistence. Revisar raw privado y journal: el acumulador no
+valida duración, semántica, herramientas reales, Send único ni causalidad completa.
+Su exit code/reporte no sustituye el evaluador de continuidad.
+
+Entregables finales pendientes:
+
+- Inventario vivo y manifest del candidato/rollback, con recetas y hashes.
+- Runner/procedimiento real, matriz congelada y registro privado de 20 checkpoints.
+- Evaluación por checkpoint y sesión: fidelidad, próxima acción, ejecución, final,
+  tiempo real, rutas, Send y recursos.
+- Reporte agregado, métricas/muestras y comparación con límites declarados.
+- Análisis causal por incidente: probado/inferido/desconocido y fixes asociados.
+- SAST/secretos/revisión/aislamiento/firma y resolución de procedencia RED.
+- Runbook probado de activation/rollback y registro de identidades cargadas.
+- Recibos nuevos y ledger append-only; documentación y decisión operacional.
+
+En fallo: detener expansión, preservar journal/correlaciones/DAG, dejar inciertos
+los efectos inciertos y no reenviar. Esperar settlement, demostrar otra ventana
+segura y restaurar par/deps/config verificados cuando proceda. Validar readiness,
+identidad y journal después de rollback. Registrar fallos e intentos completos,
+no sólo campañas exitosas.
+
+Aceptar únicamente con todos los gates requeridos y evidencia independiente.
+No declarar terminado por budget/contexto agotado ni sólo porque pasó la suite.
+Al entregar explicar qué cambió, qué se ejecutó, qué sigue pendiente y qué acción
+concreta lo resuelve. Si no hay ventana, dejar todo preparable listo y comunicar
+los blockers, sin detener arbitrariamente trabajo autorizado.
+
+## 15. M12 — Integración y release: alcance condicionado
+
+No hay merge/publicación realizados por esta entrega. Si el usuario encarga ese
+paso, inspeccionar remoto/divergencia y CI actuales, preparar PR revisable por
+slices con commits/validación, cumplir CONTRIBUTING y dejar decisión al maintainer.
+No asumir remoto sincronizado con la base `9c6e02a` ni hacer rebase implícito.
+
+Para release estable aplica `docs/release-validation.md`: packaging/smoke nativos,
+Windows 11 con sus once checks reales de cuenta/integración, macOS con los checks
+interactivos indicados y Linux con packaging/desktop y checks requeridos antes de
+claim de soporte. Incluir clean install/upgrade, cancelación, sesión/config
+preservadas, modos/connector/model catalog y flujos afectados. No hay evidencia
+actual de esos gates de release para este candidato; el test omitido de plataforma
+no debe presentarse como aprobado.
+
+Los resultados históricos de otra versión no certifican este build. Prerelease,
+updater, tags/signing/checksums y publicación requieren alcance explícito y gates
+revisados; no invocarlos como efecto secundario de canarios verdes.
+
+## 16. Mapa de código y dispatch a agentes
+
+| Área | Archivos principales |
+| --- | --- |
+| Captura/build/arranque | `scripts/build-development-runtime.ts`, `launcher/scripts/dev.cjs`, `launcher/electron/development-runtime.cjs`, `runtime-command.cjs`, `runtime-supervisor.cjs`, `runtime-startup-gate.cjs` |
+| Identidad | `src/runtime-identity.ts`, `src/adapters/chatgpt-web/helper-protocol.ts`, `launcher-helper-client.ts` |
+| Responses/HTTP | `src/server/response-route.ts`, `src/responses/compaction.ts`, `src/server/host-prompt-preflight.ts` |
+| Prompt/procedencia/transporte | `src/adapters/chatgpt-web/prompt/compiler.ts`, `types.ts`, `sanitization.ts`, `record-fragments.ts`, `src/responses/compaction-contract.ts` |
+| Medición/multipart | `src/adapters/chatgpt-web/input-tokens.ts`, `browser/multipart-plan.ts`, `compaction-repair.ts` |
+| Checkpoint/recuperación | `src/adapters/chatgpt-web/compaction-policy.ts`, `compaction-handoff.ts`, `adapter/compaction-checkpoint.ts`, `adapter/compaction-flow.ts`, `session-actor/`, `rolling-checkpoint.ts` |
+| Lifecycle/browser | `src/adapters/chatgpt-web/browser-worker.ts`, `browser/turn-events.ts`, `turn-page-binding.ts`, `turn-wake.ts`, `turn-completion-loop.ts`, `dom-signal.ts`, `submission-observer.ts`, `turn-execution/feeds.ts`, `compaction-transaction.ts` |
+| MCP/terminal | `src/adapters/chatgpt-web/turn-terminal.ts`, `mcp-observation.ts`, `mcp-telemetry.ts`, `turn-broker.ts`, `mcp-server.ts` |
+| Diagnóstico causal | `src/diagnostics/index.ts`, `errors.ts`, `events.ts`, `sink.ts`, `src/adapters/chatgpt-web/compaction-observability.ts` |
+| Gates/evaluación | `scripts/harness-live-canary.ts`, `check-harness-continuity.ts`, `compare-harness-prompts.ts`, `compaction-canary-report.ts`, `tests/fixtures/continuity-replay.ts` |
+
+Rutas abreviadas continúan el directorio del primer archivo de su grupo cuando
+sea inequívoco. Resolver rutas reales antes del dispatch; no asumir un fichero
+`session-actor.ts` cuando la autoridad actual vive en `session-actor/`.
+
+Ownership original: agente A kernel/producción/regresiones específicas; agente B
+fixtures/replay/evaluación/gates/evidencia y revisión readonly de producción.
+Nuevas delegaciones deben enumerar archivos exclusivos existentes/propuestos,
+base commit, objetivo, invariantes, pruebas, evidencia y dependencias de integración.
+Un test pertenece a un solo escritor. A/V son roles distintos de esos ownerships,
+con separación acreditada; B no aprueba automáticamente su propia infraestructura.
+
+Propuesta para avanzar antes de ventana:
+
+- Dispatch de revisión/SAST/gobernanza: snapshot readonly, reports privados y
+  recibos nuevos. Sin editar producción, candidate directory o ledger previo.
+- Dispatch de rollback/inventario: artefactos privados y runbook, sin restart/
+  install/setup. Lectura de producción; scripts nuevos sólo con ownership declarado.
+- Dispatch de evaluación: workspace benchmark aislado, manifest/matriz/evaluador
+  y tests propios. No cambiar el harness durante la campaña.
+- Fixes de kernel: integración serial de bugs reproducidos, tests afectados,
+  revisión y candidato nuevo antes de iniciar aceptación.
+
+## 17. Primera acción y checklist de salida
+
+Primera acción: M0 read-only, leer recibos y reglas, identificar blockers vivos.
+Después iniciar M1/M2/M3 independientes. No empezar compactaciones reales mientras
+falte un gate previo; no detener preparación porque la ventana aún no existe.
+
+Checklist para el siguiente handoff, si no se completa toda la campaña:
+
+- HEAD/branch/source-inputs/build/runtime identities exactos; estado limpio/sucio.
+- M0–M12 con estado pendiente/en progreso/aprobado/fallido/no aplicable y evidencia.
+- Owners y archivos de cambios no integrados, sin perder trabajo de otra sesión.
+- Último preflight y blockers con timestamp, no PIDs supuestos ni ceros inventados.
+- Canarios realmente ejecutados, duración y ruta observada, incluso intentos fallidos.
+- Comandos/gates pendientes y razón; siguiente acción técnica concreta.
+- Rollback disponible/no disponible y forma segura de retomar.
+- Ubicación privada de datos sensibles; sólo referencias sanitizadas compartibles.
+
+No dejar un nuevo handoff que mezcle un candidato histórico con el actual, ni
+convierta tareas propuestas en ejecución acreditada. El estado inicial de este
+roadmap es **implementación local verificada; aceptación operativa y release R2
+pendientes**, con cero compactaciones reales y cero sesiones largas acreditadas.
