@@ -91,7 +91,10 @@ const ISSUE_PATTERNS: Array<[RegExp, string]> = [
   [/lacks evidence/i, "missing_evidence"],
   [/missing mission requirements/i, "missing_requirements"],
   [/invalid mission requirement item/i, "invalid_requirement"],
-  [/missing original request reference|original request reference changed/i, "original_request_ref_invalid"],
+  [
+    /missing original request reference|original request reference changed|original request reference does not match/i,
+    "original_request_ref_invalid",
+  ],
   [/one clear next action/i, "invalid_next_action"],
   [/missing closure criteria/i, "missing_closure_criteria"],
   [/missing .* section/i, "missing_section"],

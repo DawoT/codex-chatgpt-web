@@ -1,4 +1,5 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -169,7 +170,7 @@ function missionCheckpoint(narrative: string): string {
   return `${narrative}
 <compaction_state>
 version: 2
-original_request_ref: user turn turn_source
+original_request_ref: sha256:${createHash("sha256").update("Original task").digest("hex")}
 modified_files:
 active_hypothesis: Continue the original task.
 requirements:
@@ -2600,9 +2601,9 @@ test("an invalid fresh fallback receives one bounded draft repair, not a replay 
       messages: Array<{ content: string }>;
     };
     expect(repairContext.messages[0]!.content.trimEnd()).toEndWith(
-      "Return one faithful corrected handoff. The bridge will normalize its internal format.",
+      "Return one faithful corrected handoff using the checkpoint contract above. Validation will reject missing semantic fields.",
     );
-    expect(repairContext.messages[0]!.content).not.toContain("<compaction_state>");
+    expect(repairContext.messages[0]!.content).toContain("<compaction_state>");
     expect(
       events.some((event) => event.type === "text_delta" && event.text.includes("Repaired fresh checkpoint")),
     ).toBeTrue();

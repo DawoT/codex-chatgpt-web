@@ -2,6 +2,7 @@ import { extractStructuredCompactionHandoff } from "../../responses/compaction";
 import type { CodexParsedRequest } from "../../types";
 import { validateCompactionQuality } from "./autonomous-compaction";
 import { canonicalizeCompactionHandoff } from "./compaction-handoff";
+import { compactionOriginalRequestRef } from "./compaction-source";
 
 export interface CompactionCheckpointInspection {
   valid: boolean;
@@ -25,6 +26,7 @@ export function inspectCompactionCheckpoint(
   const quality = validateCompactionQuality(parsed.context.messages, summary, {
     requireStructured: true,
     evidenceSessionId,
+    expectedOriginalRequestRef: compactionOriginalRequestRef(parsed),
   });
   return {
     valid: quality.valid,

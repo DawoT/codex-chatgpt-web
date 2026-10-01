@@ -1,4 +1,4 @@
-import { COMPACT_PROMPT } from "../../responses/compaction";
+import { compactionCheckpointInstruction } from "../../responses/compaction-contract";
 import type { CompactionEvidenceObservation } from "./compaction-evidence";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
 
@@ -47,7 +47,10 @@ export function activeCompactionToolResultInstruction(): string {
  * already-visible native tool boundary, the same manually submitted response returns the
  * checkpoint through the same Zero Risk request instead.
  */
-export function zeroRiskActiveCompactionToolResultInstruction(toolExecuted: boolean): string {
+export function zeroRiskActiveCompactionToolResultInstruction(
+  toolExecuted: boolean,
+  originalRequestRef?: string,
+): string {
   return [
     `<${CODEX_ACTIVE_COMPACTION_REQUEST_MARKER}>`,
     toolExecuted
@@ -56,7 +59,7 @@ export function zeroRiskActiveCompactionToolResultInstruction(toolExecuted: bool
     toolExecuted
       ? "Consume that canonical result, stop ordinary task work now, and do not call any more work tools."
       : "Stop ordinary task work now and do not call any more work tools.",
-    COMPACT_PROMPT,
+    compactionCheckpointInstruction(originalRequestRef),
     "Call no more work tools. Return only the complete checkpoint summary to Codex with codex_turn_complete.",
     `</${CODEX_ACTIVE_COMPACTION_REQUEST_MARKER}>`,
   ].join("\n");
@@ -65,10 +68,11 @@ export function zeroRiskActiveCompactionToolResultInstruction(toolExecuted: bool
 export function structuredCompactionHandoffInstruction(
   transaction: CompactionTransactionHandle,
   observations: readonly CompactionEvidenceObservation[] = [],
+  originalRequestRef?: string,
 ): string {
   return [
     "Automatic Codex context compaction has started. Stop ordinary task work.",
-    COMPACT_PROMPT,
+    compactionCheckpointInstruction(originalRequestRef),
     ...compactionEvidenceInstructions(observations),
     ...compactionControlBinding(transaction),
     "Call no other tools. A successful submitted=true response completes the handoff.",
@@ -79,9 +83,11 @@ export function structuredCompactionRepairInstruction(
   transaction: CompactionTransactionHandle,
   missingInvariants: readonly string[],
   observations: readonly CompactionEvidenceObservation[] = [],
+  originalRequestRef?: string,
 ): string {
   return [
     "Repair that draft once. It remains in this conversation.",
+    compactionCheckpointInstruction(originalRequestRef),
     "Missing or invalid items:",
     ...missingInvariants.map((item) => `- ${item}`),
     ...compactionEvidenceInstructions(observations),

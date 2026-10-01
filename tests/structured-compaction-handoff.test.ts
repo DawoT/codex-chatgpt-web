@@ -18,10 +18,10 @@ import {
 } from "../src/responses/compaction";
 
 describe("Sprint Q: Structured Compaction Handoff Envelope", () => {
-  test("COMPACT_PROMPT requests a faithful handoff without exposing the internal schema", () => {
+  test("COMPACT_PROMPT requests a faithful handoff with the required internal schema", () => {
     expect(COMPACT_PROMPT).toContain("faithful handoff");
-    expect(COMPACT_PROMPT).not.toContain(COMPACTION_STATE_TAG_START);
-    expect(COMPACT_PROMPT).not.toContain("requirements:");
+    expect(COMPACT_PROMPT).toContain(COMPACTION_STATE_TAG_START);
+    expect(COMPACT_PROMPT).toContain("requirements:");
   });
 
   test("parses structured compaction state from summary text", () => {

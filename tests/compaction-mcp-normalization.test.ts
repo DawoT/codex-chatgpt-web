@@ -151,13 +151,13 @@ test("repair observations count serialized commands as well as excerpts", () => 
   expect(unicode).toEqual([]);
 });
 
-test("the retained MCP request does not repeat the checkpoint schema", () => {
+test("the retained MCP request carries the explicit checkpoint schema", () => {
   const instruction = structuredCompactionHandoffInstruction({
     token: `control_${"a".repeat(32)}`,
     handoffId: `handoff_${"b".repeat(32)}`,
   });
 
   expect(instruction).toContain("codex.control.compaction_handoff");
-  expect(instruction).not.toContain("<compaction_state>");
-  expect(instruction).not.toContain("requirements:");
+  expect(instruction).toContain("<compaction_state>");
+  expect(instruction).toContain("requirements:");
 });

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +76,7 @@ function fixture(root: string, sandboxMode: "workspace-write" | "read-only" = "w
 function checkpoint() {
   return `<compaction_state>
 version: 2
-original_request_ref: user turn turn_compact_roundtrip
+original_request_ref: sha256:${createHash("sha256").update(requestText).digest("hex")}
 modified_files:
 active_hypothesis: Continue the original task.
 requirements:

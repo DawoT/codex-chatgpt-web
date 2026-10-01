@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { compactionCheckpointInstruction } from "./compaction-contract";
 
 /**
  * Remote compaction v2 support for ROUTED providers.
@@ -354,9 +355,8 @@ export function isNativeTextCompaction(body: unknown): boolean {
   return true;
 }
 
-/** The model summarizes freely; the bridge builds the internal versioned checkpoint. */
-export const COMPACT_PROMPT =
-  "Codex is compacting this conversation. Stop ordinary task work and return a faithful handoff for the next model. Preserve unfinished work and distinguish observed results from attempts.";
+/** The same strict v2 contract is used by every model-facing checkpoint route. */
+export const COMPACT_PROMPT = compactionCheckpointInstruction();
 
 /** Mirrors codex-rs core/templates/compact/summary_prefix.md (framing for a replayed summary). */
 export const SUMMARY_PREFIX =

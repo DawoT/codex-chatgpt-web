@@ -28,6 +28,7 @@ import {
   selectCompactionRepairEvidence,
 } from "./compaction-evidence";
 import { checkpointRepairPromptFits } from "./compaction-repair";
+import { compactionOriginalRequest, compactionOriginalRequestRef } from "./compaction-source";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
 import { extractChatGptCompactionSourceRevision, extractChatGptTurnIdentity } from "./environment";
 import type { ChatGptWebCapabilities } from "./model";
@@ -86,25 +87,25 @@ function interruptedByActiveCompaction(): BrokerToolResult {
   };
 }
 
-function withZeroRiskCompactionInstruction(result: BrokerToolResult): BrokerToolResult {
+function withZeroRiskCompactionInstruction(result: BrokerToolResult, originalRequestRef?: string): BrokerToolResult {
   return {
     ...result,
     content: [
       ...result.content,
       {
         type: "text",
-        text: zeroRiskActiveCompactionToolResultInstruction(true),
+        text: zeroRiskActiveCompactionToolResultInstruction(true, originalRequestRef),
       },
     ],
   };
 }
 
-function interruptedByZeroRiskCompaction(): BrokerToolResult {
+function interruptedByZeroRiskCompaction(originalRequestRef?: string): BrokerToolResult {
   return {
     content: [
       {
         type: "text",
-        text: zeroRiskActiveCompactionToolResultInstruction(false),
+        text: zeroRiskActiveCompactionToolResultInstruction(false, originalRequestRef),
       },
     ],
     isError: true,
@@ -195,41 +196,7 @@ export function canonicalizeCompactionHandoff(
   }
   body = options?.autoHeal ? autoHealCompactionBlock(body) : normalizeCompactionStateBlock(body);
 
-  const previous = parsed.context.messages.filter(
-    (message) => message.role === "user" && message.origin === "compaction_summary",
-  );
-  let originalRequest: string | undefined;
-  if (previous.length > 0) {
-    for (const checkpoint of previous.toReversed()) {
-      const priorText = userPromptText(checkpoint.content) ?? "";
-      const marker = new RegExp(`(?:^|\\n)${ORIGINAL_USER_REQUEST_MARKER}\\n([^\\n]+)`).exec(priorText);
-      if (!marker) continue;
-      try {
-        const record = JSON.parse(marker[1]!) as { sha256?: unknown; text?: unknown };
-        if (
-          typeof record.text === "string" &&
-          typeof record.sha256 === "string" &&
-          createHash("sha256").update(record.text).digest("hex") === record.sha256
-        ) {
-          originalRequest = record.text;
-        }
-      } catch {
-        // The format check below rejects a malformed trusted checkpoint without promoting it.
-      }
-      if (originalRequest === undefined) {
-        throw new Error("Trusted compaction summary has an invalid original-request marker");
-      }
-      break;
-    }
-    if (originalRequest === undefined) {
-      throw new Error("Trusted compaction summaries have no recoverable original-request marker");
-    }
-  } else {
-    const firstUser = parsed.context.messages.find(
-      (message) => message.role === "user" && message.origin !== "codex_skill",
-    );
-    originalRequest = firstUser ? userPromptText(firstUser.content) : undefined;
-  }
+  const originalRequest = compactionOriginalRequest(parsed);
   if (originalRequest !== undefined) {
     const digest = createHash("sha256").update(originalRequest).digest("hex");
     const originalAppendix = `${ORIGINAL_USER_REQUEST_MARKER}\n${JSON.stringify({ sha256: digest, text: originalRequest })}`;
@@ -525,7 +492,10 @@ export async function settleActiveZeroRiskCompactionSource(
     let token: string | undefined;
     try {
       token = await source.runtime.token;
-      const interruptedQueued = await broker.requestCompaction(token, interruptedByZeroRiskCompaction());
+      const interruptedQueued = await broker.requestCompaction(
+        token,
+        interruptedByZeroRiskCompaction(compactionOriginalRequestRef(parsed)),
+      );
       for (const [index, request] of outstanding.entries()) {
         const result = results.get(request.callId)!;
         const canonical = toolResult(result);
@@ -533,7 +503,7 @@ export async function settleActiveZeroRiskCompactionSource(
           token,
           request.callId,
           interruptedQueued === 0 && index === outstanding.length - 1
-            ? withZeroRiskCompactionInstruction(canonical)
+            ? withZeroRiskCompactionInstruction(canonical, compactionOriginalRequestRef(parsed))
             : canonical,
         );
         source.runtime.externalProgress.recordToolResult();
@@ -604,14 +574,24 @@ export async function requestRetainedCompactionHandoff(
       const selected = boundedCompactionRepairObservations(
         selectCompactionRepairEvidence(allObservations, `${repairIssues.join(" ")} ${repairDraft ?? ""}`, 6),
       );
-      instruction = structuredCompactionRepairInstruction(transaction, repairIssues, selected);
+      instruction = structuredCompactionRepairInstruction(
+        transaction,
+        repairIssues,
+        selected,
+        compactionOriginalRequestRef(parsed),
+      );
       const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
       while (
         !checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities) &&
         selected.length > 0
       ) {
         selected.pop();
-        instruction = structuredCompactionRepairInstruction(transaction, repairIssues, selected);
+        instruction = structuredCompactionRepairInstruction(
+          transaction,
+          repairIssues,
+          selected,
+          compactionOriginalRequestRef(parsed),
+        );
       }
       if (!checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities)) {
         throw new ChatGptWebAdapterError("Checkpoint repair exceeds the measured browser transport budget", {
@@ -623,14 +603,18 @@ export async function requestRetainedCompactionHandoff(
       }
     } else {
       const selected = boundedCompactionRepairObservations(allObservations.slice(-6));
-      instruction = structuredCompactionHandoffInstruction(transaction, selected);
+      instruction = structuredCompactionHandoffInstruction(transaction, selected, compactionOriginalRequestRef(parsed));
       const effort = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities).effort;
       while (
         !checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities) &&
         selected.length > 0
       ) {
         selected.pop();
-        instruction = structuredCompactionHandoffInstruction(transaction, selected);
+        instruction = structuredCompactionHandoffInstruction(
+          transaction,
+          selected,
+          compactionOriginalRequestRef(parsed),
+        );
       }
       if (!checkpointRepairPromptFits(instruction, parsed.modelId as ChatGptWebBackendModel, effort, capabilities)) {
         throw new ChatGptWebAdapterError("Checkpoint handoff exceeds the measured browser transport budget", {

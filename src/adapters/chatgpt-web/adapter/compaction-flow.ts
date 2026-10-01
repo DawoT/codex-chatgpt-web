@@ -35,6 +35,7 @@ import {
   recordRepairDuration,
   shouldRepairCheckpoint,
 } from "../compaction-repair";
+import { compactionOriginalRequestRef } from "../compaction-source";
 import { chatGptConversationKey } from "../conversation-key";
 import {
   extractChatGptCompactionSourceRevision,
@@ -592,6 +593,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 },
                 quality.missingInvariants,
                 probeObservations,
+                compactionOriginalRequestRef(parsed),
               );
               const effort = resolveChatGptWebModelMode(
                 parsed.modelId,
@@ -615,6 +617,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   },
                   quality.missingInvariants,
                   probeObservations,
+                  compactionOriginalRequestRef(parsed),
                 );
               }
               const transportFits = checkpointRepairPromptFits(
@@ -832,6 +835,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       quality = validateCompactionQuality(parsed.context.messages, summary, {
         requireStructured: true,
         evidenceSessionId: compactionSessionId(parsed),
+        expectedOriginalRequestRef: compactionOriginalRequestRef(parsed),
       });
     } catch {
       return await rejectCheckpoint("validator could not inspect the source history");

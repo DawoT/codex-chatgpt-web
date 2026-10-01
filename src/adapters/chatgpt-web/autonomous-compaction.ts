@@ -248,7 +248,7 @@ export function extractModifiedFilePaths(messages: readonly CodexMessage[]): str
 export function validateCompactionQuality(
   originalMessages: readonly CodexMessage[],
   summary: string,
-  options?: { requireStructured?: boolean; evidenceSessionId?: string },
+  options?: { requireStructured?: boolean; evidenceSessionId?: string; expectedOriginalRequestRef?: string },
 ): CompactionQualityVerdict {
   const draft = typeof summary === "string" ? compactionDraftText(summary) : "";
   if (draft.trim().length < MIN_COMPACTION_SUMMARY_LENGTH) {
@@ -295,6 +295,10 @@ export function validateCompactionQuality(
       if (!structured.activeHypothesis) missingInvariants.push("Missing active objective or hypothesis");
       if (structured.version !== 2) missingInvariants.push("Checkpoint requires mission checklist version 2");
       if (!structured.originalRequestRef) missingInvariants.push("Missing original request reference");
+      const authoritativeRef = options.expectedOriginalRequestRef;
+      if (authoritativeRef !== undefined && structured.originalRequestRef !== authoritativeRef) {
+        missingInvariants.push("Original request reference does not match the authoritative source");
+      }
       if (!structured.requirements?.length) missingInvariants.push("Missing mission requirements");
       if (countCompactionRequirementItems(draft) !== (structured.requirements?.length ?? 0)) {
         missingInvariants.push("Invalid mission requirement item");

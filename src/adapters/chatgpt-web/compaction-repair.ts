@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   CHATGPT_WEB_PLATFORM_RESERVE_TOKENS,
   type ChatGptWebAdapterEffort,
@@ -6,6 +7,7 @@ import {
   resolveChatGptWebTransportLimits,
 } from "../../chatgpt-web-models";
 import { estimateTokens } from "../../lib/token-estimate";
+import { compactionCheckpointInstruction } from "../../responses/compaction-contract";
 import type { CodexParsedRequest } from "../../types";
 import {
   assertChatGptWebInputWithinLimits,
@@ -44,6 +46,7 @@ export function buildCompactionFallbackRepairPrompt(input: {
         : input.rejectedDraft;
     return [
       "Repair the previous Codex handoff once. Keep user requirements and observed evidence; do not resume ordinary task work.",
+      compactionCheckpointInstruction(`sha256:${createHash("sha256").update(input.originalRequest).digest("hex")}`),
       "Validation issues:",
       ...input.issues.map((issue) => `- ${issue}`),
       "Original user request:",
@@ -58,7 +61,7 @@ export function buildCompactionFallbackRepairPrompt(input: {
       JSON.stringify(observations),
       "Rejected draft excerpt:",
       draft,
-      "Return one faithful corrected handoff. The bridge will normalize its internal format.",
+      "Return one faithful corrected handoff using the checkpoint contract above. Validation will reject missing semantic fields.",
     ].join("\n");
   };
   let prompt = render();
