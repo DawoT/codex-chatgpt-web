@@ -28,7 +28,6 @@ import {
 } from "./adapter-error";
 import { BrowserSession, type BrowserSessionState } from "./browser/browser-session";
 import {
-  type ChatGptComposerControllerHost,
   type ChatGptConnectorAttemptBudget,
   ChatGptConnectorCatalogStaleError,
   ComposerController,
@@ -36,7 +35,6 @@ import {
 import { ChatGptBrowserContextPressure, ChatGptPageDomObserver } from "./browser/context-pressure";
 import { waitForChatGptDomRevision, waitForChatGptDomSettle } from "./browser/dom-signal";
 import { ChatGptModelControls, type SelectedChatGptWebModelMode } from "./browser/model-controls";
-import { extractAttachedPromptText } from "./browser/prompt-readback";
 import { ResponseObserver } from "./browser/response-observer";
 import {
   type ChatGptSubmissionBaseline,
@@ -212,7 +210,6 @@ import {
   throwIfChatGptTerminalErrorAlert,
 } from "./browser/overlays";
 import { assertChatGptPromptAttachments } from "./browser/payloads";
-import { promptEquivalentPrefixLength, promptTextEquivalent } from "./browser/prompt-equivalence";
 import {
   browserStageTimeouts,
   CHATGPT_MIN_OPERATIONAL_VIEWPORT,
@@ -439,6 +436,14 @@ export class ChatGptBrowserWorker {
     return this.turnDiagnosticsInstance;
   }
 
+  private composerControllerInstance?: ComposerController;
+  private get composer(): ComposerController {
+    if (!this.composerControllerInstance) {
+      this.composerControllerInstance = new ComposerController({ config: this.config });
+    }
+    return this.composerControllerInstance;
+  }
+
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
     // A page can be recycled for a different chat. Its old pressure must not follow
     // the new conversation, while response snapshots can still resolve by page.
@@ -472,16 +477,6 @@ export class ChatGptBrowserWorker {
   }
 
   private constructor(private readonly config: ResolvedBrowserConfig) {}
-
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: lent to ComposerController through the borrowed `this` dispatch
-  private promptTextEquivalent(expected: string, observed: string): boolean {
-    return promptTextEquivalent(expected, observed);
-  }
-
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: lent to ComposerController through the borrowed `this` dispatch
-  private promptEquivalentPrefixLength(expected: string, observed: string): number {
-    return promptEquivalentPrefixLength(expected, observed);
-  }
 
   run(turn: BrowserTurn): Promise<string> {
     // Fail fast with the same trace id contract the diagnostics recorder enforces, so an invalid
@@ -641,12 +636,7 @@ export class ChatGptBrowserWorker {
   }
 
   private async activeComposer(page: Page, timeoutMs = 30_000, abortSignal?: AbortSignal): Promise<Locator> {
-    return ComposerController.prototype.activeComposer.call(
-      this as unknown as ChatGptComposerControllerHost,
-      page,
-      timeoutMs,
-      abortSignal,
-    );
+    return this.composer.activeComposer(page, timeoutMs, abortSignal);
   }
 
   /** Prepare a new conversation; account inspection still uses an empty Temporary Chat. */
@@ -655,12 +645,7 @@ export class ChatGptBrowserWorker {
     captureDiagnostic?: (checkpoint: string) => Promise<void>,
     useSavedChats = false,
   ): Promise<Locator> {
-    return ComposerController.prototype.prepareChatSurface.call(
-      this as unknown as ChatGptComposerControllerHost,
-      page,
-      captureDiagnostic,
-      useSavedChats,
-    );
+    return this.composer.prepareChatSurface(page, captureDiagnostic, useSavedChats);
   }
 
   private async waitForTurnDomMutation(page: Page, timeoutMs = 250): Promise<void> {
@@ -785,40 +770,23 @@ export class ChatGptBrowserWorker {
   }
 
   private async attachedPromptText(page: Page, abortSignal?: AbortSignal): Promise<string> {
-    const composer = await this.activeComposer(page, 30_000, abortSignal);
-    return extractAttachedPromptText(composer, this.config?.appName, { timeoutMs: 20_000, signal: abortSignal });
+    return this.composer.attachedPromptText(page, abortSignal);
   }
 
   private async assertPromptAttached(page: Page, prompt: string, abortSignal?: AbortSignal): Promise<void> {
-    return ComposerController.prototype.assertPromptAttached.call(
-      this as unknown as ChatGptComposerControllerHost,
-      page,
-      prompt,
-      abortSignal,
-    );
+    return this.composer.assertPromptAttached(page, prompt, abortSignal);
   }
 
   private selectedConnectorControl(composer: Locator): Locator {
-    return ComposerController.prototype.selectedConnectorControl.call(
-      this as unknown as ChatGptComposerControllerHost,
-      composer,
-    );
+    return this.composer.selectedConnectorControl(composer);
   }
 
   private async connectorIsSelected(composer: Locator, abortSignal?: AbortSignal): Promise<boolean> {
-    return ComposerController.prototype.connectorIsSelected.call(
-      this as unknown as ChatGptComposerControllerHost,
-      composer,
-      abortSignal,
-    );
+    return this.composer.connectorIsSelected(composer, abortSignal);
   }
 
   private async connectorMentionRowTitles(menuRows: Locator, abortSignal?: AbortSignal): Promise<string[]> {
-    return ComposerController.prototype.connectorMentionRowTitles.call(
-      this as unknown as ChatGptComposerControllerHost,
-      menuRows,
-      abortSignal,
-    );
+    return this.composer.connectorMentionRowTitles(menuRows, abortSignal);
   }
 
   private async connectorMentionFailure(
@@ -827,20 +795,11 @@ export class ChatGptBrowserWorker {
     abortSignal?: AbortSignal,
     page?: Page,
   ): Promise<string> {
-    return ComposerController.prototype.connectorMentionFailure.call(
-      this as unknown as ChatGptComposerControllerHost,
-      menuRows,
-      triggerAttempts,
-      abortSignal,
-      page,
-    );
+    return this.composer.connectorMentionFailure(menuRows, triggerAttempts, abortSignal, page);
   }
 
   private async clearChatGptComposerState(page: Page): Promise<void> {
-    return ComposerController.prototype.clearChatGptComposerState.call(
-      this as unknown as ChatGptComposerControllerHost,
-      page,
-    );
+    return this.composer.clearChatGptComposerState(page);
   }
 
   private async selectConnector(
@@ -852,8 +811,7 @@ export class ChatGptBrowserWorker {
     hasExistingTurns = false,
     turnEvents?: ChatGptTurnEventBus,
   ): Promise<Locator> {
-    return ComposerController.prototype.selectConnector.call(
-      this as unknown as ChatGptComposerControllerHost,
+    return this.composer.selectConnector(
       page,
       captureDiagnostic,
       catalogRefreshAvailable,
@@ -876,8 +834,7 @@ export class ChatGptBrowserWorker {
     requireThink = false,
     turnEvents?: ChatGptTurnEventBus,
   ): Promise<void> {
-    return ComposerController.prototype.attachPrompt.call(
-      this as unknown as ChatGptComposerControllerHost,
+    return this.composer.attachPrompt(
       page,
       prompt,
       localTools,
@@ -1278,12 +1235,7 @@ export class ChatGptBrowserWorker {
   }
 
   private async insertPromptText(page: Page, text: string, abortSignal?: AbortSignal): Promise<void> {
-    return ComposerController.prototype.insertPromptText.call(
-      this as unknown as ChatGptComposerControllerHost,
-      page,
-      text,
-      abortSignal,
-    );
+    return this.composer.insertPromptText(page, text, abortSignal);
   }
 
   private async verifyConnectorExclusive(traceId = `verify_${randomUUID().replaceAll("-", "")}`): Promise<string> {
@@ -1363,11 +1315,7 @@ export class ChatGptBrowserWorker {
   }
 
   private async attachFiles(page: Page, prompt: CompiledChatGptWebPrompt): Promise<void> {
-    return ComposerController.prototype.attachFiles.call(
-      this as unknown as ChatGptComposerControllerHost,
-      page,
-      prompt,
-    );
+    return this.composer.attachFiles(page, prompt);
   }
 
   private async responseDomSnapshot(

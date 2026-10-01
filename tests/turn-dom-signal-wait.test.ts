@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Locator, Page } from "playwright-core";
 import { chatGptActiveComposer } from "../src/adapters/chatgpt-web/browser/composer";
+import { ComposerController } from "../src/adapters/chatgpt-web/browser/composer-controller";
 import { ChatGptCompletionTracker } from "../src/adapters/chatgpt-web/browser/dom-trackers";
 import { resolveChatGptToolConfirmation } from "../src/adapters/chatgpt-web/browser/overlays";
 import { setChatGptThinkMode } from "../src/adapters/chatgpt-web/browser/payloads";
@@ -179,36 +180,24 @@ test("selectConnector publishes connector_pill_mounted to turnEvents when mounte
     getByText: () => ({}),
   } as unknown as Page;
 
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(
-        page: Page,
-        capture?: unknown,
-        refresh?: boolean,
-        budget?: unknown,
-        abort?: unknown,
-        hasTurns?: boolean,
-        turnEvents?: ChatGptTurnEventBus,
-      ): Promise<unknown>;
-    }
-  ).selectConnector;
+  const controller = Object.assign(new ComposerController({ config: { appName: "Codex Native2" } as never }), {
+    connectorIsSelected: async () => selected,
+    connectorMentionRowTitles: async () => [] as string[],
+    selectedConnectorControl: () => selectedConnector,
+    activeComposer: async () => (selected ? selectedComposer : initialComposer),
+  }) as unknown as {
+    selectConnector(
+      page: Page,
+      capture?: unknown,
+      refresh?: boolean,
+      budget?: unknown,
+      abort?: unknown,
+      hasTurns?: boolean,
+      turnEvents?: ChatGptTurnEventBus,
+    ): Promise<unknown>;
+  };
 
-  await selectConnector.call(
-    {
-      config: { appName: "Codex Native2" },
-      connectorIsSelected: async () => selected,
-      connectorMentionRowTitles: async () => [],
-      selectedConnectorControl: () => selectedConnector,
-      activeComposer: async () => (selected ? selectedComposer : initialComposer),
-    },
-    page,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    false,
-    events,
-  );
+  await controller.selectConnector(page, undefined, undefined, undefined, undefined, false, events);
 
   const history = events.exportHistory();
   expect(history.some((e) => e.type === "connector_pill_mounted")).toBe(true);

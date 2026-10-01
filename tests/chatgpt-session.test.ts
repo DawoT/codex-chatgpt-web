@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
+import { ComposerController } from "../src/adapters/chatgpt-web/browser/composer-controller";
+import { ChatGptBrowserWorker, resolveBrowserConfig } from "../src/adapters/chatgpt-web/browser-worker";
 import {
   activateChatGptEffortMenu,
   assertNewChatPage,
@@ -14,7 +15,6 @@ import {
 test("saved chats start empty and cannot reuse an arbitrary conversation or a Temporary Chat", async () => {
   expect(chatGptNewChatUrl()).toBe("https://chatgpt.com/?temporary-chat=true");
   expect(chatGptNewChatUrl(true)).toBe("https://chatgpt.com/");
-  const prepare = (ChatGptBrowserWorker.prototype as any).prepareChatSurface;
   for (const saved of [false, true]) {
     let url = "https://chatgpt.com/c/previous-task";
     const navigations: string[] = [];
@@ -28,7 +28,11 @@ test("saved chats start empty and cannot reuse an arbitrary conversation or a Te
       },
       locator: (selector: string) => (selector === CHATGPT_COMPOSER_SELECTOR ? composer : absent),
     };
-    expect(await prepare.call({ activeComposer: async () => composer }, page, undefined, saved)).toBe(composer);
+    const controller = new ComposerController({
+      config: resolveBrowserConfig({ adapter: "chatgpt-web", baseUrl: "browser://chatgpt" }),
+    });
+    Object.assign(controller as unknown as Record<string, unknown>, { activeComposer: async () => composer });
+    expect(await controller.prepareChatSurface(page, undefined, saved)).toBe(composer);
     expect(navigations).toEqual([chatGptNewChatUrl(saved)]);
     await expect(assertNewChatPage(page, !saved)).rejects.toThrow("requested new");
     url = "https://chatgpt.com/c/previous-task";

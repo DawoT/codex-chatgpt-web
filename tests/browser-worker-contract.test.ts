@@ -7,6 +7,7 @@ import { createContext, runInContext } from "node:vm";
 import type { Locator, Page } from "playwright-core";
 import { chatGptStoppedThinkingError } from "../src/adapters/chatgpt-web/adapter-error";
 import { BrowserSession } from "../src/adapters/chatgpt-web/browser/browser-session";
+import { ComposerController } from "../src/adapters/chatgpt-web/browser/composer-controller";
 import {
   type ChatGptBrowserContextPressure,
   ChatGptPageDomObserver,
@@ -56,6 +57,7 @@ import {
   MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS,
   MAX_CHATGPT_INTERNAL_OBSERVATION_FAULTS,
   normalizePromptForComparison,
+  promptTextEquivalent,
   pruneBrowserDiagnostics,
   redactChatGptUiDiagnostic,
   remainingStageBudgetMs,
@@ -531,12 +533,38 @@ test("browser configuration rejects the retired connector identity before openin
   ).toThrow(/requires a newly created connector named "Codex Native2".*do not rename or refresh/s);
 });
 
+/**
+ * Builds a ComposerController fixture from a borrowed-this host object: `deps.config` comes from
+ * `host.config`, host members are installed as instance stubs, and lent worker delegations are
+ * dropped (the controller owns those methods now), so the controller's internal `this.x(...)`
+ * recursion resolves to the stubs.
+ */
+function composerFixture(host: Record<string, unknown>): ComposerController {
+  const controller = new ComposerController({ config: host.config as never }) as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(host)) {
+    if (key === "config") continue;
+    controller[key] = value;
+  }
+  return controller as unknown as ComposerController;
+}
+
+/**
+ * Composer methods under test, adapted to the borrowed-this fixtures below: applying the
+ * extracted controller method to a host runs it on `composerFixture(host)`.
+ */
+function composerMethod(name: string): (...args: never[]) => unknown {
+  const method = (ComposerController.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)[name];
+  if (typeof method !== "function") throw new Error(`Unknown ComposerController method: ${name}`);
+  return function (this: Record<string, unknown>, ...args: unknown[]) {
+    return method.apply(composerFixture(this), args);
+  } as (...args: never[]) => unknown;
+}
+
 test("connector verification reports a legacy-only ChatGPT menu as a migration error", async () => {
-  const connectorMentionFailure = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      connectorMentionFailure(menuRows: unknown, triggerAttempts: number): Promise<string>;
-    }
-  ).connectorMentionFailure;
+  const connectorMentionFailure = composerMethod("connectorMentionFailure") as (
+    menuRows: unknown,
+    triggerAttempts: number,
+  ) => Promise<string>;
   const message = await connectorMentionFailure.call(
     {
       config: { appName: CHATGPT_CONNECTOR_NAME },
@@ -1525,11 +1553,7 @@ test("active composer resolution waits for exactly one visible editor", async ()
       },
     }),
   };
-  const activeComposer = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      activeComposer(page: unknown, timeoutMs?: number): Promise<unknown>;
-    }
-  ).activeComposer;
+  const activeComposer = composerMethod("activeComposer") as (page: unknown, timeoutMs?: number) => Promise<unknown>;
 
   expect(await activeComposer.call({}, page, 500)).toBe(composer);
 });
@@ -1547,30 +1571,24 @@ test("prompt verification accepts Lexical NBSP preservation without weakening ot
     attachedPromptText: async () => observed,
   }) as ChatGptBrowserWorker;
 
-  const promptTextEquivalent = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      promptTextEquivalent(expected: string, observed: string): boolean;
-    }
-  ).promptTextEquivalent;
-
-  expect(promptTextEquivalent.call(worker, expected, observed)).toBeTrue();
+  expect(promptTextEquivalent(expected, observed)).toBeTrue();
 
   // The allowance is intentionally directional and restricted to repeated ASCII-space runs.
-  expect(promptTextEquivalent.call(worker, "a  b", "a\u00A0 b")).toBeTrue();
-  expect(promptTextEquivalent.call(worker, "a b", "a\u00A0b")).toBeFalse();
-  expect(promptTextEquivalent.call(worker, "a\u00A0b", "a b")).toBeFalse();
+  expect(promptTextEquivalent("a  b", "a\u00A0 b")).toBeTrue();
+  expect(promptTextEquivalent("a b", "a\u00A0b")).toBeFalse();
+  expect(promptTextEquivalent("a\u00A0b", "a b")).toBeFalse();
 
   // Other whitespace and same-length text mutations must remain fail closed.
-  expect(promptTextEquivalent.call(worker, "a b", "a\tb")).toBeFalse();
-  expect(promptTextEquivalent.call(worker, "a\nb", "a b")).toBeFalse();
-  expect(promptTextEquivalent.call(worker, "abc", "abd")).toBeFalse();
-  expect(promptTextEquivalent.call(worker, "abc", "ab")).toBeFalse();
+  expect(promptTextEquivalent("a b", "a\tb")).toBeFalse();
+  expect(promptTextEquivalent("a\nb", "a b")).toBeFalse();
+  expect(promptTextEquivalent("abc", "abd")).toBeFalse();
+  expect(promptTextEquivalent("abc", "ab")).toBeFalse();
 
-  const assertPromptAttached = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      assertPromptAttached(page: Page, prompt: string, abortSignal?: AbortSignal): Promise<void>;
-    }
-  ).assertPromptAttached;
+  const assertPromptAttached = composerMethod("assertPromptAttached") as (
+    page: Page,
+    prompt: string,
+    abortSignal?: AbortSignal,
+  ) => Promise<void>;
 
   await expect(assertPromptAttached.call(worker, {} as Page, expected)).resolves.toBeUndefined();
 });
@@ -1588,28 +1606,21 @@ test("normalizePromptForComparison normalizes CRLF and trailing whitespace while
 });
 
 test("prompt verification accepts CRLF normalization and trailing line whitespace trimmed by editor", async () => {
-  const worker = Object.create(ChatGptBrowserWorker.prototype) as ChatGptBrowserWorker;
-  const promptTextEquivalent = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      promptTextEquivalent(expected: string, observed: string): boolean;
-    }
-  ).promptTextEquivalent;
-
   // Exact scenario: prompt with CRLFs converted to LFs by contenteditable
   const linesWithCrlf = Array.from({ length: 24 }, (_, i) => `line ${i}: some content here`).join("\r\n");
   const linesWithLf = Array.from({ length: 24 }, (_, i) => `line ${i}: some content here`).join("\n");
   expect(linesWithCrlf.length - linesWithLf.length).toBe(23); // Exactly 23 characters difference
-  expect(promptTextEquivalent.call(worker, linesWithCrlf, linesWithLf)).toBeTrue();
+  expect(promptTextEquivalent(linesWithCrlf, linesWithLf)).toBeTrue();
 
   // Trailing whitespace stripped on paragraphs by contenteditable
-  expect(promptTextEquivalent.call(worker, "hello   \nworld  ", "hello\nworld")).toBeTrue();
+  expect(promptTextEquivalent("hello   \nworld  ", "hello\nworld")).toBeTrue();
 
   // Combined CRLF + trailing space + Lexical NBSP in multi-space run
-  expect(promptTextEquivalent.call(worker, "hello   \r\nworld  foo  bar", "hello\nworld  foo\u00A0 bar")).toBeTrue();
+  expect(promptTextEquivalent("hello   \r\nworld  foo  bar", "hello\nworld  foo\u00A0 bar")).toBeTrue();
 
   // Genuine content difference or truncation still fails closed
-  expect(promptTextEquivalent.call(worker, "hello\r\nworld!", "hello\nworld?")).toBeFalse();
-  expect(promptTextEquivalent.call(worker, "hello\r\nworld and more", "hello\nworld")).toBeFalse();
+  expect(promptTextEquivalent("hello\r\nworld!", "hello\nworld?")).toBeFalse();
+  expect(promptTextEquivalent("hello\r\nworld and more", "hello\nworld")).toBeFalse();
 });
 
 test("attached prompt DOM extraction preserves soft breaks and scopes connector pill removal", () => {
@@ -1713,16 +1724,12 @@ test("large Markdown-rich context uses one plain-text editing command before exa
       return true;
     },
   };
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(page: unknown, prompt: string, localTools: boolean): Promise<void>;
-    }
-  ).attachPrompt;
-  const insertPromptText = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      insertPromptText(page: unknown, text: string): Promise<void>;
-    }
-  ).insertPromptText;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+  ) => Promise<void>;
+  const insertPromptText = composerMethod("insertPromptText") as (page: unknown, text: string) => Promise<void>;
 
   await attachPrompt.call(
     {
@@ -1744,11 +1751,11 @@ test("large Markdown-rich context uses one plain-text editing command before exa
 });
 
 test("plain-text editing command fails closed when the focused composer rejects it", async () => {
-  const insertPromptText = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      insertPromptText(page: unknown, text: string, abortSignal?: AbortSignal): Promise<void>;
-    }
-  ).insertPromptText;
+  const insertPromptText = composerMethod("insertPromptText") as (
+    page: unknown,
+    text: string,
+    abortSignal?: AbortSignal,
+  ) => Promise<void>;
   const composer = {
     focus: async () => {},
     evaluate: async () => false,
@@ -1860,11 +1867,11 @@ test("prompt insertion stops before touching the composer when its stage is alre
   const controller = new AbortController();
   controller.abort();
   let resolvedComposer = false;
-  const insertPromptText = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      insertPromptText(page: unknown, text: string, abortSignal?: AbortSignal): Promise<void>;
-    }
-  ).insertPromptText;
+  const insertPromptText = composerMethod("insertPromptText") as (
+    page: unknown,
+    text: string,
+    abortSignal?: AbortSignal,
+  ) => Promise<void>;
 
   await expect(
     insertPromptText.call(
@@ -1976,11 +1983,7 @@ test("connector selection re-resolves the active composer after ChatGPT replaces
       throw new Error(`Unexpected locator: ${selector}`);
     },
   };
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown): Promise<unknown>;
-    }
-  ).selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
 
   let activeComposerCalls = 0;
   const resolved = await selectConnector.call(
@@ -2040,11 +2043,7 @@ test("connector selection moves highlight to the exact hidden-viewport row befor
     getByText: () => ({ exactConnectorLabel: true }),
     locator: () => menuRows,
   };
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown): Promise<unknown>;
-    }
-  ).selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
 
   await expect(
     selectConnector.call(
@@ -2074,11 +2073,10 @@ test("repeated connector verification reuses its selected pill before clearing t
     locator: () => ({ filter: () => ({}) }),
   };
   const checkpoints: string[] = [];
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown, capture?: (checkpoint: string) => Promise<void>): Promise<unknown>;
-    }
-  ).selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: (checkpoint: string) => Promise<void>,
+  ) => Promise<unknown>;
 
   await expect(
     selectConnector.call(
@@ -2120,11 +2118,7 @@ test("selected connector with stale draft is cleared and reselected", async () =
     getByText: () => ({}),
     locator: () => ({ filter: () => row }),
   };
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown): Promise<unknown>;
-    }
-  ).selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
   const result = await selectConnector.call(
     {
       config: { appName: CHATGPT_CONNECTOR_NAME },
@@ -2197,11 +2191,7 @@ test("connector selection retriggers the complete mention after a fresh-page hyd
             throw new Error(`Unexpected locator: ${selector}`);
           })(),
   };
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown): Promise<unknown>;
-    }
-  ).selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
 
   let _activeComposerCalls = 0;
   await selectConnector.call(
@@ -2306,35 +2296,33 @@ test("connector verification preserves the host-refreshed catalog evidence", asy
       },
     },
   };
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    clearChatGptComposerState(page: unknown): Promise<void>;
-    connectorMentionFailure(menuRows: unknown, triggerAttempts: number): Promise<string>;
-    connectorMentionRowTitles(menuRows: unknown): Promise<string[]>;
-    selectConnector(page: unknown, capture?: unknown, refresh?: boolean): Promise<unknown>;
-    verifyConnectorExclusive(): Promise<string>;
-  };
   let prepared = 0;
-  const fixture = {
+  const fixture = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
     config: { appName: "Codex Native2", browserDiagnosticsPath: diagnosticsRoot },
     ensurePage: async () => page,
     prepareChatSurface: async () => {
       prepared += 1;
       calls.push(`prepare:${prepared}`);
     },
-    activeComposer: async () => (selected ? selectedComposer : initialComposer),
-    connectorIsSelected: async () => selected,
-    connectorMentionFailure: prototype.connectorMentionFailure,
-    connectorMentionRowTitles: prototype.connectorMentionRowTitles,
     clearChatGptComposerState: async () => {
       await initialComposer.fill();
     },
-    selectedConnectorControl: () => selectedConnector,
-    selectConnector: prototype.selectConnector,
-  };
+    // The connector selection runs through the composed ComposerController; stubs that steer its
+    // internals are installed on the injected instance.
+    composerControllerInstance: composerFixture({
+      config: { appName: "Codex Native2" },
+      activeComposer: async () => (selected ? selectedComposer : initialComposer),
+      clearChatGptComposerState: async () => {
+        await initialComposer.fill();
+      },
+      connectorIsSelected: async () => selected,
+      selectedConnectorControl: () => selectedConnector,
+    }),
+  }) as unknown as Record<string, unknown> & { verifyConnectorExclusive(): Promise<string> };
 
   Date.now = () => now;
   try {
-    await expect(prototype.verifyConnectorExclusive.call(fixture)).rejects.toThrow(
+    await expect(fixture.verifyConnectorExclusive()).rejects.toThrow(
       'connector menu opened but exposed no row named "Codex Native2"',
     );
     expect(prepared).toBe(1);
@@ -2484,11 +2472,10 @@ test("successful connector verification clears the proven selection before relea
 });
 
 test("production connector diagnostics distinguish an existing DEV connector", async () => {
-  const connectorMentionFailure = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      connectorMentionFailure(menuRows: unknown, attempts: number): Promise<string>;
-    }
-  ).connectorMentionFailure;
+  const connectorMentionFailure = composerMethod("connectorMentionFailure") as (
+    menuRows: unknown,
+    attempts: number,
+  ) => Promise<string>;
   const message = await connectorMentionFailure.call(
     {
       config: { appName: CHATGPT_CONNECTOR_NAME },
@@ -2503,11 +2490,11 @@ test("production connector diagnostics distinguish an existing DEV connector", a
 });
 
 test("connector catalog refresh stays fail-closed for absent, legacy, and exact menu evidence", async () => {
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    clearChatGptComposerState(page: unknown): Promise<void>;
-    selectConnector(page: unknown, capture?: unknown, refresh?: boolean): Promise<unknown>;
-  };
-  const selectConnector = prototype.selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: unknown,
+    refresh?: boolean,
+  ) => Promise<unknown>;
   const timeout = new Error("menu timeout");
   timeout.name = "TimeoutError";
   const realDateNow = Date.now;
@@ -2642,27 +2629,15 @@ test("tool-capable prompts use the shared Playwright connector selection before 
               throw new Error(`Unexpected locator: ${selector}`);
             })(),
   };
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        captureDiagnostic?: unknown,
-        abortSignal?: AbortSignal,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown): Promise<unknown>;
-    }
-  ).selectConnector;
-  const insertPromptText = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      insertPromptText(page: unknown, text: string): Promise<void>;
-    }
-  ).insertPromptText;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    captureDiagnostic?: unknown,
+    abortSignal?: AbortSignal,
+  ) => Promise<void>;
+  const selectConnector = composerMethod("selectConnector") as (page: unknown) => Promise<unknown>;
+  const insertPromptText = composerMethod("insertPromptText") as (page: unknown, text: string) => Promise<void>;
 
   let _activeComposerCalls = 0;
   await attachPrompt.call(
@@ -2759,18 +2734,15 @@ test("an aborted connector proof clears its mention before the preflight release
       return menuRows;
     },
   };
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    selectConnector(
-      page: unknown,
-      capture?: unknown,
-      refresh?: boolean,
-      budget?: unknown,
-      signal?: AbortSignal,
-    ): Promise<unknown>;
-    clearChatGptComposerState(page: unknown): Promise<void>;
-  };
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: unknown,
+    refresh?: boolean,
+    budget?: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
 
-  const selection = prototype.selectConnector.call(
+  const selection = selectConnector.call(
     {
       config: { appName: "Codex Native2" },
       activeComposer: async (_page: unknown, _timeout: number, signal?: AbortSignal) => {
@@ -2778,7 +2750,6 @@ test("an aborted connector proof clears its mention before the preflight release
         return composer;
       },
       connectorIsSelected: async () => false,
-      clearChatGptComposerState: prototype.clearChatGptComposerState,
     },
     page,
     undefined,
@@ -2845,11 +2816,10 @@ test("a lost connector mention cannot be used as evidence to change personalizat
       throw new Error("Personalization must not be inferred from a lost input");
     },
   };
-  const selectConnector = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      selectConnector(page: unknown, capture?: (checkpoint: string) => Promise<void>): Promise<unknown>;
-    }
-  ).selectConnector;
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: (checkpoint: string) => Promise<void>,
+  ) => Promise<unknown>;
   await expect(
     selectConnector.call(
       {
@@ -2924,23 +2894,19 @@ test("an aborted real connector selection clears the typed mention before return
       return menuRows;
     },
   };
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    selectConnector(
-      page: unknown,
-      capture?: unknown,
-      refresh?: boolean,
-      budget?: unknown,
-      signal?: AbortSignal,
-    ): Promise<unknown>;
-    clearChatGptComposerState(page: unknown): Promise<void>;
-  };
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: unknown,
+    refresh?: boolean,
+    budget?: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
 
-  const selection = prototype.selectConnector.call(
+  const selection = selectConnector.call(
     {
       config: { appName: "Codex Native2" },
       activeComposer: async () => composer,
       connectorIsSelected: async () => false,
-      clearChatGptComposerState: prototype.clearChatGptComposerState,
     },
     page,
     undefined,
@@ -2984,11 +2950,7 @@ test("connector cleanup uses native editor deletion when contenteditable fill wo
     },
     evaluate: async () => composerText,
   };
-  const clearChatGptComposerState = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      clearChatGptComposerState(page: unknown): Promise<void>;
-    }
-  ).clearChatGptComposerState;
+  const clearChatGptComposerState = composerMethod("clearChatGptComposerState") as (page: unknown) => Promise<void>;
 
   await clearChatGptComposerState.call(
     {
@@ -3050,23 +3012,19 @@ test("an abort after connector activation removes the selected pill before retur
     getByText: () => ({ exactConnectorLabel: true }),
     locator: (selector: string) => (selector === "body" ? { press: async () => {} } : menuRows),
   };
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    selectConnector(
-      page: unknown,
-      capture?: unknown,
-      refresh?: boolean,
-      budget?: unknown,
-      signal?: AbortSignal,
-    ): Promise<unknown>;
-    clearChatGptComposerState(page: unknown): Promise<void>;
-  };
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: unknown,
+    refresh?: boolean,
+    budget?: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
 
-  const selection = prototype.selectConnector.call(
+  const selection = selectConnector.call(
     {
       config: { appName: CHATGPT_CONNECTOR_NAME },
       activeComposer: async () => composer,
       connectorIsSelected: async () => connectorSelected,
-      clearChatGptComposerState: prototype.clearChatGptComposerState,
     },
     page,
     async (checkpoint: string) => {
@@ -3102,16 +3060,14 @@ test("selectConnector safely handles empty or non-standard page URLs without thr
     }),
     getByText: () => ({ exact: true }),
   };
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
-    selectConnector(
-      page: unknown,
-      capture?: unknown,
-      refresh?: boolean,
-      budget?: unknown,
-      signal?: AbortSignal,
-    ): Promise<unknown>;
-  };
-  const result = await prototype.selectConnector.call(
+  const selectConnector = composerMethod("selectConnector") as (
+    page: unknown,
+    capture?: unknown,
+    refresh?: boolean,
+    budget?: unknown,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
+  const result = await selectConnector.call(
     {
       config: { appName: CHATGPT_CONNECTOR_NAME },
       activeComposer: async () => composer,
@@ -3135,17 +3091,13 @@ test("an abort while inserting a connector prompt clears the selected pill and p
       expect(key).toBe(CHATGPT_COMPOSER_DOCUMENT_END_KEY);
     },
   };
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        captureDiagnostic?: unknown,
-        abortSignal?: AbortSignal,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    captureDiagnostic?: unknown,
+    abortSignal?: AbortSignal,
+  ) => Promise<void>;
 
   const attachment = attachPrompt.call(
     {
@@ -3179,20 +3131,16 @@ test("an abort while inserting a connector prompt clears the selected pill and p
 });
 
 test("retained tool turns insert into the connector-bound composer without selecting it again", async () => {
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        captureDiagnostic?: (checkpoint: string) => Promise<void>,
-        abortSignal?: AbortSignal,
-        catalogRefreshAvailable?: boolean,
-        connectorAttemptBudget?: unknown,
-        reuseConnector?: boolean,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    captureDiagnostic?: (checkpoint: string) => Promise<void>,
+    abortSignal?: AbortSignal,
+    catalogRefreshAvailable?: boolean,
+    connectorAttemptBudget?: unknown,
+    reuseConnector?: boolean,
+  ) => Promise<void>;
 
   const calls: string[] = [];
   const composer = {
@@ -3232,20 +3180,16 @@ test("retained tool turns insert into the connector-bound composer without selec
 });
 
 test("retained connector with a stale draft is cleared and reselected before attaching", async () => {
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        capture?: unknown,
-        signal?: AbortSignal,
-        refresh?: boolean,
-        budget?: unknown,
-        reuse?: boolean,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    capture?: unknown,
+    signal?: AbortSignal,
+    refresh?: boolean,
+    budget?: unknown,
+    reuse?: boolean,
+  ) => Promise<void>;
   const calls: string[] = [];
   const composer = {
     focus: async () => {
@@ -3287,20 +3231,16 @@ test("retained connector with a stale draft is cleared and reselected before att
 });
 
 test("failed stale-draft cleanup refuses prompt insertion and connector reselection", async () => {
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        capture?: unknown,
-        signal?: AbortSignal,
-        refresh?: boolean,
-        budget?: unknown,
-        reuse?: boolean,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    capture?: unknown,
+    signal?: AbortSignal,
+    refresh?: boolean,
+    budget?: unknown,
+    reuse?: boolean,
+  ) => Promise<void>;
   let inserted = false;
   let reselected = false;
   await expect(
@@ -3335,20 +3275,16 @@ test("failed stale-draft cleanup refuses prompt insertion and connector reselect
 });
 
 test("retained tool turns re-select the connector if the composer lost its binding", async () => {
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        captureDiagnostic?: (checkpoint: string) => Promise<void>,
-        abortSignal?: AbortSignal,
-        catalogRefreshAvailable?: boolean,
-        connectorAttemptBudget?: unknown,
-        reuseConnector?: boolean,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    captureDiagnostic?: (checkpoint: string) => Promise<void>,
+    abortSignal?: AbortSignal,
+    catalogRefreshAvailable?: boolean,
+    connectorAttemptBudget?: unknown,
+    reuseConnector?: boolean,
+  ) => Promise<void>;
 
   const calls: string[] = [];
   const initialComposer = {
@@ -3399,20 +3335,16 @@ test("retained tool turns re-select the connector if the composer lost its bindi
 });
 
 test("retained tool turns re-select the connector with hasExistingTurns when the page has existing user turns", async () => {
-  const attachPrompt = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(
-        page: unknown,
-        prompt: string,
-        localTools: boolean,
-        captureDiagnostic?: (checkpoint: string) => Promise<void>,
-        abortSignal?: AbortSignal,
-        catalogRefreshAvailable?: boolean,
-        connectorAttemptBudget?: unknown,
-        reuseConnector?: boolean,
-      ): Promise<void>;
-    }
-  ).attachPrompt;
+  const attachPrompt = composerMethod("attachPrompt") as (
+    page: unknown,
+    prompt: string,
+    localTools: boolean,
+    captureDiagnostic?: (checkpoint: string) => Promise<void>,
+    abortSignal?: AbortSignal,
+    catalogRefreshAvailable?: boolean,
+    connectorAttemptBudget?: unknown,
+    reuseConnector?: boolean,
+  ) => Promise<void>;
 
   const calls: string[] = [];
   const composer = {
@@ -3522,11 +3454,7 @@ test("image attachment readiness uses exact file tiles and not localized remove-
       return { last: () => composer };
     },
   };
-  const attachFiles = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachFiles(page: unknown, prompt: unknown): Promise<void>;
-    }
-  ).attachFiles;
+  const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   await attachFiles.call({ activeComposer: async () => composer }, page, {
     images: [{ ref: "codex-input-image-1", imageUrl }],
@@ -3541,11 +3469,7 @@ test("image attachment readiness uses exact file tiles and not localized remove-
 });
 
 test("attachFiles returns early when prompt has no images or skill files", async () => {
-  const attachFiles = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachFiles(page: unknown, prompt: unknown): Promise<void>;
-    }
-  ).attachFiles;
+  const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   let activeComposerCalled = false;
   await attachFiles.call(
@@ -3593,11 +3517,7 @@ test("attachFiles surfaces alert details when prompt attachments are rejected", 
       return {};
     },
   };
-  const attachFiles = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachFiles(page: unknown, prompt: unknown): Promise<void>;
-    }
-  ).attachFiles;
+  const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   await expect(
     attachFiles.call({ activeComposer: async () => composer }, page, {
@@ -3636,11 +3556,7 @@ test("attachFiles throws when send button never becomes enabled within deadline"
       return {};
     },
   };
-  const attachFiles = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachFiles(page: unknown, prompt: unknown): Promise<void>;
-    }
-  ).attachFiles;
+  const attachFiles = composerMethod("attachFiles") as (page: unknown, prompt: unknown) => Promise<void>;
 
   const realDateNow = Date.now;
   let now = realDateNow();
@@ -3827,8 +3743,7 @@ test("Think slash requires one command and verifies a newly exposed control", as
 });
 
 test("Think attachment runs after fresh connector selection and rechecks retained and Browser-only turns", async () => {
-  const attach = (ChatGptBrowserWorker.prototype as unknown as { attachPrompt: (...args: unknown[]) => Promise<void> })
-    .attachPrompt;
+  const attach = composerMethod("attachPrompt") as (...args: unknown[]) => Promise<void>;
   for (const [localTools, retained] of [
     [true, false],
     [true, true],
@@ -3911,8 +3826,7 @@ test("Think attachment rolls back a lost connector and never inserts the prompt"
       ui.state.connectors = [];
     },
   };
-  const attach = (ChatGptBrowserWorker.prototype as unknown as { attachPrompt: (...args: unknown[]) => Promise<void> })
-    .attachPrompt;
+  const attach = composerMethod("attachPrompt") as (...args: unknown[]) => Promise<void>;
   await expect(
     attach.call(worker, ui.page, "must not be inserted", true, undefined, undefined, false, undefined, false, true),
   ).rejects.toThrow("selected connectors");
@@ -4063,11 +3977,7 @@ test("submission acceptance reports a rate-limit dialog that appears after Enter
 
 test("prompt attachment reports a rate-limit modal before editing the composer", async () => {
   const fixture = dialogPage("Too many requests. You're making requests too quickly.");
-  const attach = (
-    ChatGptBrowserWorker.prototype as unknown as {
-      attachPrompt(page: Page, prompt: string, localTools: boolean): Promise<void>;
-    }
-  ).attachPrompt;
+  const attach = composerMethod("attachPrompt") as (page: Page, prompt: string, localTools: boolean) => Promise<void>;
   await expect(
     attach.call(
       {

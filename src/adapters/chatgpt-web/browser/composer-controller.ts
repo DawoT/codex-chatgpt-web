@@ -35,6 +35,8 @@ import {
   chatGptConnectorUnavailableError,
   ensureChatGptPersonalizedConnectorAccess,
 } from "./personalization";
+import { promptEquivalentPrefixLength, promptTextEquivalent } from "./prompt-equivalence";
+import { extractAttachedPromptText } from "./prompt-readback";
 import {
   CHATGPT_COMPOSER_DOCUMENT_END_KEY,
   throwIfPromptAttachmentAborted,
@@ -61,53 +63,33 @@ export class ChatGptConnectorCatalogStaleError extends Error {
 }
 
 /**
- * Dispatch surface the composer/connector/attachment methods rely on through their `this`.
- * The worker owns the browser configuration and the prompt readback/equivalence helpers, and
- * lends them to the borrowed prototype dispatch, so stubs installed on the worker instance or on
- * `ChatGptBrowserWorker.prototype` keep steering every internal call.
+ * Dependencies the composer/connector/attachment flow borrows from the worker, injected at
+ * construction: the resolved browser configuration (connector identity). Prompt readback is
+ * composed from the pure prompt-readback module and prompt equivalence from its pure module;
+ * every other member is the controller's own method and recurses through `this` directly.
  */
-export interface ChatGptComposerControllerHost {
+export interface ComposerControllerDeps {
   readonly config: ResolvedBrowserConfig;
-  activeComposer(page: Page, timeoutMs?: number, abortSignal?: AbortSignal): Promise<Locator>;
-  assertPromptAttached(page: Page, prompt: string, abortSignal?: AbortSignal): Promise<void>;
-  attachedPromptText(page: Page, abortSignal?: AbortSignal): Promise<string>;
-  clearChatGptComposerState(page: Page): Promise<void>;
-  connectorIsSelected(composer: Locator, abortSignal?: AbortSignal): Promise<boolean>;
-  connectorMentionFailure(
-    menuRows: Locator,
-    triggerAttempts: number,
-    abortSignal?: AbortSignal,
-    page?: Page,
-  ): Promise<string>;
-  connectorMentionRowTitles(menuRows: Locator, abortSignal?: AbortSignal): Promise<string[]>;
-  insertPromptText(page: Page, text: string, abortSignal?: AbortSignal): Promise<void>;
-  promptEquivalentPrefixLength(expected: string, observed: string): number;
-  promptTextEquivalent(expected: string, observed: string): boolean;
-  selectConnector(
-    page: Page,
-    captureDiagnostic?: (checkpoint: string) => Promise<void>,
-    catalogRefreshAvailable?: boolean,
-    attemptBudget?: ChatGptConnectorAttemptBudget,
-    abortSignal?: AbortSignal,
-    hasExistingTurns?: boolean,
-    turnEvents?: ChatGptTurnEventBus,
-  ): Promise<Locator>;
-  selectedConnectorControl(composer: Locator): Locator;
 }
 
 export class ComposerController {
-  async activeComposer(
-    this: ChatGptComposerControllerHost,
-    page: Page,
-    timeoutMs = 30_000,
-    abortSignal?: AbortSignal,
-  ): Promise<Locator> {
+  constructor(private readonly deps: ComposerControllerDeps) {}
+
+  async activeComposer(page: Page, timeoutMs = 30_000, abortSignal?: AbortSignal): Promise<Locator> {
     return chatGptActiveComposer(page, timeoutMs, abortSignal);
+  }
+
+  /** Read back the prompt currently attached to the active composer. */
+  async attachedPromptText(page: Page, abortSignal?: AbortSignal): Promise<string> {
+    const composer = await this.activeComposer(page, 30_000, abortSignal);
+    return extractAttachedPromptText(composer, this.deps.config?.appName, {
+      timeoutMs: 20_000,
+      signal: abortSignal,
+    });
   }
 
   /** Prepare a new conversation; account inspection still uses an empty Temporary Chat. */
   async prepareChatSurface(
-    this: ChatGptComposerControllerHost,
     page: Page,
     captureDiagnostic?: (checkpoint: string) => Promise<void>,
     useSavedChats = false,
@@ -201,12 +183,7 @@ export class ComposerController {
     return composer;
   }
 
-  async assertPromptAttached(
-    this: ChatGptComposerControllerHost,
-    page: Page,
-    prompt: string,
-    abortSignal?: AbortSignal,
-  ): Promise<void> {
+  async assertPromptAttached(page: Page, prompt: string, abortSignal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + 10_000;
     let observed = "";
     let domKey: string | undefined;
@@ -214,7 +191,7 @@ export class ComposerController {
       throwIfPromptAttachmentAborted(abortSignal);
       observed = await this.attachedPromptText(page, abortSignal);
       throwIfPromptAttachmentAborted(abortSignal);
-      if (this.promptTextEquivalent(prompt, observed)) return;
+      if (promptTextEquivalent(prompt, observed)) return;
       if (Date.now() >= deadline) break;
       // React commits the prompt asynchronously; wake on the composer's next qualifying mutation
       // instead of re-reading on a fixed 200 ms beat. Text edits always bump the revision.
@@ -227,62 +204,47 @@ export class ComposerController {
       domKey = verdict.key;
     }
     throwIfPromptAttachmentAborted(abortSignal);
-    const commonPrefix = this.promptEquivalentPrefixLength(prompt, observed);
+    const commonPrefix = promptEquivalentPrefixLength(prompt, observed);
     throw new ChatGptPromptAttachmentIntegrityError(
       `ChatGPT composer did not preserve the complete prompt (expectedChars=${prompt.length}, actualChars=${observed.length}, commonPrefixChars=${commonPrefix})`,
     );
   }
 
-  selectedConnectorControl(this: ChatGptComposerControllerHost, composer: Locator): Locator {
-    return chatGptSelectedConnectorControl(composer, this.config.appName);
+  selectedConnectorControl(composer: Locator): Locator {
+    return chatGptSelectedConnectorControl(composer, this.deps.config.appName);
   }
 
-  async connectorIsSelected(
-    this: ChatGptComposerControllerHost,
-    composer: Locator,
-    abortSignal?: AbortSignal,
-  ): Promise<boolean> {
-    return chatGptConnectorIsSelected(composer, this.config.appName, abortSignal);
+  async connectorIsSelected(composer: Locator, abortSignal?: AbortSignal): Promise<boolean> {
+    return chatGptConnectorIsSelected(composer, this.deps.config.appName, abortSignal);
   }
 
-  async connectorMentionRowTitles(
-    this: ChatGptComposerControllerHost,
-    menuRows: Locator,
-    abortSignal?: AbortSignal,
-  ): Promise<string[]> {
+  async connectorMentionRowTitles(menuRows: Locator, abortSignal?: AbortSignal): Promise<string[]> {
     return chatGptConnectorMentionRowTitles(menuRows, abortSignal);
   }
 
   async connectorMentionFailure(
-    this: ChatGptComposerControllerHost,
     menuRows: Locator,
     triggerAttempts: number,
     abortSignal?: AbortSignal,
     page?: Page,
   ): Promise<string> {
     return chatGptConnectorMentionFailure(menuRows, triggerAttempts, {
-      appName: this.config?.appName,
+      appName: this.deps.config?.appName,
       abortSignal,
       page,
-      fetchRowTitles:
-        typeof this?.connectorMentionRowTitles === "function"
-          ? (rows, signal) => this.connectorMentionRowTitles(rows, signal)
-          : undefined,
+      fetchRowTitles: (rows, signal) => this.connectorMentionRowTitles(rows, signal),
     });
   }
 
-  async clearChatGptComposerState(this: ChatGptComposerControllerHost, page: Page): Promise<void> {
+  async clearChatGptComposerState(page: Page): Promise<void> {
     return chatGptClearComposerState(page, {
-      appName: this.config?.appName,
-      activeComposer:
-        typeof this?.activeComposer === "function" ? (p, t, s) => this.activeComposer(p, t, s) : undefined,
-      connectorIsSelected:
-        typeof this?.connectorIsSelected === "function" ? (c, s) => this.connectorIsSelected(c, s) : undefined,
+      appName: this.deps.config?.appName,
+      activeComposer: (p, t, s) => this.activeComposer(p, t, s),
+      connectorIsSelected: (c, s) => this.connectorIsSelected(c, s),
     });
   }
 
   async selectConnector(
-    this: ChatGptComposerControllerHost,
     page: Page,
     captureDiagnostic?: (checkpoint: string) => Promise<void>,
     catalogRefreshAvailable = false,
@@ -299,7 +261,7 @@ export class ComposerController {
     let composer: Locator;
     const menuRows = page.locator(CHATGPT_MENTION_MENU_ROWS_SELECTOR);
     const appResult = menuRows.filter({
-      has: page.getByText(this.config.appName, { exact: true }),
+      has: page.getByText(this.deps.config.appName, { exact: true }),
     });
     const pageUrl = page.url();
     const isTemporaryChat = Boolean(
@@ -361,9 +323,7 @@ export class ComposerController {
             proofError = error;
           }
           try {
-            if (typeof this.clearChatGptComposerState === "function") {
-              await this.clearChatGptComposerState(page);
-            }
+            await this.clearChatGptComposerState(page);
           } catch (cleanupError) {
             throw new ChatGptPersistentBrowserStateError(
               proofError !== undefined ? [proofError, cleanupError] : [cleanupError],
@@ -425,7 +385,7 @@ export class ComposerController {
           if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
           const visibleRows = await this.connectorMentionRowTitles(menuRows, abortSignal);
           const knownIdentityMismatch =
-            this.config.appName === CHATGPT_CONNECTOR_NAME &&
+            this.deps.config.appName === CHATGPT_CONNECTOR_NAME &&
             (visibleRows.includes(DEV_CHATGPT_CONNECTOR_NAME) ||
               LEGACY_CHATGPT_CONNECTOR_NAMES.some((name) => visibleRows.includes(name)));
           if (knownIdentityMismatch) {
@@ -437,10 +397,10 @@ export class ComposerController {
           if (
             catalogRefreshAvailable &&
             visibleRows.length > 0 &&
-            !visibleRows.includes(this.config.appName) &&
+            !visibleRows.includes(this.deps.config.appName) &&
             attemptBudget.triggerAttempts < MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS
           ) {
-            throw new ChatGptConnectorCatalogStaleError(this.config.appName, attemptBudget.triggerAttempts);
+            throw new ChatGptConnectorCatalogStaleError(this.deps.config.appName, attemptBudget.triggerAttempts);
           }
           if (attemptBudget.triggerAttempts >= MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS) {
             await capture("connector-menu-missing");
@@ -456,7 +416,7 @@ export class ComposerController {
       );
       if (exactResultCount !== 1) {
         throw chatGptConnectorUnavailableError(
-          `ChatGPT connector menu did not expose one exact ${JSON.stringify(this.config.appName)} row` +
+          `ChatGPT connector menu did not expose one exact ${JSON.stringify(this.deps.config.appName)} row` +
             ` after ${attemptBudget.triggerAttempts} complete mention trigger attempt(s)`,
         );
       }
@@ -480,7 +440,7 @@ export class ComposerController {
         }
       }
       if (!(await rowHighlighted())) {
-        throw new Error(`ChatGPT connector menu could not highlight ${JSON.stringify(this.config.appName)}`);
+        throw new Error(`ChatGPT connector menu could not highlight ${JSON.stringify(this.deps.config.appName)}`);
       }
       await composer.press("Enter", {
         signal: abortSignal,
@@ -500,16 +460,14 @@ export class ComposerController {
       turnEvents?.publish({ type: "connector_pill_mounted", source: "dom" });
       if (!(await this.connectorIsSelected(selectedComposer, abortSignal))) {
         throw new Error(
-          `ChatGPT composer did not select ${JSON.stringify(this.config?.appName ?? CHATGPT_CONNECTOR_NAME)} connector`,
+          `ChatGPT composer did not select ${JSON.stringify(this.deps.config?.appName ?? CHATGPT_CONNECTOR_NAME)} connector`,
         );
       }
       await capture("connector-selected");
       return selectedComposer;
     } catch (error) {
       try {
-        if (typeof this.clearChatGptComposerState === "function") {
-          await this.clearChatGptComposerState(page);
-        }
+        await this.clearChatGptComposerState(page);
       } catch (cleanupError) {
         throw new ChatGptPersistentBrowserStateError(
           [error, cleanupError],
@@ -521,7 +479,6 @@ export class ComposerController {
   }
 
   async attachPrompt(
-    this: ChatGptComposerControllerHost,
     page: Page,
     prompt: string,
     localTools: boolean,
@@ -569,8 +526,7 @@ export class ComposerController {
       let selectedComposer: Locator;
       if (connectorMode === "retained") {
         const composer = await this.activeComposer(page, 30_000, abortSignal);
-        const alreadyBound =
-          this.connectorIsSelected !== undefined && (await this.connectorIsSelected(composer, abortSignal));
+        const alreadyBound = await this.connectorIsSelected(composer, abortSignal);
         const cleanBinding =
           alreadyBound &&
           (await chatGptReuseCleanConnector(
@@ -627,9 +583,7 @@ export class ComposerController {
     } catch (error) {
       if (!composerMutationStarted || error instanceof ChatGptPersistentBrowserStateError) throw error;
       try {
-        if (typeof this.clearChatGptComposerState === "function") {
-          await this.clearChatGptComposerState(page);
-        }
+        await this.clearChatGptComposerState(page);
       } catch (cleanupError) {
         throw new ChatGptPersistentBrowserStateError(
           [error, cleanupError],
@@ -640,12 +594,7 @@ export class ComposerController {
     }
   }
 
-  async insertPromptText(
-    this: ChatGptComposerControllerHost,
-    page: Page,
-    text: string,
-    abortSignal?: AbortSignal,
-  ): Promise<void> {
+  async insertPromptText(page: Page, text: string, abortSignal?: AbortSignal): Promise<void> {
     throwIfPromptAttachmentAborted(abortSignal);
     const composer = await this.activeComposer(page, 30_000, abortSignal);
     await composer.focus({ signal: abortSignal, timeout: CHATGPT_CONNECTOR_ACTION_TIMEOUT_MS });
@@ -679,7 +628,7 @@ export class ComposerController {
     }
   }
 
-  async attachFiles(this: ChatGptComposerControllerHost, page: Page, prompt: CompiledChatGptWebPrompt): Promise<void> {
+  async attachFiles(page: Page, prompt: CompiledChatGptWebPrompt): Promise<void> {
     const files = chatGptPromptFilePayloads(prompt);
     if (files.length === 0) return;
     const composer = await this.activeComposer(page);
