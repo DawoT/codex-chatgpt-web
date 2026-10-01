@@ -38,6 +38,32 @@ consecuencia implícita de que los canarios pasen.
 
 ## 2. Estado de partida verificado
 
+### Actualización 2026-10-01 — preflight de canario implementado
+
+El trabajo de continuación añadió el seam mínimo de quiescencia que faltaba y un
+preflight reproducible. El candidato local actual es
+`98bef093fa2b9614939aae9e164a6a1d416ec74b`, con árbol `src`
+`a045530001a0cd714700467a150a67099890b800` y source digest del gate
+`4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d`.
+Los bundles in-memory medidos son CLI
+`fc6d2eab0070738e6b512c8eeef70280e084459d3a4966cd201a59b9e39a3fc3`
+y browser helper
+`c93bd474d6830bd4750d0a8fb656c4fe71d73a59fd7dc57defafb37d1d153011`.
+
+El helper que estaba cargado al preparar rollback tenía SHA-256
+`14af41a053b7c7fed14eefe9dd2b46d19333f68b69c8a83c2bbd5fb5989d16b7`.
+El candidato no se activó: el runtime observado seguía atendiendo el turno de esta
+sesión y cargaba artefactos anteriores. No drenes, reinicies ni reemplaces ese
+runtime para fabricar una ventana inactiva.
+
+`scripts/harness-live-canary.ts` fija veinte checkpoints en dos sesiones, verifica
+hashes/candidato/rollback y evalúa la ventana de inactividad de forma fail-closed.
+`/healthz` del candidato expone `resource_diagnostics` y `telemetry_health` con
+contadores agregados de waiters, timers, transacciones, persistencias, releases
+retenidos y cola de telemetría. El runtime antiguo ya cargado no puede exponer esas
+claves hasta una activación legítima; esa ausencia debe conservarse como bloqueo,
+no reinterpretarse como cero.
+
 - Repositorio esperado: `/home/deuz/projects/codex-chatgpt-web`. Algunas superficies
   muestran `/home/deuz/Proyectos/codex-chatgpt-web`; resuelve `pwd` y el root Git
   antes de usar rutas absolutas. No crees un segundo checkout por esa diferencia.
@@ -46,14 +72,18 @@ consecuencia implícita de que los canarios pasen.
   `a5388acfb6491e5044909f5b25eef6292d51c884`.
 - Base del refactor: `main` local en `9c6e02a`. No se hizo pull/rebase ni se
   resolvió la divergencia del remoto. Reinspecciona antes de cualquier integración.
-- Candidato del reporte final de gates:
-  `bedd09464cd5975963c90b422b7387e1b4b63077`.
+- Candidato previo del reporte final de gates:
+  `bedd09464cd5975963c90b422b7387e1b4b63077`. Fue sustituido por `98bef09`
+  porque la aceptación operacional requería superficies de quiescencia adicionales.
 - El commit `a5388ac` añadió únicamente documentación y reportes; no modificó
   producción, scripts ni tests respecto al candidato medido.
-- Árbol de producción verificado (`git rev-parse HEAD:src`):
-  `a01fd551d77be8105e014cfa70185d0f383c9f68`.
-- Source digest del gate:
+- Árbol de producción previo verificado (`git rev-parse HEAD:src`):
+  `a01fd551d77be8105e014cfa70185d0f383c9f68`. El árbol actual medido es
+  `a045530001a0cd714700467a150a67099890b800`.
+- Source digest previo del gate:
   `f1c77ad7e12fa7b08dc810f46c9d6127298183d68b22d87f53fe431739d2be1f`.
+  El digest actual es
+  `4e3e339fb70356634df03d38fa5ae06dcf310366d2a9c0104c47e081b72eb33d`.
   La función del gate incluye HEAD en este digest: un commit sólo documental puede
   cambiarlo sin cambiar producción. Comprueba ambas identidades, no confundas eso
   con alteración del código.
