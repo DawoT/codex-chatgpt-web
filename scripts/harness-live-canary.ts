@@ -80,6 +80,17 @@ export interface InactiveRuntimeGate {
   blockers: InactiveRuntimeBlocker[];
 }
 
+export interface LegacyBootstrapShutdownGateOptions {
+  runtimePredatesQuiescenceSeam: boolean;
+}
+
+export interface LiveCanaryPreparationOptions {
+  healthUrl?: string;
+  candidateDir?: string;
+  rollbackDir?: string;
+  runtimePredatesQuiescenceSeam?: boolean;
+}
+
 interface HealthPayload {
   service?: unknown;
   accepting_turns?: unknown;
@@ -362,6 +373,26 @@ export function evaluateInactiveRuntimeGate(snapshot: InactiveRuntimeSnapshot): 
   return { ready: blockers.length === 0, blockers };
 }
 
+export function evaluateLegacyBootstrapShutdownGate(
+  snapshot: InactiveRuntimeSnapshot,
+  options: LegacyBootstrapShutdownGateOptions,
+): InactiveRuntimeGate {
+  const strict = evaluateInactiveRuntimeGate(snapshot);
+  const blockers = strict.blockers.filter(
+    (blocker) => blocker.code !== "resource_evidence_missing" && blocker.code !== "telemetry_evidence_missing",
+  );
+
+  if (!options.runtimePredatesQuiescenceSeam) {
+    addBlocker(
+      blockers,
+      "legacy_bootstrap_not_applicable",
+      "The compatibility shutdown gate is only valid for a runtime proven to predate the quiescence health seam.",
+    );
+  }
+
+  return { ready: blockers.length === 0, blockers };
+}
+
 function sha256(path: string): string | null {
   if (!existsSync(path)) return null;
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -482,7 +513,7 @@ function takeFlag(args: string[], name: string): boolean {
 }
 
 export async function collectLiveCanaryPreparation(
-  options: { healthUrl?: string; candidateDir?: string; rollbackDir?: string } = {},
+  options: LiveCanaryPreparationOptions = {},
 ): Promise<Record<string, unknown>> {
   const head = git("rev-parse", "HEAD");
   const shortHead = head.slice(0, 7);
@@ -561,6 +592,9 @@ export async function collectLiveCanaryPreparation(
     telemetry: telemetryFromHealth(health),
   };
   const gate = evaluateInactiveRuntimeGate(snapshot);
+  const legacyBootstrapShutdownGate = options.runtimePredatesQuiescenceSeam
+    ? evaluateLegacyBootstrapShutdownGate(snapshot, { runtimePredatesQuiescenceSeam: true })
+    : null;
 
   return {
     schemaVersion: 1,
@@ -599,6 +633,7 @@ export async function collectLiveCanaryPreparation(
     },
     snapshot,
     inactivityGate: gate,
+    legacyBootstrapShutdownGate,
     sessionRequirements: {
       sessions: 2,
       minimumMinutesExclusive: 22,
@@ -617,6 +652,7 @@ if (import.meta.main) {
   const healthUrl = takeOption(args, "--health-url");
   const candidateDir = takeOption(args, "--candidate-dir");
   const rollbackDir = takeOption(args, "--rollback-dir");
+  const legacyBootstrapShutdown = takeFlag(args, "--legacy-bootstrap-shutdown");
   const requireReady = takeFlag(args, "--require-ready");
   if (args.length > 0) throw new Error(`Unknown arguments: ${args.join(" ")}`);
 
@@ -624,9 +660,13 @@ if (import.meta.main) {
     ...(healthUrl ? { healthUrl } : {}),
     ...(candidateDir ? { candidateDir } : {}),
     ...(rollbackDir ? { rollbackDir } : {}),
+    ...(legacyBootstrapShutdown ? { runtimePredatesQuiescenceSeam: true } : {}),
   });
   const encoded = `${JSON.stringify(result, null, 2)}\n`;
   if (report) writeFileSync(resolve(report), encoded, { mode: 0o600 });
   process.stdout.write(encoded);
-  if (requireReady && !(result.inactivityGate as InactiveRuntimeGate).ready) process.exitCode = 2;
+  const selectedGate = legacyBootstrapShutdown
+    ? (result.legacyBootstrapShutdownGate as InactiveRuntimeGate)
+    : (result.inactivityGate as InactiveRuntimeGate);
+  if (requireReady && !selectedGate.ready) process.exitCode = 2;
 }

@@ -182,6 +182,23 @@ minutos de sesión. El script emite `liveCanary.status: not-run` deliberadamente
    browser/helper en ejecución, teardown físico ni retained releases pendientes.
    Flush de telemetry debe terminar y su cola volver a cero. Si el estado no puede
    demostrarse, posponer el rollout; no cancelar trabajo ajeno para obtener el gate.
+   Si el runtime cargado está probado como anterior al seam de quiescencia y por
+   eso no expone `resource_diagnostics` ni `telemetry_health`, usa exclusivamente
+   el gate de bootstrap para autorizar su apagado, después de drenar y observar
+   cero actividad en todas las superficies que ese runtime sí expone:
+
+   ```bash
+   bun run scripts/harness-live-canary.ts \
+     --candidate-dir=/tmp/continuity-candidate-98bef09 \
+     --rollback-dir=/tmp/continuity-rollback-98bef09 \
+     --legacy-bootstrap-shutdown \
+     --require-ready
+   ```
+
+   Ese modo sólo omite la ausencia de las dos métricas nuevas. Conserva los gates
+   de candidato, rollback, admisión, identidad, drain, actividad y helper. Su salida
+   autoriza únicamente el apagado del predecesor; después verifica teardown físico
+   del proceso/helper/socket antes de instalar el candidato.
 3. Sólo dentro de esa ventana instalar el candidato mediante el procedimiento
    normal del operador. Registrar artefacto/generación efectivamente cargados,
    no sólo el hash del fichero construido. No usar callback constante `true` como

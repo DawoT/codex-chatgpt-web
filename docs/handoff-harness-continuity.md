@@ -56,6 +56,15 @@ El candidato no se activó: el runtime observado seguía atendiendo el turno de 
 sesión y cargaba artefactos anteriores. No drenes, reinicies ni reemplaces ese
 runtime para fabricar una ventana inactiva.
 
+La continuación posterior añadió un gate explícito de bootstrap para ese caso
+legacy. `scripts/harness-live-canary.ts --legacy-bootstrap-shutdown --require-ready`
+reutiliza el gate estricto y sólo permite que falten `resource_diagnostics` y
+`telemetry_health` cuando el operador ya identificó el runtime como anterior al
+seam. Sigue bloqueando candidato/rollback inválidos, admisión, runtime no drenado,
+actividad HTTP/browser/subagents y cualquier helper todavía observado. Este gate
+autoriza únicamente apagar el runtime predecesor; no acredita por sí solo una
+ventana apta para instalar el candidato.
+
 `scripts/harness-live-canary.ts` fija veinte checkpoints en dos sesiones, verifica
 hashes/candidato/rollback y evalúa la ventana de inactividad de forma fail-closed.
 `/healthz` del candidato expone `resource_diagnostics` y `telemetry_health` con

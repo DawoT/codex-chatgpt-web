@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   buildLiveCanaryMatrix,
   evaluateInactiveRuntimeGate,
+  evaluateLegacyBootstrapShutdownGate,
   type InactiveRuntimeSnapshot,
 } from "../scripts/harness-live-canary";
 
@@ -92,4 +93,74 @@ test("inactive runtime gate accepts only a clean prepared candidate with zeroed 
     ready: true,
     blockers: [],
   });
+});
+
+test("legacy bootstrap shutdown gate permits missing new metrics only after drain and full activity release", () => {
+  const snapshot = readySnapshot();
+  snapshot.resources = { observed: false };
+  snapshot.telemetry = { observed: false };
+
+  expect(
+    evaluateLegacyBootstrapShutdownGate(snapshot, {
+      runtimePredatesQuiescenceSeam: true,
+    }),
+  ).toEqual({ ready: true, blockers: [] });
+
+  snapshot.runtime.acceptingTurns = true;
+  snapshot.runtime.activeHttpTurns = 1;
+  snapshot.runtime.helperRuntimes = [{ pid: 42 }];
+  const blocked = evaluateLegacyBootstrapShutdownGate(snapshot, {
+    runtimePredatesQuiescenceSeam: true,
+  });
+  expect(blocked.ready).toBe(false);
+  expect(blocked.blockers.map((entry) => entry.code)).toEqual(
+    expect.arrayContaining(["runtime_accepting_turns", "active_http_turns", "helper_runtime_present"]),
+  );
+});
+
+test("legacy bootstrap shutdown gate refuses the compatibility path for a metric-capable runtime", () => {
+  const snapshot = readySnapshot();
+  const result = evaluateLegacyBootstrapShutdownGate(snapshot, {
+    runtimePredatesQuiescenceSeam: false,
+  });
+
+  expect(result.ready).toBe(false);
+  expect(result.blockers.map((entry) => entry.code)).toContain("legacy_bootstrap_not_applicable");
+});
+
+test("legacy bootstrap shutdown gate preserves known resource and telemetry blockers", () => {
+  const snapshot = readySnapshot();
+  snapshot.resources = {
+    observed: true,
+    pendingWaiters: 1,
+    pendingTimers: 0,
+    pendingTransactions: 0,
+    pendingPersistences: 0,
+    retainedReleases: 0,
+  };
+  snapshot.telemetry = {
+    observed: true,
+    status: "degraded",
+    pendingRecords: 2,
+    pendingBytes: 128,
+    failedWrites: 1,
+    droppedRecords: 1,
+  };
+
+  const result = evaluateLegacyBootstrapShutdownGate(snapshot, {
+    runtimePredatesQuiescenceSeam: true,
+  });
+  const codes = result.blockers.map((entry) => entry.code);
+
+  expect(result.ready).toBe(false);
+  expect(codes).toEqual(
+    expect.arrayContaining([
+      "pending_waiters",
+      "telemetry_degraded",
+      "telemetry_pending_records",
+      "telemetry_pending_bytes",
+      "telemetry_failed_writes",
+      "telemetry_dropped_records",
+    ]),
+  );
 });
