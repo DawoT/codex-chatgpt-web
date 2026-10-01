@@ -324,3 +324,47 @@ test("TTL prune retains physical owner gating after logical final completion", a
     await replacement;
   }
 });
+
+test("conversation retirement blocks owner replacement through physical settlement and asynchronous release", async () => {
+  const sessions = new ChatGptTurnSessions(60_000, 256);
+  const releaseEntered = deferred<void>();
+  const release = deferred<void>();
+  const oldTurn = controlledRuntime("retained_conversation", async () => {
+    releaseEntered.resolve();
+    await release.promise;
+  });
+  const old = sessions.getOrCreate("old_conversation", () => oldTurn.runtime, "old_trace", "owner");
+  oldTurn.browser.resolve("committed old answer");
+  await old.browserOutcome;
+  const retirement = sessions.retireConversationAndWait("retained_conversation");
+  const nextTurn = controlledRuntime();
+  let starts = 0;
+  const replacement = sessions.getOrCreateAfterOwnerRetirement("replacement", "owner", () => {
+    starts += 1;
+    return nextTurn.runtime;
+  });
+  try {
+    expect(sessions.find("old_conversation")).toBeUndefined();
+    expect(old.isPhysicallySettled()).toBe(false);
+    expect(starts).toBe(0);
+    oldTurn.physical.resolve();
+    await releaseEntered.promise;
+    expect(old.isPhysicallySettled()).toBe(true);
+    expect(starts).toBe(0);
+    release.resolve();
+    expect(await retirement).toBe(1);
+    const next = await replacement;
+    expect(starts).toBe(1);
+    expect(next).not.toBe(old);
+    expect(old.settledOutcome()).toEqual({ type: "final", answer: "committed old answer" });
+    nextTurn.browser.resolve("replacement answer");
+    nextTurn.physical.resolve();
+    await Promise.all([next.browserOutcome, next.physicalSettlement]);
+  } finally {
+    oldTurn.physical.resolve();
+    release.resolve();
+    nextTurn.browser.resolve("replacement answer");
+    nextTurn.physical.resolve();
+    await Promise.all([retirement, replacement]);
+  }
+});

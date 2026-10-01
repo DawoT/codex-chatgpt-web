@@ -18,8 +18,13 @@ export class TurnRetirementCoordinator {
     return this.conversationRetirements.get(conversationKey);
   }
 
-  async trackConversation(conversationKey: string, retirement: Promise<void>): Promise<void> {
+  async trackConversation(
+    conversationKey: string,
+    retirement: Promise<void>,
+    ownerKeys: Iterable<string> = [],
+  ): Promise<void> {
     this.conversationRetirements.set(conversationKey, retirement);
+    for (const ownerKey of new Set(ownerKeys)) this.trackScope(this.ownerRetirements, ownerKey, retirement);
     try {
       await retirement;
     } finally {

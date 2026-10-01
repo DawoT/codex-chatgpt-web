@@ -191,7 +191,7 @@ export class ChatGptTurnSessions {
       if (this.entries.get(key) === session && (session !== preserved?.session || key !== preserved.executionKey)) {
         this.entries.delete(key);
       }
-      if (session.isActive()) session.cancel();
+      if (session.isActive()) this.beginRetirement(key, session);
       if (!session.detachConversation(conversationKey)) {
         throw new Error("ChatGPT retained-conversation ownership changed during retirement");
       }
@@ -202,7 +202,11 @@ export class ChatGptTurnSessions {
     const retirement = Promise.all(matches.map(([, session]) => session.physicalSettlement)).then(async () => {
       await release?.();
     });
-    await this.retirement.trackConversation(conversationKey, retirement);
+    await this.retirement.trackConversation(
+      conversationKey,
+      retirement,
+      matches.flatMap(([, session]) => (session.ownerKey ? [session.ownerKey] : [])),
+    );
     return matches.length;
   }
 
