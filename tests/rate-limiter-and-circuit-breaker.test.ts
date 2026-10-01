@@ -285,13 +285,17 @@ describe("Sprint AG: Rate Limiting & Circuit Breaker", () => {
               "content-type": "application/json",
               authorization: `Bearer test-api-key-for-rate-limit-test`,
             },
-            body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
+            // Keep this rate-limit probe local: an unknown bridge model is rejected
+            // before native passthrough can contact the external Codex backend.
+            body: JSON.stringify({ model: "chatgpt-web/not-enabled", input: "hello" }),
           });
 
-        // First 2 requests may pass or fail for upstream reasons (draining/no session),
-        // but the 3rd must be rate-limited → 429
-        await makeRequest(); // 1st
-        await makeRequest(); // 2nd
+        // Rejected local requests still consume this peer's rate budget.
+        for (let index = 0; index < 2; index += 1) {
+          const response = await makeRequest();
+          expect(response.status).toBe(400);
+          await response.arrayBuffer();
+        }
         const r3 = await makeRequest(); // 3rd — should be 429
 
         expect(r3.status).toBe(429);
@@ -381,7 +385,9 @@ describe("Loopback Host header guard", () => {
         fetch(`http://127.0.0.1:${server.port}/v1/responses`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: auth },
-          body: JSON.stringify({ model: "gpt-4o", input: "hello" }),
+          // Keep this rate-limit probe local: an unknown bridge model is rejected
+          // before native passthrough can contact the external Codex backend.
+          body: JSON.stringify({ model: "chatgpt-web/not-enabled", input: "hello" }),
         });
       await makeRequest("Bearer key-a"); // 1st from 127.0.0.1
       await makeRequest("Bearer key-b"); // 2nd from 127.0.0.1 — rotated key must NOT reset the window
