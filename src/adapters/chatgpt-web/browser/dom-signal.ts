@@ -71,13 +71,6 @@ export async function waitForChatGptDomRevision(
 ): Promise<ChatGptDomRevisionVerdict> {
   const settleMs = options.settleMs ?? 150;
   const horizonMs = options.horizonMs ?? 500;
-  if (typeof page?.evaluate !== "function") {
-    await withBrowserTurnAbort(
-      new Promise((resolve) => setTimeout(resolve, Math.min(settleMs, horizonMs))),
-      options.signal,
-    );
-    return { key: "stub:0", revision: 0, timedOut: false };
-  }
   return withChatGptBrowserObservationTimeout(
     withBrowserTurnAbort(
       page.evaluate(
@@ -93,16 +86,17 @@ export async function waitForChatGptDomRevision(
               __CODEX_WEB_GPT_DOM_SIGNAL__?: ChatGptDomSignalState;
             };
             if (!scope.__CODEX_WEB_GPT_DOM_SIGNAL__) {
-              const created: ChatGptDomSignalState = {
-                id: `${performance.timeOrigin}:${Math.random().toString(36).slice(2)}`,
-                revision: 0,
-                waiters: [],
-                observer: undefined as unknown as MutationObserver,
-              };
-              created.observer = new MutationObserver(() => {
+              let created!: ChatGptDomSignalState;
+              const observer = new MutationObserver(() => {
                 created.revision += 1;
                 for (const wake of created.waiters.splice(0)) wake();
               });
+              created = {
+                id: `${performance.timeOrigin}:${Math.random().toString(36).slice(2)}`,
+                revision: 0,
+                waiters: [],
+                observer,
+              };
               created.observer.observe(document.documentElement, {
                 subtree: true,
                 childList: true,

@@ -3638,21 +3638,22 @@ test("effort slider ARIA state fails closed on malformed and unsupported ranges"
 
 test("Luna-only browser turns verify selector absence instead of opening an effort menu", async () => {
   const checkpoints: string[] = [];
-  const hiddenDialog = {
-    filter() {
-      return this;
+  let effortMenuOpenAttempts = 0;
+  const hiddenDialog = fakeLocator();
+  const visibleControls = fakeLocator({
+    count: async () => 0,
+    click: async () => {
+      effortMenuOpenAttempts += 1;
     },
-    last() {
-      return this;
+    press: async () => {
+      effortMenuOpenAttempts += 1;
     },
-    isVisible: async () => false,
-  };
-  const visibleControls = { count: async () => 0 };
-  const composerForm = {
-    locator: () => ({ filter: () => visibleControls }),
-    getByRole: () => ({ filter: () => ({ count: async () => 0 }) }),
-  };
-  const composer = { locator: () => composerForm };
+  });
+  const composerForm = fakeLocator({
+    locator: () => visibleControls,
+    getByRole: () => fakeLocator(),
+  });
+  const composer = fakeLocator({ locator: () => composerForm });
   const selectModelAndEffort = new ChatGptModelControls({
     activeComposer: async () => composer as never,
   }) as unknown as {
@@ -3671,9 +3672,7 @@ test("Luna-only browser turns verify selector absence instead of opening an effo
   };
 
   const mode = await selectModelAndEffort.selectModelAndEffort(
-    {
-      locator: () => hiddenDialog,
-    },
+    fakePage({ locator: () => hiddenDialog }),
     "gpt-5.6-luna",
     "low",
     {
@@ -3689,6 +3688,7 @@ test("Luna-only browser turns verify selector absence instead of opening an effo
 
   expect(mode).toMatchObject({ displayLabel: "Luna", uiEffortIndex: null });
   expect(checkpoints).toEqual(["luna-default-confirmed"]);
+  expect(effortMenuOpenAttempts).toBe(0);
 });
 
 function thinkSlashFixture() {
@@ -4424,7 +4424,7 @@ test("effort menu waiting stops when ChatGPT reports an expired session", async 
   };
 
   const selection = selectModelAndEffort.selectModelAndEffort(
-    {
+    fakePage({
       locator: (selector: string) => {
         if (selector.includes('[role="alert"]')) return sessionAlert;
         if (selector.includes('[role="menu"]') || selector.includes("composer-intelligence-picker-content"))
@@ -4433,7 +4433,7 @@ test("effort menu waiting stops when ChatGPT reports an expired session", async 
         if (selector.includes('[role="dialog"]')) return hiddenDialog;
         return effortMenu;
       },
-    },
+    }),
     "gpt-5.6-sol",
     "high",
     {
