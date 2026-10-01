@@ -4,12 +4,18 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright-core";
+import { ChatGptWebAdapterError } from "../src/adapters/chatgpt-web/adapter-error";
 import { BrowserSession } from "../src/adapters/chatgpt-web/browser/browser-session";
 import {
   ChatGptBrowserDiagnostics,
   sanitizeChatGptBrowserDiagnosticState,
 } from "../src/adapters/chatgpt-web/browser/diagnostics";
 import { ChatGptModelControls } from "../src/adapters/chatgpt-web/browser/model-controls";
+import {
+  createHelperErrorMessage,
+  helperMessageError,
+  parseHelperMessage,
+} from "../src/adapters/chatgpt-web/helper-protocol";
 import { classifyTurnTermination } from "../src/adapters/chatgpt-web/turn-terminal";
 import { serializeDiagnosticError } from "../src/diagnostics/errors";
 
@@ -88,7 +94,11 @@ test("page-scoped listeners rebind and detach without observing another page or 
   });
   detachFirst();
   expect(second.listenerCount("response")).toBe(1);
-  second.emit("requestfailed", { failure: () => ({ errorText: "Cookie private" }) });
+  second.emit("requestfailed", {
+    failure: () => ({ errorText: "net::ERR_CONNECTION_RESET Cookie private" }),
+    resourceType: () => "fetch",
+    url: () => "https://chatgpt.com/backend-api/f/conversation",
+  });
   const snapshot = (diagnostics as any).snapshot();
   expect(snapshot.events.map((event: any) => event.event)).toEqual([
     "page_error",
@@ -96,10 +106,45 @@ test("page-scoped listeners rebind and detach without observing another page or 
     "page_request_failed",
   ]);
   expect(snapshot.events.every((event: any) => event.correlation.turnId === "trace-page")).toBe(true);
+  expect(snapshot.events.at(-1)?.fields).toMatchObject({
+    reason: "page_request_failed",
+    requestClass: "conversation",
+    resourceType: "fetch",
+    transportFailure: "connection_reset",
+  });
   expect(JSON.stringify(snapshot)).not.toMatch(/private|old page|Cookie/);
   detachSecond();
   expect(second.listenerCount("response")).toBe(0);
 });
+
+test.each([
+  ["chatgpt_stream_interrupted", 502, "ChatGPT response stream remained interrupted"],
+  ["session_reconciliation_required", 409, "Session requires reconciliation before another external effect"],
+] as const)(
+  "%s preserves its public contract through helper IPC and sanitized diagnostics",
+  (code, status, message) => {
+    const error = new ChatGptWebAdapterError("private upstream text", {
+      status,
+      errorType: "server_error",
+      code,
+      retryable: false,
+    });
+    const diagnostic = serializeDiagnosticError(error);
+
+    expect(diagnostic.nodes[0]).toMatchObject({
+      code,
+      message,
+      status,
+      retryable: false,
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain("private upstream text");
+    const parsed = parseHelperMessage(JSON.stringify(createHelperErrorMessage("turn", error)));
+    expect(parsed.type).toBe("error");
+    if (parsed.type !== "error") throw new Error("Expected helper error frame");
+    expect(helperMessageError(parsed)).toMatchObject({ code, status, retryable: false });
+    expect(JSON.stringify(parsed)).not.toContain("private upstream text");
+  },
+);
 
 test("capture exposes missing state/error evidence and writes only sanitized bounded structure", async () => {
   const root = await mkdtemp(join(tmpdir(), "continuity-browser-diagnostics-"));

@@ -187,6 +187,16 @@ const STAGES = new Set([
 ]);
 const TOOLS = new Set(["mcp_transport", "exec_command", "write_stdin", "apply_patch", "request_user_input", "unknown"]);
 const EVIDENCE = new Set(["observed", "missing", "failed", "not_requested", "disabled", "captured", "uncorrelated"]);
+const REQUEST_CLASSES = new Set(["conversation", "other"]);
+const RESOURCE_TYPES = new Set(["document", "eventsource", "fetch", "xhr", "other"]);
+const TRANSPORT_FAILURES = new Set([
+  "aborted",
+  "connection_reset",
+  "internet_disconnected",
+  "network_changed",
+  "timed_out",
+  "other",
+]);
 
 function identifier(value: unknown): string | undefined {
   return typeof value === "string" && /^[A-Za-z0-9:_/-]{1,128}$/.test(value) && !value.startsWith("sk-")
@@ -228,6 +238,9 @@ function fields(value?: Record<string, unknown>): DiagnosticEventV2["fields"] {
     ["stage", STAGES],
     ["tool", TOOLS],
     ["evidence", EVIDENCE],
+    ["requestClass", REQUEST_CLASSES],
+    ["resourceType", RESOURCE_TYPES],
+    ["transportFailure", TRANSPORT_FAILURES],
   ] as const) {
     const candidate = value?.[key];
     if (

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { Page } from "playwright-core";
+import type { Page, Request } from "playwright-core";
 import {
   CHATGPT_ASSISTANT_TURN_SELECTOR,
   CHATGPT_COMPLETION_ACTION_SELECTOR,
@@ -260,8 +260,52 @@ export class ChatGptBrowserDiagnostics {
     const close = () => {
       this.recordEvent({ event: "page_closed", phase: "observed", fields: { reason: "page_closed" } });
     };
-    const requestFailed = () => {
-      this.recordEvent({ event: "page_request_failed", phase: "failed", fields: { reason: "page_request_failed" } });
+    const requestFailed = (request: Request) => {
+      let requestClass: "conversation" | "other" = "other";
+      let resourceType: "document" | "eventsource" | "fetch" | "xhr" | "other" = "other";
+      let transportFailure:
+        | "aborted"
+        | "connection_reset"
+        | "internet_disconnected"
+        | "network_changed"
+        | "timed_out"
+        | "other" = "other";
+      try {
+        const url = new URL(request.url());
+        if (url.origin === "https://chatgpt.com" && url.pathname === "/backend-api/f/conversation") {
+          requestClass = "conversation";
+        }
+      } catch {
+        /* Diagnostic classification is best effort and never reads request bodies. */
+      }
+      try {
+        const observedType = request.resourceType();
+        if (["document", "eventsource", "fetch", "xhr"].includes(observedType)) {
+          resourceType = observedType as typeof resourceType;
+        }
+      } catch {
+        /* Keep the closed-vocabulary fallback. */
+      }
+      try {
+        const errorText = request.failure()?.errorText ?? "";
+        if (/ERR_CONNECTION_RESET/i.test(errorText)) transportFailure = "connection_reset";
+        else if (/ERR_INTERNET_DISCONNECTED/i.test(errorText)) transportFailure = "internet_disconnected";
+        else if (/ERR_NETWORK_CHANGED/i.test(errorText)) transportFailure = "network_changed";
+        else if (/ERR_TIMED_OUT|TIMED_OUT/i.test(errorText)) transportFailure = "timed_out";
+        else if (/ERR_ABORTED|ABORTED/i.test(errorText)) transportFailure = "aborted";
+      } catch {
+        /* Never persist arbitrary transport text. */
+      }
+      this.recordEvent({
+        event: "page_request_failed",
+        phase: "failed",
+        fields: {
+          reason: "page_request_failed",
+          requestClass,
+          resourceType,
+          transportFailure,
+        },
+      });
     };
     const response = (response: { status(): number }) => {
       try {
