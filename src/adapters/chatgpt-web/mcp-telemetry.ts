@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { getConfigDir } from "../../config";
+import {
+  type DiagnosticEventName,
+  type DiagnosticEventV2,
+  type DiagnosticPhase,
+  emitDiagnosticEvent,
+  parseDiagnosticEvent,
+} from "../../diagnostics";
+import { DiagnosticSink } from "../../diagnostics/sink";
 import { runtimeIdentity } from "../../runtime-identity";
 import { TelemetryTraceSink } from "./telemetry-trace";
 
@@ -16,19 +24,46 @@ const TOOL_LIFECYCLE_EVENTS = new Set([
 export class McpTelemetry {
   private readonly instanceId = randomUUID();
   private readonly sink: TelemetryTraceSink;
+  private readonly diagnosticSink: DiagnosticSink<DiagnosticEventV2>;
   private dropped = 0;
   private failed = 0;
 
   constructor(directory = join(getConfigDir(), "logs", "mcp")) {
     this.sink = new TelemetryTraceSink(directory);
+    this.diagnosticSink = new DiagnosticSink(directory);
   }
 
-  health(): ReturnType<TelemetryTraceSink["health"]> {
-    return this.sink.health();
+  health(): {
+    status: "healthy" | "degraded";
+    pendingRecords: number;
+    pendingBytes: number;
+    failedWrites: number;
+    droppedRecords: number;
+  } {
+    const health = this.sink.health();
+    const diagnostic = this.diagnosticSink.health();
+    return {
+      status: health.status === "healthy" && diagnostic.status === "healthy" ? "healthy" : "degraded",
+      pendingRecords: health.pendingRecords + diagnostic.pendingRecords,
+      pendingBytes: health.pendingBytes + diagnostic.pendingBytes,
+      failedWrites: health.failedWrites + diagnostic.failedWrites,
+      droppedRecords: health.droppedRecords + diagnostic.droppedRecords,
+    };
   }
 
-  flush(deadlineMs = 1000): Promise<boolean> {
-    return this.sink.flush(deadlineMs);
+  diagnosticHealth(): {
+    telemetry: ReturnType<TelemetryTraceSink["health"]>;
+    diagnostics: ReturnType<DiagnosticSink<DiagnosticEventV2>["health"]>;
+  } {
+    return { telemetry: this.sink.health(), diagnostics: this.diagnosticSink.health() };
+  }
+
+  async flush(deadlineMs = 1000): Promise<boolean> {
+    const [telemetry, diagnostics] = await Promise.all([
+      this.sink.flush(deadlineMs),
+      this.diagnosticSink.flush(deadlineMs),
+    ]);
+    return telemetry && diagnostics;
   }
 
   readonly write = (event: Record<string, unknown>): void => {
@@ -40,6 +75,63 @@ export class McpTelemetry {
       eventName === "transport_error" ||
       event.outcome === "protocol_error" ||
       event.is_error === true;
+    const phases: Record<string, DiagnosticPhase> = {
+      call_received: "received",
+      broker_queued: "received",
+      broker_claimed: "claimed",
+      browser_observed: "observed",
+      codex_emitted: "emitted",
+      host_started: "started",
+      result_received: "result_received",
+      broker_result_received: "result_received",
+      reply_sent: "delivered",
+      reply_send_failed: "dropped",
+      transport_closed: "dropped",
+      transport_error: "failed",
+      broker_abandoned: "dropped",
+      broker_compaction_cancelled: "cancelled",
+      call_cancelled: "cancelled",
+    };
+    const traceId =
+      typeof event.trace_id === "string" && /^[a-f0-9-]{36}$/.test(event.trace_id)
+        ? event.trace_id
+        : `${this.instanceId}:${call}`;
+    let diagnostic: DiagnosticEventV2 | undefined;
+    if (event.diagnostic !== undefined) {
+      try {
+        diagnostic = parseDiagnosticEvent(event.diagnostic as DiagnosticEventV2);
+      } catch {
+        /* Rebuild malformed optional diagnostics safely. */
+      }
+    }
+    if (diagnostic) {
+      void this.diagnosticSink.record(diagnostic).catch(() => undefined);
+    } else {
+      emitDiagnosticEvent(
+        {
+          producer: eventName.startsWith("broker_") || TOOL_LIFECYCLE_EVENTS.has(eventName) ? "broker" : "mcp",
+          event: eventName as DiagnosticEventName,
+          phase: phases[eventName] ?? (failed ? "failed" : "reconciled"),
+          correlation: {
+            traceId,
+            sessionId: this.instanceId,
+            ...(typeof event.turn_trace_id === "string" ? { turnId: event.turn_trace_id } : {}),
+            ...(typeof event.broker_call_id === "string" ? { brokerCallId: event.broker_call_id } : {}),
+          },
+          fields: {
+            call,
+            elapsedMs: event.elapsed_ms,
+            trackedCalls: event.tracked_calls,
+            reason: event.reason,
+            terminalCause: event.terminal_cause,
+            executionObserved: eventName === "result_received",
+            deliveryObserved: eventName === "reply_sent",
+          },
+          ...(event.error === undefined ? {} : { error: event.error }),
+        },
+        { write: (entry) => this.diagnosticSink.record(entry) },
+      );
+    }
     const metadata = {
       protocol_version: runtimeIdentity.protocolVersion,
       build_commit: runtimeIdentity.buildCommit,

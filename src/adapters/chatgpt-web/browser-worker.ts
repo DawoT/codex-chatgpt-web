@@ -62,6 +62,7 @@ import {
   resolveChatGptWebModelMode,
 } from "./model";
 import type { ChatGptWebMultipartStage, CompiledChatGptWebPrompt } from "./prompt";
+import { RECORD_FRAGMENT_CAPABILITY } from "./prompt/types";
 import type { CapturedChatGptLunaCheckpoint } from "./rolling-checkpoint";
 import type { ChatGptTurnProgressReader } from "./turn-progress";
 import { classifyTurnTermination, type TurnTerminationCause } from "./turn-terminal";
@@ -1262,6 +1263,7 @@ export class ChatGptBrowserWorker {
     const usageWrites: Promise<void>[] = [];
     const submissionRejection = new ChatGptSubmissionRejectionObserver();
     let pageBinding: ChatGptTurnPageBinding | undefined;
+    let detachDiagnosticPage: (() => void) | undefined;
     // Diagnostics and the event bus are constructed inside the try: neither may throw past the
     // finally block below, which is the only guaranteed release of the prepared prompt resource.
     // Definite-assignment keeps the in-try call sites unchanged; catch/finally use optional
@@ -1310,6 +1312,7 @@ export class ChatGptBrowserWorker {
         capabilities: browserCapabilities,
         requestedMode,
         compaction: turn.compaction === true,
+        helperCapabilities: [RECORD_FRAGMENT_CAPABILITY],
       });
       // The provider exposes no token-cache read/write accounting through this browser surface.
       // Record only the selected physical payload, and only once the respective Send is accepted.
@@ -1357,6 +1360,7 @@ export class ChatGptBrowserWorker {
       diagnosticPage = page;
       pageBinding = new ChatGptTurnPageBinding(turnEvents);
       pageBinding.bind(page);
+      detachDiagnosticPage = diagnostics.bindPage(page);
       const contextPressure = this.getContextPressure(page, turn.conversationKey);
       const rebindLauncherPage = async (attempt: number, cause: Error, callerSignal?: AbortSignal): Promise<void> => {
         if (!launcherSurfaceId || !this.config.browserHostDescriptorPath) throw cause;
@@ -1405,6 +1409,7 @@ export class ChatGptBrowserWorker {
         turnConnection = connection.browser;
         page = connection.page;
         pageBinding?.bind(page);
+        detachDiagnosticPage = diagnostics.bindPage(page);
         diagnosticPage = page;
         this.contextPressureByPage.set(page, contextPressure);
         console.warn(
@@ -1930,6 +1935,7 @@ export class ChatGptBrowserWorker {
         })}`,
       );
       pageBinding?.dispose();
+      detachDiagnosticPage?.();
       turnEvents?.dispose();
       submissionRejection.dispose();
       await Promise.all(usageWrites);

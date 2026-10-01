@@ -17,6 +17,7 @@ import { formatErrorResponse } from "./bridge";
 import { readCodexModelContextOverride, readCodexSubagentProtocol } from "./codex-integration";
 import type { AppConfig } from "./config";
 import { expandUserPath, getConfigDir, providerConfig } from "./config";
+import { emitDiagnosticEvent, flushDiagnostics } from "./diagnostics";
 import { readLauncherBrowserHostDescriptor, releaseLauncherSurface } from "./launcher-browser-host";
 import type { NativeFetch, NativeImageEndpoint } from "./native-passthrough";
 import { processRunning } from "./process";
@@ -574,20 +575,18 @@ export function startServer(
       if (failures.length > 0) {
         process.exitCode = 1;
         for (const failure of failures) {
-          console.error(
-            `[codex-chatgpt-web] shutdown cleanup failed: ${failure instanceof Error ? failure.message : String(failure)}`,
-          );
+          emitDiagnosticEvent({ producer: "main", event: "transport_error", phase: "failed", error: failure });
         }
       }
       await server.stop(true);
+      await flushDiagnostics(1000);
       if (shouldExitProcess) {
         process.exit(process.exitCode ?? 0);
       }
-    })().catch((error) => {
+    })().catch(async (error) => {
       process.exitCode = 1;
-      console.error(
-        `[codex-chatgpt-web] server shutdown failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      emitDiagnosticEvent({ producer: "main", event: "transport_error", phase: "failed", error });
+      await flushDiagnostics(1000);
       if (shouldExitProcess) {
         process.exit(1);
       }

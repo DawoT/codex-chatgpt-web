@@ -1,12 +1,19 @@
 import { createHash } from "node:crypto";
 import { stderr, stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
+import {
+  deserializeDiagnosticError,
+  emitDiagnosticEvent,
+  flushDiagnostics,
+  parseDiagnosticEvent,
+} from "../../diagnostics";
 import { runtimeIdentity } from "../../runtime-identity";
 import type { CodexProviderConfig } from "../../types";
-import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
+import { ChatGptCompactionHandoffAccepted } from "./adapter-error";
 import { createBrowserHelperPromptSelection } from "./browser-helper-prompt-selection";
 import { type BrowserTurn, ChatGptBrowserWorker, closeChatGptBrowserWorkers } from "./browser-worker";
 import {
+  createHelperErrorMessage,
   HelperInputProtocolError,
   type HelperOutputMessage,
   type InputMessage,
@@ -20,6 +27,7 @@ import {
 } from "./helper-protocol";
 import { createProcessLineWriter } from "./process-line-writer";
 import { isChatGptWebMultipartPartCount } from "./prompt";
+import { RECORD_FRAGMENT_CAPABILITY } from "./prompt/types";
 import { validateSkillFiles } from "./skill-attachments";
 import { ChatGptMirroredTurnProgress } from "./turn-progress";
 
@@ -30,12 +38,41 @@ const handleOutputFailure = (error: Error): void => {
   void requestShutdown();
 };
 const protocolOutput = createProcessLineWriter(stdout, handleOutputFailure);
-const diagnosticOutput = createProcessLineWriter(stderr, handleOutputFailure);
+const diagnosticOutput = createProcessLineWriter(stderr, () => {
+  /* Diagnostic output failure cannot shut down protocol delivery. */
+});
 
 const writeProtocol = (message: HelperOutputMessage): boolean => protocolOutput.write(JSON.stringify(message));
 
+function writeHelperFailure(id: string, error: unknown): boolean {
+  emitDiagnosticEvent({
+    producer: "helper",
+    event: "helper_error",
+    phase: "failed",
+    correlation: { requestId: id },
+    error,
+  });
+  return writeProtocol(createHelperErrorMessage(id, error));
+}
+
 const diagnostic = (...values: unknown[]): void => {
-  diagnosticOutput.write(values.map((value) => (typeof value === "string" ? value : JSON.stringify(value))).join(" "));
+  if (values.length === 1 && typeof values[0] === "string" && values[0].startsWith("{")) {
+    try {
+      const event = parseDiagnosticEvent(JSON.parse(values[0]));
+      diagnosticOutput.write(JSON.stringify(event));
+      return;
+    } catch {
+      // Arbitrary strings cannot masquerade as structured producer evidence.
+    }
+  }
+  const error = values.find((value) => value instanceof Error);
+  const event = emitDiagnosticEvent({
+    producer: "helper",
+    event: "unknown",
+    phase: "observed",
+    ...(error === undefined ? {} : { error }),
+  });
+  diagnosticOutput.write(JSON.stringify(event));
 };
 console.info = diagnostic;
 console.warn = diagnostic;
@@ -162,12 +199,14 @@ function requestShutdown(): Promise<void> {
   completionFenceCommitWaiters.clear();
   input.close();
   void closeChatGptBrowserWorkers().then(
-    () => {
+    async () => {
+      await flushDiagnostics(1000);
       completeShutdown();
       process.exit(0);
     },
-    (error) => {
-      diagnostic(`Browser helper shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
+    async (error) => {
+      emitDiagnosticEvent({ producer: "helper", event: "helper_error", phase: "failed", error });
+      await flushDiagnostics(1000);
       completeShutdown();
       process.exit(1);
     },
@@ -393,20 +432,7 @@ async function run(message: RunMessage): Promise<void> {
     const text = await ChatGptBrowserWorker.forProvider(provider).run(turn);
     writeProtocol({ type: "result", id: message.id, text });
   } catch (error) {
-    writeProtocol({
-      type: "error",
-      id: message.id,
-      name: error instanceof Error ? error.name : "Error",
-      message: error instanceof Error ? error.message : String(error),
-      ...(error instanceof ChatGptWebAdapterError
-        ? {
-            status: error.status,
-            errorType: error.errorType,
-            code: error.code,
-            retryable: error.retryable,
-          }
-        : {}),
-    });
+    writeHelperFailure(message.id, error);
   } finally {
     preparedSelections.get(message.id)?.cancel();
     preparedSelections.delete(message.id);
@@ -440,12 +466,7 @@ async function verify(message: VerifyMessage): Promise<void> {
     const selected = await maintenanceWorker(message).verifyConnector(message.id);
     writeProtocol({ type: "result", id: message.id, text: selected });
   } catch (error) {
-    writeProtocol({
-      type: "error",
-      id: message.id,
-      name: error instanceof Error ? error.name : "Error",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    writeHelperFailure(message.id, error);
   }
 }
 
@@ -481,12 +502,7 @@ async function maintain(message: InspectMessage | SmokeMessage | LimitsMessage):
           : await worker.smokeTest(abortController.signal);
     writeProtocol({ type: "result", id: message.id, value });
   } catch (error) {
-    writeProtocol({
-      type: "error",
-      id: message.id,
-      name: error instanceof Error ? error.name : "Error",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    writeHelperFailure(message.id, error);
   } finally {
     abortControllers.delete(message.id);
   }
@@ -500,7 +516,7 @@ input.on("line", (line) => {
     message = parseHelperInputMessage(line);
   } catch (error) {
     if (error instanceof HelperInputProtocolError) {
-      writeProtocol({ type: "error", id: error.id, message: error.message });
+      writeHelperFailure(error.id, error);
       if (error.abortTurn) abortControllers.get(error.id)?.abort();
     } else {
       writeProtocol({ type: "error", id: "protocol", message: "Browser helper received invalid JSON" });
@@ -517,7 +533,7 @@ input.on("line", (line) => {
     try {
       validateSkillFiles(prepared.skillFiles);
     } catch (error) {
-      writeProtocol({ type: "error", id: message.id, message: error instanceof Error ? error.message : String(error) });
+      writeHelperFailure(message.id, error);
       abortControllers.get(message.id)?.abort();
       return;
     }
@@ -596,7 +612,13 @@ input.on("line", (line) => {
   } else if (message.type === "abort") {
     abortControllers
       .get(message.id)
-      ?.abort(message.reason === "compaction_handoff_accepted" ? new ChatGptCompactionHandoffAccepted() : undefined);
+      ?.abort(
+        message.reason === "compaction_handoff_accepted"
+          ? new ChatGptCompactionHandoffAccepted()
+          : message.diagnostic
+            ? deserializeDiagnosticError(message.diagnostic)
+            : undefined,
+      );
     preparedSelections.get(message.id)?.cancel();
     const waiter = sendActivationWaiters.get(message.id);
     sendActivationWaiters.delete(message.id);
@@ -623,29 +645,11 @@ input.on("line", (line) => {
   } else if (message.type === "shutdown") {
     void requestShutdown();
   } else if (message.type === "verify") {
-    void verify(message).catch((error) =>
-      writeProtocol({
-        type: "error",
-        id: message.id,
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    void verify(message).catch((error) => writeHelperFailure(message.id, error));
   } else if (message.type === "inspect" || message.type === "smoke" || message.type === "limits") {
-    void maintain(message).catch((error) =>
-      writeProtocol({
-        type: "error",
-        id: message.id,
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    void maintain(message).catch((error) => writeHelperFailure(message.id, error));
   } else if (message.type === "run") {
-    void run(message).catch((error) =>
-      writeProtocol({
-        type: "error",
-        id: message.id,
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    void run(message).catch((error) => writeHelperFailure(message.id, error));
   } else {
     // Never treat an unrecognised frame as a run; unsupported protocol data fails explicitly.
     writeProtocol({
@@ -671,6 +675,9 @@ writeProtocol({
   protocolVersion: runtimeIdentity.protocolVersion,
   identity: runtimeIdentity,
   features: [
+    "diagnostic-error-v1",
+    RECORD_FRAGMENT_CAPABILITY,
+    "typed-abort-reason-v1",
     "progress",
     "tool-boundary-ack",
     "tool-boundary-request-ack-v2",

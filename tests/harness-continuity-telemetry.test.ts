@@ -4,46 +4,44 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { TelemetryTraceSink } from "../src/adapters/chatgpt-web/telemetry-trace";
 
-test("telemetry bounds queued count/bytes, flush deadline and retains ambiguous locks", async () => {
+test("legacy locks never block private writes and queue saturation recovers current health", async () => {
   const directory = await mkdtemp(join(tmpdir(), "continuity-telemetry-"));
   try {
-    await mkdir(join(directory, ".telemetry.lock"));
-    const sink = new TelemetryTraceSink(directory, { maxPendingRecords: 1, maxPendingBytes: 512, lockDeadlineMs: 80 });
-    const pending = sink.record({ traceId: "one", kind: "turn", terminalState: "pending" }).catch(() => {});
+    const lock = join(directory, ".telemetry.lock");
+    await mkdir(lock);
+    const sink = new TelemetryTraceSink(directory, { maxPendingRecords: 1, maxPendingBytes: 512, lockDeadlineMs: 1 });
+    const pending = sink.record({ traceId: "one", kind: "turn", terminalState: "pending" });
     await expect(sink.record({ traceId: "two", kind: "turn", terminalState: "pending" })).rejects.toThrow("queue");
-    expect(sink.health().pendingRecords).toBe(1);
-    expect(await sink.flush(5)).toBe(false);
     await pending;
-    expect(sink.health().pendingRecords).toBe(0);
-    expect(sink.health().pendingBytes).toBe(0);
-    expect(sink.health().failedWrites).toBe(1);
-    expect(sink.health().droppedRecords).toBe(1);
+    expect(sink.health()).toMatchObject({
+      status: "healthy",
+      pendingRecords: 0,
+      pendingBytes: 0,
+      failedWrites: 0,
+      droppedRecords: 1,
+    });
     expect(await sink.recoverWriterLock(async () => true)).toBe(false);
+    expect(await readdir(lock)).toEqual([]);
     expect(await sink.flush(50)).toBe(true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("new locks identify their owner and generation and live owners cannot be recovered", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "continuity-lock-"));
+test("private segments identify process and generation without creating writer locks", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "continuity-segment-"));
   try {
-    // Hold the append by writing enough concurrent records to observe its owned lock.
-    const sink = new TelemetryTraceSink(directory, { maxPendingRecords: 256 });
-    const writes = Array.from({ length: 100 }, (_, index) =>
-      sink.record({ traceId: `${index}`, kind: "turn", terminalState: "completed" }),
+    const { runtimeIdentity } = await import("../src/runtime-identity");
+    const sink = new TelemetryTraceSink(directory);
+    await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        sink.record({ traceId: `${index}`, kind: "turn", terminalState: "completed" }),
+      ),
     );
-    let owner: { pid: number; generation: string } | undefined;
-    for (let attempt = 0; attempt < 100 && !owner; attempt += 1) {
-      owner = await readFile(join(directory, ".telemetry.lock", "owner.json"), "utf8")
-        .then(JSON.parse)
-        .catch(() => undefined);
-      if (!owner) await Bun.sleep(1);
-    }
-    expect(owner?.pid).toBe(process.pid);
-    expect(owner?.generation).toBeTypeOf("string");
-    expect(await sink.recoverWriterLock(async () => true)).toBe(false);
-    await Promise.all(writes);
+    const files = await readdir(directory);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toStartWith(`telemetry.${process.pid}.${runtimeIdentity.generation}.`);
+    expect(files[0]).toEndWith(".jsonl");
     expect(sink.health().status).toBe("healthy");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -56,10 +54,9 @@ test("an oversized telemetry record degrades health without allocating queued re
     const sink = new TelemetryTraceSink(directory, { maxFileBytes: 128 });
     await expect(
       sink.record({
-        traceId: "oversized-record",
+        traceId: `oversized-record-${"x".repeat(100)}`,
         kind: "turn",
         terminalState: "pending",
-        metadata: { diagnostic: "x".repeat(400) },
       }),
     ).rejects.toThrow("file budget");
     expect(sink.health()).toMatchObject({

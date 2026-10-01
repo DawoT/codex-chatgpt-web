@@ -39,6 +39,7 @@ export function chatGptContextCompactionRequiredError(reason?: string): ChatGptW
 // Only the compaction owner may signal this after the broker accepts its one-shot handoff.
 // It cancels browser observation, while the accepted summary remains the native result.
 export class ChatGptCompactionHandoffAccepted extends DOMException {
+  readonly diagnosticReason = "handoff_accepted";
   constructor() {
     super("Structured compaction handoff accepted", "AbortError");
   }

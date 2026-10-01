@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
+import {
+  attachDiagnosticError,
+  type DiagnosticErrorV1,
+  deserializeDiagnosticError,
+  parseDiagnosticError,
+  serializeDiagnosticError,
+} from "../../diagnostics/errors";
 import type { RuntimeIdentity } from "../../runtime-identity";
+import { ChatGptWebAdapterError } from "./adapter-error";
 import type { ChatGptWebCapabilities } from "./model";
 import type { CompiledChatGptWebPrompt } from "./prompt";
 import { type ChatGptLunaCheckpoint, parseChatGptLunaCheckpoint } from "./rolling-checkpoint";
@@ -76,7 +84,7 @@ export type InputMessage =
   | { type: "completion_fence_begin_ack"; id: string; requestId: number; revision: number | null }
   | { type: "completion_fence_commit_ack"; id: string; requestId: number; committed: boolean }
   | { type: "progress"; id: string; snapshot: ChatGptExternalTurnProgressSnapshot }
-  | { type: "abort"; id: string; reason?: "compaction_handoff_accepted" }
+  | { type: "abort"; id: string; reason?: "compaction_handoff_accepted"; diagnostic?: DiagnosticErrorV1 }
   | { type: "release_context_pressure"; conversationKey: string }
   | { type: "shutdown" };
 
@@ -107,6 +115,7 @@ export type HelperMessage =
       errorType?: string;
       code?: string;
       retryable?: boolean;
+      diagnostic?: DiagnosticErrorV1;
     };
 
 export function parseHelperMessage(line: string): HelperMessage {
@@ -148,12 +157,28 @@ export function parseHelperMessage(line: string): HelperMessage {
       ) {
         throw new Error("Launcher browser helper identity is invalid");
       }
+      if (
+        (value.artifactSetSha256 !== undefined &&
+          value.artifactSetSha256 !== null &&
+          (typeof value.artifactSetSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.artifactSetSha256))) ||
+        (value.artifactVerification !== undefined &&
+          (typeof value.artifactVerification !== "string" ||
+            !["paired_manifest_verified", "entrypoint_only", "manifest_mismatch", "unavailable"].includes(
+              value.artifactVerification,
+            ))) ||
+        (value.artifactVerification === "paired_manifest_verified" && typeof value.artifactSetSha256 !== "string")
+      )
+        throw new Error("Launcher browser helper artifact pairing identity is invalid");
       identity = {
         protocolVersion: message.protocolVersion as number,
         generation: value.generation,
         pid: value.pid as number,
         buildCommit: value.buildCommit,
         artifactSha256: value.artifactSha256,
+        ...(value.artifactSetSha256 === undefined ? {} : { artifactSetSha256: value.artifactSetSha256 }),
+        ...(value.artifactVerification === undefined
+          ? {}
+          : { artifactVerification: value.artifactVerification as RuntimeIdentity["artifactVerification"] }),
       };
     }
     return {
@@ -317,6 +342,7 @@ export function parseHelperMessage(line: string): HelperMessage {
       type: "error",
       id: message.id,
       message: errorMessage,
+      ...(message.diagnostic === undefined ? {} : { diagnostic: parseDiagnosticError(message.diagnostic) }),
       ...(errorName !== undefined ? { name: errorName as string } : {}),
       ...(structured
         ? {
@@ -335,6 +361,7 @@ export function parseHelperMessage(line: string): HelperMessage {
 export type HelperOutputMessage = HelperMessage | { type: "result"; id: string; value: unknown };
 
 export class HelperInputProtocolError extends Error {
+  readonly code = "helper_protocol_failure";
   constructor(
     message: string,
     readonly id = "protocol",
@@ -389,6 +416,15 @@ export function parseHelperInputMessage(line: string): InputMessage {
   const positiveInteger = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
   const revision = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
   switch (message.type) {
+    case "abort":
+      if (message.reason !== undefined && message.reason !== "compaction_handoff_accepted")
+        fail("Browser helper abort reason is invalid");
+      return {
+        type: "abort",
+        id,
+        ...(message.reason === undefined ? {} : { reason: "compaction_handoff_accepted" }),
+        ...(message.diagnostic === undefined ? {} : { diagnostic: parseDiagnosticError(message.diagnostic) }),
+      };
     case "surface_ownership_ack":
       if (
         (message.phase !== "leased" && message.phase !== "released") ||
@@ -429,4 +465,51 @@ export function parseHelperInputMessage(line: string): InputMessage {
       break;
   }
   return message as InputMessage;
+}
+
+/** Optional internal diagnostics extend existing helper errors; public adapter status/code fields retain their meaning. */
+export function createHelperErrorMessage(id: string, error: unknown): Extract<HelperMessage, { type: "error" }> {
+  const diagnostic = serializeDiagnosticError(error);
+  const root = diagnostic.nodes[0];
+  return {
+    type: "error",
+    id,
+    name: root.name,
+    message: root.message,
+    diagnostic,
+    ...(error instanceof ChatGptWebAdapterError
+      ? {
+          status: error.status,
+          errorType: [
+            "server_error",
+            "invalid_request_error",
+            "client_closed_request",
+            "rate_limit_error",
+            "authentication_error",
+          ].includes(error.errorType)
+            ? error.errorType
+            : "server_error",
+          code: root.code,
+          retryable: error.retryable,
+        }
+      : {}),
+  };
+}
+
+export function helperMessageError(message: Extract<HelperMessage, { type: "error" }>): Error {
+  const error =
+    message.status !== undefined
+      ? new ChatGptWebAdapterError(message.message, {
+          status: message.status,
+          errorType: message.errorType!,
+          code: message.code!,
+          retryable: message.retryable!,
+        })
+      : message.diagnostic !== undefined
+        ? deserializeDiagnosticError(message.diagnostic)
+        : message.name === "AbortError"
+          ? new DOMException(message.message, "AbortError")
+          : new Error(message.message);
+  if (message.diagnostic) attachDiagnosticError(error, message.diagnostic);
+  return error;
 }

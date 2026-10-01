@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright-core";
 import { loginVerificationMarkerPath } from "../../../browser-login";
+import { DiagnosticSourceError, emitDiagnosticEvent } from "../../../diagnostics";
 import { connectLauncherBrowserHost } from "../../../launcher-browser-host";
 import type { ResolvedBrowserConfig } from "./config";
 import { ChatGptPersistentBrowserStateError } from "./personalization";
@@ -41,7 +42,13 @@ export class BrowserSession {
     chatGptSuspensionClock.start();
     const startedAt = performance.now();
     const suspendedAtStart = suspensionClock.suspendedMs();
-    console.info(`[chatgpt-web] browser turn ${traceId} stage=${stage} started`);
+    emitDiagnosticEvent({
+      producer: "browser",
+      event: "stage_started",
+      phase: "started",
+      correlation: { turnId: traceId, traceId },
+      fields: { stage },
+    });
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stageTimedOut = false;
@@ -58,16 +65,22 @@ export class BrowserSession {
             return;
           }
           stageTimedOut = true;
-          controller.abort();
-          rejectTimeout(new Error(`ChatGPT browser stage timed out: ${stage}`));
+          const reason = new DiagnosticSourceError("stage_timeout");
+          reason.message = `ChatGPT browser stage timed out: ${stage}`;
+          controller.abort(reason);
+          rejectTimeout(reason);
         };
         timer = setTimeout(fireOrRearm, timeoutMs);
       });
       actionPromise = action(controller.signal);
       const value = await Promise.race([actionPromise, timeout]);
-      console.info(
-        `[chatgpt-web] browser turn ${traceId} stage=${stage} completed durationMs=${Math.round(performance.now() - startedAt)}`,
-      );
+      emitDiagnosticEvent({
+        producer: "browser",
+        event: "stage_completed",
+        phase: "reconciled",
+        correlation: { turnId: traceId, traceId },
+        fields: { stage, durationMs: performance.now() - startedAt },
+      });
       return value;
     } catch (error) {
       let surfacedError = error;
@@ -80,8 +93,16 @@ export class BrowserSession {
           }
         }
       }
-      console.error(
-        `[chatgpt-web] browser turn ${traceId} stage=${stage} failed durationMs=${Math.round(performance.now() - startedAt)}: ${surfacedError instanceof Error ? surfacedError.message : String(surfacedError)}`,
+      emitDiagnosticEvent(
+        {
+          producer: "browser",
+          event: "stage_failed",
+          phase: "failed",
+          correlation: { turnId: traceId, traceId },
+          fields: { stage, durationMs: performance.now() - startedAt },
+          error: surfacedError,
+        },
+        { write: (event) => console.error(JSON.stringify(event)) },
       );
       throw surfacedError;
     } finally {

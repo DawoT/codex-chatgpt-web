@@ -37,3 +37,26 @@ test("transport diagnostics record ready, error and close without raw error text
   expect(lines[0]).toContain('"generation":');
   expect(lines.join("\n")).not.toContain("secret request body");
 });
+
+test("transport errors preserve typed reasons and callback delivery when diagnostic output fails", () => {
+  const events: Array<Record<string, unknown>> = [];
+  let observed: Error | undefined;
+  const transport = {
+    onerror(error: Error) {
+      observed = error;
+    },
+  };
+  const logger = spyOn(console, "error").mockImplementation(() => {
+    throw new Error("logger failure");
+  });
+  const error = Object.assign(new Error("secret request"), { code: "ECONNRESET" });
+  try {
+    attachMcpTransportDiagnostics(transport, (event) => events.push(event));
+    expect(() => transport.onerror(error)).not.toThrow();
+    expect(observed).toBe(error);
+    expect(events[0]).toMatchObject({ reason: "transport_reset", diagnostic: { version: 2, phase: "failed" } });
+    expect(JSON.stringify(events)).not.toContain("secret request");
+  } finally {
+    logger.mockRestore();
+  }
+});

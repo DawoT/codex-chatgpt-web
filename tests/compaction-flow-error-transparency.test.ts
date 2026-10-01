@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { executeCompactionFlow } from "../src/adapters/chatgpt-web/adapter/compaction-flow";
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
+import { serializeDiagnosticError, snapshotDiagnosticEvents } from "../src/diagnostics";
 import type { AdapterEvent, CodexParsedRequest } from "../src/types";
 
 function createMockCompactionRequest(suffix = "1"): CodexParsedRequest {
@@ -95,12 +96,14 @@ test("executeCompactionFlow preserves exact message and code on ChatGptBrowserOb
   }
 });
 
-test("executeCompactionFlow masks arbitrary untyped error details for clients and logs them server-side", async () => {
+test("executeCompactionFlow masks arbitrary details and preserves a correlated cause without exposing the raw error", async () => {
   const root = mkdtempSync(join(tmpdir(), "cgw-compaction-transparency-untyped-"));
   const parsed = createMockCompactionRequest("2");
   const events: AdapterEvent[] = [];
   const rawError = "Chromium renderer disconnect: transport closed";
+  const sourceError = new Error(rawError);
   const errorLogs: string[] = [];
+  const infoSpy = spyOn(console, "info").mockImplementation((line) => errorLogs.push(String(line)));
   const errorSpy = spyOn(console, "error").mockImplementation((...parts) => {
     errorLogs.push(parts.map(String).join(" "));
   });
@@ -109,7 +112,7 @@ test("executeCompactionFlow masks arbitrary untyped error details for clients an
     await executeCompactionFlow({
       worker: {
         run: async () => {
-          throw new Error(rawError);
+          throw sourceError;
         },
       } as any,
       parsed,
@@ -141,7 +144,7 @@ test("executeCompactionFlow masks arbitrary untyped error details for clients an
       environment: undefined,
       startRuntime: () => {
         return {
-          browser: Promise.reject(new Error(rawError)),
+          browser: Promise.reject(sourceError),
           physicalSettlement: Promise.resolve(),
           cancel() {},
         } as any;
@@ -150,14 +153,20 @@ test("executeCompactionFlow masks arbitrary untyped error details for clients an
 
     const errorEvent = events.find((e) => e.type === "error") as any;
     expect(errorEvent).toBeDefined();
-    // Arbitrary error text can carry workspace secrets: clients get the masked fallback,
-    // while the raw cause stays available in the server-side log for operators.
+    // Cause identity remains available while arbitrary text stays out of both channels.
     expect(errorEvent.message).toBe("ChatGPT did not complete the context handoff. Retry the task.");
     expect(errorEvent.code).toBe("compaction_handoff_failed");
     expect(JSON.stringify(events)).not.toContain(rawError);
-    expect(errorLogs.join("\n")).toContain(rawError);
+    expect(errorLogs.join("\n")).not.toContain(rawError);
+    const failureLine = errorLogs.find(
+      (line) => line.startsWith("[chatgpt-web] compaction_event ") && line.includes('"phase":"failed"'),
+    )!;
+    const traceId = JSON.parse(failureLine.slice("[chatgpt-web] compaction_event ".length)).traceId;
+    const timeline = snapshotDiagnosticEvents(traceId).events;
+    expect(timeline.some((event) => event.error?.errorId === serializeDiagnosticError(sourceError).errorId)).toBeTrue();
   } finally {
     errorSpy.mockRestore();
+    infoSpy.mockRestore();
     rmSync(root, { recursive: true, force: true });
   }
 });

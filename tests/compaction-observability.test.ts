@@ -4,6 +4,7 @@ import {
   checkpointStructuralDiagnostic,
   logCompactionEvent,
 } from "../src/adapters/chatgpt-web/compaction-observability";
+import { DiagnosticSourceError, snapshotDiagnosticEvents } from "../src/diagnostics";
 
 test("canary events are structured, correlated, build identified and bounded", () => {
   const lines: string[] = [];
@@ -115,4 +116,21 @@ test("checkpoint field diagnosis handles collapsed single-line state blocks with
   expect(diagnostic.recognizedFields).toContain("blockers_or_test_failures");
   expect(diagnostic.recognizedFields).toContain("pending_obligations");
   expect(diagnostic.recognizedFields).toContain("next_actions");
+});
+
+test("checkpoint failure enters the shared diagnostic timeline with its causal chain", () => {
+  const source = new DiagnosticSourceError("context_checkpoint_persistence_failed", {
+    cause: Object.assign(new Error("private task pathname"), { code: "EACCES", syscall: "open" }),
+  });
+  logCompactionEvent({ traceId: "aabbcc123456", phase: "failed", outcome: "failed", route: "fallback", error: source });
+  const events = snapshotDiagnosticEvents("aabbcc123456").events;
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    event: "compaction_checkpoint",
+    phase: "failed",
+    fields: { checkpointPhase: "failed", route: "fallback" },
+  });
+  expect(events[0]!.error!.nodes.map((node) => node.code)).toContain("context_checkpoint_persistence_failed");
+  expect(events[0]!.error!.nodes.some((node) => node.nativeCode === "EACCES")).toBeTrue();
+  expect(JSON.stringify(events)).not.toContain("private task pathname");
 });

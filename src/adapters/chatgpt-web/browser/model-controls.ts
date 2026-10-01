@@ -4,6 +4,7 @@ import {
   CHATGPT_EFFORT_CONTROL_SELECTOR,
   readChatGptEffortSnapshot,
 } from "../../../chatgpt-session";
+import { type DiagnosticCode, type DiagnosticFacts, DiagnosticSourceError } from "../../../diagnostics/errors";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { type ChatGptUsageModel, readChatGptUsageModel } from "../limits";
 import { type ChatGptWebCapabilities, type ChatGptWebModelMode, resolveChatGptWebModelMode } from "../model";
@@ -28,11 +29,25 @@ export type SelectedChatGptWebModelMode = ChatGptWebModelMode & {
 const CHATGPT_MODEL_CONTROL_UNAVAILABLE_MESSAGE =
   "ChatGPT model controls are unavailable. Reload ChatGPT and retry the task.";
 
-function chatGptModelControlUnavailableError(diagnostic: string): Error {
-  return new Error(CHATGPT_MODEL_CONTROL_UNAVAILABLE_MESSAGE, { cause: new Error(diagnostic) });
+function chatGptModelControlUnavailableError(
+  diagnostic: DiagnosticCode,
+  cause?: unknown,
+  facts?: DiagnosticFacts,
+): Error {
+  return Object.assign(
+    new Error(CHATGPT_MODEL_CONTROL_UNAVAILABLE_MESSAGE, {
+      cause: new DiagnosticSourceError(diagnostic, { cause, facts }),
+    }),
+    { code: "model_controls_unavailable" },
+  );
 }
 
-function chatGptModelControlUnavailableAdapterError(diagnostic: string, detail?: string): ChatGptWebAdapterError {
+function chatGptModelControlUnavailableAdapterError(
+  diagnostic: DiagnosticCode,
+  detail?: string,
+  cause?: unknown,
+  facts?: DiagnosticFacts,
+): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
     detail
       ? `${CHATGPT_MODEL_CONTROL_UNAVAILABLE_MESSAGE} ChatGPT: ${detail}`
@@ -42,7 +57,7 @@ function chatGptModelControlUnavailableAdapterError(diagnostic: string, detail?:
       errorType: "server_error",
       code: "upstream_server_error",
       retryable: false,
-      cause: new Error(diagnostic),
+      cause: new DiagnosticSourceError(diagnostic, { cause, facts }),
     },
   );
 }
@@ -73,9 +88,7 @@ export class ChatGptModelControls {
       await throwIfChatGptRateLimitDialog(page);
       const visibleControls = composerForm.locator(CHATGPT_EFFORT_CONTROL_SELECTOR).filter({ visible: true });
       if ((await visibleControls.count()) > 0) {
-        throw chatGptModelControlUnavailableError(
-          "ChatGPT Luna was selected from a Luna-only capability probe, but the account now exposes a model selector; rerun setup",
-        );
+        throw chatGptModelControlUnavailableError("model_capabilities_changed");
       }
       // Enable Think during prompt attachment, after fresh connector selection. Ordinary Luna
       // still clears a previous Think selection here; retained Think is checked on every attach.
@@ -102,9 +115,7 @@ export class ChatGptModelControls {
       if (error instanceof ChatGptWebAdapterError) throw error;
       await throwIfChatGptRateLimitDialog(page);
       await throwIfChatGptSessionFailureAlert(page);
-      throw chatGptModelControlUnavailableError(
-        "ChatGPT rendered the composer but its model/effort control did not become ready",
-      );
+      throw chatGptModelControlUnavailableError("model_control_not_ready", error);
     } finally {
       effortWaitAbort.abort();
     }
@@ -144,26 +155,23 @@ export class ChatGptModelControls {
       if (error instanceof ChatGptWebAdapterError) throw error;
       await throwIfChatGptRateLimitDialog(page);
       await throwIfChatGptSessionFailureAlert(page);
-      throw chatGptModelControlUnavailableAdapterError(
-        `ChatGPT effort slider did not become ready for item index ${uiEffortIndex}`,
-      );
+      throw chatGptModelControlUnavailableAdapterError("model_slider_not_ready", undefined, error);
     } finally {
       waitAbort.abort();
     }
     const selectionUrl = page.url();
     const readAvailableEffort = async (container: Locator, menu: Locator) => {
       const state = await readChatGptEffortSnapshot(container).catch((error) => {
-        throw chatGptModelControlUnavailableAdapterError(String(error));
+        throw chatGptModelControlUnavailableAdapterError("model_snapshot_failed", undefined, error);
       });
       if (uiEffortIndex > state.max - state.min) {
         const detail = uiEffortIndex === 4 ? await chatGptUnavailableProDetail(menu) : undefined;
-        throw chatGptModelControlUnavailableAdapterError(
-          `ChatGPT effort slider does not expose item index ${uiEffortIndex} (min=${state.min}; max=${state.max})` +
-            (uiEffortIndex === 4
-              ? " ChatGPT may have temporarily hidden Pro because you reached its usage limit."
-              : ""),
-          detail,
-        );
+        throw chatGptModelControlUnavailableAdapterError("model_effort_unavailable", detail, undefined, {
+          min: state.min,
+          max: state.max,
+          effortIndex: uiEffortIndex,
+          observedValue: state.value,
+        });
       }
       if (!state.available[uiEffortIndex]) {
         throw new ChatGptWebAdapterError(
@@ -193,7 +201,12 @@ export class ChatGptModelControls {
         await waitForSliderValue(effortSlider, expectedValue, 1_000).catch(() => {});
         sliderState = await readAvailableEffort(sliderContainer, activation.menu);
         if (sliderState.min !== initialMin) {
-          throw chatGptModelControlUnavailableError("ChatGPT changed its effort range origin during selection");
+          throw chatGptModelControlUnavailableError("model_range_changed", undefined, {
+            expectedMin: initialMin,
+            min: sliderState.min,
+            max: sliderState.max,
+            observedValue: sliderState.value,
+          });
         }
         if (sliderState.value === expectedValue) {
           stepSucceeded = true;
@@ -201,18 +214,24 @@ export class ChatGptModelControls {
         }
       }
       if (!stepSucceeded) {
-        throw chatGptModelControlUnavailableError(
-          `ChatGPT effort slider did not move exactly one step with ${key}` +
-            ` (before=${expectedValue - direction}; after=${sliderState.value})`,
-        );
+        throw chatGptModelControlUnavailableError("model_step_failed", undefined, {
+          expectedValue,
+          observedValue: sliderState.value,
+          min: sliderState.min,
+          max: sliderState.max,
+        });
       }
     }
     await waitForChatGptDomSettle(page, { horizonMs: 250 });
     const selectedState = await readAvailableEffort(sliderContainer, activation.menu);
     if (selectedState.min !== initialMin || selectedState.value !== targetValue) {
-      throw chatGptModelControlUnavailableAdapterError(
-        "ChatGPT changed its effort range or selection before the menu closed",
-      );
+      throw chatGptModelControlUnavailableAdapterError("model_selection_changed", undefined, undefined, {
+        expectedValue: targetValue,
+        observedValue: selectedState.value,
+        expectedMin: initialMin,
+        min: selectedState.min,
+        max: selectedState.max,
+      });
     }
     await captureDiagnostic?.("effort-selected");
     await page.keyboard.press("Escape");
@@ -230,9 +249,13 @@ export class ChatGptModelControls {
     await confirmation.slider.waitFor({ state: "attached", timeout: 5_000 });
     const confirmedState = await readAvailableEffort(confirmation.sliderContainer, confirmation.menu);
     if (confirmedState.min !== initialMin || confirmedState.value !== targetValue) {
-      throw chatGptModelControlUnavailableAdapterError(
-        "ChatGPT did not persist the requested effort after closing its menu",
-      );
+      throw chatGptModelControlUnavailableAdapterError("model_selection_not_persisted", undefined, undefined, {
+        expectedValue: targetValue,
+        observedValue: confirmedState.value,
+        expectedMin: initialMin,
+        min: confirmedState.min,
+        max: confirmedState.max,
+      });
     }
     if (modelFamily) await assertChatGptModelFamily(confirmation, modelFamily, mode.effort, uiEffortIndex, 1_000);
     // A bare 'Pro' trigger does not identify the family selected by ChatGPT's Latest option.
@@ -258,9 +281,7 @@ export class ChatGptModelControls {
       .locator(CHATGPT_EFFORT_CONTROL_SELECTOR)
       .filter({ visible: true });
     if (page.url() !== mode.selection.url || !mode.selection.label || (await controls.count()) !== 1) {
-      throw chatGptModelControlUnavailableAdapterError(
-        "ChatGPT changed the selected model's browser surface before submission",
-      );
+      throw chatGptModelControlUnavailableAdapterError("model_surface_changed");
     }
     const control = controls.first();
     await waitForElementAttribute(control, "aria-expanded", "false", 2_000).catch(() => {});
@@ -272,9 +293,7 @@ export class ChatGptModelControls {
       (await control.getAttribute("aria-expanded")) !== "false" ||
       !(await composer.isEditable())
     ) {
-      throw chatGptModelControlUnavailableAdapterError(
-        "ChatGPT did not retain the selected effort in its ready composer; the message was not submitted",
-      );
+      throw chatGptModelControlUnavailableAdapterError("model_label_changed");
     }
     if (verifyFamily && mode.modelFamily && mode.uiEffortIndex !== null) {
       const menu = await activateChatGptEffortMenu(page, control);
@@ -290,9 +309,7 @@ export class ChatGptModelControls {
         (await control.getAttribute("aria-expanded")) !== "false" ||
         !(await composer.isEditable())
       ) {
-        throw chatGptModelControlUnavailableAdapterError(
-          "ChatGPT changed the model while checking its family before submission",
-        );
+        throw chatGptModelControlUnavailableAdapterError("model_surface_changed");
       }
     }
   }

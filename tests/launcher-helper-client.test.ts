@@ -173,7 +173,9 @@ test("daemon streams browser lifecycle through the real helper process", async (
           }),
         ],
         multipart: {
-          parts: ["part one", "part two", "part three", "part four", "part five", "part six"],
+          parts: Array.from({ length: 6 }, (_, index) =>
+            JSON.stringify({ version: 1, part_index: index + 1, total_parts: 6, records: [] }),
+          ),
           commit: "inspect",
         },
         release: () => {
@@ -317,7 +319,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
       await transport.send({ type: "future-frame", id: "unsupported-contract-frame" });
       expect(await unsupported).toMatchObject({
         type: "error",
-        message: expect.stringContaining("unsupported message type"),
+        message: "Browser helper protocol failed",
       });
       // Invalid liveness is ignored by the real helper while the accepted turn stays active.
       await transport.send({ type: "progress", id: operationId, snapshot: { revision: -1 } });
@@ -510,10 +512,10 @@ test("real helper retires accepted compaction and aborts pending browser work on
         }),
       ).rejects.toThrow(
         traceId === "compaction_real_failure"
-          ? "independent browser failure"
+          ? "Operation failed"
           : traceId === "compaction_accepted"
             ? "Structured compaction handoff accepted"
-            : "ChatGPT web turn aborted",
+            : "Operation aborted for an unknown reason",
       );
       // Logical outcome is observed only after the real helper's launcher retirement handshake.
       expect(ended.get(traceId)?.status).toBe(status);
@@ -568,18 +570,8 @@ test("real helper retires accepted compaction and aborts pending browser work on
     expect(client.getHelperProtocolStatus()).toBe("disconnected");
     expect(releaseCount).toBe(1);
     await client.close();
-    expect(
-      logs.some((line) => line.includes("compaction_accepted ended after accepted structured compaction handoff")),
-    ).toBeTrue();
-    expect(logs.some((line) => line.includes("compaction_accepted failed:"))).toBeFalse();
-    for (const traceId of [
-      "compaction_cancelled",
-      "compaction_same_text",
-      "compaction_deadline",
-      "compaction_real_failure",
-    ]) {
-      expect(logs.some((line) => line.includes(`${traceId} failed:`))).toBeTrue();
-    }
+    expect(logs.some((line) => line.includes('"version":2'))).toBeTrue();
+    expect(logs.join("\n")).not.toContain("independent browser failure");
   } finally {
     await client.close();
     logger.mockRestore();
@@ -659,7 +651,12 @@ test("a helper without multipart submission lifecycle never receives multipart p
       prepare: async () => ({
         text: "commit",
         images: [],
-        multipart: { parts: ["part one", "part two"], commit: "commit" },
+        multipart: {
+          parts: Array.from({ length: 2 }, (_, index) =>
+            JSON.stringify({ version: 1, part_index: index + 1, total_parts: 2, records: [] }),
+          ),
+          commit: "commit",
+        },
         release() {
           released = true;
         },
@@ -1122,3 +1119,65 @@ test.each([
     await client.close();
   }
 });
+
+test("helper readiness rejects manifest mismatch and cross-artifact pairing", async () => {
+  const { runtimeIdentity } = await import("../src/runtime-identity");
+  const root = mkdtempSync(join(tmpdir(), "helper-pairing-contract-"));
+  roots.push(root);
+  const script = join(root, "paired.cjs");
+  const pairedRuntime = runtimeIdentity as typeof runtimeIdentity & {
+    artifactSetSha256?: string | null;
+    artifactVerification?: string;
+  };
+  const oldHash = pairedRuntime.artifactSetSha256;
+  const oldVerification = pairedRuntime.artifactVerification;
+  pairedRuntime.artifactSetSha256 = "a".repeat(64);
+  pairedRuntime.artifactVerification = "paired_manifest_verified";
+  try {
+    for (const [verification, artifactSetSha256] of [
+      ["manifest_mismatch", "a".repeat(64)],
+      ["paired_manifest_verified", "b".repeat(64)],
+      ["entrypoint_only", null],
+    ] as const) {
+      writeFileSync(
+        script,
+        `
+const { createHash } = require("node:crypto");
+const { readFileSync } = require("node:fs");
+process.stdout.write(JSON.stringify({
+  type: "ready",
+  protocolVersion: 2,
+  identity: {
+    protocolVersion: 2,
+    generation: "12345678-1234-1234-1234-123456789abc",
+    pid: process.pid,
+    buildCommit: ${JSON.stringify(runtimeIdentity.buildCommit)},
+    artifactSha256: createHash("sha256").update(readFileSync(__filename)).digest("hex"),
+    artifactSetSha256: ${JSON.stringify(artifactSetSha256)},
+    artifactVerification: ${JSON.stringify(verification)},
+  },
+  features: ["session-operation-id-v2"],
+}) + "\\n");
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.type === "run") {
+    process.stdout.write(JSON.stringify({ type: "result", id: message.id, text: "UNSAFE_DISPATCH" }) + "\\n");
+  }
+  if (message.type === "shutdown") process.exit(0);
+});
+`,
+      );
+      const client = new LauncherBrowserHelperClient(helperContractConfig(root, script));
+      try {
+        await expect(client.run(makeLauncherTurn("pairing_contract"))).rejects.toThrow("artifact");
+      } finally {
+        await client.close();
+      }
+    }
+  } finally {
+    if (oldHash === undefined) delete pairedRuntime.artifactSetSha256;
+    else pairedRuntime.artifactSetSha256 = oldHash;
+    if (oldVerification === undefined) delete pairedRuntime.artifactVerification;
+    else pairedRuntime.artifactVerification = oldVerification;
+  }
+}, 10000);

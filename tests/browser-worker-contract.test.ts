@@ -2454,7 +2454,7 @@ for (const captureScreenshots of [false, true])
       ]);
       expect(checkpoints.at(-1)).toMatchObject({
         traceId: "verify_contract_trace",
-        error: "connector proof failed",
+        error: { version: 1, nodes: [{ code: "operation_failed", message: "Operation failed" }] },
         state: { composer: { visibleCount: 1, textChars: [6] } },
       });
       expect(JSON.stringify(checkpoints)).not.toContain("private");

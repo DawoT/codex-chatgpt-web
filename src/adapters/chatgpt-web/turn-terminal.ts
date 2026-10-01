@@ -1,3 +1,4 @@
+import { diagnosticCode } from "../../diagnostics/errors";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import { ChatGptBrowserObservationTimeoutError } from "./browser/suspension-clock";
 
@@ -15,6 +16,14 @@ export function classifyTurnTermination(error: unknown, signal?: AbortSignal): T
     return "handoff_accepted";
   }
   for (const candidate of [reason, error]) {
+    const code = diagnosticCode(candidate);
+    if (code === "user_cancelled" || code === "client_cancelled") return "user_cancelled";
+    if (code === "handoff_accepted") return "handoff_accepted";
+    if (code === "stage_timeout" || code === "transport_timeout") return "deadline";
+    if (
+      ["transport_closed", "transport_reset", "transport_pipe", "transport_refused", "transport_error"].includes(code)
+    )
+      return "transport";
     if (candidate instanceof ChatGptBrowserObservationTimeoutError) return "deadline";
     if (candidate instanceof ChatGptWebAdapterError) {
       if (/(?:timeout|deadline)/.test(candidate.code)) return "deadline";
@@ -23,6 +32,5 @@ export function classifyTurnTermination(error: unknown, signal?: AbortSignal): T
     }
     if (candidate instanceof Error && candidate.name === "TimeoutError") return "deadline";
   }
-  if (reason instanceof DOMException && reason.name === "AbortError") return "user_cancelled";
   return "internal_failure";
 }

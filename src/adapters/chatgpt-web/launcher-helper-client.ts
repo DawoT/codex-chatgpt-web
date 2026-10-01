@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { serializeDiagnosticError } from "../../diagnostics/errors";
 import { notifyLauncherTurn, readLauncherBrowserHostDescriptor } from "../../launcher-browser-host";
 import {
   RUNTIME_PROTOCOL_VERSION,
@@ -12,8 +13,9 @@ import {
 } from "../../runtime-identity";
 import { ChatGptCompactionHandoffAccepted, ChatGptWebAdapterError } from "./adapter-error";
 import type { BrowserTurn, ResolvedBrowserConfig } from "./browser-worker";
-import { type HelperMessage, type InputMessage, parseHelperMessage } from "./helper-protocol";
+import { type HelperMessage, helperMessageError, type InputMessage, parseHelperMessage } from "./helper-protocol";
 import type { CompiledChatGptWebPrompt } from "./prompt";
+import { multipartTransportManifest } from "./prompt/record-fragments";
 
 interface PendingTurn {
   turn: BrowserTurn;
@@ -123,6 +125,9 @@ export class LauncherBrowserHelperClient {
           void this.send({
             type: "abort",
             id: operationId,
+            ...(this.helperFeatures.has("typed-abort-reason-v1")
+              ? { diagnostic: serializeDiagnosticError(turn.abortSignal?.reason) }
+              : {}),
             ...(turn.abortSignal?.reason instanceof ChatGptCompactionHandoffAccepted
               ? { reason: "compaction_handoff_accepted" }
               : {}),
@@ -338,6 +343,26 @@ export class LauncherBrowserHelperClient {
         this.handleExit(
           child,
           new Error(`Launcher browser helper build does not match daemon build ${runtimeIdentity.buildCommit}`),
+        );
+        void this.terminateChild(child, 0).catch(() => {});
+        return;
+      }
+      const daemonArtifact = runtimeIdentity as RuntimeIdentity & {
+        artifactSetSha256?: string | null;
+        artifactVerification?: string;
+      };
+      const helperArtifact = message.identity as
+        | (RuntimeIdentity & { artifactSetSha256?: string | null; artifactVerification?: string })
+        | undefined;
+      if (
+        daemonArtifact.artifactVerification === "manifest_mismatch" ||
+        helperArtifact?.artifactVerification === "manifest_mismatch" ||
+        ((daemonArtifact.artifactSetSha256 != null || helperArtifact?.artifactSetSha256 != null) &&
+          daemonArtifact.artifactSetSha256 !== helperArtifact?.artifactSetSha256)
+      ) {
+        this.handleExit(
+          child,
+          new Error("Launcher browser helper artifact set disagrees with daemon artifact verification"),
         );
         void this.terminateChild(child, 0).catch(() => {});
         return;
@@ -560,6 +585,17 @@ export class LauncherBrowserHelperClient {
               return;
             }
             pending.prepared = prepared;
+            const transport = prepared.multipart ? multipartTransportManifest(prepared.multipart.parts) : undefined;
+            for (const required of transport?.requiredHelperCapabilities ?? []) {
+              if (!this.helperFeatures.has(required)) {
+                throw new ChatGptWebAdapterError("Browser helper cannot decode the selected context transport", {
+                  status: 409,
+                  errorType: "invalid_request_error",
+                  code: "helper_protocol_incompatible",
+                  retryable: false,
+                });
+              }
+            }
             if (prepared.multipart && !this.helperFeatures.has("multipart-submission-lifecycle")) {
               throw new ChatGptWebAdapterError(
                 "Launcher browser helper lacks the multipart submission lifecycle; update or restart the launcher before retrying",
@@ -614,17 +650,7 @@ export class LauncherBrowserHelperClient {
       if (pending.localFailure) pending.reject(pending.localFailure);
       else pending.resolve(message.text);
     } else if (message.type === "error") {
-      const error =
-        message.status !== undefined
-          ? new ChatGptWebAdapterError(message.message, {
-              status: message.status,
-              errorType: message.errorType!,
-              code: message.code!,
-              retryable: message.retryable!,
-            })
-          : message.name === "AbortError"
-            ? new DOMException(message.message, "AbortError")
-            : new Error(message.message);
+      const error = helperMessageError(message);
       this.finish(message.id);
       pending.reject(pending.localFailure ?? error);
     }
@@ -633,7 +659,11 @@ export class LauncherBrowserHelperClient {
   private abortWithLocalFailure(id: string, error: Error, pending: PendingTurn): void {
     if (this.pending.get(id) !== pending || pending.localFailure) return;
     pending.localFailure = error;
-    void this.send({ type: "abort", id }).catch((sendError) => {
+    void this.send({
+      type: "abort",
+      id,
+      ...(this.helperFeatures.has("typed-abort-reason-v1") ? { diagnostic: serializeDiagnosticError(error) } : {}),
+    }).catch((sendError) => {
       if (this.pending.get(id) !== pending) return;
       this.finishWithError(
         id,

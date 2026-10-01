@@ -1,3 +1,4 @@
+import { emitDiagnosticEvent } from "../../diagnostics";
 import {
   extractStructuredCompactionHandoff,
   inspectCompactionStateFormat,
@@ -72,6 +73,7 @@ export interface CompactionEvent {
   issueCodes?: string[];
   localPersisted?: boolean;
   requirementCount?: number;
+  error?: unknown;
 }
 
 const ISSUE_PATTERNS: Array<[RegExp, string]> = [
@@ -115,6 +117,27 @@ export function logCompactionEvent(event: CompactionEvent): void {
   const handoffTraceId =
     event.handoffTraceId && /^[a-f0-9]{12}$/.test(event.handoffTraceId) ? event.handoffTraceId : undefined;
   const reasonCode = event.reasonCode && /^[a-z][a-z0-9_]{0,79}$/.test(event.reasonCode) ? event.reasonCode : undefined;
+  emitDiagnosticEvent(
+    {
+      producer: "main",
+      event: "compaction_checkpoint",
+      phase: event.phase === "failed" ? "failed" : event.phase === "delivered" ? "delivered" : "observed",
+      correlation: { traceId, turnId: traceId },
+      fields: {
+        checkpointPhase: event.phase,
+        route: event.route,
+        outcome: event.outcome,
+        reason: reasonCode,
+        attempt: event.attempt,
+        elapsedMs: event.elapsedMs,
+        issueCount: event.issueCodes?.length,
+        localPersisted: event.localPersisted,
+        requirementCount: event.requirementCount,
+      },
+      error: event.error,
+    },
+    { write: () => undefined },
+  );
   console.info(
     `[chatgpt-web] compaction_event ${JSON.stringify({
       schemaVersion: 1,

@@ -21,6 +21,7 @@ import type { TurnBroker } from "../adapters/chatgpt-web/turn-broker";
 import { chatGptTurnSessions } from "../adapters/chatgpt-web/turn-execution";
 import { formatErrorResponse } from "../bridge";
 import type { AppConfig } from "../config";
+import { diagnosticHealth } from "../diagnostics";
 import { readJsonRequestBody } from "../http-body";
 import { getObservedHelperDiagnostics, runtimeIdentity } from "../runtime-identity";
 import type { TunnelSupervisor } from "../tunnel-supervisor";
@@ -100,6 +101,7 @@ export async function handleAdminRoute(req: Request, url: URL, ctx: AdminRouteCo
       hostProtocol: 1,
       version: VERSION,
       runtime_identity: runtimeIdentity,
+      diagnostic_health: diagnosticHealth(),
       helper_runtimes: getObservedHelperDiagnostics(),
       mode: config.mode,
       pid: process.pid,

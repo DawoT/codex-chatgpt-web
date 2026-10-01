@@ -101,7 +101,7 @@ test("terminal causes distinguish accepted handoff, cancellation, deadline and t
   ).toBe("handoff_accepted");
   expect(classifyTurnTermination(deadline, AbortSignal.abort(deadline))).toBe("deadline");
   expect(classifyTurnTermination(new DOMException("aborted", "AbortError"), AbortSignal.abort())).toBe(
-    "user_cancelled",
+    "internal_failure",
   );
   expect(
     classifyTurnTermination(

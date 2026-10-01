@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { DiagnosticSink } from "../src/diagnostics/sink";
 
 // Chat-First MCP lifecycle: the token-free contract served by
 // `codex-chatgpt-web mcp --contract chat-first`. The server reads its authority from the
@@ -162,23 +163,18 @@ describe("Chat-First MCP lifecycle", () => {
         offset = data.next_offset_bytes;
       }
       expect(content).toBe("ab😀cdéfg");
-      const tracePath = join(home, "logs", "mcp", "telemetry.jsonl");
+      const reader = new DiagnosticSink<Record<string, any>>(join(home, "logs", "mcp"));
       const deadline = Date.now() + 3000;
-      while (
-        (!existsSync(tracePath) || !readFileSync(tracePath, "utf8").includes('"event":"reply_sent"')) &&
-        Date.now() < deadline
-      ) {
+      let events = await reader.query();
+      while (!events.some((event) => event.metadata?.event === "reply_sent") && Date.now() < deadline) {
         await Bun.sleep(10);
+        events = await reader.query();
       }
-      const events = readFileSync(tracePath, "utf8")
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
       const reply = events.find((event) => event.metadata?.event === "reply_sent");
       expect(reply).toBeDefined();
-      expect(events.some((event) => event.traceId === reply.traceId && event.metadata?.event === "call_received")).toBe(
-        true,
-      );
+      expect(
+        events.some((event) => event.traceId === reply!.traceId && event.metadata?.event === "call_received"),
+      ).toBe(true);
       expect(JSON.stringify(events)).not.toContain("unicode.txt");
       expect(JSON.stringify(events)).not.toContain("ab😀cdéfg");
       const large = "line of evidence\n".repeat(5000);

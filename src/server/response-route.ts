@@ -21,6 +21,7 @@ import {
 } from "../chatgpt-web-models";
 import type { AppConfig } from "../config";
 import { providerConfig } from "../config";
+import { emitDiagnosticEvent } from "../diagnostics";
 import { AsyncEventQueue } from "../event-queue";
 import { readJsonRequestBody } from "../http-body";
 import { httpStatusFromTerminalError } from "../lib/errors";
@@ -341,12 +342,34 @@ export async function responseRequest(
   if (req.signal.aborted) onRequestAbort();
   else req.signal.addEventListener("abort", onRequestAbort, { once: true });
   const run = async () => {
+    const startedAt = performance.now();
+    const identity = extractChatGptTurnIdentity(parsed);
+    const correlation = { traceId, sessionId: identity.threadId, turnId: identity.turnId };
+    emitDiagnosticEvent({ producer: "main", event: "host_started", phase: "started", correlation });
     try {
       await adapter.runTurn!(parsed, { headers: req.headers, abortSignal: abort.signal }, (event) => {
+        if (event.type === "error") {
+          emitDiagnosticEvent({
+            producer: "main",
+            event: "browser_observed",
+            phase: "failed",
+            correlation,
+            error: { code: event.code, status: event.status, retryable: event.retryable },
+            fields: { durationMs: performance.now() - startedAt },
+          });
+        }
         options.onAdapterEvent?.(event);
         queue.push(event);
       });
     } catch (error) {
+      emitDiagnosticEvent({
+        producer: "main",
+        event: "browser_observed",
+        phase: "failed",
+        correlation,
+        error,
+        fields: { durationMs: performance.now() - startedAt },
+      });
       const event: AdapterEvent = {
         type: "error",
         message: error instanceof Error ? error.message : String(error),

@@ -240,7 +240,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       actorTurnId,
       checkpointOperationId,
     );
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     let route: CompactionRoute = "unknown";
     const record = (
       phase: Parameters<typeof logCompactionEvent>[0]["phase"],
@@ -253,7 +253,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         phase,
         outcome,
         route,
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs: performance.now() - startedAt,
         ...details,
       });
     const recordValidation = (
@@ -692,7 +692,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               if (persisted && environment?.cwd && sharedSummary) {
                 persistedStructuredRunRoots.set(sharedSummary, environment.cwd);
               }
-            } catch {
+            } catch (error) {
               if (operationSignal.aborted) throw operationSignal.reason;
               throw new ChatGptWebAdapterError(
                 "Context checkpoint could not be persisted; original history remains available",
@@ -701,6 +701,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                   errorType: "server_error",
                   code: "context_checkpoint_persistence_failed",
                   retryable: false,
+                  cause: error,
                 },
               );
             }
@@ -787,16 +788,12 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         upstreamError?.code ?? (isObservationTimeout ? "browser_dom_observation_timeout" : "compaction_handoff_failed");
       record("failed", "failed", {
         reasonCode: errorCode,
+        error: handoffError,
       });
       const message =
         upstreamError?.message ||
         (isObservationTimeout ? handoffError.message : undefined) ||
         "ChatGPT did not complete the context handoff. Retry the task.";
-      if (message !== handoffError.message) {
-        // The client-facing event masks arbitrary error text (it can carry workspace secrets);
-        // the operator still needs the raw cause in the server log.
-        console.error(`[chatgpt-web] compaction handoff failed (${errorCode}): ${handoffError.message}`);
-      }
       emit({
         type: "error",
         message,
@@ -858,9 +855,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         (persisted) => record("persisted", persisted ? "succeeded" : "skipped", { localPersisted: persisted }),
         incoming.abortSignal,
       );
-    } catch {
+    } catch (error) {
       if (incoming.abortSignal?.aborted) return true;
-      record("failed", "failed", { reasonCode: "context_checkpoint_persistence_failed" });
+      record("failed", "failed", { reasonCode: "context_checkpoint_persistence_failed", error });
       emit({
         type: "error",
         message: "Context checkpoint could not be persisted; original history remains available",

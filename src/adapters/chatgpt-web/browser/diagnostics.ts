@@ -13,6 +13,12 @@ import {
   CHATGPT_USER_TURN_SELECTOR,
 } from "../../../chatgpt-session";
 import { atomicWriteFile } from "../../../config";
+import {
+  type DiagnosticEventInput,
+  DiagnosticEventRing,
+  emitDiagnosticEvent,
+  serializeDiagnosticError,
+} from "../../../diagnostics";
 import { CHATGPT_MENTION_MENU_ROWS_SELECTOR } from "./connectors";
 import { withChatGptBrowserObservationTimeout } from "./suspension-clock";
 
@@ -25,7 +31,7 @@ export function redactChatGptUiDiagnostic(value: string): string {
     .replace(/\b(turn|binding|call)_[A-Za-z0-9_-]{12,}\b/g, "$1_[redacted]");
 }
 
-const CHATGPT_DIAGNOSTIC_SAFE_STRING_KEYS = new Set([
+const SAFE_STATE_KEYS = new Set([
   "tag",
   "role",
   "ariaExpanded",
@@ -33,22 +39,119 @@ const CHATGPT_DIAGNOSTIC_SAFE_STRING_KEYS = new Set([
   "dataState",
   "dataHighlighted",
   "origin",
+  "location",
+  "pathSegments",
+  "temporaryChat",
+  "titleChars",
+  "documentComplete",
+  "viewport",
+  "width",
+  "height",
+  "x",
+  "y",
+  "surfaceBound",
+  "bodyTextChars",
+  "composer",
+  "visibleCount",
+  "textChars",
+  "editors",
+  "contentEditable",
+  "focused",
+  "unrecognizedEditors",
+  "attributes",
+  "id",
+  "data-testid",
+  "data-lexical-editor",
+  "data-composer-markdown",
+  "contenteditable",
+  "placeholder",
+  "autofocus",
+  "disabled",
+  "readonly",
+  "inForm",
+  "inComposerForm",
+  "selectedConnectorCount",
+  "exactSelectedConnectorCount",
+  "focus",
+  "documentFocused",
+  "effortControls",
+  "effortItems",
+  "effortSliders",
+  "min",
+  "max",
+  "value",
+  "menus",
+  "connectorRows",
+  "overlays",
+  "rect",
+  "turns",
+  "user",
+  "stopButtonCount",
+  "assistant",
+  "htmlChars",
+  "markdownCount",
+  "streamingStatusCount",
+  "completionActionCount",
+  "renderedCompletionActionCount",
 ]);
+const SAFE_STATE_STRINGS: Record<string, Set<string>> = {
+  tag: new Set(["a", "button", "div", "form", "input", "main", "p", "section", "span", "textarea"]),
+  role: new Set([
+    "alert",
+    "button",
+    "dialog",
+    "listbox",
+    "menu",
+    "menuitem",
+    "menuitemradio",
+    "option",
+    "slider",
+    "status",
+    "textbox",
+  ]),
+  ariaExpanded: new Set(["true", "false"]),
+  ariaChecked: new Set(["true", "false", "mixed"]),
+  dataState: new Set(["open", "closed", "checked", "unchecked", "active", "inactive"]),
+  dataHighlighted: new Set(["", "true", "false"]),
+  origin: new Set(["https://chatgpt.com", "https://chat.openai.com"]),
+};
 
-/** Defense in depth: persisted browser traces contain structure, never rendered UI text. */
+/** Bounded structural evidence: neither arbitrary keys nor DOM strings are trusted content. */
 export function sanitizeChatGptBrowserDiagnosticState(value: unknown): unknown {
-  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
-  if (Array.isArray(value)) return value.map(sanitizeChatGptBrowserDiagnosticState);
-  if (!value || typeof value !== "object") return undefined;
-  return Object.fromEntries(
-    Object.entries(value).flatMap(([key, candidate]) => {
-      if (typeof candidate === "string") {
-        return CHATGPT_DIAGNOSTIC_SAFE_STRING_KEYS.has(key) && candidate.length <= 200 ? [[key, candidate]] : [];
-      }
-      const sanitized = sanitizeChatGptBrowserDiagnosticState(candidate);
-      return sanitized === undefined ? [] : [[key, sanitized]];
-    }),
-  );
+  const active = new Set<object>();
+  let remaining = 2000;
+  const visit = (candidate: unknown, depth: number, key = ""): unknown => {
+    if (--remaining < 0 || depth > 8) return undefined;
+    if (candidate === null || typeof candidate === "boolean") return candidate;
+    if (typeof candidate === "number") return Number.isFinite(candidate) ? candidate : undefined;
+    if (typeof candidate === "string") return SAFE_STATE_STRINGS[key]?.has(candidate) ? candidate : undefined;
+    if (!candidate || typeof candidate !== "object" || active.has(candidate)) return undefined;
+    active.add(candidate);
+    let result: unknown;
+    if (Array.isArray(candidate)) {
+      result = candidate
+        .slice(0, 40)
+        .map((item) => visit(item, depth + 1, key))
+        .filter((item) => item !== undefined);
+    } else {
+      result = Object.fromEntries(
+        [...SAFE_STATE_KEYS].flatMap((name) => {
+          let raw: unknown;
+          try {
+            raw = Reflect.get(candidate, name);
+          } catch {
+            return [];
+          }
+          if (raw === undefined) return [];
+          const sanitized = visit(raw, depth + 1, name);
+          return sanitized === undefined ? [] : [[name, sanitized]];
+        }),
+      );
+    }
+    active.delete(candidate);
+    return result;
+  };
+  return visit(value, 0);
 }
 
 export const CHATGPT_BROWSER_DIAGNOSTIC_TRACE_LIMIT = 10;
@@ -95,6 +198,17 @@ export class ChatGptBrowserDiagnostics {
   private readonly directory: string;
   private sequence = 0;
   private initialized = false;
+  private readonly ring = new DiagnosticEventRing();
+  private detachPage?: () => void;
+  private documentGeneration = 0;
+  private captureEvidence = {
+    stateCaptured: false,
+    stateMissing: true,
+    screenshotCaptured: false,
+    screenshotMissing: false,
+    contentCapture: false,
+    ioFailures: 0,
+  };
 
   constructor(
     private readonly traceId: string,
@@ -105,6 +219,75 @@ export class ChatGptBrowserDiagnostics {
       throw new Error("ChatGPT browser diagnostic trace id is invalid");
     }
     this.directory = join(this.root, `${traceId}-${randomUUID().slice(0, 8)}`);
+  }
+
+  recordEvent(input: DiagnosticEventInput): ReturnType<typeof emitDiagnosticEvent> {
+    return emitDiagnosticEvent(
+      {
+        ...input,
+        producer: "browser",
+        correlation: { ...input.correlation, traceId: this.traceId, turnId: this.traceId },
+        fields: { ...input.fields, documentGeneration: this.documentGeneration },
+      },
+      { ring: this.ring },
+    );
+  }
+
+  snapshot(): ReturnType<DiagnosticEventRing["snapshot"]> & {
+    evidence: {
+      stateCaptured: boolean;
+      stateMissing: boolean;
+      screenshotCaptured: boolean;
+      screenshotMissing: boolean;
+      contentCapture: boolean;
+      ioFailures: number;
+    } & ReturnType<DiagnosticEventRing["snapshot"]>["evidence"];
+  } {
+    const snapshot = this.ring.snapshot(this.traceId);
+    return { ...snapshot, evidence: { ...snapshot.evidence, ...this.captureEvidence } };
+  }
+
+  /** Bind only the leased page. No BrowserContext tracing or cross-page requests are observed. */
+  bindPage(page: Page): () => void {
+    this.detachPage?.();
+    this.documentGeneration += 1;
+    const pageError = (error: Error) => {
+      this.recordEvent({ event: "page_error", phase: "failed", error });
+    };
+    const crash = () => {
+      this.recordEvent({ event: "page_crashed", phase: "failed", fields: { reason: "page_crashed" } });
+    };
+    const close = () => {
+      this.recordEvent({ event: "page_closed", phase: "observed", fields: { reason: "page_closed" } });
+    };
+    const requestFailed = () => {
+      this.recordEvent({ event: "page_request_failed", phase: "failed", fields: { reason: "page_request_failed" } });
+    };
+    const response = (response: { status(): number }) => {
+      try {
+        this.recordEvent({ event: "page_response", phase: "observed", fields: { status: response.status() } });
+      } catch {
+        /* Diagnostic-only listener. */
+      }
+    };
+    page.on("pageerror", pageError);
+    page.on("crash", crash);
+    page.on("close", close);
+    page.on("requestfailed", requestFailed);
+    page.on("response", response);
+    let detached = false;
+    const detach = () => {
+      if (detached) return;
+      detached = true;
+      page.off("pageerror", pageError);
+      page.off("crash", crash);
+      page.off("close", close);
+      page.off("requestfailed", requestFailed);
+      page.off("response", response);
+      if (this.detachPage === detach) this.detachPage = undefined;
+    };
+    this.detachPage = detach;
+    return detach;
   }
 
   async capture(page: Page, checkpoint: string, error?: unknown): Promise<void> {
@@ -321,28 +504,25 @@ export class ChatGptBrowserDiagnostics {
       }
       const captureErrors = Object.fromEntries([
         ...(screenshotResult.status === "rejected"
-          ? [
-              [
-                "screenshot",
-                redactChatGptUiDiagnostic(
-                  screenshotResult.reason instanceof Error
-                    ? screenshotResult.reason.message
-                    : String(screenshotResult.reason),
-                ),
-              ],
-            ]
+          ? [["screenshot", serializeDiagnosticError(screenshotResult.reason)]]
           : []),
-        ...(stateResult.status === "rejected"
-          ? [
-              [
-                "state",
-                redactChatGptUiDiagnostic(
-                  stateResult.reason instanceof Error ? stateResult.reason.message : String(stateResult.reason),
-                ),
-              ],
-            ]
-          : []),
+        ...(stateResult.status === "rejected" ? [["state", serializeDiagnosticError(stateResult.reason)]] : []),
       ]);
+      this.captureEvidence.stateCaptured = stateResult.status === "fulfilled";
+      this.captureEvidence.stateMissing = stateResult.status === "rejected";
+      this.captureEvidence.screenshotCaptured =
+        screenshotResult.status === "fulfilled" && screenshotResult.value !== undefined;
+      this.captureEvidence.screenshotMissing = includeScreenshot && screenshotResult.status === "rejected";
+      this.captureEvidence.contentCapture = includeScreenshot;
+      this.recordEvent({
+        event: "diagnostic_capture",
+        phase: "observed",
+        fields: {
+          stateCaptured: this.captureEvidence.stateCaptured,
+          screenshotCaptured: this.captureEvidence.screenshotCaptured,
+        },
+        ...(error === undefined ? {} : { error }),
+      });
       atomicWriteFile(
         join(this.directory, `${stem}.json`),
         `${JSON.stringify(
@@ -350,10 +530,11 @@ export class ChatGptBrowserDiagnostics {
             version: 2,
             capturedAt,
             traceId: this.traceId,
-            checkpoint,
+            checkpoint: browserDiagnosticCheckpoint(checkpoint),
+            diagnostics: this.snapshot(),
             ...(error !== undefined
               ? {
-                  error: redactChatGptUiDiagnostic(error instanceof Error ? error.message : String(error)),
+                  error: serializeDiagnosticError(error),
                 }
               : {}),
             ...(stateResult.status === "fulfilled"
@@ -373,11 +554,21 @@ export class ChatGptBrowserDiagnostics {
       }
       console.info(`[chatgpt-web] browser diagnostic trace=${this.traceId} checkpoint=${stem} path=${this.directory}`);
     } catch (captureError) {
-      console.warn(
-        `[chatgpt-web] browser diagnostic capture failed trace=${this.traceId}` +
-          ` checkpoint=${browserDiagnosticCheckpoint(checkpoint)}:` +
-          ` ${captureError instanceof Error ? captureError.message : String(captureError)}`,
-      );
+      this.captureEvidence.ioFailures += 1;
+      this.captureEvidence.stateMissing = true;
+      this.recordEvent({
+        event: "diagnostic_capture",
+        phase: "failed",
+        error: captureError,
+        fields: { reason: "diagnostic_capture_failed" },
+      });
+      try {
+        console.warn(
+          JSON.stringify({ event: "diagnostic_capture_failed", error: serializeDiagnosticError(captureError) }),
+        );
+      } catch {
+        /* Diagnostics never change the turn outcome. */
+      }
     }
   }
 }
