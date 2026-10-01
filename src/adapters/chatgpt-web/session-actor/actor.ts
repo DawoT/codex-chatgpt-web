@@ -12,6 +12,7 @@ import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
 export class SessionActor {
   private tail: Promise<unknown> = Promise.resolve();
   private readonly effects = new Map<string, Promise<void>>();
+  private pendingPersistences = 0;
 
   constructor(
     private readonly journal: SessionActorJournal,
@@ -22,7 +23,21 @@ export class SessionActor {
     if (command.sessionId !== this.sessionId) {
       return Promise.reject(new Error("Session actor command addressed another session"));
     }
-    const result = this.tail.then(() => this.journal.apply(command));
+    return this.enqueuePersistence(() => this.journal.apply(command));
+  }
+
+  resourceDiagnostics(): { pendingPersistences: number; pendingEffects: number } {
+    return {
+      pendingPersistences: this.pendingPersistences,
+      pendingEffects: this.effects.size,
+    };
+  }
+
+  private enqueuePersistence<T>(operation: () => T | PromiseLike<T>): Promise<T> {
+    this.pendingPersistences += 1;
+    const result = this.tail.then(operation).finally(() => {
+      this.pendingPersistences -= 1;
+    });
     this.tail = result.then(
       () => undefined,
       () => undefined,
@@ -58,7 +73,7 @@ export class SessionActor {
     > = {},
     expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {
-    const result = this.tail.then(() => {
+    return this.enqueuePersistence(() => {
       const generation = this.journal.snapshot(this.sessionId)?.generation ?? 1;
       if (expectedGeneration !== undefined && generation !== expectedGeneration) {
         throw new Error("Session actor generation changed before local event confirmation");
@@ -85,11 +100,6 @@ export class SessionActor {
         ...fields,
       });
     });
-    this.tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
   }
 
   reconcile(
@@ -98,14 +108,9 @@ export class SessionActor {
     outcome: "not_sent" | "completed",
     evidenceRef: string,
   ): Promise<number> {
-    const result = this.tail.then(() =>
+    return this.enqueuePersistence(() =>
       this.journal.reconcileOperation(this.sessionId, generation, operationId, outcome, evidenceRef),
     );
-    this.tail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
   }
 
   async launch(

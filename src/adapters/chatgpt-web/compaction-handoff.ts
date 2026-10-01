@@ -746,6 +746,17 @@ const structuredCompactionRevisionScopes = new Map<string, string>();
 const structuredCompactionInterruptions = new Map<string, StructuredCompactionInterruption>();
 const STRUCTURED_COMPACTION_RUN_TTL_MS = 30 * 60_000;
 
+export function structuredCompactionResourceDiagnostics(): {
+  active_runs: number;
+  retained_owner_settlements: number;
+} {
+  pruneStructuredCompactionRuns();
+  return {
+    active_runs: [...structuredCompactionRuns.values()].filter((run) => run.active).length,
+    retained_owner_settlements: structuredCompactionOwners.size,
+  };
+}
+
 function nativeTurnIdentityKey(threadId: string, turnId: string): string {
   if (!threadId.trim() || !turnId.trim()) {
     throw new Error("Structured compaction requires non-empty native thread and turn ids");

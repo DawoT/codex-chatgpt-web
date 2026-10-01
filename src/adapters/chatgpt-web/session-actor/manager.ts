@@ -31,6 +31,23 @@ export class SessionActorManager {
     return this.actors.has(sessionId);
   }
 
+  resourceDiagnostics(): {
+    pending_persistences: number;
+    pending_effects: number;
+  } {
+    let pendingPersistences = 0;
+    let pendingEffects = 0;
+    for (const actor of this.actors.values()) {
+      const diagnostics = actor.resourceDiagnostics();
+      pendingPersistences += diagnostics.pendingPersistences;
+      pendingEffects += diagnostics.pendingEffects;
+    }
+    return {
+      pending_persistences: pendingPersistences,
+      pending_effects: pendingEffects,
+    };
+  }
+
   /**
    * Drop the in-memory mailbox once its queued commands have drained. The WAL
    * journal keeps owning session state, so the next actor(sessionId) rebuilds

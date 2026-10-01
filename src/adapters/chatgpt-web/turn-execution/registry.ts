@@ -331,6 +331,28 @@ export class ChatGptTurnSessions {
     return active;
   }
 
+  resourceDiagnostics(): {
+    pending_waiters: number;
+    pending_retirements: number;
+    retained_releases: number;
+  } {
+    this.prune();
+    let pendingWaiters = 0;
+    for (const session of this.entries.values()) {
+      pendingWaiters += session.runtime.trace.pendingWaiters;
+      pendingWaiters += session.runtime.text.pendingWaiters;
+      if (session.runtime.mode === "tools") {
+        pendingWaiters += session.runtime.externalProgress.pendingWaiters;
+      }
+    }
+    const retirement = this.retirement.diagnostics();
+    return {
+      pending_waiters: pendingWaiters,
+      pending_retirements: retirement.pendingRetirements,
+      retained_releases: retirement.retainedReleases,
+    };
+  }
+
   private prune(): void {
     const cutoff = this.now() - this.ttlMs;
     for (const [key, session] of this.entries) {

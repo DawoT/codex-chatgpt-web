@@ -65,6 +65,10 @@ export interface ChatGptTurnProgressReader {
 abstract class ChatGptTurnProgressBroadcaster implements ChatGptTurnProgressReader {
   private readonly waiters = new Set<ProgressWaiter>();
 
+  protected get progressWaiterCount(): number {
+    return this.waiters.size;
+  }
+
   abstract snapshot(): ChatGptExternalTurnProgressSnapshot;
   abstract acknowledgeToolBatch(revision: number): Promise<void>;
 
@@ -111,6 +115,10 @@ export class ChatGptExternalTurnProgress extends ChatGptTurnProgressBroadcaster 
   private lastProgressAt?: number;
   private retirementError?: Error;
   private readonly toolBatchObservationWaiters = new Set<ToolBatchObservationWaiter>();
+
+  get pendingWaiters(): number {
+    return this.progressWaiterCount + this.toolBatchObservationWaiters.size;
+  }
 
   snapshot(): ChatGptExternalTurnProgressSnapshot {
     return {

@@ -5,6 +5,7 @@ import {
   beginCancelStructuredCompactionTrace,
   cancelAllStructuredCompactions,
   cancelStructuredCompactionNativeTurn,
+  structuredCompactionResourceDiagnostics,
 } from "../adapters/chatgpt-web/compaction-handoff";
 import { defaultSubagentGovernor } from "../adapters/chatgpt-web/concurrency";
 import { workspaceFileCache } from "../adapters/chatgpt-web/fast-path-cache";
@@ -75,6 +76,24 @@ export async function handleAdminRoute(req: Request, url: URL, ctx: AdminRouteCo
   const isAuthorized = () => controlAuthorized(req, config.controlToken);
 
   if (req.method === "GET" && url.pathname === "/healthz") {
+    const browserResources = chatGptTurnSessions.resourceDiagnostics();
+    const brokerResources = turnBroker?.resourceDiagnostics() ?? {
+      pending_waiters: 0,
+      pending_timers: 0,
+      pending_transactions: 0,
+    };
+    const actorResources = sessionActorManager?.resourceDiagnostics() ?? {
+      pending_persistences: 0,
+      pending_effects: 0,
+    };
+    const structuredCompactionResources = structuredCompactionResourceDiagnostics();
+    const brokerTelemetry = turnBroker?.telemetryHealth() ?? {
+      status: "healthy" as const,
+      pendingRecords: 0,
+      pendingBytes: 0,
+      failedWrites: 0,
+      droppedRecords: 0,
+    };
     const healthzPayload = {
       status: "ok",
       service: "codex-chatgpt-web",
@@ -108,6 +127,24 @@ export async function handleAdminRoute(req: Request, url: URL, ctx: AdminRouteCo
       auth_session: sessionHealthGuard.getStats(),
       session_janitor: sessionJanitor?.getStats(),
       background_tasks: taskResumeOrchestrator?.getStats() ?? null,
+      resource_diagnostics: {
+        pending_waiters: browserResources.pending_waiters + brokerResources.pending_waiters,
+        pending_timers: brokerResources.pending_timers,
+        pending_transactions: brokerResources.pending_transactions + structuredCompactionResources.active_runs,
+        pending_persistences: actorResources.pending_persistences + actorResources.pending_effects,
+        pending_effects: actorResources.pending_effects,
+        pending_retirements: browserResources.pending_retirements,
+        retained_releases:
+          browserResources.retained_releases + structuredCompactionResources.retained_owner_settlements,
+        active_structured_compactions: structuredCompactionResources.active_runs,
+      },
+      telemetry_health: {
+        status: brokerTelemetry.status,
+        pending_records: brokerTelemetry.pendingRecords,
+        pending_bytes: brokerTelemetry.pendingBytes,
+        failed_writes: brokerTelemetry.failedWrites,
+        dropped_records: brokerTelemetry.droppedRecords,
+      },
       alerts: runtimeMetrics.getAlerts(),
       ...activity(),
     };

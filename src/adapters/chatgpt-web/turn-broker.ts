@@ -516,6 +516,40 @@ export class TurnBroker implements TurnBrokerOwner {
     return [...this.channels.values()].filter((channel) => channel.externalOwner).length;
   }
 
+  resourceDiagnostics(): {
+    pending_waiters: number;
+    pending_timers: number;
+    pending_transactions: number;
+  } {
+    this.prune();
+    let pendingWaiters = 0;
+    let pendingTimers = 0;
+    for (const channel of this.channels.values()) {
+      pendingWaiters += channel.waiters.size;
+      pendingWaiters += channel.retirementWaiters.size;
+      pendingWaiters += channel.claimWaiters.size;
+      if (channel.safe) {
+        pendingWaiters += channel.safe.sentWaiters.size;
+        pendingWaiters += channel.safe.startWaiters.size;
+        pendingWaiters += channel.safe.completionWaiters.size;
+      }
+      if (channel.batchTimer) pendingTimers += 1;
+    }
+    for (const waiters of this.threadSuccessorWaiters.values()) {
+      pendingWaiters += waiters.size;
+    }
+    const pendingTransactions = this.compactionTransactions.pendingTransactions;
+    return {
+      pending_waiters: pendingWaiters,
+      pending_timers: pendingTimers + pendingTransactions,
+      pending_transactions: pendingTransactions,
+    };
+  }
+
+  telemetryHealth(): ReturnType<McpTelemetry["health"]> {
+    return this.telemetry.health();
+  }
+
   revokeExternalOwners(): number {
     const tokens = [...this.channels].filter(([, channel]) => channel.externalOwner).map(([token]) => token);
     for (const token of tokens) this.revoke(token);

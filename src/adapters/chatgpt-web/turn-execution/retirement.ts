@@ -23,6 +23,16 @@ export class TurnRetirementCoordinator {
     return this.conversationClosures.get(conversationKey);
   }
 
+  diagnostics(): {
+    pendingRetirements: number;
+    retainedReleases: number;
+  } {
+    return {
+      pendingRetirements: this.retirements.size,
+      retainedReleases: this.conversationClosures.size,
+    };
+  }
+
   async trackConversation(
     conversationKey: string,
     retirement: Promise<void>,

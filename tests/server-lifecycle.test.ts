@@ -1240,6 +1240,25 @@ test("a full-mode runtime exposes its broker endpoint before any turn registers"
   const config = { ...defaultConfig("full"), port: 0, brokerSocketPath: defaultBrokerEndpoint(root) };
   const server = startServer(config);
   try {
+    const health = (await (await fetch(`http://127.0.0.1:${server.port}/healthz`)).json()) as Record<string, unknown>;
+    expect(health.resource_diagnostics).toMatchObject({
+      pending_waiters: expect.any(Number),
+      pending_timers: expect.any(Number),
+      pending_transactions: expect.any(Number),
+      pending_persistences: expect.any(Number),
+      pending_effects: expect.any(Number),
+      pending_retirements: expect.any(Number),
+      retained_releases: expect.any(Number),
+      active_structured_compactions: expect.any(Number),
+    });
+    expect(health.telemetry_health).toEqual({
+      status: "healthy",
+      pending_records: 0,
+      pending_bytes: 0,
+      failed_writes: 0,
+      dropped_records: 0,
+    });
+
     const deadline = Date.now() + 5_000;
     let message = "";
     for (;;) {
