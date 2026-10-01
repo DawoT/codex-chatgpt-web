@@ -1,42 +1,26 @@
 /**
- * Refactor gate checks for the ChatGPT web adapter decomposition sprint
- * (see CONTEXT.md for the seam vocabulary this sprint is carving out).
- *
- * Four gates, each with a per-file current count and a target:
- *   1. `as unknown as` casts in the adapter worker and its composed controllers (target 0 per file).
- *   2. `biome-ignore` comments for `noUnusedPrivateClassMembers` in the same files
- *      (target 0: suppressions for private members that exist only to satisfy tests).
- *   3. Test-only seams that sprint 4 eliminates: worker-prototype fakes
- *      (`Object.create(ChatGptBrowserWorker.prototype)`) in `tests/`.
- *   4. Source-text assertions in `tests/`: `readFileSync` applied to paths under `src/`.
- *
- * The scanning is deliberately heuristic plain `node:fs` string matching, not an AST walk: it
- * needs no new dependency, and the patterns above are stable string idioms. Consequences:
- * - `as unknown as` counts include benign casts in the target files; the gate only tracks the
- *   trajectory toward 0, review decides which individual casts are load-boundary casts.
- * - A `readFileSync` call is attributed to `src/` when the text following the call references
- *   `../src/` (import.meta.url-relative) or a `"src/`-prefixed path (cwd-relative). Path strings
- *   that merely contain a `"src"` component (e.g. `join(root, "src", ...)`) do not match.
- *   Multi-line calls are covered because the scan is textual, not line-anchored.
- *
- * Without `--strict` the script is report-only and always exits 0 (current counts are expected
- * to be nonzero mid-refactor). With `--strict` it exits 1 when any counted occurrence is
- * nonzero. Run from anywhere: `bun run check:refactor-gates [-- --strict]`.
+ * Refactor acceptance gates: production double casts, unused-private suppressions,
+ * any direct worker prototype reference in tests (including subprocess scripts),
+ * and source-text assertions. Unrelated Object.create fixtures are permitted.
+ * Default mode reports progress; --strict fails on any remaining occurrence.
+ * --root DIR runs the same scanner against a controlled tree for regression checks.
+ * Prototype scanning includes strings intentionally: embedded helper scripts execute as code.
+ * Source-read scanning resolves common static paths and allows temporary tool outputs.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import ts from "typescript";
 
-const root = resolve(import.meta.dir, "..");
+const rootIndex = process.argv.indexOf("--root");
+if (rootIndex >= 0 && !process.argv[rootIndex + 1]) {
+  throw new Error("--root requires a directory");
+}
+const root = rootIndex >= 0 ? resolve(process.argv[rootIndex + 1]!) : resolve(import.meta.dir, "..");
 
-/** Gate 1 + 2 targets: the worker entry point and the composed controllers under browser/. */
+/** Scan the worker and every current/future browser module, including planning helpers. */
 const ADAPTER_FILES = [
   "src/adapters/chatgpt-web/browser-worker.ts",
-  "src/adapters/chatgpt-web/browser/browser-session.ts",
-  "src/adapters/chatgpt-web/browser/composer-controller.ts",
-  "src/adapters/chatgpt-web/browser/submission-observer.ts",
-  "src/adapters/chatgpt-web/browser/turn-diagnostics.ts",
-  "src/adapters/chatgpt-web/browser/response-observer.ts",
-  "src/adapters/chatgpt-web/browser/model-controls.ts",
+  ...collectTypeScriptFiles("src/adapters/chatgpt-web/browser"),
 ];
 
 const TESTS_DIR = "tests";
@@ -55,37 +39,62 @@ function collectTypeScriptFiles(dir: string): string[] {
   return files.sort();
 }
 
-function countOccurrences(text: string, needle: string): number {
-  let count = 0;
-  let index = text.indexOf(needle);
-  while (index !== -1) {
-    count += 1;
-    index = text.indexOf(needle, index + needle.length);
-  }
-  return count;
-}
-
-/** Heuristic: a `readFileSync` call counts as a source-text assertion when its argument (the
- * text between the call's parentheses) references the repository's `src/` tree (see module doc).
- * The argument is approximated by scanning to the call's matching close paren, capped for safety. */
-function countReadFileSyncCallsOnSrc(text: string): number {
-  let count = 0;
-  for (const match of text.matchAll(/readFileSync\s*\(/g)) {
-    const start = (match.index ?? 0) + match[0].length;
-    const end = Math.min(text.length, start + 4000);
-    let depth = 1;
-    let cursor = start;
-    while (cursor < end && depth > 0) {
-      const char = text[cursor];
-      if (char === "(") depth += 1;
-      else if (char === ")") depth -= 1;
-      cursor += 1;
+/** Resolve common static path forms; temporary output roots stay outside the repository. */
+function countReadFileSyncCallsOnSrc(text: string, file: string): number {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const resolveExpression = (node: ts.Expression, resolving = new Set<ts.Node>()): string | undefined => {
+    if (resolving.has(node)) return undefined;
+    const seen = new Set(resolving).add(node);
+    if (ts.isStringLiteralLike(node)) return node.text;
+    if (ts.isAsExpression(node) || ts.isParenthesizedExpression(node)) return resolveExpression(node.expression, seen);
+    if (node.getText(source) === "import.meta.dir") return dirname(join(root, file));
+    if (ts.isIdentifier(node)) {
+      for (let scope: ts.Node | undefined = node.parent; scope; scope = scope.parent) {
+        if (!ts.isBlock(scope) && !ts.isSourceFile(scope)) continue;
+        for (const statement of scope.statements) {
+          if (!ts.isVariableStatement(statement) || statement.getStart(source) > node.getStart(source)) continue;
+          const declaration = statement.declarationList.declarations.find(
+            (entry) => ts.isIdentifier(entry.name) && entry.name.text === node.text,
+          );
+          if (declaration?.initializer) return resolveExpression(declaration.initializer, seen);
+        }
+      }
+      return undefined;
     }
-    const argument = text.slice(start, depth === 0 ? cursor - 1 : cursor);
-    if (/\.\.\/src\//.test(argument) || /["'`]src\//.test(argument)) {
-      count += 1;
+    if (ts.isNewExpression(node) && node.expression.getText(source) === "URL") {
+      const argument = node.arguments?.[0];
+      const base = node.arguments?.[1];
+      if (argument && base?.getText(source) === "import.meta.url") {
+        const relative = resolveExpression(argument, seen);
+        return relative === undefined ? undefined : resolve(dirname(join(root, file)), relative);
+      }
     }
-  }
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression.getText(source);
+      if (callee === "mkdtempSync") return join(root, "__temporary_fixture_output__");
+      if (callee === "process.cwd") return root;
+      if (callee === "join" || callee === "resolve") {
+        const parts = node.arguments.map((argument) => resolveExpression(argument, seen));
+        if (parts.some((part) => part === undefined)) return undefined;
+        return resolve(root, ...(parts as string[]));
+      }
+    }
+    return undefined;
+  };
+  let count = 0;
+  const sourceRoot = join(root, "src");
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText(source).split(".").at(-1) === "readFileSync") {
+      const argument = node.arguments[0];
+      const path = argument && resolveExpression(argument);
+      if (path !== undefined) {
+        const absolute = resolve(root, path);
+        if (absolute === sourceRoot || absolute.startsWith(`${sourceRoot}${sep}`)) count += 1;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
   return count;
 }
 
@@ -122,7 +131,7 @@ let failing = false;
 console.log("Gate 1 — `as unknown as` casts in adapter sources (target 0 per file)");
 const adapterCasts = ADAPTER_FILES.map((file) => ({
   file,
-  count: countOccurrences(readFileSync(join(root, file), "utf8"), "as unknown as"),
+  count: (readFileSync(join(root, file), "utf8").match(/as\s+unknown\s+as/g) ?? []).length,
 }));
 printPerFile(adapterCasts, 0);
 console.log(`    summary: current ${sum(adapterCasts)}, target 0 across ${ADAPTER_FILES.length} files`);
@@ -139,16 +148,18 @@ console.log(`    summary: current ${sum(adapterSuppressions)}, target 0 across $
 if (sum(adapterSuppressions) > 0) failing = true;
 console.log("");
 
-console.log(
-  "Gate 3 — worker-prototype fakes in tests/ (`Object.create(ChatGptBrowserWorker.prototype)`; sprint-4 target 0 per file)",
-);
+console.log("Gate 3 — direct worker prototype references in tests/ (target 0 per file)");
 const prototypeFakes = collectTypeScriptFiles(TESTS_DIR).map((file) => ({
   file,
-  count: countOccurrences(readFileSync(join(root, file), "utf8"), "Object.create(ChatGptBrowserWorker.prototype)"),
+  count: (
+    readFileSync(join(root, file), "utf8").match(
+      /\bChatGptBrowserWorker\s*(?:\.\s*prototype|\[\s*["']prototype["']\s*\])/g,
+    ) ?? []
+  ).length,
 }));
 printPerFile(prototypeFakes, 0);
 console.log(`    summary: current ${sum(prototypeFakes)}, target 0 across ${prototypeFakes.length} scanned test files`);
-if (sum(prototypeFakes) > 0) failing = strict ? true : failing;
+if (sum(prototypeFakes) > 0) failing = true;
 console.log("");
 
 console.log(
@@ -156,11 +167,11 @@ console.log(
 );
 const srcReads = collectTypeScriptFiles(TESTS_DIR).map((file) => ({
   file,
-  count: countReadFileSyncCallsOnSrc(readFileSync(join(root, file), "utf8")),
+  count: countReadFileSyncCallsOnSrc(readFileSync(join(root, file), "utf8"), file),
 }));
 printPerFile(srcReads, 0);
 console.log(`    summary: current ${sum(srcReads)}, target 0 across ${srcReads.length} scanned test files`);
-if (sum(srcReads) > 0) failing = strict ? true : failing;
+if (sum(srcReads) > 0) failing = true;
 console.log("");
 
 console.log(

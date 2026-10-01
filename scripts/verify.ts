@@ -23,6 +23,7 @@ try {
   await run(["run", "launcher:audit"]);
   await run(["run", "typecheck"]);
   await run(["run", "lint"]);
+  await run(["run", "check:refactor-gates"]);
   await run(["run", "test:coverage"]);
   await run(["run", "launcher:typecheck"]);
   await run(["run", "launcher:test"]);
