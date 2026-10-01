@@ -208,3 +208,33 @@ test("a closed Windows diagnostic pipe is recorded without becoming an uncaught 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("launcher events identify one producer generation and expose actual sink failures", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-log-health-"));
+  const filePath = path.join(root, "blocked", "launcher.jsonl");
+  const fallbacks = [];
+  fs.writeFileSync(path.join(root, "blocked"), "not a directory");
+  try {
+    const logger = createLogger({ filePath, fallback: (line) => fallbacks.push(line) });
+    const first = logger.error("runtime.start_failed", { code: "ECONNREFUSED" });
+    const second = logger.info("runtime.recovering");
+    assert.equal(first.schemaVersion, 2);
+    assert.match(first.producerGeneration, /^[a-f0-9-]{36}$/);
+    assert.equal(second.producerGeneration, first.producerGeneration);
+    assert.equal(second.sequence, first.sequence + 1);
+    assert.equal(first.pid, process.pid);
+    assert.ok(second.monotonicMs >= first.monotonicMs);
+    assert.equal(logger.health().status, "degraded");
+    assert.equal(logger.health().failedWrites, 2);
+    assert.equal(logger.health().lastErrorCode, "EEXIST");
+    assert.equal(fallbacks.length, 2);
+    assert.equal(JSON.parse(fallbacks[0]).event, "runtime.start_failed");
+    fs.unlinkSync(path.join(root, "blocked"));
+    logger.info("runtime.observation_restored");
+    assert.equal(logger.health().status, "healthy");
+    assert.equal(logger.health().failedWrites, 2);
+    assert.equal(logger.health().lastErrorCode, null);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

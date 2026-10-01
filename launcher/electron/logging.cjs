@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 const { renameAtomicFile, writePrivateFileAtomic } = require("./atomic-file.cjs");
 
@@ -154,16 +155,29 @@ function readRecent(filePath) {
   return records.reverse();
 }
 
-function createLogger({ filePath, publish }) {
+function createLogger({ filePath, publish, fallback = (line) => process.stderr.write(`${line}\n`) }) {
   const records = readRecent(filePath);
+  const producerGeneration = randomUUID();
+  let sequence = 0;
+  let failedWrites = 0;
+  let lastErrorCode = null;
 
   const append = (level, event, detail = {}) => {
     const record = {
+      schemaVersion: 2,
+      producerGeneration,
+      sequence: ++sequence,
+      pid: process.pid,
+      monotonicMs: Math.round(performance.now()),
       at: new Date().toISOString(),
+      writtenAt: new Date().toISOString(),
       level,
       event,
       detail: detail && typeof detail === "object" && !Array.isArray(detail) ? sanitize(detail) : {},
     };
+    if (Buffer.byteLength(JSON.stringify(record), "utf8") > 16 * 1024) {
+      record.detail = { diagnosticTruncated: true };
+    }
     records.push(record);
     if (records.length > MAX_MEMORY_RECORDS) records.splice(0, records.length - MAX_MEMORY_RECORDS);
     try {
@@ -174,7 +188,16 @@ function createLogger({ filePath, publish }) {
         renameAtomicFile(filePath, `${filePath}.1`);
       }
       fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`, { mode: 0o600 });
-    } catch {}
+      lastErrorCode = null;
+    } catch (error) {
+      failedWrites += 1;
+      lastErrorCode = typeof error?.code === "string" && /^[A-Z0-9_]{1,48}$/.test(error.code) ? error.code : "UNKNOWN";
+      try {
+        fallback(JSON.stringify({ ...record, sinkErrorCode: lastErrorCode }));
+      } catch {
+        // Diagnostics cannot replace the functional result or recursively log a failed sink.
+      }
+    }
     publish?.(record);
     return record;
   };
@@ -185,6 +208,7 @@ function createLogger({ filePath, publish }) {
     warn: (event, detail) => append("warning", event, detail),
     error: (event, detail) => append("error", event, detail),
     recent: (limit = 150) => records.slice(-Math.max(1, Math.min(300, limit))),
+    health: () => ({ status: lastErrorCode === null ? "healthy" : "degraded", failedWrites, lastErrorCode }),
     filePath,
   };
 }

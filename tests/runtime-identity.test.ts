@@ -265,3 +265,30 @@ test("a packaged daemon rejects a legacy helper without build identity", async (
     runtimeIdentity.buildCommit = previous;
   }
 });
+
+test("runtime identity binds both executable artifacts rather than only the CLI entrypoint", () => {
+  const root = mkdtempSync(join(tmpdir(), "runtime-paired-artifacts-"));
+  roots.push(root);
+  const app = join(root, "app");
+  mkdirSync(app);
+  const cli = join(app, "cli.js");
+  const helper = join(app, "browser-helper.cjs");
+  writeFileSync(cli, "const cliVersion = 1;\n");
+  writeFileSync(helper, "const helperVersion = 1;\n");
+  const artifacts = [cli, helper].map((file) => ({
+    path: `app/${file.split("/").at(-1)}`,
+    sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+  }));
+  writeFileSync(join(root, "manifest.json"), JSON.stringify({ buildCommit: "a".repeat(40), files: artifacts }));
+  const daemon = createRuntimeIdentity(cli);
+  const browser = createRuntimeIdentity(helper);
+  expect(daemon.artifactSetSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(browser.artifactSetSha256).toBe(daemon.artifactSetSha256);
+  expect(daemon.artifactVerification).toBe("paired_manifest_verified");
+  writeFileSync(helper, "const helperVersion = 2;\n");
+  const changed = createRuntimeIdentity(cli);
+  expect(changed.artifactSha256).toBe(daemon.artifactSha256);
+  expect(changed.artifactSetSha256).toBeNull();
+  expect(changed.artifactVerification).toBe("manifest_mismatch");
+  expect(changed.buildCommit).toBeNull();
+});
