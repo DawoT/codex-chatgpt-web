@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { CHATGPT_WEB_INSTANT_COMPOSER_CHAR_LIMIT, type ChatGptWebBackendModel } from "../../../chatgpt-web-models";
 import { COMPACT_PROMPT, compactionDraftText, extractStructuredCompactionHandoff } from "../../../responses/compaction";
-import type { AdapterEvent, CodexMessage, CodexParsedRequest } from "../../../types";
+import type { AdapterEvent, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { validateCompactionQuality } from "../autonomous-compaction";
 import { ChatGptBrowserObservationTimeoutError } from "../browser/suspension-clock";
@@ -41,7 +41,7 @@ import {
   type extractChatGptTurnEnvironment,
   extractChatGptTurnIdentity,
 } from "../environment";
-import { CHATGPT_WEB_LUNA_MODEL_ID, type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "../model";
+import { type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "../model";
 import { structuredCompactionRepairInstruction } from "../native-compaction-control";
 import { chatGptWebTurnRetryPolicy } from "../retry-policy";
 import type { SessionActorManager } from "../session-actor";
@@ -57,25 +57,16 @@ import {
 import { estimateChatGptWebUsage } from "../usage";
 import { persistTurnCompaction } from "../workspace-persistence";
 import { withAbort } from "./cancellation";
+import {
+  compactionControlPolicy,
+  initialCompactionRoute,
+  isHeavyCompactionTurn,
+  retainedCompactionStrategy,
+} from "./compaction-policy";
 import { emitBrowserCompletion } from "./events";
 
-export const HEAVY_TURN_TOOL_CALL_THRESHOLD = 35;
+export { HEAVY_TURN_TOOL_CALL_THRESHOLD, isHeavyCompactionTurn } from "./compaction-policy";
 export const DEFAULT_COMPACTION_TOTAL_BUDGET_MS = 4 * 60_000;
-
-export function isHeavyCompactionTurn(
-  messages: readonly CodexMessage[],
-  threshold = HEAVY_TURN_TOOL_CALL_THRESHOLD,
-): boolean {
-  let toolCount = 0;
-  for (const msg of messages) {
-    if (msg.role === "toolResult") {
-      toolCount += 1;
-    } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
-      toolCount += msg.content.filter((part) => part.type === "toolCall").length;
-    }
-  }
-  return toolCount >= threshold;
-}
 
 const observedRepairDurationsMs: number[] = [];
 const persistedStructuredRunRoots = new WeakMap<Promise<string>, string>();
@@ -280,10 +271,15 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     sessionActorManager,
   } = ctx;
 
-  const structuredCompactionRequired =
-    parsed.modelId !== CHATGPT_WEB_LUNA_MODEL_ID && configuredCapabilities.localToolsEnabled;
+  const controlPolicy = compactionControlPolicy({
+    modelId: parsed.modelId,
+    localToolsEnabled: configuredCapabilities.localToolsEnabled,
+    manualRequest,
+    retainedLauncherDescriptor,
+    hasStructuredBroker: structuredBroker !== undefined,
+  });
 
-  if (structuredCompactionRequired && (!retainedLauncherDescriptor || (!manualRequest && !structuredBroker))) {
+  if (controlPolicy === "unavailable") {
     emit({
       type: "error",
       message: manualRequest
@@ -297,7 +293,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     return true;
   }
 
-  if (structuredCompactionRequired) {
+  if (controlPolicy === "structured") {
     const compactionNativeIdentity = extractChatGptTurnIdentity(parsed);
     const compactionExecutionKey = `${executionNamespace}:${chatGptTurnExecutionKey(parsed)}`;
     const compactedSourceExecutionKey = `${executionNamespace}:${chatGptCompactionSourceExecutionKey(parsed)}`;
@@ -581,7 +577,11 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           let preserveFinalResponse = false;
           let repairAttempted = false;
           try {
-            if (freshConversationPerTurn) {
+            const initialRoute = initialCompactionRoute({
+              freshConversationPerTurn,
+              heavyTurn: isHeavyCompactionTurn(parsed.context.messages),
+            });
+            if (initialRoute === "configured_fresh_conversation") {
               // Full native history is the compaction input. Release an unfinished
               // browser/tool owner before rebuilding it, but keep a committed final
               // replayable if it won the native compaction race.
@@ -594,7 +594,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               await withAbort(settlement, operationSignal);
               return await runFreshCompaction("configured_fresh_conversation");
             }
-            if (isHeavyCompactionTurn(parsed.context.messages)) {
+            if (initialRoute === "heavy_turn_fast_path") {
               console.info(
                 "[chatgpt-web] compaction_heavy_turn_fast_path: Bypassing bloated retained session directly to clean fresh compaction",
               );
@@ -631,7 +631,12 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               return await runFreshCompaction("source_unavailable_before_handoff");
             }
             let rawSummary: string;
-            if (manualRequest && source.isActive() && source.runtime.mode === "tools") {
+            const strategy = retainedCompactionStrategy({
+              manualRequest,
+              sourceActive: source.isActive(),
+              sourceMode: source.runtime.mode,
+            });
+            if (strategy === "zero-risk-tools") {
               const zeroRiskSummary = await settleActiveZeroRiskCompactionSource(
                 parsed,
                 source,
@@ -644,7 +649,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               } else {
                 rawSummary = zeroRiskSummary;
               }
-            } else if (manualRequest) {
+            } else if (strategy === "zero-risk-completed") {
               if (source.isActive()) {
                 const outcome = await withAbort(source.browserOutcome, operationSignal);
                 if (outcome.type === "error") throw outcome.error;
@@ -652,7 +657,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 preserveFinalResponse = true;
               }
               rawSummary = await runFreshCompaction("zero_risk_source_already_completed");
-            } else if (source.isActive() && source.runtime.mode === "tools") {
+            } else if (strategy === "retained-tools") {
               route = "retained";
               const settlement = await settleActiveCompactionSource(parsed, source, structuredBroker!, operationSignal);
               preserveFinalResponse = !settlement.compactionInstructionDelivered;
