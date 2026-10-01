@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-01T10:30:36.467Z",
+  "runtime": {
+    "bun": "1.4.2",
+    "platform": "linux",
+    "arch": "x64",
+    "browser": "/home/deuz/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
+  },
+  "revision": {
+    "head": "bedd09464cd5975963c90b422b7387e1b4b63077",
+    "dirty": false,
+    "sourceDigest": "f1c77ad7e12fa7b08dc810f46c9d6127298183d68b22d87f53fe431739d2be1f"
+  },
+  "stableBuild": true,
+  "scenarioDigest": "9f0cbd6a248c743c3b8a33ee95264d5e2d3ff12db4021bd75fa48a9bc47b4e3c",
+  "fixtureDigest": "94d84bed32a477d7ddd9f351eadfd6ca80f9de686eb6e09cb6d9dbc7be38fd58",
+  "gates": [
+    {
+      "suite": "tests/browser-worker-contract.test.ts",
+      "command": "bun test tests/browser-worker-contract.test.ts",
+      "exitCode": 0,
+      "pass": 158,
+      "skipped": 0,
+      "elapsedMs": 1754.817623,
+      "contractBudgetMs": 5000,
+      "success": true
+    },
+    {
+      "suite": "tests/harness-continuity-lifecycle.test.ts",
+      "command": "bun test tests/harness-continuity-lifecycle.test.ts",
+      "exitCode": 0,
+      "pass": 10,
+      "skipped": 0,
+      "elapsedMs": 37.84089700000027,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/harness-continuity-browser.test.ts",
+      "command": "bun test tests/harness-continuity-browser.test.ts",
+      "exitCode": 0,
+      "pass": 3,
+      "skipped": 0,
+      "elapsedMs": 1068.325683,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/browser-dom-events.test.ts",
+      "command": "bun test tests/browser-dom-events.test.ts",
+      "exitCode": 0,
+      "pass": 8,
+      "skipped": 0,
+      "elapsedMs": 3480.0509429999997,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/harness-continuity-fidelity.test.ts",
+      "command": "bun test tests/harness-continuity-fidelity.test.ts",
+      "exitCode": 0,
+      "pass": 8,
+      "skipped": 0,
+      "elapsedMs": 203.07412600000043,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/harness-continuity-telemetry.test.ts",
+      "command": "bun test tests/harness-continuity-telemetry.test.ts",
+      "exitCode": 0,
+      "pass": 4,
+      "skipped": 0,
+      "elapsedMs": 150.99173800000062,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/harness-continuity-replay.test.ts",
+      "command": "bun test tests/harness-continuity-replay.test.ts",
+      "exitCode": 0,
+      "pass": 15,
+      "skipped": 0,
+      "elapsedMs": 3456.6623409999993,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/compaction-checkpoint.test.ts",
+      "command": "bun test tests/compaction-checkpoint.test.ts",
+      "exitCode": 0,
+      "pass": 7,
+      "skipped": 0,
+      "elapsedMs": 31.9656159999995,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/compaction-canary-report.test.ts",
+      "command": "bun test tests/compaction-canary-report.test.ts",
+      "exitCode": 0,
+      "pass": 6,
+      "skipped": 0,
+      "elapsedMs": 21.58462900000086,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/rolling-checkpoint.test.ts",
+      "command": "bun test tests/rolling-checkpoint.test.ts",
+      "exitCode": 0,
+      "pass": 8,
+      "skipped": 0,
+      "elapsedMs": 257.8498979999986,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/turn-events.test.ts",
+      "command": "bun test tests/turn-events.test.ts",
+      "exitCode": 0,
+      "pass": 11,
+      "skipped": 0,
+      "elapsedMs": 78.76365000000078,
+      "contractBudgetMs": null,
+      "success": true
+    },
+    {
+      "suite": "tests/mcp-observation.test.ts",
+      "command": "bun test tests/mcp-observation.test.ts",
+      "exitCode": 0,
+      "pass": 4,
+      "skipped": 0,
+      "elapsedMs": 83.38277000000016,
+      "contractBudgetMs": null,
+      "success": true
+    }
+  ],
+  "build": {
+    "kind": "in-memory-validation",
+    "packages": "external",
+    "minify": false,
+    "bundles": [
+      {
+        "name": "cli",
+        "bytes": 1712344,
+        "sha256": "6527d7a4f0bc13fa47872f3d700cbe031564c9cb1228ecb137f2aa85108ba1e8",
+        "elapsedMs": 19.852976999998646
+      },
+      {
+        "name": "browser-helper",
+        "bytes": 474476,
+        "sha256": "b7cb345f53c506dd0fcce2dc0a1a06c920197ec3d9e1de5fc7015021c176d3aa",
+        "elapsedMs": 10.866441999998642
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "late-ack",
+      "samplesMs": [
+        420.86443899999904,
+        375.82726,
+        353.6834880000006,
+        358.6757689999995,
+        351.06255299999975
+      ],
+      "sampleCount": 5,
+      "p50Ms": 358.6757689999995,
+      "p95Ms": 420.86443899999904,
+      "method": "nearest-rank",
+      "outcome": {
+        "scenario": "late-ack",
+        "sends": 1,
+        "lifecycle": [
+          "activated",
+          "submitted"
+        ],
+        "identity": "group:assistant:accepted",
+        "ack": "accepted",
+        "text": "Baseline is preserved. Next I will add the Unicode regression."
+      }
+    },
+    {
+      "name": "lost-ack",
+      "samplesMs": [
+        382.68498199999885,
+        386.2444999999989,
+        410.40597700000035,
+        431.5009229999996,
+        410.57167599999957
+      ],
+      "sampleCount": 5,
+      "p50Ms": 410.40597700000035,
+      "p95Ms": 431.5009229999996,
+      "method": "nearest-rank",
+      "outcome": {
+        "scenario": "lost-ack",
+        "sends": 1,
+        "lifecycle": [
+          "activated",
+          "submitted"
+        ],
+        "identity": "group:assistant:accepted",
+        "ack": "ChatGptToolBoundaryObservationTimeoutError",
+        "text": "Baseline is preserved. Next I will add the Unicode regression."
+      }
+    },
+    {
+      "name": "ambiguous-send",
+      "samplesMs": [
+        338.8622230000001,
+        331.03717900000083,
+        311.42787699999826,
+        325.1854630000016,
+        313.2072980000012
+      ],
+      "sampleCount": 5,
+      "p50Ms": 325.1854630000016,
+      "p95Ms": 338.8622230000001,
+      "method": "nearest-rank",
+      "outcome": {
+        "scenario": "ambiguous-send",
+        "sends": 1,
+        "lifecycle": [
+          "activated"
+        ],
+        "identity": null,
+        "ack": "unproven",
+        "text": ""
+      }
+    },
+    {
+      "name": "coding-checkpoint-persist-reload",
+      "samplesMs": [
+        125.7936609999997,
+        15.282553000000917,
+        13.8551120000011,
+        11.190597000000707,
+        15.401420000001963
+      ],
+      "sampleCount": 5,
+      "p50Ms": 15.282553000000917,
+      "p95Ms": 125.7936609999997,
+      "method": "nearest-rank",
+      "payload": {
+        "originalBytes": 2162,
+        "checkpointBytes": 2168,
+        "originalTokens": 603,
+        "checkpointTokens": 603,
+        "browserOriginal": {
+          "messageCount": 1,
+          "messageChars": [
+            4950
+          ],
+          "messageBytes": [
+            4954
+          ],
+          "messageTokensEstimated": [
+            1069
+          ],
+          "skillFileCount": 0,
+          "skillFileBytes": 0,
+          "skillFileTokensEstimated": 0,
+          "imageCount": 0,
+          "imageTokensEstimated": 0,
+          "cacheReadTokens": null
+        },
+        "browserCheckpoint": {
+          "messageCount": 1,
+          "messageChars": [
+            5245
+          ],
+          "messageBytes": [
+            5249
+          ],
+          "messageTokensEstimated": [
+            1161
+          ],
+          "skillFileCount": 0,
+          "skillFileBytes": 0,
+          "skillFileTokensEstimated": 0,
+          "imageCount": 0,
+          "imageTokensEstimated": 0,
+          "cacheReadTokens": null
+        },
+        "originalCompilation": {
+          "version": 1,
+          "sourceSha256": "3dd449c651bfd3092c49cdb56d2f4d2ef9686ca74f3d3220c20a35fd02d9dbf7",
+          "payloadSha256": "ba301020004f170a83e9315c72b252dc7202be5acc484f4c7ba9697d20e62acf",
+          "measurement": {
+            "messageCount": 1,
+            "messageChars": [
+              4950
+            ],
+            "messageBytes": [
+              4954
+            ],
+            "messageTokensEstimated": [
+              1069
+            ],
+            "skillFileCount": 0,
+            "skillFileBytes": 0,
+            "skillFileTokensEstimated": 0,
+            "imageCount": 0,
+            "imageTokensEstimated": 0,
+            "cacheReadTokens": null
+          },
+          "sections": {
+            "stableInstructionsSha256": "03dc97e08fa702d4b2a3507b84f793c3b32d6ad75dae896bee47778115dd7329",
+            "capabilitiesSha256": "143da11f3b22e6b2e30ca7df5ce5f24b234167b361a0d2ea1d7591af04eb628f",
+            "taskContextSha256": "2f3d223429762c7a98b6614826a7a09d39566d56f0e65a407e5c74f47100d5c9",
+            "toolHistorySha256": "ebf8330d048c19c5b7460b876dbd833385026ad92741883009fdd131b6c8e71d"
+          },
+          "transformations": []
+        },
+        "checkpointCompilation": {
+          "version": 1,
+          "sourceSha256": "efde3aef4c8d3b66b1f0176c013aeb32b5fcdc03e8c4347b921c5c0bf482e4e3",
+          "payloadSha256": "60f886416a803055ed70d0596b41edcbf485c077d760877084e7fd663354efe4",
+          "measurement": {
+            "messageCount": 1,
+            "messageChars": [
+              5245
+            ],
+            "messageBytes": [
+              5249
+            ],
+            "messageTokensEstimated": [
+              1161
+            ],
+            "skillFileCount": 0,
+            "skillFileBytes": 0,
+            "skillFileTokensEstimated": 0,
+            "imageCount": 0,
+            "imageTokensEstimated": 0,
+            "cacheReadTokens": null
+          },
+          "sections": {
+            "stableInstructionsSha256": "03dc97e08fa702d4b2a3507b84f793c3b32d6ad75dae896bee47778115dd7329",
+            "capabilitiesSha256": "143da11f3b22e6b2e30ca7df5ce5f24b234167b361a0d2ea1d7591af04eb628f",
+            "taskContextSha256": "9de70a30f21d992af2ff1bd4a8700781d1f30a960643a6ce64a68af0986e345b",
+            "toolHistorySha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "transformations": []
+        }
+      }
+    }
+  ],
+  "success": true,
+  "liveCanary": {
+    "status": "not-run",
+    "compactationsRequired": 20,
+    "sessionsRequired": 2,
+    "minimumSessionMinutesExclusive": 22
+  },
+  "tokenMetric": "o200k_base ordinary text via production estimateTokens; transport JSON, not billed model usage",
+  "comparison": null
+}

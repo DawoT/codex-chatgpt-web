@@ -1,0 +1,215 @@
+{
+  "scope": "Local compiler plus transport measurement; no model execution or live browser latency",
+  "baselineCommit": "9c6e02ac4ee293b52e2af3c56b64a806e0903741",
+  "candidateRevision": {
+    "head": "bedd09464cd5975963c90b422b7387e1b4b63077",
+    "dirty": false,
+    "sourceDigest": "f1c77ad7e12fa7b08dc810f46c9d6127298183d68b22d87f53fe431739d2be1f"
+  },
+  "runtime": {
+    "bun": "1.4.2",
+    "platform": "linux",
+    "arch": "x64"
+  },
+  "scenarioSha256": "7fbbee59ad84ab9e0ce51d8fad6c8529e4a4c114d9c3c2235928d1811e84b77a",
+  "sampleCount": 5,
+  "percentileMethod": "nearest-rank, including first sample",
+  "results": [
+    {
+      "name": "literal-code-and-identifiers",
+      "baseline": {
+        "fidelity": [
+          true,
+          true,
+          false
+        ],
+        "allInstructionsAndTaskPreserved": false,
+        "tokensEstimated": 121,
+        "bytes": 544,
+        "samplesMs": [
+          100.853318,
+          0.32541200000002846,
+          0.19278900000000476,
+          0.1637969999999882,
+          0.1709690000000137
+        ],
+        "p50Ms": 0.19278900000000476,
+        "p95Ms": 100.853318,
+        "payloadSha256": "c697533ab25b2fb5d3aabee00f94c6ca54e50524fd5aa6249d9801bf01a3ed61"
+      },
+      "candidate": {
+        "fidelity": [
+          true,
+          true,
+          true
+        ],
+        "allInstructionsAndTaskPreserved": true,
+        "tokensEstimated": 121,
+        "bytes": 560,
+        "samplesMs": [
+          68.60111,
+          0.2913870000000429,
+          0.1777169999999728,
+          0.1728310000000306,
+          0.15717699999999013
+        ],
+        "p50Ms": 0.1777169999999728,
+        "p95Ms": 68.60111,
+        "payloadSha256": "47504c3873fc204790d97507ad8d545eb1840b3920d09cc366aefb9e3eba52bd"
+      },
+      "delta": {
+        "tokensEstimated": 0,
+        "bytes": 16,
+        "p50Ms": -0.015072000000031949,
+        "p95Ms": -32.252207999999996
+      }
+    },
+    {
+      "name": "priority-and-repository-instructions",
+      "baseline": {
+        "fidelity": [
+          false,
+          true,
+          true
+        ],
+        "allInstructionsAndTaskPreserved": false,
+        "tokensEstimated": 119,
+        "bytes": 535,
+        "samplesMs": [
+          0.27477400000003627,
+          0.16122500000000173,
+          0.12030999999996084,
+          0.11751099999997905,
+          0.11193499999995993
+        ],
+        "p50Ms": 0.12030999999996084,
+        "p95Ms": 0.27477400000003627,
+        "payloadSha256": "8cbf06ef16b331dbe2fb05bce8fcfbf6f4aff563bdefeba84705c7f737b61851"
+      },
+      "candidate": {
+        "fidelity": [
+          true,
+          true,
+          true
+        ],
+        "allInstructionsAndTaskPreserved": true,
+        "tokensEstimated": 135,
+        "bytes": 610,
+        "samplesMs": [
+          0.2518129999999701,
+          0.15995800000001736,
+          0.1554219999999873,
+          0.14067800000003672,
+          0.14346999999997934
+        ],
+        "p50Ms": 0.1554219999999873,
+        "p95Ms": 0.2518129999999701,
+        "payloadSha256": "500dd6c78e932ae6f12fe2a667f5c36a102976a92d2982ed6641db93095ebde7"
+      },
+      "delta": {
+        "tokensEstimated": 16,
+        "bytes": 75,
+        "p50Ms": 0.035112000000026455,
+        "p95Ms": -0.02296100000006618
+      }
+    },
+    {
+      "name": "literal-skill-instructions",
+      "baseline": {
+        "fidelity": [
+          true,
+          false,
+          true
+        ],
+        "allInstructionsAndTaskPreserved": false,
+        "tokensEstimated": 84,
+        "bytes": 415,
+        "samplesMs": [
+          0.11266399999999521,
+          0.08459499999997888,
+          0.08932599999997137,
+          0.08725499999997055,
+          0.08791800000000194
+        ],
+        "p50Ms": 0.08791800000000194,
+        "p95Ms": 0.11266399999999521,
+        "payloadSha256": "b4a15713bb5175f9d49a3db6e626fc03da47f10bc0c127402d86419c4cf12a1b"
+      },
+      "candidate": {
+        "fidelity": [
+          true,
+          true,
+          true
+        ],
+        "allInstructionsAndTaskPreserved": true,
+        "tokensEstimated": 151,
+        "bytes": 677,
+        "samplesMs": [
+          0.19301600000000008,
+          0.1704059999999572,
+          0.1626099999999724,
+          0.14803700000004483,
+          0.14979599999998072
+        ],
+        "p50Ms": 0.1626099999999724,
+        "p95Ms": 0.19301600000000008,
+        "payloadSha256": "5a3131ef31ff9f2a87b1d79191f7fafa6fa19415311249ba2623600273f3d05e"
+      },
+      "delta": {
+        "tokensEstimated": 67,
+        "bytes": 262,
+        "p50Ms": 0.07469199999997045,
+        "p95Ms": 0.08035200000000486
+      }
+    },
+    {
+      "name": "multipart-coding-evidence",
+      "baseline": {
+        "fidelity": [
+          true,
+          true,
+          false
+        ],
+        "allInstructionsAndTaskPreserved": false,
+        "tokensEstimated": 7209,
+        "bytes": 30080,
+        "samplesMs": [
+          9.870578000000023,
+          7.181336999999985,
+          13.806636000000026,
+          8.089334000000008,
+          7.01009700000003
+        ],
+        "p50Ms": 8.089334000000008,
+        "p95Ms": 13.806636000000026,
+        "payloadSha256": "9cf64165699f2bef9386d74b310673cbc524cbd0ba3df7656d691f00007082d2"
+      },
+      "candidate": {
+        "fidelity": [
+          true,
+          true,
+          true
+        ],
+        "allInstructionsAndTaskPreserved": true,
+        "tokensEstimated": 7219,
+        "bytes": 30096,
+        "samplesMs": [
+          7.622848999999974,
+          7.004345999999941,
+          6.726504999999975,
+          6.8049120000000585,
+          6.699423000000024
+        ],
+        "p50Ms": 6.8049120000000585,
+        "p95Ms": 7.622848999999974,
+        "payloadSha256": "ebe9af5b45ce22e1c6bab09fc4936e022eea331f6cc1b203c562fcc41602e991"
+      },
+      "delta": {
+        "tokensEstimated": 10,
+        "bytes": 16,
+        "p50Ms": -1.2844219999999495,
+        "p95Ms": -6.183787000000052
+      }
+    }
+  ]
+}

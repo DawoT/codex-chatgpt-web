@@ -1,0 +1,56 @@
+{
+  "verifiedProductionTree": "a01fd551d77be8105e014cfa70185d0f383c9f68",
+  "finalGateCommit": "bedd09464cd5975963c90b422b7387e1b4b63077",
+  "fullSuite": {
+    "command": "bun test ./tests --coverage --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=/tmp/continuity-coverage",
+    "pass": 2225,
+    "skip": 14,
+    "fail": 0,
+    "assertions": 12294,
+    "seconds": 210.04,
+    "coverageFunctionsPercentPrinted": 82.87,
+    "coverageLinesPercentPrinted": 82.88,
+    "lcovSha256": "ba1e9338d934801cbd675aca13f334b04d57dc12c2f281f02979a23f6793cd2d",
+    "lcovCounts": {
+      "FNF": 3856,
+      "FNH": 3124,
+      "LF": 50139,
+      "LH": 37848
+    },
+    "scope": "Full coverage run before the additional dead-owner test; production source unchanged. Final changed telemetry suite and serial gates include that test."
+  },
+  "browserContracts": {
+    "command": "CHATGPT_DOM_TEST_BROWSER=/usr/bin/google-chrome bun run test:browser-contracts",
+    "pass": 37,
+    "fail": 0,
+    "assertions": 228,
+    "seconds": 261.54
+  },
+  "latestTelemetrySuite": {
+    "pass": 4,
+    "fail": 0,
+    "assertions": 26
+  },
+  "typecheck": {
+    "success": true
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 88
+  },
+  "refactorGates": {
+    "success": true
+  },
+  "review": {
+    "independentReviews": 2,
+    "scope": "Shared workspace readonly semantic review; no mechanical isolation or human merge approval claimed."
+  },
+  "operational": {
+    "candidateActivated": false,
+    "runtimeProcessObserved": true,
+    "admissionQueueEmpty": true,
+    "liveCompactations": 0,
+    "longLiveSessions": 0,
+    "status": "Pending inactive-runtime window and live acceptance."
+  }
+}

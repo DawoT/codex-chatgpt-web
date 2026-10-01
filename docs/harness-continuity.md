@@ -300,3 +300,57 @@ instalado son lecturas auxiliares: no prueban teardown ni ownership físico libr
 No se instaló, reinició ni activó el candidato. Los 20 canarios y las dos sesiones
 reales mayores de 22 minutos, así como evaluación del éxito por un modelo real,
 siguen pendientes de la ventana de operación exigida por el plan.
+
+
+## Recibo final local
+
+Candidato medido: `bedd09464cd5975963c90b422b7387e1b4b63077`; source digest
+`f1c77ad7e12fa7b08dc810f46c9d6127298183d68b22d87f53fe431739d2be1f`. El commit siguiente sólo conserva documentación
+y reportes; no cambia producción, scripts ni tests. Evidencia duradera:
+
+- [Gates y builds identificados](evidence/harness-continuity-gates.json):
+  242 pass, cero skips/fallos, 12 suites seriales, stableBuild true. Contrato worker
+  1754.8 ms, por debajo de 5000 ms. CLI/helper construidos en memoria sin minificación.
+- [Verificación y cobertura](evidence/harness-continuity-verification.json):
+  suite completa 2225 pass / 14 skip / 0 fail, 12294 assertions, 210.04 s;
+  funciones 82.87 %, líneas 82.88 %. La regresión adicional de owner muerto se
+  verificó en su suite (4 pass) y en el gate final; no se reejecutó toda la cobertura
+  por ese cambio exclusivo de tests. Los 12 contratos opcionales de Chrome se
+  ejecutaron en el gate obligatorio de navegador: 37 pass / 0 fail, 261.54 s.
+  Los dos skips restantes corresponden a plataforma/servicio opcionales.
+  Typecheck y gates estructurales pasan; lint no tiene errores, conserva 88 warnings.
+- [Comparación real de prompts](evidence/harness-continuity-prompts.json):
+  main 9c6e02a conserva 8/12 literales probados, candidato 12/12. Incrementos de
+  payload: 16, 75, 262 y 16 bytes. Tokens estimados: +0, +16, +67 y +10.
+  Se informan costes y fidelidad; no se afirma mejora de tarea por un modelo real.
+
+Latencias de replay del candidato, cinco muestras por escenario, ms:
+
+| Escenario | p50 | p95 |
+| --- | ---: | ---: |
+| late-ack | 358.68 | 420.86 |
+| lost-ack | 410.41 | 431.50 |
+| ambiguous-send | 325.19 | 338.86 |
+| coding-checkpoint-persist-reload | 15.28 | 125.79 |
+
+La medición empieza después de crear Page/context; no incluye arranque de Chromium.
+P95 con cinco muestras es el máximo observado, no una estimación de producción.
+Estos fixtures ejercitan hidratación/virtualización, ACK tardío/perdido y Send
+ambiguo con envío único. No reconstruyen un incidente remoto con logs originales.
+
+Para repetir el cierre local en serie, con el browser instalado:
+
+```bash
+bun run typecheck
+bun run lint
+bun run check:refactor-gates
+bun test ./tests --coverage
+CHATGPT_DOM_TEST_BROWSER=/usr/bin/google-chrome bun run test:browser-contracts
+bun run scripts/check-harness-continuity.ts --samples=5 --report=/tmp/continuity-candidate.json
+```
+
+No ejecutar `deploy` o `build:bundles` mientras el runtime esté activo: el segundo
+copia el helper a `.launcher-runtime`. El gate de continuidad prepara builds en
+memoria y no necesita esa copia. Para validar sólo CLI sin activar el adaptador,
+`bun run src/cli.ts --help` muestra los comandos; el preview de una sesión real
+requiere la ventana inactiva y el runbook de canarios anterior.
