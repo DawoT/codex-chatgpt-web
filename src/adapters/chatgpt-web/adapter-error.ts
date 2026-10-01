@@ -101,6 +101,32 @@ export function chatGptStoppedThinkingError(): ChatGptWebAdapterError {
   );
 }
 
+export function chatGptStreamInterruptedError(): ChatGptWebAdapterError {
+  return new ChatGptWebAdapterError(
+    "ChatGPT's response stream remained interrupted without corroborated progress. " +
+      "The accepted turn was not replayed; inspect the existing ChatGPT response before continuing.",
+    {
+      status: 502,
+      errorType: "server_error",
+      code: "chatgpt_stream_interrupted",
+      retryable: false,
+    },
+  );
+}
+
+export function sessionReconciliationRequiredError(): ChatGptWebAdapterError {
+  return new ChatGptWebAdapterError(
+    "Session actor requires reconciliation before another external effect. " +
+      "The prior accepted operation has no confirmed result; inspect the existing ChatGPT turn before continuing.",
+    {
+      status: 409,
+      errorType: "server_error",
+      code: "session_reconciliation_required",
+      retryable: false,
+    },
+  );
+}
+
 export function chatGptRetainedConversationUnavailableError(): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError("The retained ChatGPT conversation is no longer available.", {
     status: 409,

@@ -38,6 +38,8 @@ export const DIAGNOSTIC_MESSAGES = {
   upstream_server_error: "ChatGPT upstream operation failed",
   chatgpt_effort_locked: "Requested effort requires an upgrade",
   chatgpt_turn_timeout: "ChatGPT turn deadline exceeded",
+  chatgpt_stream_interrupted: "ChatGPT response stream remained interrupted",
+  session_reconciliation_required: "Session requires reconciliation before another external effect",
   chatgpt_browser_transport_closed: "ChatGPT browser transport closed",
   compaction_handoff_timeout: "Compaction handoff deadline exceeded",
   codex_turn_binding_observation_failed: "Codex turn binding observation failed",
