@@ -120,7 +120,9 @@ export function assertSurfaceNonce(value: unknown): asserts value is string {
 }
 
 /** Evicts by insertion order (oldest out), the same bound style as the retired-handle history. */
-export function trimOldest(history: Map<string, string> | Set<string>, limit: number): void {
+export function trimOldest<V>(history: Map<string, V>, limit: number): void;
+export function trimOldest(history: Set<string>, limit: number): void;
+export function trimOldest(history: Map<string, unknown> | Set<string>, limit: number): void {
   while (history.size > limit) {
     const oldest = history.keys().next();
     if (oldest.done) return;

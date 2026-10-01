@@ -8,7 +8,7 @@ import { type CompactionTransactionHandle, CompactionTransactionStore } from "./
 import type { ChatGptTurnEnvironment } from "./environment";
 import { McpTelemetry } from "./mcp-telemetry";
 import type { ToolDeliveryPhase } from "./tool-delivery-lifecycle";
-import { BrokerAdmission } from "./turn-broker/admission";
+import { BrokerAdmission, type RetiredTurnRecord, type TokenAliasEdge } from "./turn-broker/admission";
 import { BrokerCompletionFence } from "./turn-broker/completion-fence";
 import {
   TurnBrokerProtocolError,
@@ -92,24 +92,20 @@ export class TurnBroker implements TurnBrokerOwner {
   // can present one. Remembering which turn retired a handle is what separates "you are holding a
   // previous turn's handle" from "this handle never existed".
   private readonly retiredBindings = new Map<string, string>();
-  private readonly retiredTokens = new Map<string, string>();
-  private readonly terminatedTokens = new Map<string, string>();
-  private readonly tokenAliases = new Map<string, string>();
+  private readonly retiredTurns = new Map<string, RetiredTurnRecord>();
+  private readonly tokenAliases = new Map<string, TokenAliasEdge>();
   private readonly traceActiveTokens = new Map<string, string>();
   private readonly traceTokens = new Map<string, string[]>();
   private readonly threadActiveTokens = new Map<string, string>();
   private readonly threadTokens = new Map<string, string[]>();
-  private readonly retiredTokenThreads = new Map<string, string>();
   private readonly admission = new BrokerAdmission({
     channels: this.channels,
-    retiredTokens: this.retiredTokens,
-    terminatedTokens: this.terminatedTokens,
+    retiredTurns: this.retiredTurns,
     tokenAliases: this.tokenAliases,
     traceActiveTokens: this.traceActiveTokens,
     traceTokens: this.traceTokens,
     threadActiveTokens: this.threadActiveTokens,
     threadTokens: this.threadTokens,
-    retiredTokenThreads: this.retiredTokenThreads,
   });
   private readonly toolQueue = new BrokerToolQueue({
     getChannel: (token) => this.getChannel(token),
@@ -210,10 +206,13 @@ export class TurnBroker implements TurnBrokerOwner {
     this.channels.set(token, channel);
     this.pending.set(token, channel);
     if (predecessorToken) {
-      // A terminally revoked predecessor (interrupted before finishing) grants nothing to its
-      // successor: creating an alias from it would readmit its holders into the new epoch.
-      if (!this.terminatedTokens.has(predecessorToken)) {
-        this.tokenAliases.set(predecessorToken, token);
+      // A lineage alias is an authorization grant from the predecessor: it requires the
+      // predecessor to be a live channel or to carry positive compatible retirement evidence.
+      // A terminally revoked, unknown or evicted predecessor grants nothing to its successor.
+      const predecessorChannel = this.channels.get(predecessorToken);
+      const predecessorRecord = this.retiredTurns.get(predecessorToken);
+      if (predecessorChannel || predecessorRecord?.terminal === false) {
+        this.tokenAliases.set(predecessorToken, { target: token, lineage: true });
         trimOldest(this.tokenAliases, MAX_TOKEN_ALIASES);
       }
     }
@@ -500,15 +499,16 @@ export class TurnBroker implements TurnBrokerOwner {
       rejectSafeWaiters(channel.safe.startWaiters, reason);
       rejectSafeWaiters(channel.safe.completionWaiters, reason);
     }
-    this.retire(this.retiredTokens, token, channel.traceId);
-    // Only an explicitly terminal revocation — the caller knows this turn was interrupted
-    // rather than superseded or finished — closes alias and lineage readmission. A finished
-    // or superseded turn keeps its compatible lineage routing to authorized successors.
-    if (options?.terminal === true) {
-      this.retire(this.terminatedTokens, token, channel.traceId);
-    }
+    // One bounded retirement catalog: the record is the positive evidence a retired handle
+    // needs before alias, trace or thread lineage may route it. Only an explicitly terminal
+    // revocation — the caller knows this turn was interrupted rather than superseded or
+    // finished — never routes again, and eviction reduces permissions instead of restoring them.
+    this.retireTurnRecord(token, {
+      traceId: channel.traceId,
+      ...(channel.threadId && channel.environment.execution !== "host-only" ? { threadId: channel.threadId } : {}),
+      terminal: options?.terminal === true,
+    });
     if (channel.threadId && channel.environment.execution !== "host-only") {
-      this.retire(this.retiredTokenThreads, token, channel.threadId);
       if (this.threadActiveTokens.get(channel.threadId) === token) {
         this.threadActiveTokens.delete(channel.threadId);
       }
@@ -519,11 +519,11 @@ export class TurnBroker implements TurnBrokerOwner {
         if (threadLineage.length === 0) this.threadTokens.delete(channel.threadId);
       }
     }
-    // Lineage that routes into this token would fail closed anyway (its channel is gone), but
-    // leaving it behind keeps the singleton's maps growing for the process lifetime and lets a
-    // stale alias chain hop through the revoked handle instead of failing closed here.
-    for (const [alias, target] of this.tokenAliases) {
-      if (target === token) this.tokenAliases.delete(alias);
+    // Lineage that routes into this token would fail closed anyway (its channel is gone), and
+    // a stale alias chain must not hop through the revoked handle: drop incoming and outgoing
+    // alias edges so neither can route around the retirement.
+    for (const [alias, edge] of this.tokenAliases) {
+      if (edge.target === token || alias === token) this.tokenAliases.delete(alias);
     }
     const traceLineage = this.traceTokens.get(channel.traceId);
     if (traceLineage) {
@@ -596,15 +596,21 @@ export class TurnBroker implements TurnBrokerOwner {
     trimOldest(history, MAX_RETIRED_TURN_HANDLES);
   }
 
+  private retireTurnRecord(handle: string, record: RetiredTurnRecord): void {
+    this.retiredTurns.delete(handle);
+    this.retiredTurns.set(handle, record);
+    trimOldest(this.retiredTurns, MAX_RETIRED_TURN_HANDLES);
+  }
+
   async close(): Promise<void> {
     this.compactionTransactions.close();
     for (const token of [...this.channels.keys()]) this.revoke(token);
+    this.retiredTurns.clear();
     this.tokenAliases.clear();
     this.traceActiveTokens.clear();
     this.traceTokens.clear();
     this.threadActiveTokens.clear();
     this.threadTokens.clear();
-    this.retiredTokenThreads.clear();
     this.threadSuccessorWaiters.clear();
     const server = this.server;
     const socketIdentity = this.socketIdentity;
@@ -1037,9 +1043,14 @@ export class TurnBroker implements TurnBrokerOwner {
       let effectiveToken = resolved?.resolvedToken ?? token;
       // A terminally revoked token must not wait out the inter-turn grace: no successor will
       // ever be authorized for it, and a late holder may not acquire the next epoch's rights.
-      if (!activeChannel && !token.startsWith("host_") && contract !== "safe" && !this.terminatedTokens.has(token)) {
+      if (
+        !activeChannel &&
+        !token.startsWith("host_") &&
+        contract !== "safe" &&
+        this.retiredTurns.get(token)?.terminal !== true
+      ) {
         const direct = this.channels.get(token);
-        const threadId = direct?.threadId ?? this.retiredTokenThreads.get(token);
+        const threadId = direct?.threadId ?? this.retiredTurns.get(token)?.threadId;
         if (threadId && threadId !== "unknown" && this.interTurnGraceWaitMs > 0) {
           const successorToken = await this.waitForThreadSuccessor(threadId, this.interTurnGraceWaitMs, socketSignal);
           if (successorToken) {
@@ -1055,12 +1066,16 @@ export class TurnBroker implements TurnBrokerOwner {
         );
       }
       const channel = this.channels.get(token);
-      const terminatedTurn = activeChannel ? undefined : this.terminatedTokens.get(token);
-      const retiredTurn = activeChannel
-        ? undefined
-        : channel?.completionCommitted
-          ? channel.traceId
-          : this.retiredTokens.get(token);
+      const retirementRecord = activeChannel ? undefined : this.retiredTurns.get(token);
+      const terminatedTurn = retirementRecord?.terminal === true ? retirementRecord : undefined;
+      const retiredTurn =
+        activeChannel || terminatedTurn
+          ? undefined
+          : channel?.completionCommitted
+            ? channel.traceId
+            : retirementRecord?.terminal === false
+              ? retirementRecord.traceId
+              : undefined;
       console.error(
         `[chatgpt-web] broker claim received (tokenChars=${token.length}, tokenHash=${handleFingerprint(token)}, valid=${Boolean(activeChannel)}` +
           `${activeChannel ? "" : terminatedTurn !== undefined ? ", interrupted=true" : `, retiredTurn=${retiredTurn ?? "unknown"}`})`,
@@ -1068,7 +1083,7 @@ export class TurnBroker implements TurnBrokerOwner {
       if (!activeChannel) {
         if (terminatedTurn !== undefined) {
           throw new Error(
-            `${contract === "safe" ? "This request_id" : "This turn_token"} was issued for ${retiredTurnLabel(terminatedTurn)}, which was interrupted before finishing.` +
+            `${contract === "safe" ? "This request_id" : "This turn_token"} was issued for ${retiredTurnLabel(terminatedTurn.traceId)}, which was interrupted before finishing.` +
               " This Codex Native action can no longer run.",
           );
         }
@@ -1142,7 +1157,7 @@ export class TurnBroker implements TurnBrokerOwner {
       const resolved = this.resolveActiveToken(token);
       const channel = resolved?.channel ?? this.channels.get(token);
       if (!channel) {
-        return { completed: false, retired: this.retiredTokens.has(token) };
+        return { completed: false, retired: this.retiredTurns.has(token) };
       }
       if (channel.completedActivities.has(request.activityId)) {
         return { completed: false, duplicate: true };
