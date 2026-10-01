@@ -93,6 +93,17 @@ describe("Sprint 2: Predictive Risk Formula R(t) & Context Pressure", () => {
       expect(snapshot.riskAssessment.yieldRecommended).toBe(true);
     });
 
+    test("propagates urgent predictive risk into compactionRequired", () => {
+      const pressure = new ChatGptBrowserContextPressure();
+      for (let i = 0; i < 70; i++) {
+        pressure.recordToolCallCompleted();
+      }
+
+      const snapshot = pressure.snapshot();
+      expect(snapshot.riskAssessment.compactionUrgent).toBe(true);
+      expect(snapshot.compactionRequired).toBe(true);
+    });
+
     test("reset clears continuous tool call counter and risk score", () => {
       const pressure = new ChatGptBrowserContextPressure();
       for (let i = 0; i < 60; i++) {
@@ -105,6 +116,13 @@ describe("Sprint 2: Predictive Risk Formula R(t) & Context Pressure", () => {
       expect(after.continuousToolCallsCount).toBe(0);
       expect(after.riskScore).toBeLessThan(0.1);
       expect(after.yieldRecommended).toBe(false);
+    });
+
+    test("a viable fresh prompt does not force native compaction solely from the remote retention heuristic", () => {
+      const pressure = new ChatGptBrowserContextPressure();
+      pressure.beginResponse(50_000, false);
+      expect(pressure.snapshot().riskAssessment.compactionUrgent).toBe(true);
+      expect(pressure.snapshot().compactionRequired).toBe(false);
     });
   });
 });

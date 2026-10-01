@@ -177,8 +177,12 @@ export class ChatGptBrowserContextPressure {
   }
 
   snapshot(): ChatGptBrowserContextPressureSnapshot {
+    const riskAssessment = this.calculateRisk();
+    // DOM size and token estimates are conservative remote-retention heuristics, not
+    // evidence that an otherwise viable native prompt must be compacted before Send.
+    const predictiveCompactionRequired = riskAssessment.compactionUrgent && riskAssessment.toolBurstRatio >= 0.85;
     return {
-      compactionRequired: this.reason !== undefined,
+      compactionRequired: this.reason !== undefined || predictiveCompactionRequired,
       recoveryRequired: this.recoveryRequired,
       watchDomSize: this.observedDomChars > CHATGPT_BROWSER_DOM_COMPACTION_CHAR_LIMIT,
       ...(this.reason ? { reason: this.reason } : {}),
@@ -186,7 +190,7 @@ export class ChatGptBrowserContextPressure {
       consecutiveSlowObservations: this.consecutiveSlowObservations,
       continuousToolCallsCount: this.continuousToolCallsCount,
       estimatedTokens: this.estimatedTokens,
-      riskAssessment: this.calculateRisk(),
+      riskAssessment,
     };
   }
 
