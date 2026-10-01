@@ -27,6 +27,10 @@ function opaqueId(prefix: "control" | "handoff"): string {
 export class CompactionTransactionStore {
   private readonly transactions = new Map<string, CompactionTransaction>();
 
+  get pendingTransactions(): number {
+    return this.transactions.size;
+  }
+
   begin(traceId: string, ttlMs: number): CompactionTransactionHandle {
     if (!traceId.trim()) throw new Error("compaction transaction trace id is required");
     if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
@@ -59,8 +63,6 @@ export class CompactionTransactionStore {
     console.info(
       `[chatgpt-web] broker trace=${transaction.traceId} accepted compaction handoff chars=${normalized.length}`,
     );
-    if (transaction.timer) clearTimeout(transaction.timer);
-    transaction.timer = undefined;
     if (transaction.waiter) this.consume(transaction);
   }
 
@@ -68,12 +70,12 @@ export class CompactionTransactionStore {
     const transaction = this.transactions.get(token);
     if (!transaction) return Promise.reject(new Error("compaction control token is invalid, expired, or consumed"));
     if (transaction.waiter) return Promise.reject(new Error("compaction transaction already has a waiter"));
-    if (transaction.summary !== undefined) return Promise.resolve(this.consume(transaction));
     if (signal?.aborted) {
       const error = new DOMException("compaction transaction aborted", "AbortError");
       this.finishError(transaction, error);
       return Promise.reject(error);
     }
+    if (transaction.summary !== undefined) return Promise.resolve(this.consume(transaction));
     return new Promise<string>((resolve, reject) => {
       const waiter: TransactionWaiter = { resolve, reject, ...(signal ? { signal } : {}) };
       if (signal) {
@@ -115,6 +117,8 @@ export class CompactionTransactionStore {
 
   private consume(transaction: CompactionTransaction): string {
     if (transaction.summary === undefined) throw new Error("compaction transaction is not ready");
+    if (transaction.timer) clearTimeout(transaction.timer);
+    transaction.timer = undefined;
     const summary = transaction.summary;
     const waiter = transaction.waiter;
     this.transactions.delete(transaction.token);

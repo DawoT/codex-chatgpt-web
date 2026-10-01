@@ -74,24 +74,17 @@ export class SubmissionObserver {
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
   ): Promise<void> {
-    const domMutation = this.waitForTurnDomMutation(page);
-    if (!externalProgress) {
-      await withBrowserTurnAbort(domMutation, signal);
-      return;
-    }
-    const progressWaitAbort = new AbortController();
-    const progressSignal = signal ? AbortSignal.any([progressWaitAbort.signal, signal]) : progressWaitAbort.signal;
-    try {
-      await withBrowserTurnAbort(
-        Promise.race([
-          domMutation,
-          externalProgress.waitForChange(afterProgressRevision, progressSignal).then(() => undefined),
-        ]),
-        signal,
-      );
-    } finally {
-      progressWaitAbort.abort();
-    }
+    await this.waitForTurnDomRevisionOrExternalProgress(
+      page,
+      undefined,
+      afterProgressRevision,
+      externalProgress,
+      signal,
+      {
+        horizonMs: 250,
+        requireMutation: true,
+      },
+    );
   }
 
   /**
@@ -99,7 +92,7 @@ export class SubmissionObserver {
    * mutation barrier, the DOM half is the in-page revision long-poll, which resolves the moment
    * the conversation mutates. Returns the latest DOM signal key so the caller can re-arm the next
    * wait; when external progress wins the race the key is unchanged and the pending signal
-   * settles itself within its horizon.
+   * is cancelled and releases its renderer waiter.
    */
   async waitForTurnDomRevisionOrExternalProgress(
     page: Page,
@@ -113,31 +106,33 @@ export class SubmissionObserver {
       observationTimeoutMs?: number;
       domChars?: number;
       payloadChars?: number;
+      requireMutation?: boolean;
     },
   ): Promise<string> {
     let domKey = afterDomKey;
+    const waitAbort = new AbortController();
+    const waitSignal = signal ? AbortSignal.any([waitAbort.signal, signal]) : waitAbort.signal;
     const domSignal = waitForChatGptDomRevision(page, {
       afterKey: afterDomKey,
       settleMs: options?.settleMs ?? 150,
       horizonMs: options?.horizonMs ?? 250,
-      signal,
+      signal: waitSignal,
       observationTimeoutMs: options?.observationTimeoutMs,
       domChars: options?.domChars,
       payloadChars: options?.payloadChars,
+      requireMutation: options?.requireMutation,
     });
-    if (!externalProgress) return (await domSignal).key;
-    const trackedKey = domSignal.then((verdict) => {
-      domKey = verdict.key;
-    });
-    const progressWaitAbort = new AbortController();
-    const progressSignal = signal ? AbortSignal.any([progressWaitAbort.signal, signal]) : progressWaitAbort.signal;
     try {
+      if (!externalProgress) return (await domSignal).key;
       await Promise.race([
-        trackedKey,
-        externalProgress.waitForChange(afterProgressRevision, progressSignal).then(() => undefined),
+        domSignal.then((verdict) => {
+          domKey = verdict.key;
+        }),
+        externalProgress.waitForChange(afterProgressRevision, waitSignal),
       ]);
     } finally {
-      progressWaitAbort.abort();
+      waitAbort.abort();
+      await domSignal.catch(() => {});
     }
     // The signal had not delivered yet, so the next wait fast-paths on the first mutation and
     // refreshes the key; an empty placeholder never matches a live key.

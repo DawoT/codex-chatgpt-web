@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Page } from "playwright-core";
 import { CHATGPT_DOM_REVISION_ATTRIBUTES } from "./dom-trackers";
 import {
@@ -71,88 +72,113 @@ export async function waitForChatGptDomRevision(
 ): Promise<ChatGptDomRevisionVerdict> {
   const settleMs = options.settleMs ?? 150;
   const horizonMs = options.horizonMs ?? 500;
-  return withChatGptBrowserObservationTimeout(
-    withBrowserTurnAbort(
-      page.evaluate(
-        ({ attributeFilter, afterKey, settle, horizon, requireMutation }) =>
-          new Promise<{ key: string; revision: number; timedOut: boolean }>((resolve) => {
-            type ChatGptDomSignalState = {
-              id: string;
-              revision: number;
-              waiters: Array<() => void>;
-              observer: MutationObserver;
-            };
-            const scope = globalThis as typeof globalThis & {
-              __CODEX_WEB_GPT_DOM_SIGNAL__?: ChatGptDomSignalState;
-            };
-            if (!scope.__CODEX_WEB_GPT_DOM_SIGNAL__) {
-              let created!: ChatGptDomSignalState;
-              const observer = new MutationObserver(() => {
-                created.revision += 1;
-                for (const wake of created.waiters.splice(0)) wake();
-              });
-              created = {
-                id: `${performance.timeOrigin}:${Math.random().toString(36).slice(2)}`,
-                revision: 0,
-                waiters: [],
-                observer,
+  if (options.signal?.aborted) throw new DOMException("ChatGPT web turn aborted", "AbortError");
+  const waitId = randomUUID();
+  let completed = false;
+  try {
+    const verdict = await withChatGptBrowserObservationTimeout(
+      withBrowserTurnAbort(
+        page.evaluate(
+          ({ attributeFilter, afterKey, settle, horizon, requireMutation, waitId }) =>
+            new Promise<{ key: string; revision: number; timedOut: boolean }>((resolve) => {
+              type ChatGptDomSignalState = {
+                id: string;
+                revision: number;
+                waiters: Array<() => void>;
+                observer: MutationObserver;
+                cancellations: Map<string, () => void>;
               };
-              created.observer.observe(document.documentElement, {
-                subtree: true,
-                childList: true,
-                characterData: true,
-                attributes: true,
-                attributeFilter,
+              const scope = globalThis as typeof globalThis & {
+                __CODEX_WEB_GPT_DOM_SIGNAL__?: ChatGptDomSignalState;
+              };
+              if (!scope.__CODEX_WEB_GPT_DOM_SIGNAL__) {
+                let created!: ChatGptDomSignalState;
+                const observer = new MutationObserver(() => {
+                  created.revision += 1;
+                  for (const wake of created.waiters.splice(0)) wake();
+                });
+                created = {
+                  id: `${performance.timeOrigin}:${Math.random().toString(36).slice(2)}`,
+                  revision: 0,
+                  waiters: [],
+                  cancellations: new Map(),
+                  observer,
+                };
+                created.observer.observe(document.documentElement, {
+                  subtree: true,
+                  childList: true,
+                  characterData: true,
+                  attributes: true,
+                  attributeFilter,
+                });
+                scope.__CODEX_WEB_GPT_DOM_SIGNAL__ = created;
+              }
+              const state = scope.__CODEX_WEB_GPT_DOM_SIGNAL__;
+              const verdict = (timedOut: boolean) => ({
+                key: `${state.id}:${state.revision}`,
+                revision: state.revision,
+                timedOut,
               });
-              scope.__CODEX_WEB_GPT_DOM_SIGNAL__ = created;
-            }
-            const state = scope.__CODEX_WEB_GPT_DOM_SIGNAL__;
-            const verdict = (timedOut: boolean) => ({
-              key: `${state.id}:${state.revision}`,
-              revision: state.revision,
-              timedOut,
-            });
-            const liveKey = `${state.id}:${state.revision}`;
-            if (afterKey !== undefined && afterKey !== liveKey) {
-              resolve(verdict(false));
-              return;
-            }
-            if (afterKey === undefined && !requireMutation) {
-              resolve(verdict(false));
-              return;
-            }
-            let settled = false;
-            let settleTimer: ReturnType<typeof setTimeout> | undefined;
-            let horizonTimer: ReturnType<typeof setTimeout> | undefined;
-            const wake = () => {
-              if (settleTimer !== undefined) return;
-              // Let one React mutation batch finish before delivering the wake.
-              settleTimer = setTimeout(() => finish(false), settle);
-            };
-            const finish = (timedOut: boolean) => {
-              if (settled) return;
-              settled = true;
-              const index = state.waiters.indexOf(wake);
-              if (index >= 0) state.waiters.splice(index, 1);
-              if (settleTimer !== undefined) clearTimeout(settleTimer);
-              if (horizonTimer !== undefined) clearTimeout(horizonTimer);
-              resolve(verdict(timedOut));
-            };
-            state.waiters.push(wake);
-            horizonTimer = setTimeout(() => finish(true), Math.max(1, horizon));
-          }),
-        {
-          attributeFilter: [...CHATGPT_DOM_REVISION_ATTRIBUTES],
-          afterKey: options.afterKey,
-          settle: settleMs,
-          horizon: horizonMs,
-          requireMutation: options.requireMutation === true,
-        },
+              const liveKey = `${state.id}:${state.revision}`;
+              if (afterKey !== undefined && afterKey !== liveKey) {
+                resolve(verdict(false));
+                return;
+              }
+              if (afterKey === undefined && !requireMutation) {
+                resolve(verdict(false));
+                return;
+              }
+              let settled = false;
+              let settleTimer: ReturnType<typeof setTimeout> | undefined;
+              let horizonTimer: ReturnType<typeof setTimeout> | undefined;
+              const wake = () => {
+                if (settleTimer !== undefined) return;
+                // Let one React mutation batch finish before delivering the wake.
+                settleTimer = setTimeout(() => finish(false), settle);
+              };
+              const finish = (timedOut: boolean) => {
+                if (settled) return;
+                settled = true;
+                state.cancellations.delete(waitId);
+                const index = state.waiters.indexOf(wake);
+                if (index >= 0) state.waiters.splice(index, 1);
+                if (settleTimer !== undefined) clearTimeout(settleTimer);
+                if (horizonTimer !== undefined) clearTimeout(horizonTimer);
+                resolve(verdict(timedOut));
+              };
+              state.cancellations.set(waitId, () => finish(true));
+              state.waiters.push(wake);
+              horizonTimer = setTimeout(() => finish(true), Math.max(1, horizon));
+            }),
+          {
+            attributeFilter: [...CHATGPT_DOM_REVISION_ATTRIBUTES],
+            afterKey: options.afterKey,
+            settle: settleMs,
+            horizon: horizonMs,
+            requireMutation: options.requireMutation === true,
+            waitId,
+          },
+        ),
+        options.signal,
       ),
-      options.signal,
-    ),
-    resolveDomRevisionProbeTimeoutMs(options),
-  );
+      resolveDomRevisionProbeTimeoutMs(options),
+    );
+    completed = true;
+    return verdict;
+  } finally {
+    if (!completed) {
+      // Release the renderer half of an abort/timeout/race, even when Node already rejected.
+      await withChatGptBrowserObservationTimeout(
+        page.evaluate((id) => {
+          const scope = globalThis as typeof globalThis & {
+            __CODEX_WEB_GPT_DOM_SIGNAL__?: { cancellations: Map<string, () => void> };
+          };
+          scope.__CODEX_WEB_GPT_DOM_SIGNAL__?.cancellations.get(id)?.();
+        }, waitId),
+        1000,
+      ).catch(() => {});
+    }
+  }
 }
 
 /**

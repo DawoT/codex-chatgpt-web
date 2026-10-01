@@ -4,9 +4,16 @@ export class ChatGptTraceFeed {
   private readonly queued: ChatGptTraceEvent[] = [];
   private readonly waiters = new Set<TraceWaiter>();
 
+  private closed = false;
+  private closeReason?: Error;
+
+  get pendingWaiters(): number {
+    return this.waiters.size;
+  }
+
   push(event: ChatGptTraceEvent): void {
     const normalized = event.continuation ? event.text : event.text.trim();
-    if (!normalized) return;
+    if (this.closed || !normalized) return;
     const normalizedEvent = { ...event, text: normalized };
     this.queued.push(normalizedEvent);
     if (this.waiters.size === 0) return;
@@ -23,6 +30,9 @@ export class ChatGptTraceFeed {
   }
 
   close(reason?: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.closeReason = reason;
     if (this.waiters.size === 0) return;
     const currentWaiters = [...this.waiters];
     this.waiters.clear();
@@ -34,8 +44,9 @@ export class ChatGptTraceFeed {
   }
 
   wait(signal?: AbortSignal): Promise<void> {
-    if (this.queued.length > 0) return Promise.resolve();
     if (signal?.aborted) return Promise.reject(new DOMException("trace wait aborted", "AbortError"));
+    if (this.closed && this.closeReason) return Promise.reject(this.closeReason);
+    if (this.closed || this.queued.length > 0) return Promise.resolve();
     return new Promise<void>((resolveWait, rejectWait) => {
       const waiter: TraceWaiter = { resolve: resolveWait, reject: rejectWait, ...(signal ? { signal } : {}) };
       if (signal) {
@@ -56,8 +67,15 @@ export class ChatGptTextFeed {
   private readonly waiters = new Set<TextWaiter>();
   private text = "";
 
+  private closed = false;
+  private closeReason?: Error;
+
+  get pendingWaiters(): number {
+    return this.waiters.size;
+  }
+
   push(delta: string): void {
-    if (!delta) return;
+    if (this.closed || !delta) return;
     this.text += delta;
     this.queued.push(delta);
     if (this.waiters.size === 0) return;
@@ -74,6 +92,9 @@ export class ChatGptTextFeed {
   }
 
   close(reason?: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.closeReason = reason;
     if (this.waiters.size === 0) return;
     const currentWaiters = [...this.waiters];
     this.waiters.clear();
@@ -89,8 +110,9 @@ export class ChatGptTextFeed {
   }
 
   wait(signal?: AbortSignal): Promise<void> {
-    if (this.queued.length > 0) return Promise.resolve();
     if (signal?.aborted) return Promise.reject(new DOMException("text wait aborted", "AbortError"));
+    if (this.closed && this.closeReason) return Promise.reject(this.closeReason);
+    if (this.closed || this.queued.length > 0) return Promise.resolve();
     return new Promise<void>((resolveWait, rejectWait) => {
       const waiter: TextWaiter = { resolve: resolveWait, reject: rejectWait, ...(signal ? { signal } : {}) };
       if (signal) {

@@ -38,8 +38,8 @@ import {
 import { ChatGptTurnCompletionFsm } from "./turn-completion-fsm";
 import type { ChatGptAssistantTurnBinding } from "./turn-diagnostics";
 import type { ChatGptTurnEventBus } from "./turn-events";
-
 import type { resolveTurnLivenessSignals } from "./turn-liveness";
+import { waitForChatGptTurnWake } from "./turn-wake";
 
 export interface TurnCompletionLoopDeps {
   classifyLiveness: typeof resolveTurnLivenessSignals;
@@ -129,25 +129,31 @@ export class TurnCompletionLoop {
     // advance, with the horizon bounding how often ceilings are re-checked on a quiet page.
     const waitForTurnSignal = async (): Promise<void> => {
       const previousKey = domSignalKey;
-      const progressRev = turn.externalProgress?.snapshot().revision ?? 0;
-      domSignalKey = await this.deps.waitForTurnDomRevisionOrExternalProgress(
-        page,
-        domSignalKey,
-        progressRev,
-        turn.externalProgress,
+      await waitForChatGptTurnWake(
+        turnEvents,
+        async (signal) => {
+          const progressRev = turn.externalProgress?.snapshot().revision ?? 0;
+          domSignalKey = await this.deps.waitForTurnDomRevisionOrExternalProgress(
+            page,
+            domSignalKey,
+            progressRev,
+            turn.externalProgress,
+            signal,
+          );
+          const newProgressRev = turn.externalProgress?.snapshot().revision ?? 0;
+          if (newProgressRev > progressRev) {
+            turnEvents.publish({
+              type: "external_progress_advanced",
+              source: "external_progress",
+              revision: newProgressRev,
+            });
+          }
+          if (domSignalKey !== previousKey) {
+            turnEvents.publish({ type: "response_mutated", source: "dom" });
+          }
+        },
         turn.abortSignal,
       );
-      const newProgressRev = turn.externalProgress?.snapshot().revision ?? 0;
-      if (newProgressRev > progressRev) {
-        turnEvents.publish({
-          type: "external_progress_advanced",
-          source: "external_progress",
-          revision: newProgressRev,
-        });
-      }
-      if (domSignalKey !== previousKey) {
-        turnEvents.publish({ type: "response_mutated", source: "dom" });
-      }
     };
     const recoverStalledResponsePage = async (error: ChatGptBrowserObservationTimeoutError): Promise<void> => {
       const currentProgress = turn.externalProgress?.snapshot();
@@ -244,7 +250,12 @@ export class TurnCompletionLoop {
           throw new DOMException("ChatGPT web turn aborted", "AbortError");
         }
         if (deadline !== undefined && Date.now() >= deadline) {
-          throw new Error("ChatGPT web turn timed out");
+          throw new ChatGptWebAdapterError("ChatGPT web turn timed out", {
+            status: 504,
+            errorType: "server_error",
+            code: "chatgpt_turn_timeout",
+            retryable: false,
+          });
         }
         await throwIfChatGptSessionFailureAlert(page);
         await throwIfChatGptTerminalErrorAlert(responseTurn.locator);

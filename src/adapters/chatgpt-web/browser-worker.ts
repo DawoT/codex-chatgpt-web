@@ -14,6 +14,7 @@ import {
   LAUNCHER_TURN_HEARTBEAT_TIMEOUT_MS,
   notifyLauncherTurn,
 } from "../../launcher-browser-host";
+import { runtimeIdentity } from "../../runtime-identity";
 import type { CodexProviderConfig } from "../../types";
 import {
   ChatGptCompactionHandoffAccepted,
@@ -48,6 +49,7 @@ import {
 import { ChatGptTurnEventBus } from "./browser/turn-events";
 import { resolveTurnLivenessSignals } from "./browser/turn-liveness";
 import { TurnOrchestrator } from "./browser/turn-orchestrator";
+import { ChatGptTurnPageBinding } from "./browser/turn-page-binding";
 import { interactiveBrowserTurnMutex } from "./browser-mutex";
 import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "./concurrency";
 import { createBrowserPayloadAcceptanceRecorder } from "./input-tokens";
@@ -62,6 +64,7 @@ import {
 import type { ChatGptWebMultipartStage, CompiledChatGptWebPrompt } from "./prompt";
 import type { CapturedChatGptLunaCheckpoint } from "./rolling-checkpoint";
 import type { ChatGptTurnProgressReader } from "./turn-progress";
+import { classifyTurnTermination, type TurnTerminationCause } from "./turn-terminal";
 
 export * from "./browser";
 export { MAX_CHATGPT_CONNECTOR_TRIGGER_ATTEMPTS } from "./browser/composer-controller";
@@ -1258,13 +1261,14 @@ export class ChatGptBrowserWorker {
     let diagnosticPage: Page | undefined;
     const usageWrites: Promise<void>[] = [];
     const submissionRejection = new ChatGptSubmissionRejectionObserver();
-    let onNetworkResponse: ((response: { url(): string; status(): number }) => void) | undefined;
+    let pageBinding: ChatGptTurnPageBinding | undefined;
     // Diagnostics and the event bus are constructed inside the try: neither may throw past the
     // finally block below, which is the only guaranteed release of the prepared prompt resource.
     // Definite-assignment keeps the in-try call sites unchanged; catch/finally use optional
     // chaining because a construction failure leaves both unset.
     let diagnostics!: ChatGptBrowserDiagnostics;
     let turnEvents!: ChatGptTurnEventBus;
+    let terminalCause: TurnTerminationCause | "completed" = "internal_failure";
     try {
       diagnostics = new ChatGptBrowserDiagnostics(
         turn.traceId,
@@ -1351,18 +1355,8 @@ export class ChatGptBrowserWorker {
       );
       if (!maintenancePage && !launcherSurfaceId) managedPage = page;
       diagnosticPage = page;
-      onNetworkResponse = (response: { url(): string; status(): number }) => {
-        try {
-          if (response.url().includes("/backend-api/")) {
-            turnEvents.publish({
-              type: "network_submission_observed",
-              source: "network",
-              status: response.status(),
-            });
-          }
-        } catch {}
-      };
-      page.on("response", onNetworkResponse);
+      pageBinding = new ChatGptTurnPageBinding(turnEvents);
+      pageBinding.bind(page);
       const contextPressure = this.getContextPressure(page, turn.conversationKey);
       const rebindLauncherPage = async (attempt: number, cause: Error, callerSignal?: AbortSignal): Promise<void> => {
         if (!launcherSurfaceId || !this.config.browserHostDescriptorPath) throw cause;
@@ -1410,6 +1404,7 @@ export class ChatGptBrowserWorker {
         });
         turnConnection = connection.browser;
         page = connection.page;
+        pageBinding?.bind(page);
         diagnosticPage = page;
         this.contextPressureByPage.set(page, contextPressure);
         console.warn(
@@ -1891,8 +1886,10 @@ export class ChatGptBrowserWorker {
         `[chatgpt-web] browser turn ${turn.traceId} completed` +
           ` (markdownChars=${finalText.length}, domFullScans=${responseDomCache.fullScans ?? 0}, domCacheHits=${responseDomCache.cacheHits ?? 0})`,
       );
+      terminalCause = "completed";
       return finalText;
     } catch (caughtError) {
+      terminalCause = classifyTurnTermination(caughtError, turn.abortSignal);
       let error = caughtError;
       if (
         !(error instanceof DOMException && error.name === "AbortError") &&
@@ -1922,7 +1919,17 @@ export class ChatGptBrowserWorker {
       }
       throw error;
     } finally {
-      if (onNetworkResponse) diagnosticPage?.off("response", onNetworkResponse);
+      console.info(
+        `[chatgpt-web] turn_terminal ${JSON.stringify({
+          traceId: turn.traceId,
+          turnId: turnEvents?.scope.turnId,
+          documentGeneration: turnEvents?.documentGeneration,
+          afterSequence: turnEvents?.cursor,
+          terminalCause,
+          runtime: runtimeIdentity,
+        })}`,
+      );
+      pageBinding?.dispose();
       turnEvents?.dispose();
       submissionRejection.dispose();
       await Promise.all(usageWrites);
