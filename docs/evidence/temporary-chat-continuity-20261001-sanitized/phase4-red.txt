@@ -1,0 +1,26 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+(pass) a confirmed phase checkpoint survives restart and replaces only its exact parent history [115.17ms]
+(pass) invalid or stale checkpoints cannot replace the last durable checkpoint [8.34ms]
+(pass) a checkpoint cannot hide changed history or omit a literal user requirement [6.94ms]
+(pass) a handoff budget rejects essential state instead of silently truncating it [70.99ms]
+148 | 
+149 | test("a checkpoint requires the journal's confirmed browser answer and evidence reads stay session scoped", async () => {
+150 |   const home = await fixture();
+151 |   try {
+152 |     const parsed = nativeRequest();
+153 |     await expect(home.manager.phaseCheckpoints!.commit("namespace:mission", 1, parsed, draft(parsed), "Unconfirmed answer")).rejects.toThrow("confirmed");
+                                                                                                                                           ^
+error: expect(received).rejects.toThrow(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:153:134)
+(fail) a checkpoint requires the journal's confirmed browser answer and evidence reads stay session scoped [2.92ms]
+
+ 4 pass
+ 1 fail
+ 18 expect() calls
+Ran 5 tests across 1 file. [261.00ms]

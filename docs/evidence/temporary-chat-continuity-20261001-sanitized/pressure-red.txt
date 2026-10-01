@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+
+tests/browser-context-pressure.test.ts:
+66 | test("a phase boundary clears only its tool burst and accumulates remote context", () => {
+67 |   const pressure = new ChatGptBrowserContextPressure();
+68 |   pressure.recordObservation({ domChars: 650_000, elapsedMs: 20 });
+69 |   pressure.recordTokens(20_000);
+70 |   for (let index = 0; index < 80; index += 1) pressure.recordToolCallCompleted();
+71 |   pressure.beginResponse(2_000, true);
+                ^
+TypeError: pressure.beginResponse is not a function. (In 'pressure.beginResponse(2000, !0)', 'pressure.beginResponse' is undefined)
+      at <anonymous> (<repo>/tests/browser-context-pressure.test.ts:71:12)
+(fail) a phase boundary clears only its tool burst and accumulates remote context [0.21ms]
+
+ 0 pass
+ 4 filtered out
+ 1 fail
+Ran 1 test across 1 file. [21.00ms]

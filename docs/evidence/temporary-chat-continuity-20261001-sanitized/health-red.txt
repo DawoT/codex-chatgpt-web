@@ -1,0 +1,19 @@
+bun test v1.4.2 (744846f84)
+
+tests/helper-protocol.test.ts:
+290 |         throw new Error("Launcher browser helper prompt selection is invalid");
+291 |       }
+292 |       return { type: "event", id: message.id, event, reused: message.reused };
+293 |     }
+294 |     if (!["heartbeat", "send_activated", "submitted", "reasoning", "commentary", "text"].includes(String(event))) {
+295 |       throw new Error("Launcher browser helper emitted an unknown event");
+                                                                              ^
+error: Launcher browser helper emitted an unknown event
+      at parseHelperMessage (<repo>/src/adapters/chatgpt-web/helper-protocol.ts:295:73)
+      at <anonymous> (<repo>/tests/helper-protocol.test.ts:273:10)
+(fail) context health crosses the helper boundary without resetting physical pressure [0.43ms]
+
+ 0 pass
+ 101 filtered out
+ 1 fail
+Ran 1 test across 1 file. [54.00ms]

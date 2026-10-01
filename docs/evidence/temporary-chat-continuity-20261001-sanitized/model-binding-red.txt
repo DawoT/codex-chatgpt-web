@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+136 |     expect(JSON.stringify(replay.parsed.context.messages)).toContain("Inspect the quoted-string parser.");
+137 |     expect(JSON.stringify(replay.parsed.context.messages)).toContain("Continue with the tests.");
+138 |     expect(home.manager.phaseCheckpoints!.apply("namespace:other", next).applied).toBe(false);
+139 |     const changedMode = structuredClone(next);
+140 |     changedMode._chatgptModelFamily = "6";
+141 |     expect(home.manager.phaseCheckpoints!.apply("namespace:mission", changedMode).applied).toBe(false);
+                                                                                                 ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:141:92)
+(fail) a confirmed phase checkpoint survives restart and replaces only its exact parent history [121.68ms]
+
+ 0 pass
+ 7 filtered out
+ 1 fail
+ 8 expect() calls
+Ran 1 test across 1 file. [425.00ms]

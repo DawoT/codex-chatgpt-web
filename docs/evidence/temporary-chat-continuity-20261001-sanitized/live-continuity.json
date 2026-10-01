@@ -1,0 +1,110 @@
+{
+  "timestampUtc": "2026-10-01T19:33:12.266Z",
+  "threadId": "continuity-canary-c20f2667-0088-4870-a815-0d63dd5fcdf9",
+  "workspace": "/tmp/cgw-live-continuity-JwB600",
+  "delegatedAgents": 0,
+  "operations": [
+    {
+      "turnId": "canary-phase-1",
+      "traceId": "8a828483958f",
+      "startedAt": "2026-10-01T19:33:12.271Z",
+      "httpStatus": 200,
+      "eventCounts": {
+        "response.created": 1,
+        "response.heartbeat": 51,
+        "response.output_item.added": 1,
+        "response.content_part.added": 1,
+        "response.output_text.delta": 1,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.output_item.done": 1,
+        "response.completed": 1
+      },
+      "finishedAt": "2026-10-01T19:34:27.939Z",
+      "answer": "CANARY80595be4d95a4476afc7c369aa9c4b97",
+      "usage": {
+        "input_tokens": 9530,
+        "output_tokens": 30,
+        "total_tokens": 9560
+      }
+    },
+    {
+      "turnId": "canary-phase-2",
+      "traceId": "a5d47eb654d8",
+      "startedAt": "2026-10-01T19:34:27.941Z",
+      "httpStatus": 200,
+      "eventCounts": {
+        "response.created": 1,
+        "response.heartbeat": 28,
+        "response.output_item.added": 1,
+        "response.content_part.added": 1,
+        "response.output_text.delta": 1,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.output_item.done": 1,
+        "response.completed": 1
+      },
+      "finishedAt": "2026-10-01T19:35:09.322Z",
+      "answer": "CANARY80595be4d95a4476afc7c369aa9c4b97",
+      "usage": {
+        "input_tokens": 9594,
+        "output_tokens": 30,
+        "total_tokens": 9624
+      }
+    },
+    {
+      "turnId": "canary-phase-3",
+      "traceId": "518e4f526b3e",
+      "startedAt": "2026-10-01T19:35:09.326Z",
+      "httpStatus": 200,
+      "eventCounts": {
+        "response.created": 1,
+        "response.heartbeat": 37,
+        "response.output_item.added": 1,
+        "response.content_part.added": 1,
+        "response.output_text.delta": 1,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.output_item.done": 1,
+        "response.completed": 1
+      },
+      "finishedAt": "2026-10-01T19:36:03.685Z",
+      "answer": "CANARY80595be4d95a4476afc7c369aa9c4b97",
+      "usage": {
+        "input_tokens": 9660,
+        "output_tokens": 30,
+        "total_tokens": 9690
+      }
+    }
+  ],
+  "status": "passed",
+  "initialIdentity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "useSavedChats": false,
+  "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+  "releasedOwnedConversation": 1,
+  "cleanupReleased": 1,
+  "finalIdentity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "finalTelemetryHealth": {
+    "status": "healthy",
+    "pending_records": 0,
+    "pending_bytes": 0,
+    "failed_writes": 0,
+    "dropped_records": 0
+  }
+}

@@ -1,0 +1,45 @@
+bun test v1.4.2 (744846f84)
+
+tests/browser-context-pressure.test.ts:
+87 |   const pressure = new ChatGptBrowserContextPressure();
+88 |   pressure.recordObservation({ domChars: 750_000, elapsedMs: 5_000 });
+89 |   pressure.recordObservation({ domChars: 750_000, elapsedMs: 5_000 });
+90 |   pressure.recordTokens(40_000);
+91 |   pressure.beginResponse(3_000, false);
+92 |   expect(pressure.snapshot()).toMatchObject({
+                                   ^
+error: expect(received).toMatchObject(expected)
+
+  {
+    "compactionRequired": false,
+-   "consecutiveSlowObservations": 0,
++   "consecutiveSlowObservations": 2,
++   "continuousToolCallsCount": 0,
+    "estimatedTokens": 3000,
+-   "observedDomChars": 0,
+-   "recoveryRequired": false,
++   "observedDomChars": 750000,
++   "recoveryRequired": true,
++   "riskAssessment": {
++     "compactionUrgent": true,
++     "continuousToolCallsCount": 0,
++     "domPressureRatio": 0.9375,
++     "riskScore": 0.9375,
++     "tokenPressureRatio": 0.0545,
++     "toolBurstRatio": 0,
++     "yieldRecommended": true,
++   },
++   "watchDomSize": true,
+  }
+
+- Expected  - 3
++ Received  + 14
+
+      at <anonymous> (<repo>/tests/browser-context-pressure.test.ts:92:31)
+(fail) a replacement browser conversation begins with fresh physical pressure [0.68ms]
+
+ 0 pass
+ 5 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [19.00ms]

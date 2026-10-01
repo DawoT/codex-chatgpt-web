@@ -1,0 +1,61 @@
+{
+  "timestampUtc": "2026-10-01T19:31:01.382Z",
+  "threadId": "continuity-canary-c485f01f-2758-4c59-88ce-bdfcf974c765",
+  "workspace": "/tmp/cgw-live-continuity-Yuq3Tg",
+  "delegatedAgents": 0,
+  "operations": [
+    {
+      "turnId": "canary-phase-1",
+      "traceId": "4a4db9d87cf1",
+      "startedAt": "2026-10-01T19:31:01.388Z",
+      "httpStatus": 200,
+      "eventCounts": {
+        "response.created": 1,
+        "response.heartbeat": 38,
+        "response.output_item.added": 1,
+        "response.content_part.added": 1,
+        "response.output_text.delta": 1,
+        "response.output_text.done": 1,
+        "response.content_part.done": 1,
+        "response.output_item.done": 1,
+        "response.completed": 1
+      },
+      "finishedAt": "2026-10-01T19:31:58.342Z",
+      "answer": "CANARY\\_76f2bd2641db488285d3abbb8ec90af9",
+      "usage": {
+        "input_tokens": 9531,
+        "output_tokens": 30,
+        "total_tokens": 9561
+      }
+    }
+  ],
+  "status": "failed",
+  "initialIdentity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "useSavedChats": false,
+  "error": "Continuity marker mismatch",
+  "cleanupReleased": 1,
+  "finalIdentity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "finalTelemetryHealth": {
+    "status": "healthy",
+    "pending_records": 0,
+    "pending_bytes": 0,
+    "failed_writes": 0,
+    "dropped_records": 0
+  }
+}

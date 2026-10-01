@@ -1,0 +1,47 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+86 | 
+87 | test("a confirmed phase checkpoint survives restart and replaces only its exact parent history", async () => {
+88 |   const home = await fixture();
+89 |   try {
+90 |     const parsed = nativeRequest();
+91 |     const store = home.manager.phaseCheckpoints!;
+                                    ^
+TypeError: undefined is not an object (evaluating 'home.manager.phaseCheckpoints.commit')
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:91:32)
+(fail) a confirmed phase checkpoint survives restart and replaces only its exact parent history [6.07ms]
+107 | test("invalid or stale checkpoints cannot replace the last durable checkpoint", async () => {
+108 |   const home = await fixture();
+109 |   try {
+110 |     const parsed = nativeRequest();
+111 |     const store = home.manager.phaseCheckpoints!;
+112 |     await expect(store.commit("namespace:mission", 1, parsed, "No structured state", "Answer")).rejects.toThrow("checkpoint");
+                       ^
+TypeError: undefined is not an object (evaluating 'store.commit')
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:112:18)
+(fail) invalid or stale checkpoints cannot replace the last durable checkpoint [1.08ms]
+121 | test("a checkpoint cannot hide changed history or omit a literal user requirement", async () => {
+122 |   const home = await fixture();
+123 |   try {
+124 |     const parsed = nativeRequest();
+125 |     const incomplete = draft(parsed).replace("Fix the parser and verify the regression. Preserve quoted strings.", "Fix the parser");
+126 |     await expect(home.manager.phaseCheckpoints!.commit("namespace:mission", 1, parsed, incomplete, "Answer")).rejects.toThrow("requirement");
+                                    ^
+TypeError: undefined is not an object (evaluating 'home.manager.phaseCheckpoints.commit')
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:126:31)
+(fail) a checkpoint cannot hide changed history or omit a literal user requirement [1.48ms]
+134 | test("a handoff budget rejects essential state instead of silently truncating it", async () => {
+135 |   const home = await fixture();
+136 |   try {
+137 |     const parsed = nativeRequest();
+138 |     const huge = draft(parsed).replace("Inspect parser handling of quoted strings.", "Preserve this essential objective. ".repeat(10_000));
+139 |     await expect(home.manager.phaseCheckpoints!.commit("namespace:mission", 1, parsed, huge, "Answer")).rejects.toThrow("budget");
+                                    ^
+TypeError: undefined is not an object (evaluating 'home.manager.phaseCheckpoints.commit')
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:139:31)
+(fail) a handoff budget rejects essential state instead of silently truncating it [1.19ms]
+
+ 0 pass
+ 4 fail
+Ran 4 tests across 1 file. [48.00ms]

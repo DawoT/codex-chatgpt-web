@@ -1,0 +1,28 @@
+bun test v1.4.2 (744846f84)
+
+tests/browser-worker-defects.test.ts:
+(pass) run rejects an invalid trace id before preparing the prompt [4.88ms]
+[chatgpt-web] browser turn bad id! failed: ChatGPT browser diagnostic trace id is invalid
+[chatgpt-web] turn_terminal {"traceId":"bad id!","terminalCause":"internal_failure","runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"6205294ac652f47e31efbab630b2703bd31109275a9ca19bc89fcde245e75e1b","generation":"5d16a942-a14b-4f46-a467-d1cb183165ae","pid":286700,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+(pass) a prompt prepared before staging fails still gets released [3.24ms]
+(pass) worker close cleans up browser state even when the launcher helper refuses to terminate [0.44ms]
+(pass) worker close disconnects and clears state even when pending maintenance fails [0.14ms]
+(pass) launcher turn heartbeats while a slow onSurfaceLeased callback is still pending [80.52ms]
+[chatgpt-web] browser turn b4_handoff_probe ended after accepted structured compaction handoff
+[chatgpt-web] turn_terminal {"traceId":"b4_handoff_probe","turnId":"b4_handoff_probe","documentGeneration":0,"afterSequence":1,"terminalCause":"handoff_accepted","runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"6205294ac652f47e31efbab630b2703bd31109275a9ca19bc89fcde245e75e1b","generation":"5d16a942-a14b-4f46-a467-d1cb183165ae","pid":286700,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+(pass) an accepted compaction handoff reports and preserves the conversation's physical pressure [0.71ms]
+(pass) a forProvider call racing an in-flight close keeps receiving the worker being closed [1.45ms]
+(pass) closing registered workers preserves a different provider created during the close [0.20ms]
+
+tests/browser-context-pressure.test.ts:
+(pass) page DOM measurement is throttled per page and only scans changed responses [0.29ms]
+(pass) ChatGPT browser context pressure > watches a large DOM without interrupting a viable turn [0.03ms]
+(pass) ChatGPT browser context pressure > requests bounded same-page recovery after two slow observations [0.05ms]
+(pass) ChatGPT browser context pressure > a fast post-recovery observation clears pressure [0.02ms]
+(pass) a phase boundary clears only its tool burst and accumulates remote context [0.07ms]
+(pass) a replacement browser conversation begins with fresh physical pressure [0.03ms]
+
+ 14 pass
+ 0 fail
+ 46 expect() calls
+Ran 14 tests across 2 files. [386.00ms]

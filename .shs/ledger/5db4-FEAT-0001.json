@@ -1,0 +1,35 @@
+{
+  "id": "5db4-FEAT-0001",
+  "timestamp_utc": "2026-10-01T19:40:11.106336+00:00",
+  "session_id": "5db4dc01-498a-4f7b-9316-8ca27784e12f",
+  "agente_responsable": "R: current Codex conversation, direct implementation; no agents delegated and no independent A/V identities claimed",
+  "tipo": "Entregable nuevo",
+  "referencias_entradas": [
+    "5db4-FIX-0001",
+    "b025-FEAT-0001"
+  ],
+  "prev_id": "5db4-FIX-0001",
+  "prev_hash": "977455f2ba573723c4cd9db5f854da6117249a0572bc8b28ec60202771bb296f",
+  "ticket_or_adr": "docs/temporary-chat-continuity.md",
+  "evidencia": {
+    "risk": "R2xL",
+    "recordStatus": "Unsigned local implementation evidence; formal release approval pending.",
+    "sessionIdMeaning": "Preserved local namespace from the preceding record, not a verified harness identity.",
+    "receipt": {
+      "path": "docs/evidence/temporary-chat-continuity-20261001/verification.json",
+      "sha256": "db537c85863c7115629ea63cbe8e462a3081b0ac7f459eb176efa9c3ad1db2d4"
+    },
+    "adr": {
+      "path": "docs/temporary-chat-continuity.md",
+      "sha256": "923ffd80aa0bb77cf0097371f19ae6a265594944c23bcdf7e1d205151cdcfd91"
+    },
+    "sourceInputsSha256": "50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90",
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "baseHead": "8be1ef0830245e0c954d5f38710626d3ef9ed76b",
+    "independentApproval": false,
+    "provenanceLimit": "RED/GREEN logs and dirty-source fingerprint; no separate RED commits or independent review."
+  },
+  "aprobaciones": [],
+  "estado": "Vigente",
+  "entry_hash": "905805881ffa588eae05c1140fb9c2107c0af1ea551b0ca2a42fca70a618aad1"
+}

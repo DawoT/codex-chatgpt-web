@@ -1,0 +1,59 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+[chatgpt-web] broker trace=a8434edfcdc1 registered tokenHash=49373d9a6ff0 threadId=mission-1
+[chatgpt-web] browser_settled {"traceId":"a8434edfcdc1","outcome":"error","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"a8434edfcdc1","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+[chatgpt-web] browser turn failed: 286 |     try {
+287 |       const token = /turn_token (turn_[A-Za-z0-9_-]+)/.exec(prepared.text)?.[1];
+288 |       if (!token) throw new Error("missing native capability");
+289 |       await turn.onSubmitted?.();
+290 |       if (browserStarts === 1) {
+291 |         expect(prepared.text).not.toContain("execute_tool");
+                                        ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "execute_tool"
+Received: "At the end of a substantial work phase, before your final response, submit a durable checkpoint through Codex Native execute_tool with wire_name codex.control.phase_checkpoint and arguments {summary: <structured checkpoint text>}.\nThis is a control operation. Do not invent a tool call or stop pending tool work. A checkpoint is confirmed only after your final answer is durably recorded. Continue healthy chats normally; phase boundaries alone do not require a new chat.\nBefore writing verified claims, read checkpoint_ref current and ref manifest to obtain bridge-supplied observation refs for this phase. Read relevant refs in bounded pages. The schema below applies only to arguments.summary. Your final response still answers the user normally.\nKeep essential checkpoint state within 4000 estimated tokens. Preserve every literal user requirement. The bridge stores source and evidence locally; do not copy full transcripts or tool output into the summary. If validation rejects the checkpoint, repair it before ending the phase.\nRetrieve omitted evidence with wire_name codex.control.checkpoint_evidence and arguments {checkpoint_ref: <supplied ref>, ref: <original_request|manifest|message:index|evidence ref>, offset: 0, limit: 6000}. Both control operations require the active turn_token.\nReturn exactly one unfenced <compaction_state> block using the following v2 sections. Replace angle-bracket descriptions with observed task data; retain every section.\nPreserve pending requirements, original and latest requests, tool outcomes, decisions, blockers, and exactly one next action. Keep prior requirement IDs stable; add IDs for new requirements.\nNever invent evidence, completed work, requirements, hashes, or verification. Unknown or unexecuted work stays pending or blocked. Only observed successful results justify verified status.\nUse JSON objects on requirement lines with id, status (pending/blocked/verified), and literal source. Verified items also require evidence and supporting supplied evidenceRefs. Use - None for genuinely empty optional lists.\nThe schema below is a format guide, not task evidence. Do not copy its descriptive placeholders into the checkpoint.\n<compaction_state>\nversion: 2\noriginal_request_ref: sha256:db8167b88a097ba14d4b16f3ef95b2c6e3ac3d235888178472b5b10e94136909\nmodified_files:\n- <observed modified path, or None>\nactive_hypothesis: <current task objective and working hypothesis>\nrequirements:\n- {\"id\":\"<stable ID>\",\"status\":\"pending\",\"source\":\"<literal user requirement>\"}\nclosure_criteria:\n- <actual required final check or acceptance criterion>\nverified_achievements:\n- None\ndecisions_and_invariants:\n- <actual decision or invariant, or None>\nblockers_or_test_failures:\n- <observed unresolved error, or None>\npending_obligations:\n- <unfinished requirement or check, or None>\nnext_actions:\n- <one concrete next action consistent with the latest user request>\n</compaction_state>\nPlace necessary continuation detail outside the block. Preserve code, paths, IDs, quoted strings, and evidence literally. The bridge appends the authoritative original and latest requests; do not forge those appendices.\n<codex_context_json>\n{\"version\":3,\"system\":[],\"messages\":[{\"role\":\"developer\",\"content\":\"Never deploy without explicit authorization.\"},{\"role\":\"user\",\"content\":\"<environment_context>\\n  <cwd>/tmp/cgw-phase-adapter-ZKcXZb</cwd>\\n  <filesystem><workspace_roots><root>/tmp/cgw-phase-adapter-ZKcXZb</root></workspace_roots><permission_profile type=\\\"disabled\\\"><file_system type=\\\"unrestricted\\\" /></permission_profile></filesystem>\\n</environment_context>\"},{\"role\":\"user\",\"content\":\"Fix the parser and verify the regression. Preserve quoted strings.\"}]}\n</codex_context_json>\n<codex_transport_resume>\nPass turn_token turn_k61R5QMlD2K4BkJDzX2p4fftL6wFtack to tool calls. Act as an autonomous coding agent: carry the requested task through implementation and verification before concluding.\n</codex_transport_resume>"
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:291:35)
+      at async <anonymous> (<repo>/src/adapters/chatgpt-web/session-actor/manager.ts:791:26)
+
+325 |     await createChatGptWebAdapter(provider, { sessionActorManager: manager }).runTurn!(
+326 |       parsed,
+327 |       { headers: new Headers() },
+328 |       (event) => firstEvents.push(event),
+329 |     );
+330 |     expect(firstEvents.filter((event) => event.type === "error")).toEqual([]);
+                                                                        ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   {
++     "code": "chatgpt_submitted_turn_failed",
++     "errorType": "server_error",
++     "message": 
++ "ChatGPT stopped responding after the task started (expect(received).not.toContain(expected)
++ 
++ Expected to not contain: "execute_tool"
++ Received: "At the end of a substantial work phase, before your final response, submit a durable chec... (3866 bytes truncated) ...equested task through implementation and verification before concluding.\n</codex_transport_resume>"
++ ). Check the ChatGPT tab before continuing."
++ ,
++     "retryable": false,
++     "status": 502,
++     "type": "error",
++   },
++ ]
+
+- Expected  - 1
++ Received  + 16
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:330:67)
+(fail) the real adapter commits a model checkpoint and recovers a lost temporary chat with a reduced handoff [136.75ms]
+
+ 0 pass
+ 7 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [456.00ms]

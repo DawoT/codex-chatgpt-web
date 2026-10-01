@@ -1,0 +1,73 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+[chatgpt-web] broker trace=f7bc897391f9 registered tokenHash=4faa410e5a37 threadId=/tmp/cgw-compact-health-OZJCeQ
+[chatgpt-web] browser_settled {"traceId":"f7bc897391f9","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"f7bc897391f9","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:00.981Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"prepared","outcome":"pending","route":"unknown","elapsedMs":1,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] broker trace=328785d6c445 accepted compaction handoff chars=651
+[chatgpt-web] compaction_retained_text_rescue: Rescued compaction checkpoint from assistant text output (chars=651)
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:00.994Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"received","outcome":"succeeded","route":"retained","attempt":1,"elapsedMs":15,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] checkpoint_validation {"valid":true,"missingCount":0,"missingState":false,"repaired":false,"traceId":"9ca8b99efb95","issueCodes":[],"openingTags":1,"closingTags":1,"usableUnfencedBlock":true,"fencedTag":false,"recognizedFields":["version","original_request_ref","modified_files","active_hypothesis","requirements","closure_criteria","verified_achievements","decisions_and_invariants","blockers_or_test_failures","pending_obligations","next_actions"],"version":2,"requirementCount":1,"modifiedFileCount":0}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:00.998Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"validated","outcome":"succeeded","route":"retained","attempt":1,"elapsedMs":19,"requirementCount":1,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.000Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"persisted","outcome":"succeeded","route":"retained","elapsedMs":21,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.002Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"persisted","outcome":"succeeded","route":"retained","elapsedMs":23,"reasonCode":"healthy_remote_chat_retained","runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] checkpoint_validation {"valid":true,"missingCount":0,"missingState":false,"repaired":false,"traceId":"9ca8b99efb95","issueCodes":[],"openingTags":1,"closingTags":1,"usableUnfencedBlock":true,"fencedTag":false,"recognizedFields":["version","original_request_ref","modified_files","active_hypothesis","requirements","closure_criteria","verified_achievements","decisions_and_invariants","blockers_or_test_failures","pending_obligations","next_actions"],"version":2,"requirementCount":1,"modifiedFileCount":0}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.003Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"validated","outcome":"succeeded","route":"retained","attempt":1,"elapsedMs":24,"requirementCount":1,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.003Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"persisted","outcome":"succeeded","route":"retained","elapsedMs":24,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.003Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"accepted","outcome":"succeeded","route":"retained","elapsedMs":24,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.005Z","traceId":"9ca8b99efb95","handoffTraceId":"328785d6c445","phase":"delivered","outcome":"succeeded","route":"retained","elapsedMs":26,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] browser_settled {"traceId":"0c3f58ad87e0","outcome":"error","compaction":false,"submission":"prepared"}
+[chatgpt-web] browser turn failed: 392 |   let releases = 0;
+393 |   let starts = 0;
+394 |   const run = spyOn(worker, "run").mockImplementation(async (turn) => {
+395 |     starts += 1;
+396 |     if (starts === 3 && healthy) {
+397 |       expect(turn.prepareResume).toBeDefined();
+                                       ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:397:34)
+      at <anonymous> (<repo>/src/adapters/chatgpt-web/session-actor/manager.ts:791:26)
+
+392 |   let releases = 0;
+393 |   let starts = 0;
+394 |   const run = spyOn(worker, "run").mockImplementation(async (turn) => {
+395 |     starts += 1;
+396 |     if (starts === 3 && healthy) {
+397 |       expect(turn.prepareResume).toBeDefined();
+                                       ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:397:34)
+      at <anonymous> (<repo>/src/adapters/chatgpt-web/session-actor/manager.ts:791:26)
+(fail) local compaction retains a remote chat only with proven health=%s [168.11ms]
+[chatgpt-web] broker trace=d977d70637e5 registered tokenHash=0b6217f9ad51 threadId=/tmp/cgw-compact-health-3udrBK
+[chatgpt-web] browser_settled {"traceId":"d977d70637e5","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"d977d70637e5","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.014Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"prepared","outcome":"pending","route":"unknown","elapsedMs":0,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] broker trace=5ac4700818f5 accepted compaction handoff chars=651
+[chatgpt-web] compaction_retained_text_rescue: Rescued compaction checkpoint from assistant text output (chars=651)
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.017Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"received","outcome":"succeeded","route":"retained","attempt":1,"elapsedMs":3,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] checkpoint_validation {"valid":true,"missingCount":0,"missingState":false,"repaired":false,"traceId":"9ffee5e281d6","issueCodes":[],"openingTags":1,"closingTags":1,"usableUnfencedBlock":true,"fencedTag":false,"recognizedFields":["version","original_request_ref","modified_files","active_hypothesis","requirements","closure_criteria","verified_achievements","decisions_and_invariants","blockers_or_test_failures","pending_obligations","next_actions"],"version":2,"requirementCount":1,"modifiedFileCount":0}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.018Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"validated","outcome":"succeeded","route":"retained","attempt":1,"elapsedMs":4,"requirementCount":1,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.019Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"persisted","outcome":"succeeded","route":"retained","elapsedMs":4,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] checkpoint_validation {"valid":true,"missingCount":0,"missingState":false,"repaired":false,"traceId":"9ffee5e281d6","issueCodes":[],"openingTags":1,"closingTags":1,"usableUnfencedBlock":true,"fencedTag":false,"recognizedFields":["version","original_request_ref","modified_files","active_hypothesis","requirements","closure_criteria","verified_achievements","decisions_and_invariants","blockers_or_test_failures","pending_obligations","next_actions"],"version":2,"requirementCount":1,"modifiedFileCount":0}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.021Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"validated","outcome":"succeeded","route":"retained","attempt":1,"elapsedMs":7,"requirementCount":1,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.021Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"persisted","outcome":"succeeded","route":"retained","elapsedMs":7,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.021Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"accepted","outcome":"succeeded","route":"retained","elapsedMs":7,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] compaction_event {"schemaVersion":1,"timestamp":"2026-10-01T19:01:01.023Z","traceId":"9ffee5e281d6","handoffTraceId":"5ac4700818f5","phase":"delivered","outcome":"succeeded","route":"retained","elapsedMs":8,"localPersisted":true,"runtime":{"protocolVersion":2,"buildCommit":null,"artifactSha256":"bf4053ace95cf5c70bfcd61f6444b213e9656e6318284863b8e561f77eb00f65","generation":"ed569fb7-d53b-4c8f-8499-6966c9e01fd1","pid":289768,"artifactSetSha256":null,"artifactVerification":"entrypoint_only"}}
+[chatgpt-web] broker trace=b8bbcfb8142c registered tokenHash=91ce6722ace5 predecessor=0b6217f9ad51 threadId=/tmp/cgw-compact-health-3udrBK
+[chatgpt-web] browser_settled {"traceId":"b8bbcfb8142c","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"b8bbcfb8142c","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+(pass) local compaction retains a remote chat only with proven health=%s [18.75ms]
+
+ 1 pass
+ 6 filtered out
+ 1 fail
+ 9 expect() calls
+Ran 2 tests across 1 file. [486.00ms]

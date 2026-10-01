@@ -1,0 +1,16 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+[chatgpt-web] broker trace=73912718d53e registered tokenHash=770af020c9e7 threadId=mission-1
+[chatgpt-web] browser_settled {"traceId":"73912718d53e","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"73912718d53e","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+[chatgpt-web] broker trace=c8ba3b095767 registered tokenHash=766b80d8fb03 threadId=mission-1
+[chatgpt-web] browser_settled {"traceId":"c8ba3b095767","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"c8ba3b095767","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+(pass) the real adapter commits a model checkpoint and recovers a lost temporary chat with a reduced handoff [140.99ms]
+
+ 1 pass
+ 7 filtered out
+ 0 fail
+ 11 expect() calls
+Ran 1 test across 1 file. [459.00ms]

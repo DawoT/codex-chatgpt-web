@@ -1,0 +1,50 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+[chatgpt-web] broker trace=fb67e8800eb6 registered tokenHash=45e8aa6eeb93 threadId=mission-1
+[chatgpt-web] browser_settled {"traceId":"fb67e8800eb6","outcome":"error","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"fb67e8800eb6","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+[chatgpt-web] browser turn failed: 58 |         return;
+59 |       }
+60 |       settled = true;
+61 |       clearTimeout(timer);
+62 |       cleanup();
+63 |       if (response.error) rejectCall(new Error(response.error));
+                                              ^
+error: Session result reference is invalid
+      at finishResponse (<repo>/src/adapters/chatgpt-web/turn-broker/client.ts:63:42)
+      at emit (node:events:100:22)
+      at <anonymous> (node:net:2308:20)
+
+317 |     await createChatGptWebAdapter(provider, { sessionActorManager: manager }).runTurn!(
+318 |       parsed,
+319 |       { headers: new Headers() },
+320 |       (event) => firstEvents.push(event),
+321 |     );
+322 |     expect(firstEvents.filter((event) => event.type === "error")).toEqual([]);
+                                                                        ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   {
++     "code": "chatgpt_submitted_turn_failed",
++     "errorType": "server_error",
++     "message": "ChatGPT stopped responding after the task started (Session result reference is invalid). Check the ChatGPT tab before continuing.",
++     "retryable": false,
++     "status": 502,
++     "type": "error",
++   },
++ ]
+
+- Expected  - 1
++ Received  + 10
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:322:67)
+(fail) the real adapter commits a model checkpoint and recovers a lost temporary chat with a reduced handoff [139.76ms]
+
+ 0 pass
+ 7 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [441.00ms]

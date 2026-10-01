@@ -1,0 +1,36 @@
+{
+  "id": "5db4-DOC-0001",
+  "timestamp_utc": "2026-10-01T19:54:10.014974+00:00",
+  "session_id": "5db4dc01-498a-4f7b-9316-8ca27784e12f",
+  "agente_responsable": "Current Codex conversation; direct commit preparation, no delegated agents or independent approval claimed",
+  "tipo": "Documentación / publicación sanitizada",
+  "referencias_entradas": [
+    "5db4-FEAT-0001"
+  ],
+  "prev_id": "5db4-FEAT-0001",
+  "prev_hash": "905805881ffa588eae05c1140fb9c2107c0af1ea551b0ca2a42fca70a618aad1",
+  "ticket_or_adr": "docs/evidence/temporary-chat-continuity-20261001-sanitized/README.md",
+  "evidencia": {
+    "risk": "R0xM",
+    "originalReceiptSha256": "db537c85863c7115629ea63cbe8e462a3081b0ac7f459eb176efa9c3ad1db2d4",
+    "originalReceiptAvailability": "Unchanged local-only artifact; not included in Git.",
+    "receipt": {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/verification.json",
+      "sha256": "01ae3421284c2b2150daf438b3d208946613c0cc9e22d1dcb962e65a902a2ecd"
+    },
+    "publicationNote": {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/README.md",
+      "sha256": "b1317eb494d559b83039e878da6c5dbb81b6cb825f6e59222ab44e2bddc60036"
+    },
+    "implementationCommits": [
+      "705ccba",
+      "dc29a6d",
+      "47244a6"
+    ],
+    "priorRecordsUnchanged": true,
+    "independentApproval": false
+  },
+  "aprobaciones": [],
+  "estado": "Vigente",
+  "entry_hash": "f327c0d00b6b0f15f0123c744c8b5d3e6cca233249942f06ca5bbf49aee9b1da"
+}

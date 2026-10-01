@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+477 |     const next = continuation(parsed);
+478 |     const raw = next._rawBody as { input: unknown[] };
+479 |     raw.input.splice(2, 0, { type: "message", role: "assistant", phase: "commentary", content: "The quoted-string case still needs a regression test.", internal_chat_message_metadata_passthrough: { turn_id: "phase-1" } });
+480 |     const withCommentary = parseRequest({ ...raw, model: parsed.modelId });
+481 |     const replay = home.manager.phaseCheckpoints!.apply("namespace:mission", withCommentary);
+482 |     expect(replay.applied).toBe(true);
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (<repo>/tests/phase-checkpoints.test.ts:482:28)
+(fail) checkpoint recovery preserves assistant commentary emitted before the confirmed final answer [107.98ms]
+
+ 0 pass
+ 8 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [404.00ms]

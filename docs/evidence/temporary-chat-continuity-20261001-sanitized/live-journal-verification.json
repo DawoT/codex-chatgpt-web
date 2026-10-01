@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "observation": "Owned canary journal commands read from an isolated SQLite copy; no live database writes.",
+  "checkpointApplicability": "Offline replay of the persisted canonical phase-3 request with its committed preceding checkpoint.",
+  "sameSurfaceForContinuation": true,
+  "newSurfaceAfterOwnedChatRelease": true,
+  "completedOperations": 3,
+  "journalSendActivations": 3,
+  "ordinaryToolExecutions": 0,
+  "committedCheckpoints": 2,
+  "checkpointAppliedToRecordedRecoveryInput": true,
+  "checkpointRef": "8e765b4117499394278f7fb07c12d8da622f3b809d2941c9f36dfb592d233e27",
+  "canonicalMessages": 7,
+  "projectedMessages": 3
+}

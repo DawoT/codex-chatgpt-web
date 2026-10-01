@@ -1,0 +1,43 @@
+{
+  "timestampUtc": "2026-10-01T19:30:16.234Z",
+  "threadId": "continuity-canary-0151616d-f75e-4bfd-bc14-859972fe299f",
+  "workspace": "/tmp/cgw-live-continuity-b5U8XQ",
+  "delegatedAgents": 0,
+  "operations": [
+    {
+      "turnId": "canary-phase-1",
+      "traceId": "94c352f62977",
+      "startedAt": "2026-10-01T19:30:16.239Z",
+      "httpStatus": 200
+    }
+  ],
+  "status": "failed",
+  "initialIdentity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "useSavedChats": false,
+  "error": "{\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_baefa4bf4474447fbe748a2319544571\",\"object\":\"response\",\"created_at\":1790883016,\"status\":\"failed\",\"model\":\"chatgpt-web/medium\",\"output\":[],\"usage\":null,\"error\":{\"message\":\"ChatGPT web turn is missing cwd in trusted Codex environment context\",\"type\":\"server_error\",\"code\":\"upstream_server_error\"},\"last_error\":{\"message\":\"ChatGPT web turn is missing cwd in trusted Codex environment context\",\"type\":\"server_error\",\"code\":\"upstream_server_error\"}}}",
+  "cleanupReleased": 0,
+  "finalIdentity": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "finalTelemetryHealth": {
+    "status": "healthy",
+    "pending_records": 0,
+    "pending_bytes": 0,
+    "failed_writes": 0,
+    "dropped_records": 0
+  }
+}

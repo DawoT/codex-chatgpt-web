@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoints.test.ts:
+(pass) a confirmed phase checkpoint survives restart and replaces only its exact parent history [114.34ms]
+(pass) invalid or stale checkpoints cannot replace the last durable checkpoint [5.87ms]
+(pass) a checkpoint cannot hide changed history or omit a literal user requirement [7.26ms]
+(pass) a handoff budget rejects essential state instead of silently truncating it [69.02ms]
+(pass) a checkpoint requires the journal's confirmed browser answer and evidence reads stay session scoped [3.94ms]
+
+ 5 pass
+ 0 fail
+ 22 expect() calls
+Ran 5 tests across 1 file. [255.00ms]

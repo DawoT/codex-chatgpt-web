@@ -1,0 +1,17 @@
+bun test v1.4.2 (744846f84)
+
+tests/retained-context-revision.test.ts:
+22 |   const key = "a".repeat(64);
+23 |   try {
+24 |     for (const phase of ["compaction_prepared", "compaction_received", "compaction_validated", "compaction_persisted"] as const) {
+25 |       await manager.compactionTransition(sessionId, "compact", "revision", phase, phase === "compaction_received" ? summary : undefined);
+26 |     }
+27 |     await manager.bindRetainedConversation(sessionId, "compact", "revision", summary, key, 12_000, parsed);
+                       ^
+TypeError: manager.bindRetainedConversation is not a function. (In 'manager.bindRetainedConversation(sessionId, "compact", "revision", summary, key, 12000, parsed)', 'manager.bindRetainedConversation' is undefined)
+      at <anonymous> (<repo>/tests/retained-context-revision.test.ts:27:19)
+(fail) a durable remote binding survives local compaction without authorizing a different summary or generation [8.04ms]
+
+ 0 pass
+ 1 fail
+Ran 1 test across 1 file. [71.00ms]

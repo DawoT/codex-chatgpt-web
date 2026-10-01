@@ -1,0 +1,92 @@
+bun test v1.4.2 (744846f84)
+
+tests/graceful-yield-compaction.test.ts:
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > does not inject advisory notice during optimal working zone (< 50 tools) [0.04ms]
+22 |       expect(shouldInjectGracefulYieldNotice(65)).toBe(true);
+23 |       expect(shouldInjectGracefulYieldNotice(70)).toBe(true);
+24 | 
+25 |       const notice50 = gracefulYieldNoticeText(50);
+26 |       expect(notice50).toContain("50 actions completed");
+27 |       expect(notice50).not.toContain("so context compaction can run");
+                                ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "so context compaction can run"
+Received: "[System Notice: Continuous tool burst threshold reached (50 actions completed). Complete your immediate test assertions or verified state and conclude your current phase so context compaction can run cleanly before the next phase.]"
+
+      at <anonymous> (<repo>/tests/graceful-yield-compaction.test.ts:27:28)
+(fail) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > activates graceful yield notice in completion window (50 <= N <= 70 tools) [0.15ms]
+27 |       expect(notice50).not.toContain("so context compaction can run");
+28 |       expect(isUrgentCompactionNotice(50)).toBe(false);
+29 |     });
+30 | 
+31 |     test("large tool bursts advise a phase boundary without claiming context exhaustion", () => {
+32 |       expect(isUrgentCompactionNotice(70)).toBe(false);
+                                                ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (<repo>/tests/graceful-yield-compaction.test.ts:32:44)
+(fail) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > large tool bursts advise a phase boundary without claiming context exhaustion [0.04ms]
+37 |       expect(urgentNotice).toContain("75 actions");
+38 |     });
+39 | 
+40 |     test("an explicit compaction requirement reaches the model even after one completed tool", () => {
+41 |       const result = injectGracefulYieldNoticeIfRecommended({ content: [] }, 1, true);
+42 |       expect(result.content).toHaveLength(1);
+                                  ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 1
+Received length: 0
+
+      at <anonymous> (<repo>/tests/graceful-yield-compaction.test.ts:42:30)
+(fail) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > an explicit compaction requirement reaches the model even after one completed tool [0.07ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > injects notice into BrokerToolResult content cleanly without mutating original payload [0.05ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > TurnCompletionFsm with Graceful Yield > FSM supports completion when yieldRecommended is active [0.11ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > TurnCompletionFsm with Graceful Yield > FSM transitions cleanly to completed when compaction handoff is observed [0.02ms]
+
+tests/compaction-policy.test.ts:
+(pass) structured compaction requires retained control except for classic models [0.06ms]
+28 | 
+29 | test("tool count alone does not replace a retained conversation", () => {
+30 |   expect(initialCompactionRoute({ freshConversationPerTurn: true, heavyTurn: true })).toBe(
+31 |     "configured_fresh_conversation",
+32 |   );
+33 |   expect(initialCompactionRoute({ freshConversationPerTurn: false, heavyTurn: true })).toBe("retained");
+                                                                                            ^
+error: expect(received).toBe(expected)
+
+Expected: "retained"
+Received: "heavy_turn_fast_path"
+
+      at <anonymous> (<repo>/tests/compaction-policy.test.ts:33:88)
+(fail) tool count alone does not replace a retained conversation [0.07ms]
+(pass) only an active tools source can settle through a tool boundary [0.06ms]
+
+tests/compaction-fast-path-budget.test.ts:
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > isHeavyCompactionTurn identifies light vs heavy turns based on tool calls [0.20ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > unified compaction deadline respects total remaining budget across phases [0.02ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > boundary condition: exactly 34 tool calls is not heavy, 35 is heavy [0.07ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > counts parallel tool calls in a single assistant message [0.11ms]
+112 |         content: "ok",
+113 |         isError: false,
+114 |         timestamp: index * 2 + 1,
+115 |       });
+116 |     }
+117 |     expect(isHeavyCompactionTurn(messages)).toBe(false);
+                                                  ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (<repo>/tests/compaction-fast-path-budget.test.ts:117:45)
+(fail) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > counts a completed call once even when both its invocation and result are retained [0.13ms]
+
+ 10 pass
+ 5 fail
+ 47 expect() calls
+Ran 15 tests across 3 files. [66.00ms]

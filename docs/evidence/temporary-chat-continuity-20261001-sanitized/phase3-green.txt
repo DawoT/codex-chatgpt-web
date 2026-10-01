@@ -1,0 +1,14 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoint-broker.test.ts:
+[chatgpt-web] broker trace=phase-1 registered tokenHash=f8668cd2b44d threadId=mission
+[chatgpt-web] broker trace=phase-1 committed browser completion revision=2
+[chatgpt-web] broker trace=phase-2 registered tokenHash=d8681bcb4661 predecessor=f8668cd2b44d threadId=mission
+[chatgpt-web] broker_retired {"traceId":"phase-1","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":true}
+[chatgpt-web] broker_retired {"traceId":"phase-2","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+(pass) phase checkpoint control is bound to the exact active capability and never queues a work tool [9.34ms]
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [36.00ms]

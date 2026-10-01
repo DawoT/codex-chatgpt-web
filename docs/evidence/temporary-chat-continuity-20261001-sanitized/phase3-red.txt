@@ -1,0 +1,21 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoint-broker.test.ts:
+[chatgpt-web] broker trace=phase-1 registered tokenHash=a8d525271b2b threadId=mission
+[chatgpt-web] broker_retired {"traceId":"phase-1","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+22 |   roots.push(root);
+23 |   const broker = TurnBroker.forSocket(join(root, "broker.sock"));
+24 |   try {
+25 |     const first = await broker.register(environment, 10_000, "phase-1", false, "turn", undefined, "mission");
+26 |     let accepted = "";
+27 |     broker.bindPhaseCheckpoint(first, async (summary) => { accepted = summary; }, async () => ({ text: "evidence" }));
+                ^
+TypeError: broker.bindPhaseCheckpoint is not a function. (In 'broker.bindPhaseCheckpoint(first, async (summary) => {
+      accepted = summary;
+    }, async () => ({ text: "evidence" }))', 'broker.bindPhaseCheckpoint' is undefined)
+      at <anonymous> (<repo>/tests/phase-checkpoint-broker.test.ts:27:12)
+(fail) phase checkpoint control is bound to the exact active capability and never queues a work tool [4.62ms]
+
+ 0 pass
+ 1 fail
+Ran 1 test across 1 file. [23.00ms]

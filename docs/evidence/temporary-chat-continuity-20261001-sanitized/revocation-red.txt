@@ -1,0 +1,25 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoint-broker.test.ts:
+[chatgpt-web] broker trace=phase-race registered tokenHash=8ad927923cc2 threadId=mission
+[chatgpt-web] broker_retired {"traceId":"phase-race","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":1,"completionCommitted":false}
+77 |     const outcome = pending.then(() => "accepted", () => "rejected");
+78 |     await ready;
+79 |     expect(broker.beginCompletionFence(token)).toBeUndefined();
+80 |     await broker.revoke(token);
+81 |     unblock();
+82 |     expect(await outcome).toBe("rejected");
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: "rejected"
+Received: "accepted"
+
+      at <anonymous> (<repo>/tests/phase-checkpoint-broker.test.ts:82:27)
+(fail) revocation during checkpoint control fences its acknowledgement and browser completion [7.57ms]
+
+ 0 pass
+ 1 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [26.00ms]

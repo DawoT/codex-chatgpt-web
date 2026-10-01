@@ -1,0 +1,27 @@
+bun test v1.4.2 (744846f84)
+
+tests/graceful-yield-compaction.test.ts:
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > does not inject advisory notice during optimal working zone (< 50 tools) [0.07ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > activates graceful yield notice in completion window (50 <= N <= 70 tools) [0.09ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > large tool bursts advise a phase boundary without claiming context exhaustion [0.04ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > an explicit compaction requirement reaches the model even after one completed tool [0.11ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > Graceful Yield Advisory Generator > injects notice into BrokerToolResult content cleanly without mutating original payload [0.07ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > TurnCompletionFsm with Graceful Yield > FSM supports completion when yieldRecommended is active [0.22ms]
+(pass) Sprint 3: Graceful Yielding Protocol & Compaction Handoff > TurnCompletionFsm with Graceful Yield > FSM transitions cleanly to completed when compaction handoff is observed [0.06ms]
+
+tests/compaction-policy.test.ts:
+(pass) structured compaction requires retained control except for classic models [0.07ms]
+(pass) tool count alone does not replace a retained conversation [0.02ms]
+(pass) only an active tools source can settle through a tool boundary [0.05ms]
+
+tests/compaction-fast-path-budget.test.ts:
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > isHeavyCompactionTurn identifies light vs heavy turns based on tool calls [0.26ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > unified compaction deadline respects total remaining budget across phases [0.04ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > boundary condition: exactly 34 tool calls is not heavy, 35 is heavy [0.14ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > counts parallel tool calls in a single assistant message [0.28ms]
+(pass) Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget > counts a completed call once even when both its invocation and result are retained [0.16ms]
+
+ 15 pass
+ 0 fail
+ 55 expect() calls
+Ran 15 tests across 3 files. [81.00ms]

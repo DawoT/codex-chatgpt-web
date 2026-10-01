@@ -1,0 +1,82 @@
+{
+  "timestampUtc": "2026-10-01T19:39:06.474130+00:00",
+  "status": "passed",
+  "checks": [
+    {
+      "path": "/healthz",
+      "status": 200,
+      "expected": 200
+    },
+    {
+      "path": "/v1/responses",
+      "status": 400,
+      "expected": 400
+    },
+    {
+      "path": "/admin/drain",
+      "status": 401,
+      "expected": 401
+    }
+  ],
+  "runtime": {
+    "protocolVersion": 2,
+    "buildCommit": null,
+    "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+    "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+    "pid": 320816,
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+    "artifactVerification": "paired_manifest_verified"
+  },
+  "helpers": [
+    {
+      "pid": 321479,
+      "protocolStatus": "compatible",
+      "identity": {
+        "protocolVersion": 2,
+        "generation": "5981a4d1-35c4-40f6-9968-46b69bbf5c27",
+        "pid": 321479,
+        "buildCommit": null,
+        "artifactSha256": "6925c929fae8f165f2a8681b454339dae22b74fc409c01f7c4043ca5b308ec0d",
+        "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+        "artifactVerification": "paired_manifest_verified"
+      }
+    }
+  ],
+  "acceptingTurns": true,
+  "telemetryHealth": {
+    "status": "healthy",
+    "pending_records": 0,
+    "pending_bytes": 0,
+    "failed_writes": 0,
+    "dropped_records": 0
+  },
+  "diagnosticHealth": {
+    "status": "healthy",
+    "pendingRecords": 0,
+    "pendingBytes": 0,
+    "failedWrites": 0,
+    "droppedRecords": 0,
+    "current": {
+      "status": "healthy",
+      "circuitOpen": false
+    },
+    "lifetime": {
+      "failedWrites": 0,
+      "droppedRecords": 0,
+      "circuitRejections": 0
+    }
+  },
+  "activeHttpTurns": 2,
+  "activeBrowserTurns": 2,
+  "resources": {
+    "pending_waiters": 10,
+    "pending_timers": 0,
+    "pending_transactions": 0,
+    "pending_persistences": 2,
+    "pending_effects": 2,
+    "pending_retirements": 0,
+    "retained_releases": 0,
+    "active_structured_compactions": 0
+  },
+  "operationScope": "Negative probes do not authorize drain; only owned canary chats were released."
+}

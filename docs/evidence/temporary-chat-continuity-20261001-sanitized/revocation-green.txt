@@ -1,0 +1,17 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoint-broker.test.ts:
+[chatgpt-web] broker trace=phase-1 registered tokenHash=671eba96030b threadId=mission
+[chatgpt-web] broker trace=phase-1 committed browser completion revision=2
+[chatgpt-web] broker trace=phase-2 registered tokenHash=2b95b4ae0d90 predecessor=671eba96030b threadId=mission
+[chatgpt-web] broker_retired {"traceId":"phase-1","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":true}
+[chatgpt-web] broker_retired {"traceId":"phase-2","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+(pass) phase checkpoint control is bound to the exact active capability and never queues a work tool [9.03ms]
+[chatgpt-web] broker trace=phase-race registered tokenHash=8f490d6d3f0a threadId=mission
+[chatgpt-web] broker_retired {"traceId":"phase-race","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":1,"completionCommitted":false}
+(pass) revocation during checkpoint control fences its acknowledgement and browser completion [1.07ms]
+
+ 2 pass
+ 0 fail
+ 12 expect() calls
+Ran 2 tests across 1 file. [28.00ms]

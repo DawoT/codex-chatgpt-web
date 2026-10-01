@@ -1,0 +1,120 @@
+bun test v1.4.2 (744846f84)
+
+tests/retained-context-revision.test.ts:
+(pass) a durable remote binding survives local compaction without authorizing a different summary or generation [7.89ms]
+
+tests/helper-protocol.test.ts:
+(pass) real helper rejects the invalid frame null and continues processing valid input [308.77ms]
+(pass) real helper rejects the invalid frame [] and continues processing valid input [293.21ms]
+(pass) real helper rejects the invalid frame 42 and continues processing valid input [296.25ms]
+(pass) real helper rejects the invalid frame {"type":"unsupported_operation","id":"unsupported_id"} and continues processing valid input [286.08ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"ready"}} [0.42ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"ready","features":[]}} [0.02ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"ready","protocolVersion":2,"features":["progress"],"identity":{"protocolVersion":2,"generation":"12345678-1234-1234-1234-123456789abc","pid":123,"buildCommit":null,"artifactSha256":null}}} [0.05ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"heartbeat"}} [0.01ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"send_activated"}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"submitted"}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"reasoning","text":"Thinking","continuation":false}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"commentary","text":"Continuing","continuation":true}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"text","text":""}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"prepared_selected","reused":false}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"multipart_stage_acknowledged","stageIndex":1}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"tool_batch_observed","requestId":1,"revision":1}} [0.02ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"surface_ownership","phase":"leased","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}} [0.01ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"surface_ownership","phase":"released","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"completion_fence_begin","requestId":1}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"completion_fence_commit","requestId":1,"revision":0}}
+(pass) output decoder preserves valid wire payload {"frame":{"type":"event","id":"turn","event":"luna_checkpoint","answerHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","checkpoint":{"version":2,"summary":"The first task is verified; finish the remaining change."}}} [100.85ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"result","id":"turn","text":""}} [0.02ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"error","id":"turn","message":"cancelled","name":"AbortError"}} [0.01ms]
+(pass) output decoder preserves valid wire payload {"frame":{"type":"error","id":"turn","message":"upstream unavailable","status":503,"errorType":"upstream_error","code":"unavailable","retryable":false}} [0.01ms]
+(pass) output decoder accepts an independently checked result persistence digest [0.09ms]
+(pass) output decoder rejects malformed wire payload {"frame":null} [0.07ms]
+(pass) output decoder rejects malformed wire payload {"frame":[]} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":42}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","features":"progress"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","features":[1]}} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":0}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":1.5}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":2,"identity":null}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":2,"identity":{"protocolVersion":1,"generation":"12345678-1234-1234-1234-123456789abc","pid":123,"buildCommit":null,"artifactSha256":null}}} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":2,"identity":{"protocolVersion":2,"generation":"12345678-1234-1234-1234-123456789abc","pid":0,"buildCommit":null,"artifactSha256":null}}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":2,"identity":{"protocolVersion":2,"generation":"invalid","pid":123,"buildCommit":null,"artifactSha256":null}}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":2,"identity":{"protocolVersion":2,"generation":"12345678-1234-1234-1234-123456789abc","pid":123,"buildCommit":"short","artifactSha256":null}}} [0.03ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"ready","protocolVersion":2,"identity":{"protocolVersion":2,"generation":"12345678-1234-1234-1234-123456789abc","pid":123,"buildCommit":null,"artifactSha256":"short"}}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"result","text":"no identity"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"result","id":"","text":"empty identity"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"result","id":"turn","text":42}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"result","id":"turn","value":{"enabled":true}}} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"unknown","id":"turn"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"unknown"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"text","text":42}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"text","continuation":"true"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"prepared_selected","reused":"false"}} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"multipart_stage_acknowledged","stageIndex":0}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"tool_batch_observed","requestId":0,"revision":1}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"tool_batch_observed","requestId":1,"revision":0}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"surface_ownership","phase":"other","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"surface_ownership","phase":"leased","surfaceId":"short"}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"result_ready","text":"changed","textSha256":"a4c3ed04a95a3da14a9d235c83d868bed7c0f45cf7f3faa751ee8f50598d2211"}} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"result_ready","text":"done","textSha256":"malformed"}} [0.01ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"completion_fence_begin","requestId":1.5}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"completion_fence_commit","requestId":1,"revision":-1}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"luna_checkpoint","answerHash":"short","checkpoint":{"version":2,"summary":"ok"}}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"event","id":"turn","event":"luna_checkpoint","answerHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","checkpoint":{"version":3}}} [1.86ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":42}} [0.04ms]
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","name":42}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","status":503}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","status":399,"errorType":"upstream","code":"oops","retryable":false}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","status":600,"errorType":"upstream","code":"oops","retryable":false}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","status":503,"errorType":"","code":"oops","retryable":false}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","status":503,"errorType":"upstream","code":"","retryable":false}}
+(pass) output decoder rejects malformed wire payload {"frame":{"type":"error","id":"turn","message":"oops","status":503,"errorType":"upstream","code":"oops","retryable":"false"}}
+(pass) output decoder rejects invalid JSON [0.06ms]
+(pass) output decoder reconstructs identity without forwarding unvalidated fields [0.05ms]
+(pass) input decoder preserves valid control payload {"frame":{"type":"shutdown"}} [0.15ms]
+(pass) input decoder preserves valid control payload {"frame":{"type":"release_context_pressure","conversationKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"send_activation_ack","id":"turn_ack"}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"abort","id":"turn_ack"}} [0.01ms]
+(pass) input decoder preserves valid control payload {"frame":{"type":"abort","id":"turn_ack","reason":"compaction_handoff_accepted"}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"surface_ownership_ack","id":"turn_ack","phase":"leased","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":true}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"surface_ownership_ack","id":"turn_ack","phase":"released","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":false}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"result_ready_ack","id":"turn_ack","textSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":false}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"tool_batch_observed_ack","id":"turn_ack","requestId":1,"revision":1,"accepted":false}} [0.02ms]
+(pass) input decoder preserves valid control payload {"frame":{"type":"completion_fence_begin_ack","id":"turn_ack","requestId":1,"revision":null}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"completion_fence_begin_ack","id":"turn_ack","requestId":1,"revision":0}} [0.01ms]
+(pass) input decoder preserves valid control payload {"frame":{"type":"completion_fence_commit_ack","id":"turn_ack","requestId":1,"committed":false}}
+(pass) input decoder preserves valid control payload {"frame":{"type":"inspect","id":"maintenance_legacy_id","config":{"appName":"Codex Native","browserHostDescriptorPath":"/workspace/launcher.json"},"detectCapabilities":false}}
+(pass) input decoder rejects a non-boolean acknowledgement flag {"type":"surface_ownership_ack","id":"turn_ack","phase":"leased","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":"false"} [0.07ms]
+(pass) input decoder rejects a non-boolean acknowledgement flag {"type":"surface_ownership_ack","id":"turn_ack","phase":"released","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":1}
+(pass) input decoder rejects a non-boolean acknowledgement flag {"type":"result_ready_ack","id":"turn_ack","textSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":"false"}
+(pass) input decoder rejects a non-boolean acknowledgement flag {"type":"tool_batch_observed_ack","id":"turn_ack","requestId":1,"revision":1,"accepted":"false"}
+(pass) input decoder rejects a non-boolean acknowledgement flag {"type":"completion_fence_commit_ack","id":"turn_ack","requestId":1,"committed":"false"}
+(pass) input decoder rejects a non-boolean acknowledgement flag {"type":"completion_fence_commit_ack","id":"turn_ack","requestId":1,"committed":1}
+(pass) input decoder rejects malformed control framing {"type":"send_activation_ack"} [0.02ms]
+(pass) input decoder rejects malformed control framing {"type":"send_activation_ack","id":""}
+(pass) input decoder rejects malformed control framing {"type":"send_activation_ack","id":42}
+(pass) input decoder rejects malformed control framing {"id":"turn_ack"}
+(pass) input decoder rejects malformed control framing {"type":42,"id":"turn_ack"}
+(pass) input decoder rejects malformed control framing {"type":"unsupported_operation","id":"unsupported_id"}
+(pass) input decoder rejects malformed control framing {"type":"surface_ownership_ack","id":"turn_ack","phase":"invalid","surfaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","accepted":true}
+(pass) input decoder rejects malformed control framing {"type":"surface_ownership_ack","id":"turn_ack","phase":"leased","surfaceId":"short","accepted":true}
+(pass) input decoder rejects malformed control framing {"type":"result_ready_ack","id":"turn_ack","textSha256":"short","accepted":true}
+(pass) input decoder rejects malformed control framing {"type":"tool_batch_observed_ack","id":"turn_ack","requestId":0,"revision":1,"accepted":true}
+(pass) input decoder rejects malformed control framing {"type":"tool_batch_observed_ack","id":"turn_ack","requestId":1,"revision":-1,"accepted":true}
+(pass) input decoder rejects malformed control framing {"type":"completion_fence_begin_ack","id":"turn_ack","requestId":0,"revision":null}
+(pass) input decoder rejects malformed control framing {"type":"completion_fence_begin_ack","id":"turn_ack","requestId":1,"revision":"0"}
+(pass) input decoder rejects malformed control framing {"type":"completion_fence_commit_ack","id":"turn_ack","requestId":1.5,"committed":true}
+(pass) context health crosses the helper boundary without resetting physical pressure [0.11ms]
+
+tests/browser-context-pressure.test.ts:
+(pass) page DOM measurement is throttled per page and only scans changed responses [0.48ms]
+(pass) ChatGPT browser context pressure > watches a large DOM without interrupting a viable turn [0.03ms]
+(pass) ChatGPT browser context pressure > requests bounded same-page recovery after two slow observations [0.04ms]
+(pass) ChatGPT browser context pressure > a fast post-recovery observation clears pressure [0.02ms]
+(pass) a phase boundary clears only its tool burst and accumulates remote context [0.07ms]
+
+ 108 pass
+ 0 fail
+ 133 expect() calls
+Ran 108 tests across 3 files. [1356.00ms]

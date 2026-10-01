@@ -1,0 +1,152 @@
+{
+  "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+  "events": {
+    "turn_started": 3,
+    "operation_intent": 3,
+    "operation_prepared": 3,
+    "surface_claimed": 3,
+    "operation_send_activated": 3,
+    "operation_accepted": 3,
+    "operation_completed": 3,
+    "phase_checkpoint_committed": 2,
+    "surface_released": 1
+  },
+  "claims": [
+    {
+      "generation": 1,
+      "operationId": "surface-claim:browser:8a828483958f:iHorKX6njqK0mN_uf_dIbUEI1B_DR_XC",
+      "producerId": "daemon",
+      "producerSequence": 2,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "surfaceId": "iHorKX6njqK0mN_uf_dIbUEI1B_DR_XC",
+      "turnId": "canary-phase-1",
+      "type": "surface_claimed"
+    },
+    {
+      "generation": 1,
+      "operationId": "surface-claim:browser:a5d47eb654d8:iHorKX6njqK0mN_uf_dIbUEI1B_DR_XC",
+      "producerId": "daemon",
+      "producerSequence": 4,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "surfaceId": "iHorKX6njqK0mN_uf_dIbUEI1B_DR_XC",
+      "turnId": "canary-phase-2",
+      "type": "surface_claimed"
+    },
+    {
+      "generation": 1,
+      "operationId": "surface-claim:browser:518e4f526b3e:DLB-53Yxf752xAskiPatA58kdcGF2Xn4",
+      "producerId": "daemon",
+      "producerSequence": 8,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "surfaceId": "DLB-53Yxf752xAskiPatA58kdcGF2Xn4",
+      "turnId": "canary-phase-3",
+      "type": "surface_claimed"
+    }
+  ],
+  "checkpoints": [
+    {
+      "checkpointRef": "8e765b4117499394278f7fb07c12d8da622f3b809d2941c9f36dfb592d233e27",
+      "generation": 1,
+      "operationId": "phase-checkpoint:canary-phase-2",
+      "producerId": "daemon",
+      "producerSequence": 5,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-2",
+      "type": "phase_checkpoint_committed"
+    },
+    {
+      "checkpointRef": "1f2675de4da0e591d124958357b6fd8d496869963d360bac4273017f36ebc65c",
+      "generation": 1,
+      "operationId": "phase-checkpoint:canary-phase-3",
+      "producerId": "daemon",
+      "producerSequence": 9,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-3",
+      "type": "phase_checkpoint_committed"
+    }
+  ],
+  "sends": [
+    {
+      "generation": 1,
+      "historyRevision": 0,
+      "operationId": "browser:8a828483958f",
+      "operationKind": "browser_send",
+      "producerId": "effect:browser:8a828483958f",
+      "producerSequence": 2,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-1",
+      "type": "operation_send_activated"
+    },
+    {
+      "generation": 1,
+      "historyRevision": 0,
+      "operationId": "browser:a5d47eb654d8",
+      "operationKind": "browser_send",
+      "producerId": "effect:browser:a5d47eb654d8",
+      "producerSequence": 2,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-2",
+      "type": "operation_send_activated"
+    },
+    {
+      "generation": 1,
+      "historyRevision": 0,
+      "operationId": "browser:518e4f526b3e",
+      "operationKind": "browser_send",
+      "producerId": "effect:browser:518e4f526b3e",
+      "producerSequence": 2,
+      "protocolVersion": 5,
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-3",
+      "type": "operation_send_activated"
+    }
+  ],
+  "results": [
+    {
+      "generation": 1,
+      "historyRevision": 0,
+      "operationId": "browser:8a828483958f",
+      "operationKind": "browser_send",
+      "producerId": "effect:browser:8a828483958f",
+      "producerSequence": 4,
+      "protocolVersion": 5,
+      "resultRef": "dceffd2292d052f06022fc232cf087b94f20dcfe88cf603bc0c5ab0ce754bf81",
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-1",
+      "type": "operation_completed"
+    },
+    {
+      "generation": 1,
+      "historyRevision": 0,
+      "operationId": "browser:a5d47eb654d8",
+      "operationKind": "browser_send",
+      "producerId": "effect:browser:a5d47eb654d8",
+      "producerSequence": 4,
+      "protocolVersion": 5,
+      "resultRef": "d9771ca7adfe9782ca420cab86ad210134b29fa1bc8a763eb9a1161853067266",
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-2",
+      "type": "operation_completed"
+    },
+    {
+      "generation": 1,
+      "historyRevision": 0,
+      "operationId": "browser:518e4f526b3e",
+      "operationKind": "browser_send",
+      "producerId": "effect:browser:518e4f526b3e",
+      "producerSequence": 4,
+      "protocolVersion": 5,
+      "resultRef": "372f40997d946489f2f26f5e30469a4d93a9462d1138f1430b18db060dda9490",
+      "sessionId": "d96992e374768ec2e95d92d9a425b8b4d5b3da91e1564e0a97e23b1d21176c26:710be45ba121e8f239ca150db272679bb7380245d6f8cfc82e0f31d591728b3b",
+      "turnId": "canary-phase-3",
+      "type": "operation_completed"
+    }
+  ]
+}

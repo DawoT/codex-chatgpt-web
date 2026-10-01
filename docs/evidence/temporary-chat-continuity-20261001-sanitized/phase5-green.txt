@@ -1,0 +1,28 @@
+bun test v1.4.2 (744846f84)
+
+tests/phase-checkpoint-broker.test.ts:
+[chatgpt-web] broker trace=phase-1 registered tokenHash=43113706d5fd threadId=mission
+[chatgpt-web] broker trace=phase-1 committed browser completion revision=2
+[chatgpt-web] broker trace=phase-2 registered tokenHash=19bcbefe6c42 predecessor=43113706d5fd threadId=mission
+[chatgpt-web] broker_retired {"traceId":"phase-1","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":true}
+[chatgpt-web] broker_retired {"traceId":"phase-2","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+(pass) phase checkpoint control is bound to the exact active capability and never queues a work tool [9.18ms]
+
+tests/phase-checkpoints.test.ts:
+(pass) a confirmed phase checkpoint survives restart and replaces only its exact parent history [116.75ms]
+(pass) invalid or stale checkpoints cannot replace the last durable checkpoint [5.05ms]
+(pass) a checkpoint cannot hide changed history or omit a literal user requirement [3.77ms]
+(pass) a handoff budget rejects essential state instead of silently truncating it [69.69ms]
+(pass) a checkpoint requires the journal's confirmed browser answer and evidence reads stay session scoped [4.13ms]
+[chatgpt-web] broker trace=d6ab3d1aa0c9 registered tokenHash=568cee258173 threadId=mission-1
+[chatgpt-web] browser_settled {"traceId":"d6ab3d1aa0c9","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"d6ab3d1aa0c9","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+[chatgpt-web] broker trace=01199065b2ad registered tokenHash=c3aa7114954e threadId=mission-1
+[chatgpt-web] browser_settled {"traceId":"01199065b2ad","outcome":"final","compaction":false,"submission":"accepted"}
+[chatgpt-web] broker_retired {"traceId":"01199065b2ad","pendingTools":0,"queuedTools":0,"deliveredTools":0,"activeMcpRequests":0,"completionCommitted":false}
+(pass) the real adapter commits a model checkpoint and recovers a lost temporary chat with a reduced handoff [24.29ms]
+
+ 7 pass
+ 0 fail
+ 40 expect() calls
+Ran 7 tests across 2 files. [527.00ms]

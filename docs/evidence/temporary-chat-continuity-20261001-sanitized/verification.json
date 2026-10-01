@@ -1,0 +1,837 @@
+{
+  "schemaVersion": 1,
+  "timestampUtc": "2026-10-01T19:40:11.106336+00:00",
+  "risk": "R2xL",
+  "baseHead": "8be1ef0830245e0c954d5f38710626d3ef9ed76b",
+  "sourceState": "dirty working tree; prior usage-accounting change preserved",
+  "sourceInputsSha256": "50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90",
+  "changedTypeScriptFiles": {
+    "src/adapters/chatgpt-web/adapter/compaction-flow.ts": "4203bae4bc0d8bae8d4201bbf72567a0386928ea3738b6579dba48f2ac39e702",
+    "src/adapters/chatgpt-web/adapter/compaction-policy.ts": "f77dd2bde686fced7b54de35614a28831a9101a2a5da33b70d83ae1d15818bdf",
+    "src/adapters/chatgpt-web/browser-helper-main.ts": "1cb7ed50bd3c22bac730137ab306f5d55a88dd117b12606dd639b594972ba2ca",
+    "src/adapters/chatgpt-web/browser-worker.ts": "ba6029923949ed7ce9bb4f1b29bc6adacd5dc21cac66f153db4f57864ac051cf",
+    "src/adapters/chatgpt-web/browser/context-pressure.ts": "173ca58db7965d9140f23efb2faa0f27acaf46aec77d203163c899e1545e1b19",
+    "src/adapters/chatgpt-web/conversation-key.ts": "cc0d14e98856b257c83133e62acc95ccd0cd2b201bb0ec0d3e4b084d8e436379",
+    "src/adapters/chatgpt-web/helper-protocol.ts": "24c09486d65b9d33a7c43c45572c37d7460ec32ffee3aed8094e91259fce601f",
+    "src/adapters/chatgpt-web/index.ts": "40e1ae9f338769eaf065cfdad37caa52a601ca6175f6efbe6118bb10a2373b58",
+    "src/adapters/chatgpt-web/launcher-helper-client.ts": "2c04a4ee1b1c9de6b827c19a53169a8a9b57a473e61a57479f6a13025d485a13",
+    "src/adapters/chatgpt-web/mcp/host-registry-tools.ts": "757d342a01b535300cb4b24bdb3b6a378059cb11d5e114cd79168d5d2026193d",
+    "src/adapters/chatgpt-web/phase-checkpoint-instruction.ts": "3cb762146d04db2c9c5681667cd25b5604af2d7a22488ddacb22dcac66a624ff",
+    "src/adapters/chatgpt-web/phase-checkpoints.ts": "1509c44cfa9ff91aa136bb01665ae8e274b5e9083ce88941fd1abc6df9dc14cf",
+    "src/adapters/chatgpt-web/prompt/compiler.ts": "1022507ce9987fde8bbe954f34ff468f574b6c7c076c83f27d0a64828de396bc",
+    "src/adapters/chatgpt-web/prompt/types.ts": "0b1770152b57c252d8f2d7cf74ea6ba211971a5ae506ea97bebd5a8edb01c0ae",
+    "src/adapters/chatgpt-web/remote-chat-retention.ts": "686c2d503fce02d71a4c595e1e10563297c9497986a666b0edb21508d0c8c470",
+    "src/adapters/chatgpt-web/retained-conversation-binding.ts": "d32a6ea09c3ec39d97f56328d99066309b5d01c4fbfbd5c6d70b0c07bb48a647",
+    "src/adapters/chatgpt-web/rolling-checkpoint.ts": "cb837878fde1b53a7b994e9a56b83f0b92f6dfd5316cfb37fb9633bb3a9255c0",
+    "src/adapters/chatgpt-web/session-actor/actor.ts": "6d0df1fc4747b64c5adcfc834121e743f74cb8806af340204bd86a877ca6b1e7",
+    "src/adapters/chatgpt-web/session-actor/journal.ts": "c23b326d6eaf4a886ab7d0fc0abf3ab1b94626cb9fa87d2b5409cdfa120547b7",
+    "src/adapters/chatgpt-web/session-actor/manager.ts": "d09a34fc5afd099dcdedb0652a6cb17eb57d4542c631c765a7673a954e9d40b0",
+    "src/adapters/chatgpt-web/session-actor/types.ts": "b8c29ff9c77b5b2f5c3eae109af7943ad33e5b020bf9c0bb3bc3f3e9975d4bcc",
+    "src/adapters/chatgpt-web/turn-broker.ts": "14e7654fe49dcee7ba05971ae71a26e4378a5ee8d41f433afd757512cb41f2a5",
+    "src/adapters/chatgpt-web/turn-broker/admission.ts": "7f4bcd5597fe40b589f1c2588902785641247d614ff32a05db246986c40a6176",
+    "src/adapters/chatgpt-web/turn-broker/tool-queue.ts": "fb806551b141b5c8ca3b071b749592546df6f47a711032027c8c01606c6ff3c6",
+    "src/adapters/chatgpt-web/turn-broker/types.ts": "27098d5d7930225b7edfa859889c31e5581cfcc8d7413ab3ea53287e2d769c42",
+    "src/adapters/chatgpt-web/turn-broker/yield-notice.ts": "b3d27a46ed4ee14e7f1f48679f7f33f059bc3dd24a98cb228218c98b84f24c82",
+    "src/adapters/chatgpt-web/turn-execution/types.ts": "6bffb9ba1dbf1039409c98e3081aada641e96c0e845e0d37a01f5afb7f69a984",
+    "src/adapters/chatgpt-web/usage.ts": "70803e859c4ea02a79edbc32907cb38241d1caa8c20a42b13f715cdcd4142fb3",
+    "tests/browser-context-pressure.test.ts": "c85b6f41930723cc9be74a59f505105bdbfa8ae77f1b0eaf9d23832c9457683a",
+    "tests/browser-worker-defects.test.ts": "6205294ac652f47e31efbab630b2703bd31109275a9ca19bc89fcde245e75e1b",
+    "tests/chatgpt-web-harness.test.ts": "510af2e3746f726cb70ed1e266332689c0d7658e1bf2a615aa47dc9ea926aa0e",
+    "tests/chatgpt-web-usage-boundary.test.ts": "fbb72aa581d776ab927ab61246d0cbbf7a6495e763b5d9dbd3a5d4cd15f42a76",
+    "tests/compaction-fast-path-budget.test.ts": "34eb467ccad2cd450268fefda6b56d72018802bdb40ea92156a16645b2bba35b",
+    "tests/compaction-policy.test.ts": "1e9943a02a3bdec19b53ab3aeca49fb0e9392254dac0ccdb9b89a77da0780d80",
+    "tests/graceful-yield-compaction.test.ts": "57910afc38731d7524abc7ae61994090cbde838f9a9472c6a4eb0906d25c5953",
+    "tests/helper-protocol.test.ts": "2e88b8eacd7511c50ad60ea9e93255c113cc32e0e733e5bb9254f91c3d66c6ce",
+    "tests/phase-checkpoint-broker.test.ts": "7024766ffa8c64b6d6784a9c0b9984cf2d0373c3fbf67fbfa635a85e94befa56",
+    "tests/phase-checkpoints.test.ts": "8bb32aec22124b6a84827ad8da920eb3968993580fe53a4a51a8be7fa24dc937",
+    "tests/rate-limiter-and-circuit-breaker.test.ts": "408c1411ba90df01a8f82de5678e86d896b794b05e65046a5de2b23ab22c76af",
+    "tests/remote-chat-retention.test.ts": "3d73154fc8c080852e79e79d7bf782b5eb8c5fe7a78b2b4149f86be8ef2b811e",
+    "tests/retained-compaction.test.ts": "7dc4d29da3f2ee087015ca9c3ad2fe2b2c310446cfa136fbff0f6af827cc9c49",
+    "tests/retained-context-revision.test.ts": "5527b6c939077b85cfe910f0224bcf53a916d5bd3aa2e29abaced0443139edb9"
+  },
+  "candidate": {
+    "runtimeRoot": "<repo>/.launcher-runtime/50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90",
+    "entrypoint": "<repo>/.launcher-runtime/50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90/app/cli.js",
+    "helperPath": "<repo>/.launcher-runtime/50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90/app/browser-helper.cjs",
+    "sourceInputsSha256": "50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90",
+    "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9"
+  },
+  "manifest": {
+    "path": "<repo>/.launcher-runtime/50b16f93d55e731fb5e9e1a1a299919e60e01df975a71395b2f391f70cdbae90/manifest.json",
+    "sha256": "026a19049bb1cc056df4945b813af2c2c98f4124ca01ef490894fb16af000551",
+    "files": [
+      {
+        "path": "app/browser-helper.cjs",
+        "size": 1187128,
+        "sha256": "6925c929fae8f165f2a8681b454339dae22b74fc409c01f7c4043ca5b308ec0d"
+      },
+      {
+        "path": "app/cli.js",
+        "size": 3101418,
+        "sha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae"
+      }
+    ]
+  },
+  "gates": {
+    "full-tests-frozen": {
+      "command": "bun test ./tests",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/full-tests-frozen.txt",
+      "sha256": "8206c84e22186c7132b41fb38ec52f55338a99102ffdaf74cc09f0ecdaaa90a5",
+      "summary": [
+        "(skip) Billing inspection preserves account and page in dialog layout",
+        "(skip) Billing inspection preserves account and page in page layout",
+        "(skip) trusted Codex task environment continuity > resumed Windows tasks accept the same indexed rollout with either path namespace",
+        "(skip) external service setup retains validation cleanup on success and failure",
+        "",
+        " 2360 pass",
+        " 14 skip",
+        " 0 fail",
+        " 13345 expect() calls",
+        "Ran 2374 tests across 225 files. [230.18s]"
+      ],
+      "pass": 2360,
+      "skip": 14,
+      "fail": 0
+    },
+    "focused-final": {
+      "command": "bun test <10 focused continuity suites>",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/focused-final.txt",
+      "sha256": "3451229d28d1f57c5c8f971a6b8bba3648760c13ffe57fb446f9512bbb7a6b35",
+      "summary": [
+        "[chatgpt-web] broker trace=2e4bbf1bed4a registered tokenHash=1ff7798d0212 predecessor=7c5aeb27105a threadId=/tmp/cgw-compact-health-CHWAGb",
+        "[chatgpt-web] browser_settled {\"traceId\":\"2e4bbf1bed4a\",\"outcome\":\"final\",\"compaction\":false,\"submission\":\"accepted\"}",
+        "[chatgpt-web] broker_retired {\"traceId\":\"2e4bbf1bed4a\",\"pendingTools\":0,\"queuedTools\":0,\"deliveredTools\":0,\"activeMcpRequests\":0,\"completionCommitted\":false}",
+        "(pass) local compaction retains a remote chat only with proven health=%s [33.44ms]",
+        "(pass) checkpoint recovery preserves assistant commentary emitted before the confirmed final answer [8.40ms]",
+        "",
+        " 115 pass",
+        " 0 fail",
+        " 517 expect() calls",
+        "Ran 115 tests across 10 files. [13.91s]"
+      ],
+      "pass": 115,
+      "fail": 0
+    },
+    "typecheck": {
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/typecheck.txt",
+      "sha256": "e576e4d30f5392d9dec436980fdafe8b9b900832b6fe6adc3043841047674093",
+      "summary": [
+        "$ bun x --no-install --bun tsc --noEmit"
+      ]
+    },
+    "lint": {
+      "command": "bun run lint",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/lint.txt",
+      "sha256": "3523f461d3167e662859c97e6fcccc22498d4410cc9c7600b53f87e24c249277",
+      "summary": [
+        "    187 │             knownCommentary.add(root);",
+        "  ",
+        "  i The use of assignments in expressions is confusing.",
+        "    Expressions are often considered as side-effect free.",
+        "  ",
+        "",
+        "The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.",
+        "Diagnostics not shown: 68.",
+        "Checked 610 files in 614ms. No fixes applied.",
+        "Found 88 warnings."
+      ]
+    },
+    "refactor-gates": {
+      "command": "bun run check:refactor-gates",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/refactor-gates.txt",
+      "sha256": "39121cf52ac6929156b77cc5f3f8ca20a10b805e835919e03df9a72f0adc074d",
+      "summary": [
+        "",
+        "Gate 3 — direct worker prototype references in tests/ (target 0 per file)",
+        "    (none)",
+        "    summary: current 0, target 0 across 229 scanned test files",
+        "",
+        "Gate 4 — source-text assertions in tests/ (`readFileSync` applied to src/ paths; sprint-4 target 0 per file)",
+        "    (none)",
+        "    summary: current 0, target 0 across 229 scanned test files",
+        "",
+        "Result: PASS — all gate targets met"
+      ]
+    },
+    "launcher-tests": {
+      "command": "bun run launcher:test",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/launcher-tests.txt",
+      "sha256": "cc052e95d8c1adce0df8b760b20edb9bf5abba420d0b10a2311367cc7dea95b3",
+      "summary": [
+        "✔ window state is stored atomically with owner-only permissions (11.460542ms)",
+        "﹣ Windows installer resolves only the official public release redirect (0.86751ms) # SKIP",
+        "ℹ tests 369",
+        "ℹ suites 0",
+        "ℹ pass 368",
+        "ℹ fail 0",
+        "ℹ cancelled 0",
+        "ℹ skipped 1",
+        "ℹ todo 0",
+        "ℹ duration_ms 4350.846139"
+      ]
+    },
+    "launcher-typecheck": {
+      "command": "bun run launcher:typecheck",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/launcher-typecheck.txt",
+      "sha256": "86d0c5319e5950c9462fc361b080bebf25e8ba9090480c6f19078cd2d130787a",
+      "summary": [
+        "$ bun run --cwd launcher typecheck",
+        "$ tsc --noEmit"
+      ]
+    },
+    "browser-contracts": {
+      "command": "bun run test:browser-contracts",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/browser-contracts.txt",
+      "sha256": "c2840d3ff8d5ae53728d3635cd099d90d4fbc2ce7aca1b452099421f75f42cb9",
+      "summary": [
+        "(pass) captured DIL smoke response reaches Markdown delivery and stable completion [8.17ms]",
+        "(pass) DOM checkpoint markers split across inline spans remain parseable [11.22ms]",
+        "(pass) a compaction-only inline-code marker is accepted without rewriting ordinary code [4.17ms]",
+        "(pass) captured power UI excludes the user footer during streaming and completes the assistant answer [15.11ms]",
+        "(pass) DIL response extraction preserves ownership, commentary and completion boundaries [6.63ms]",
+        "",
+        " 37 pass",
+        " 0 fail",
+        " 228 expect() calls",
+        "Ran 37 tests across 6 files. [261.10s]"
+      ],
+      "pass": 37,
+      "fail": 0
+    },
+    "audit": {
+      "command": "bun run audit",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/audit.txt",
+      "sha256": "c988200fcd00e606a34e39af250fd5e380e7fbdaf6d413cc42ad8a39a508549a",
+      "summary": [
+        "$ bun audit",
+        "bun audit v1.4.2 (744846f84)",
+        "",
+        "No vulnerabilities found (checked 118 packages) [502.00ms]"
+      ]
+    },
+    "launcher-audit": {
+      "command": "bun run launcher:audit",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/launcher-audit.txt",
+      "sha256": "dade7b32b52c746bacce9b92927890a2b3c00bc6529e94dae18ba735f3244f83",
+      "summary": [
+        "$ bun run --cwd launcher audit",
+        "$ bun audit",
+        "bun audit v1.4.2 (744846f84)",
+        "",
+        "No vulnerabilities found (checked 351 packages) [513.00ms]"
+      ]
+    },
+    "check-version": {
+      "command": "bun run check-version",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/check-version.txt",
+      "sha256": "46327d731fc44a1c1caa939c4208dc72988fa9400cfeb2d9a3ea61396986bc3d",
+      "summary": [
+        "$ bun run scripts/check-version.ts",
+        "VERSION_SYNC_OK 6.2.0 bun@1.4.2"
+      ]
+    },
+    "smoke-candidate": {
+      "command": "bun /tmp/cgw-temporary-continuity/smoke-candidate.ts",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/smoke-candidate.txt",
+      "sha256": "15bac768e9b13c710a5588f46f9b08c37c470a390ddf2d7c35c381a1e1c911f2",
+      "summary": [
+        "{\"status\":\"passed\",\"identity\":{\"protocolVersion\":2,\"buildCommit\":null,\"artifactSha256\":\"9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae\",\"generation\":\"83739651-a54f-4f7f-91e0-d2d5ce7d9276\",\"pid\":319084,\"artifactSetSha256\":\"43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9\",\"artifactVerification\":\"paired_manifest_verified\"},\"helperIdentity\":{\"protocolVersion\":2,\"buildCommit\":null,\"artifactSha256\":\"6925c929fae8f165f2a8681b454339dae22b74fc409c01f7c4043ca5b308ec0d\",\"generation\":\"6c5c4fbe-6d95-4f44-90f3-4851985e3100\",\"pid\":319116,\"artifactSetSha256\":\"43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9\",\"artifactVerification\":\"paired_manifest_verified\"},\"invalidModel\":400,\"invalidDrain\":401,\"drained\":true,\"profile\":\"isolated temporary directory\",\"activeDaemonRestarted\":false}",
+        ""
+      ]
+    },
+    "live-continuity": {
+      "command": "bun /tmp/cgw-temporary-continuity/live-continuity.ts (direct HTTP driver; no delegated agents)",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/live-continuity.txt",
+      "sha256": "929217576b15f5682107bebb7ce52b2d76290894b638288efac3d7cc23e57b9c",
+      "summary": [
+        "{\"stage\":\"canary-phase-1\",\"traceId\":\"8a828483958f\",\"event\":\"request_started\"}",
+        "{\"stage\":\"canary-phase-1\",\"event\":\"marker_verified\",\"usage\":{\"input_tokens\":9530,\"output_tokens\":30,\"total_tokens\":9560}}",
+        "{\"stage\":\"canary-phase-2\",\"traceId\":\"a5d47eb654d8\",\"event\":\"request_started\"}",
+        "{\"stage\":\"canary-phase-2\",\"event\":\"marker_verified\",\"usage\":{\"input_tokens\":9594,\"output_tokens\":30,\"total_tokens\":9624}}",
+        "{\"stage\":\"canary-phase-3\",\"traceId\":\"518e4f526b3e\",\"event\":\"request_started\"}",
+        "{\"stage\":\"canary-phase-3\",\"event\":\"marker_verified\",\"usage\":{\"input_tokens\":9660,\"output_tokens\":30,\"total_tokens\":9690}}",
+        "{\"status\":\"passed\",\"report\":\"/tmp/cgw-temporary-continuity/live-continuity.json\"}"
+      ]
+    },
+    "live-journal-verification": {
+      "command": "bun /tmp/cgw-temporary-continuity/verify-live-journal.ts (recorded canonical input replay)",
+      "exitCode": 0,
+      "privateLog": "/tmp/cgw-temporary-continuity/live-journal-verification.txt",
+      "sha256": "551874c481ad66a902f31982a919b69b492e5cf79b7486c63cb3f7137a3870f5",
+      "summary": [
+        "{\"status\":\"passed\",\"observation\":\"Owned canary journal commands read from an isolated SQLite copy; no live database writes.\",\"checkpointApplicability\":\"Offline replay of the persisted canonical phase-3 request with its committed preceding checkpoint.\",\"sameSurfaceForContinuation\":true,\"newSurfaceAfterOwnedChatRelease\":true,\"completedOperations\":3,\"journalSendActivations\":3,\"ordinaryToolExecutions\":0,\"committedCheckpoints\":2,\"checkpointAppliedToRecordedRecoveryInput\":true,\"checkpointRef\":\"8e765b4117499394278f7fb07c12d8da622f3b809d2941c9f36dfb592d233e27\",\"canonicalMessages\":7,\"projectedMessages\":3}"
+      ]
+    }
+  },
+  "redGreen": [
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase1-red.txt",
+        "sha256": "b16f33732d7c7643e300744455309efc00cafba26c41e6fc7228af157bb8043a",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase1-green.txt",
+        "sha256": "2efb106a1cf1fad042706ff5afda66a62cbecf6d9470523f66f6866216d9ed57",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase2-red.txt",
+        "sha256": "d9f594df7637cdbd7c90870df1594dc9a4dd0f5828c1c22c4383fe08c7d11feb",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase2-green.txt",
+        "sha256": "53e75f704132da235aad9c8a309f9d60ba87bcb0ae370715d3875b621e7207cb",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase3-red.txt",
+        "sha256": "5879ac32721a7c404650000c95a3cbcbab0c81634e93a0b31d3173a49b91ee22",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase3-green.txt",
+        "sha256": "717acc443e22cb604ba8af6d17ee256f844173f2cf47a7622b9beeca5da8a810",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase4-red.txt",
+        "sha256": "fb32adb1f3be6305e9ae950e77ad82cb2a6e775d7896d4c227318bb6d790aa63",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase4-green.txt",
+        "sha256": "e6d5fe295584ae92f711ef59e9f618d5d13b004f7bfb9464e71931cce5ef4b3f",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase5-red.txt",
+        "sha256": "17b294aab30414792a81ee3ef8a905a0cbe1fcf5b1c692abb767545f995ceb9b",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/phase5-green.txt",
+        "sha256": "2bd9aa50613370a1e388a542dcb0f3eea2379f81a99d34fb43e147818db820a4",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/health-red.txt",
+        "sha256": "9290cb283669f3e70225d7921fc3e7382f70f6368fbae5dfc17a0ee88cb4ae3e",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/revision-green.txt",
+        "sha256": "eaafb1135241e115eb08d5e2d22bd92fe2a89282a23f7428bb97947550c3d2b5",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/revision-red.txt",
+        "sha256": "60e373c952545d43d5f26abe808c46c558eb6394e152ac17ba0b22655701fde8",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/revision-green.txt",
+        "sha256": "eaafb1135241e115eb08d5e2d22bd92fe2a89282a23f7428bb97947550c3d2b5",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/pressure-red.txt",
+        "sha256": "1d59053c4a25e8fb2691dc9660b1ca7727917308842686aa10e18f9bb273e1b2",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/revision-green.txt",
+        "sha256": "eaafb1135241e115eb08d5e2d22bd92fe2a89282a23f7428bb97947550c3d2b5",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/retention-integration-red.txt",
+        "sha256": "b3d2e3237dd11fa1c8e20b9d7c253fcaeab375a9a4321c5344cc057c1bae02a7",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/retention-green.txt",
+        "sha256": "1b680a6733d33098a125a5534bde0e73d59f309bbc8b15b78e0b5e178834d67a",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/revocation-red.txt",
+        "sha256": "5902e17b76df9ba9e2aff82701b3cce9f15bdd873b9c82dec9989fb49bc5af01",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/revocation-green.txt",
+        "sha256": "6b738cf09b9ef5b2b28425e9042d847fa681cb1af2f63ecb1cdf2d6aca673238",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/current-evidence-red.txt",
+        "sha256": "be2504640b1d325f5ca07e574d18ccdcd72b4b8024fd58c9e78be4aecef925ee",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/current-evidence-green.txt",
+        "sha256": "4569508bb2c4e2ce30996f545ab550f98f261d927c1fd923df3f6aeef21cb146",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/model-binding-red.txt",
+        "sha256": "23d4dbbe69b2a8d92aed08eb0eb96bb4346a6b88de6ac212d91d284b0e725b73",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/model-binding-green.txt",
+        "sha256": "bcf31b8fd58fe1e23f9d9408bb4fed8ced6a300dc4068bcedaf3481a604e0cbf",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/replacement-red.txt",
+        "sha256": "50820ed270947977bef9d830791f4cac281a0b89263565dffe6598e89975e59e",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/replacement-green.txt",
+        "sha256": "13a3cb080d53444fbf930e8dde225634ac72a06ca6e87b73ce9e70718b865f5c",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/compact-resume-red.txt",
+        "sha256": "d1fa14f87ba3da501426c6088b3414f93f33b8fe1a5e9d17464348a92c7e667d",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/compact-resume-green.txt",
+        "sha256": "5560ead64ae45c2d1fefb19322f8f3103cd23b9d7cafaac47cdf059dadd76358",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/control-tool-name-red.txt",
+        "sha256": "be9065da11ac1db2e6401824ebd3a12539f7b0f4bfcd13d7cd7eed644f3add4f",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/control-tool-name-green.txt",
+        "sha256": "6e36e1518ceabcd13e1572778539fd003b1631942f9a5b2a76a82299c716e731",
+        "exitCode": 0
+      }
+    },
+    {
+      "red": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/commentary-red.txt",
+        "sha256": "90824da0a08e3f4fb23b26f53e0d7e01708227de8ce172950f9d7b2aa0841ee9",
+        "exitCode": 1
+      },
+      "green": {
+        "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/commentary-green.txt",
+        "sha256": "79305047a1eec8bcec95c3036d046fb5f788d1e573807cee387be0ff55a92f59",
+        "exitCode": 0
+      }
+    }
+  ],
+  "previousWholeSuiteAttempts": [
+    {
+      "command": "bun test ./tests (during implementation)",
+      "exitCode": 1,
+      "privateLog": "/tmp/cgw-temporary-continuity/full-tests.txt",
+      "sha256": "8af8a7ae69987f46a24d1c278da83de8fbeb34519f0ab892c60f94777d598b2e",
+      "summary": [
+        "(fail) an accepted compaction handoff resets the conversation's existing context pressure without creating a fresh one [0.94ms]",
+        "(fail) Sprint AG: Rate Limiting & Circuit Breaker > Live server rate limiting > POST /v1/responses exceeding rate limit returns 429 with Retry-After [5000.53ms]",
+        "  ^ this test timed out after 5000ms.",
+        "(fail) active compaction delivers the current result and converts every later MCP call into the checkpoint request [16.61ms]",
+        "",
+        " 2353 pass",
+        " 14 skip",
+        " 3 fail",
+        " 13318 expect() calls",
+        "Ran 2370 tests across 225 files. [234.73s]"
+      ],
+      "pass": 2353,
+      "skip": 14,
+      "fail": 3
+    },
+    {
+      "command": "bun test ./tests (during implementation)",
+      "exitCode": 1,
+      "privateLog": "/tmp/cgw-temporary-continuity/full-tests-final.txt",
+      "sha256": "bb0c880158e0dcbf79a49fa4f431b458ecda1bcdeda5058870902313cc56857b",
+      "summary": [
+        "",
+        "2 tests failed:",
+        "(fail) a replacement browser conversation begins with fresh physical pressure [0.11ms]",
+        "(fail) local compaction retains a remote chat only with proven health=%s [26.76ms]",
+        "",
+        " 2356 pass",
+        " 14 skip",
+        " 2 fail",
+        " 13328 expect() calls",
+        "Ran 2372 tests across 225 files. [233.63s]"
+      ],
+      "pass": 2356,
+      "skip": 14,
+      "fail": 2
+    },
+    {
+      "command": "bun test ./tests (during implementation)",
+      "exitCode": 1,
+      "privateLog": "/tmp/cgw-temporary-continuity/full-tests-verified.txt",
+      "sha256": "fad34c6c18f92572ffaa1500c4fd1590f45d848bc88c10688674848d8f29fc6e",
+      "summary": [
+        "",
+        "1 tests failed:",
+        "(fail) Sprint AG: Rate Limiting & Circuit Breaker > Live server rate limiting > POST /v1/responses exceeding rate limit returns 429 with Retry-After [5001.31ms]",
+        "  ^ this test timed out after 5000ms.",
+        "",
+        " 2357 pass",
+        " 14 skip",
+        " 1 fail",
+        " 13332 expect() calls",
+        "Ran 2372 tests across 225 files. [239.89s]"
+      ],
+      "pass": 2357,
+      "skip": 14,
+      "fail": 1
+    },
+    {
+      "command": "bun test ./tests (during implementation)",
+      "exitCode": 1,
+      "privateLog": "/tmp/cgw-temporary-continuity/full-tests-release-check.txt",
+      "sha256": "04d8ace3e93f38614c81b6665ff20de5d5456ae643f58c1c4255d34f2e05e57d",
+      "summary": [
+        "",
+        "",
+        "1 tests failed:",
+        "(fail) checkpoint recovery preserves assistant commentary emitted before the confirmed final answer [2.69ms]",
+        "",
+        " 2359 pass",
+        " 14 skip",
+        " 1 fail",
+        " 13342 expect() calls",
+        "Ran 2374 tests across 225 files. [229.99s]"
+      ],
+      "pass": 2359,
+      "skip": 14,
+      "fail": 1
+    }
+  ],
+  "smokeHarnessConstructionFailures": [
+    "defaultConfig refused an ephemeral script runtime command",
+    "isolated profile initially omitted chromeExecutablePath",
+    "isolated controlToken initially failed minimum-length validation"
+  ],
+  "scopeLimits": [
+    "RED observations are logs, without separate RED commits or RED source snapshots.",
+    "Browser contracts are local DOM fixtures. A separate three-turn live canary ran; no long-session benchmark or extensive acceptance campaign.",
+    "Luna, manual Zero Risk, host-only, subagent and remote DEV contracts remain outside the new local phase controls.",
+    "Invalid, absent or inapplicable checkpoints retain canonical recovery rather than silently dropping context.",
+    "Browser DOM contract gate predates the final phase-store-only changes; those DOM source files were unchanged.",
+    "Initial failed smoke setup logs were overwritten during harness construction; only their reasons are retained.",
+    "No independent A/V identities, signatures, merge or release publication. The user restarted the active runtime; the agent did not restart or drain it.",
+    "The live canary verifies temporary-chat continuation/reconstruction and confirmed phase controls, not twenty native compact/continue boundaries.",
+    "Checkpoint applicability to the recorded recovery request was checked by an offline replay using the actual persisted preceding checkpoint, not a captured live DOM payload.",
+    "Lint exits zero with 88 pre-existing warnings."
+  ],
+  "liveRuntimeObserved": {
+    "runtime": {
+      "protocolVersion": 2,
+      "buildCommit": null,
+      "artifactSha256": "9cc2e0ce28f6c66db1b83d376b8e1315bda15fb8abc02afa07b59049c7c7adae",
+      "generation": "33b0137b-f863-431c-8c77-30b98184d99e",
+      "pid": 320816,
+      "artifactSetSha256": "43079493681aea5d320e87d384865b3a9dd95779afe1b0c420983e09a25b16c9",
+      "artifactVerification": "paired_manifest_verified"
+    },
+    "activeHttpTurns": 2,
+    "activeBrowserTurns": 1,
+    "observedSource": "read-only GET /healthz on port 17841"
+  },
+  "activeRuntimeUpdated": true,
+  "activationPerformedBy": "user restart; daemon and helper hashes subsequently matched the frozen candidate",
+  "liveEvidence": [
+    {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/live-continuity.json",
+      "sha256": "7a4e3e30b30b75212e09d5767983909d960d36d6a9685aef7ad0fdb78745f94c"
+    },
+    {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/live-journal-proof.json",
+      "sha256": "5460df56736c475c4361fcd14a294d6b2d58a3954dc002d4711d9fab63aaa44a"
+    },
+    {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/live-journal-verification.json",
+      "sha256": "d2c8d0b01928301991789bc100f8055077cf3f2730e8d12e44672283ded6fbee"
+    },
+    {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/live-http-checks.json",
+      "sha256": "f2043ba8188ee9c365e010a1e057fd6f8e3e6e5a264071d796ee94f5eac5d4ef"
+    },
+    {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/live-continuity-setup-failure.json",
+      "sha256": "6bdd3766fa68ea24f78b02e1cbd0cde92d3783db2e2193dd13be0a06e3932285"
+    },
+    {
+      "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/live-continuity-markdown-mismatch.json",
+      "sha256": "27ca708d7f8c38b5292c187bab6fddfaef123dda9715926d7aa2b4607ac3049e"
+    }
+  ],
+  "liveCanary": {
+    "turns": 3,
+    "completedOperations": 3,
+    "committedCheckpoints": 2,
+    "sameSurfaceContinuation": true,
+    "newSurfaceRecovery": true,
+    "delegatedAgents": 0,
+    "ordinaryToolExecutions": 0
+  },
+  "liveHarnessConstructionFailures": [
+    "String-valued environment content did not establish trusted native provenance.",
+    "Exact marker assertion rejected Markdown escaping of an underscore; the checkpoint was already committed. A later alphanumeric marker passed."
+  ],
+  "privateLiveDriver": {
+    "path": "/tmp/cgw-temporary-continuity/live-continuity.ts",
+    "sha256": "5c9e834e0d40abcf0a23b01eb67e2855f315892adeab0ebf37a3aff368660654"
+  },
+  "smokeScript": {
+    "path": "docs/evidence/temporary-chat-continuity-20261001-sanitized/smoke-candidate.ts",
+    "sha256": "60d29087f5fd9af213e250fadcd4381397c356f7f93a55ef948fe16b5412988c"
+  },
+  "publication": {
+    "originalReceiptSha256": "db537c85863c7115629ea63cbe8e462a3081b0ac7f459eb176efa9c3ad1db2d4",
+    "originalReceiptAvailability": "Local-only sealed receipt, excluded from Git because it contains absolute user paths. Historical ledger entries and local originals remain unchanged.",
+    "sanitization": "Only absolute user paths replaced with <repo>, <profile>, <user-home>; copied artifact refs and copy hashes updated. These are sanitized derivatives, not raw log hashes.",
+    "copiedArtifacts": [
+      {
+        "file": "commentary-green.txt",
+        "originalSha256": "79305047a1eec8bcec95c3036d046fb5f788d1e573807cee387be0ff55a92f59",
+        "sanitizedSha256": "79305047a1eec8bcec95c3036d046fb5f788d1e573807cee387be0ff55a92f59"
+      },
+      {
+        "file": "commentary-red.txt",
+        "originalSha256": "5d780b29238c452476fc0b16246c062e322135be8d2fb3264bdc49f336d81282",
+        "sanitizedSha256": "90824da0a08e3f4fb23b26f53e0d7e01708227de8ce172950f9d7b2aa0841ee9"
+      },
+      {
+        "file": "compact-resume-green.txt",
+        "originalSha256": "5560ead64ae45c2d1fefb19322f8f3103cd23b9d7cafaac47cdf059dadd76358",
+        "sanitizedSha256": "5560ead64ae45c2d1fefb19322f8f3103cd23b9d7cafaac47cdf059dadd76358"
+      },
+      {
+        "file": "compact-resume-red.txt",
+        "originalSha256": "ab555d402f736e041aaff6f1234e08b6d8f1b5e3de158e643c61255e16901dab",
+        "sanitizedSha256": "d1fa14f87ba3da501426c6088b3414f93f33b8fe1a5e9d17464348a92c7e667d"
+      },
+      {
+        "file": "control-tool-name-green.txt",
+        "originalSha256": "6e36e1518ceabcd13e1572778539fd003b1631942f9a5b2a76a82299c716e731",
+        "sanitizedSha256": "6e36e1518ceabcd13e1572778539fd003b1631942f9a5b2a76a82299c716e731"
+      },
+      {
+        "file": "control-tool-name-red.txt",
+        "originalSha256": "4f0b6541b5fe52f07ca0a80d4775da5e9212cb9ad93b9bc667a7c4aa9af30cbc",
+        "sanitizedSha256": "be9065da11ac1db2e6401824ebd3a12539f7b0f4bfcd13d7cd7eed644f3add4f"
+      },
+      {
+        "file": "current-evidence-green.txt",
+        "originalSha256": "4569508bb2c4e2ce30996f545ab550f98f261d927c1fd923df3f6aeef21cb146",
+        "sanitizedSha256": "4569508bb2c4e2ce30996f545ab550f98f261d927c1fd923df3f6aeef21cb146"
+      },
+      {
+        "file": "current-evidence-red.txt",
+        "originalSha256": "b1579c4894bff18b2691cfaa3c547cfe4b689320a1daf5daf85278374dc0261e",
+        "sanitizedSha256": "be2504640b1d325f5ca07e574d18ccdcd72b4b8024fd58c9e78be4aecef925ee"
+      },
+      {
+        "file": "health-red.txt",
+        "originalSha256": "529bc996bb35ab8fd16e31f2dcf0964a8a7b38e2fd92dfa1c7306c18c9d689be",
+        "sanitizedSha256": "9290cb283669f3e70225d7921fc3e7382f70f6368fbae5dfc17a0ee88cb4ae3e"
+      },
+      {
+        "file": "live-continuity-markdown-mismatch.json",
+        "originalSha256": "27ca708d7f8c38b5292c187bab6fddfaef123dda9715926d7aa2b4607ac3049e",
+        "sanitizedSha256": "27ca708d7f8c38b5292c187bab6fddfaef123dda9715926d7aa2b4607ac3049e"
+      },
+      {
+        "file": "live-continuity-setup-failure.json",
+        "originalSha256": "6bdd3766fa68ea24f78b02e1cbd0cde92d3783db2e2193dd13be0a06e3932285",
+        "sanitizedSha256": "6bdd3766fa68ea24f78b02e1cbd0cde92d3783db2e2193dd13be0a06e3932285"
+      },
+      {
+        "file": "live-continuity.json",
+        "originalSha256": "7a4e3e30b30b75212e09d5767983909d960d36d6a9685aef7ad0fdb78745f94c",
+        "sanitizedSha256": "7a4e3e30b30b75212e09d5767983909d960d36d6a9685aef7ad0fdb78745f94c"
+      },
+      {
+        "file": "live-http-checks.json",
+        "originalSha256": "f2043ba8188ee9c365e010a1e057fd6f8e3e6e5a264071d796ee94f5eac5d4ef",
+        "sanitizedSha256": "f2043ba8188ee9c365e010a1e057fd6f8e3e6e5a264071d796ee94f5eac5d4ef"
+      },
+      {
+        "file": "live-journal-proof.json",
+        "originalSha256": "5460df56736c475c4361fcd14a294d6b2d58a3954dc002d4711d9fab63aaa44a",
+        "sanitizedSha256": "5460df56736c475c4361fcd14a294d6b2d58a3954dc002d4711d9fab63aaa44a"
+      },
+      {
+        "file": "live-journal-verification.json",
+        "originalSha256": "d2c8d0b01928301991789bc100f8055077cf3f2730e8d12e44672283ded6fbee",
+        "sanitizedSha256": "d2c8d0b01928301991789bc100f8055077cf3f2730e8d12e44672283ded6fbee"
+      },
+      {
+        "file": "model-binding-green.txt",
+        "originalSha256": "bcf31b8fd58fe1e23f9d9408bb4fed8ced6a300dc4068bcedaf3481a604e0cbf",
+        "sanitizedSha256": "bcf31b8fd58fe1e23f9d9408bb4fed8ced6a300dc4068bcedaf3481a604e0cbf"
+      },
+      {
+        "file": "model-binding-red.txt",
+        "originalSha256": "fa69502ab6c5b0251ceb0771ee08a499de1cb003a3992d48635e531c2364e1e7",
+        "sanitizedSha256": "23d4dbbe69b2a8d92aed08eb0eb96bb4346a6b88de6ac212d91d284b0e725b73"
+      },
+      {
+        "file": "phase1-green.txt",
+        "originalSha256": "2efb106a1cf1fad042706ff5afda66a62cbecf6d9470523f66f6866216d9ed57",
+        "sanitizedSha256": "2efb106a1cf1fad042706ff5afda66a62cbecf6d9470523f66f6866216d9ed57"
+      },
+      {
+        "file": "phase1-red.txt",
+        "originalSha256": "9314dc913a4ae1bcba01e2daa4912f5d771a030ac50f4d6d206a30c0b7e495ae",
+        "sanitizedSha256": "b16f33732d7c7643e300744455309efc00cafba26c41e6fc7228af157bb8043a"
+      },
+      {
+        "file": "phase2-green.txt",
+        "originalSha256": "53e75f704132da235aad9c8a309f9d60ba87bcb0ae370715d3875b621e7207cb",
+        "sanitizedSha256": "53e75f704132da235aad9c8a309f9d60ba87bcb0ae370715d3875b621e7207cb"
+      },
+      {
+        "file": "phase2-red.txt",
+        "originalSha256": "948ab119c5ad3a4436d6e3119ee04730f0a74be0964dad504626caf445f3b23a",
+        "sanitizedSha256": "d9f594df7637cdbd7c90870df1594dc9a4dd0f5828c1c22c4383fe08c7d11feb"
+      },
+      {
+        "file": "phase3-green.txt",
+        "originalSha256": "717acc443e22cb604ba8af6d17ee256f844173f2cf47a7622b9beeca5da8a810",
+        "sanitizedSha256": "717acc443e22cb604ba8af6d17ee256f844173f2cf47a7622b9beeca5da8a810"
+      },
+      {
+        "file": "phase3-red.txt",
+        "originalSha256": "2d9a45a53328bf98a19aa47ae2f497b8c8827aa54f7e314904b963f3ec929283",
+        "sanitizedSha256": "5879ac32721a7c404650000c95a3cbcbab0c81634e93a0b31d3173a49b91ee22"
+      },
+      {
+        "file": "phase4-green.txt",
+        "originalSha256": "e6d5fe295584ae92f711ef59e9f618d5d13b004f7bfb9464e71931cce5ef4b3f",
+        "sanitizedSha256": "e6d5fe295584ae92f711ef59e9f618d5d13b004f7bfb9464e71931cce5ef4b3f"
+      },
+      {
+        "file": "phase4-red.txt",
+        "originalSha256": "aa7fe4e479c59958219c3ba843b7af26ce585e58461d000f603cf264a08a79f6",
+        "sanitizedSha256": "fb32adb1f3be6305e9ae950e77ad82cb2a6e775d7896d4c227318bb6d790aa63"
+      },
+      {
+        "file": "phase5-green.txt",
+        "originalSha256": "2bd9aa50613370a1e388a542dcb0f3eea2379f81a99d34fb43e147818db820a4",
+        "sanitizedSha256": "2bd9aa50613370a1e388a542dcb0f3eea2379f81a99d34fb43e147818db820a4"
+      },
+      {
+        "file": "phase5-red.txt",
+        "originalSha256": "b45bad219e3de8518e9a11b4ac8b1ae6ee366360d05bdcd523f1289218430311",
+        "sanitizedSha256": "17b294aab30414792a81ee3ef8a905a0cbe1fcf5b1c692abb767545f995ceb9b"
+      },
+      {
+        "file": "pressure-red.txt",
+        "originalSha256": "e1067f4e98c5484d405b7f935051f8282defb508c10b685fc4458e2e463f58f5",
+        "sanitizedSha256": "1d59053c4a25e8fb2691dc9660b1ca7727917308842686aa10e18f9bb273e1b2"
+      },
+      {
+        "file": "replacement-green.txt",
+        "originalSha256": "13a3cb080d53444fbf930e8dde225634ac72a06ca6e87b73ce9e70718b865f5c",
+        "sanitizedSha256": "13a3cb080d53444fbf930e8dde225634ac72a06ca6e87b73ce9e70718b865f5c"
+      },
+      {
+        "file": "replacement-red.txt",
+        "originalSha256": "6812fd888b4a3eb9342725125720a7453ad9f0b3fe4be4158fb9d57e1d705b38",
+        "sanitizedSha256": "50820ed270947977bef9d830791f4cac281a0b89263565dffe6598e89975e59e"
+      },
+      {
+        "file": "retention-green.txt",
+        "originalSha256": "1b680a6733d33098a125a5534bde0e73d59f309bbc8b15b78e0b5e178834d67a",
+        "sanitizedSha256": "1b680a6733d33098a125a5534bde0e73d59f309bbc8b15b78e0b5e178834d67a"
+      },
+      {
+        "file": "retention-integration-red.txt",
+        "originalSha256": "bdd3c8a95e575d729b390b2f23ff0808914639679427ec9091f38d9a606a59ef",
+        "sanitizedSha256": "b3d2e3237dd11fa1c8e20b9d7c253fcaeab375a9a4321c5344cc057c1bae02a7"
+      },
+      {
+        "file": "revision-green.txt",
+        "originalSha256": "eaafb1135241e115eb08d5e2d22bd92fe2a89282a23f7428bb97947550c3d2b5",
+        "sanitizedSha256": "eaafb1135241e115eb08d5e2d22bd92fe2a89282a23f7428bb97947550c3d2b5"
+      },
+      {
+        "file": "revision-red.txt",
+        "originalSha256": "034157928e0ae750144da1b42beb516f4fedd12cb1fd6c85039b84b4de882201",
+        "sanitizedSha256": "60e373c952545d43d5f26abe808c46c558eb6394e152ac17ba0b22655701fde8"
+      },
+      {
+        "file": "revocation-green.txt",
+        "originalSha256": "6b738cf09b9ef5b2b28425e9042d847fa681cb1af2f63ecb1cdf2d6aca673238",
+        "sanitizedSha256": "6b738cf09b9ef5b2b28425e9042d847fa681cb1af2f63ecb1cdf2d6aca673238"
+      },
+      {
+        "file": "revocation-red.txt",
+        "originalSha256": "d3e3f5c67e4b81371b0e59532611f20211e910dcda72c5a60b3d49139dc4a179",
+        "sanitizedSha256": "5902e17b76df9ba9e2aff82701b3cce9f15bdd873b9c82dec9989fb49bc5af01"
+      },
+      {
+        "file": "smoke-candidate.ts",
+        "originalSha256": "60d29087f5fd9af213e250fadcd4381397c356f7f93a55ef948fe16b5412988c",
+        "sanitizedSha256": "60d29087f5fd9af213e250fadcd4381397c356f7f93a55ef948fe16b5412988c"
+      }
+    ],
+    "implementationCommits": [
+      "705ccba",
+      "dc29a6d",
+      "47244a6"
+    ]
+  }
+}
