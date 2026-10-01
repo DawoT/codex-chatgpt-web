@@ -8,7 +8,6 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -116,8 +115,19 @@ export async function buildDevelopmentRuntime(sourceRoot: string) {
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, input.bytes);
     }
-    const dependencies = join(sourceRoot, "node_modules");
-    if (existsSync(dependencies)) symlinkSync(dependencies, join(capturedSource, "node_modules"), "junction");
+    const packageManifest = JSON.parse(readFileSync(join(capturedSource, "package.json"), "utf8"));
+    const hasDependencies =
+      Object.keys({ ...packageManifest.dependencies, ...packageManifest.devDependencies }).length > 0;
+    const dependencies = join(capturedSource, "node_modules");
+    if (hasDependencies) {
+      // Install captured lockfile bytes in staging. Never mutate or borrow live checkout dependencies.
+      execFileSync(process.execPath, ["install", "--frozen-lockfile", "--ignore-scripts", "--backend=copyfile"], {
+        cwd: capturedSource,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 30_000,
+        maxBuffer: 8 * 1024 * 1024,
+      });
+    }
     const appDir = join(staging, "app");
     mkdirSync(appDir);
     for (const [entrypoint, naming, target, format] of [
@@ -141,7 +151,7 @@ export async function buildDevelopmentRuntime(sourceRoot: string) {
         );
       }
     }
-    if (existsSync(dependencies)) symlinkSync(dependencies, join(appDir, "node_modules"), "junction");
+    if (existsSync(dependencies)) renameSync(dependencies, join(appDir, "node_modules"));
     const files: ArtifactFile[] = ["app/browser-helper.cjs", "app/cli.js"].map((path) => {
       const bytes = readFileSync(join(staging, path));
       return { path, size: bytes.length, sha256: sha256(bytes) };
@@ -156,6 +166,7 @@ export async function buildDevelopmentRuntime(sourceRoot: string) {
           artifactSetSha256,
           buildCommit: verifiedBuildCommit(sourceRoot, inputs),
           bunVersion: Bun.version,
+          dependencies: hasDependencies ? "frozen-lockfile-copy" : "none",
           entrypoint: "app/cli.js",
           files,
         },

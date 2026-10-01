@@ -90,3 +90,30 @@ test("a broken helper build cannot publish a partial runnable generation", () =>
   expect(failed.stderr).toContain("Development runtime build failed (browser-helper.cjs)");
   expect(failed.stdout).toBe("");
 });
+
+test("development snapshots resolve external modules from frozen dependencies instead of mutable checkout modules", () => {
+  const root = fixture();
+  const project = resolve(import.meta.dir, "..");
+  writeFileSync(join(root, "package.json"), readFileSync(join(project, "package.json")));
+  writeFileSync(join(root, "bun.lock"), readFileSync(join(project, "bun.lock")));
+  mkdirSync(join(root, "node_modules/playwright-core"), { recursive: true });
+  writeFileSync(
+    join(root, "node_modules/playwright-core/package.json"),
+    JSON.stringify({ name: "playwright-core", version: "1.62.0", main: "index.cjs" }),
+  );
+  writeFileSync(
+    join(root, "node_modules/playwright-core/index.cjs"),
+    'exports.chromium = { launch: "mutable checkout dependency" };\n',
+  );
+  const entry = 'import { chromium } from "playwright-core";\nconsole.log(typeof chromium.launch);\n';
+  writeFileSync(join(root, "src/cli.ts"), entry);
+  writeFileSync(join(root, "src/adapters/chatgpt-web/browser-helper-main.ts"), entry);
+  const built = build(root);
+  expect(built.status).toBe(0);
+  const snapshot = JSON.parse(built.stdout);
+  for (const artifact of [snapshot.entrypoint, snapshot.helperPath]) {
+    const child = spawnSync(process.execPath, [artifact], { encoding: "utf8", timeout: 5000 });
+    expect(child.status).toBe(0);
+    expect(child.stdout.trim()).toBe("function");
+  }
+});
