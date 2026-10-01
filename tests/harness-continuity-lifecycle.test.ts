@@ -115,3 +115,17 @@ test("terminal causes distinguish accepted handoff, cancellation, deadline and t
   ).toBe("transport");
   expect(classifyTurnTermination(new Error("Unexpected state"))).toBe("internal_failure");
 });
+
+test("abort releases browser-wait listeners even when the browser promise never settles", async () => {
+  const { getEventListeners } = await import("node:events");
+  const { withBrowserTurnAbort } = await import("../src/adapters/chatgpt-web/browser/suspension-clock");
+  for (let cycle = 0; cycle < 100; cycle += 1) {
+    const controller = new AbortController();
+    const browserWait = new Promise<void>(() => {});
+    const pending = withBrowserTurnAbort(browserWait, controller.signal);
+    expect(getEventListeners(controller.signal, "abort").length).toBe(1);
+    controller.abort();
+    await expect(pending).rejects.toThrow("aborted");
+    expect(getEventListeners(controller.signal, "abort").length).toBe(0);
+  }
+});
