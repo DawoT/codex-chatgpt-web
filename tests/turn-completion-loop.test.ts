@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { ChatGptCompactionHandoffAccepted } from "../src/adapters/chatgpt-web/ad
 import { ChatGptBrowserContextPressure } from "../src/adapters/chatgpt-web/browser/context-pressure";
 import {
   absentResponseDomSnapshot,
+  CHATGPT_CONNECTION_INTERRUPTED_GRACE_MS,
   ChatGptCompletionTracker,
   type ChatGptResponseDomSnapshot,
 } from "../src/adapters/chatgpt-web/browser/dom-trackers";
@@ -24,6 +25,7 @@ import type { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-w
 import { resolveChatGptWebModelMode } from "../src/adapters/chatgpt-web/model";
 import { CHATGPT_LUNA_CHECKPOINT_MARKER } from "../src/adapters/chatgpt-web/rolling-checkpoint";
 import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
+import { CHATGPT_STOP_BUTTON_SELECTOR } from "../src/chatgpt-session";
 import { fakeLocator, fakePage } from "./fixtures/browser-fakes";
 import { makeLauncherTurn, makeWorkerFixture } from "./fixtures/worker-harness";
 
@@ -123,6 +125,163 @@ test("an observation timeout on an open managed page waits and recovers without 
   expect((await h.loop.run(h.input)).text).toBe("Done");
   expect(rebinds).toBe(0);
   expect(reads).toBe(3);
+});
+
+test("the completion loop does not treat a stale Stop button as liveness during a sustained interrupted stream", async () => {
+  let now = 1_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const stop = fakeLocator({ isVisible: async () => true });
+  const status = fakeLocator({
+    filter: ({ hasText } = {}) => {
+      const matches =
+        hasText instanceof RegExp
+          ? hasText.test("Conexión interrumpida. Esperando la respuesta completa")
+          : typeof hasText === "string"
+            ? "Conexión interrumpida. Esperando la respuesta completa".includes(hasText)
+            : true;
+      return fakeLocator({ isVisible: async () => matches });
+    },
+  });
+  const page = fakePage({
+    locator: (selector) => {
+      if (selector === CHATGPT_STOP_BUTTON_SELECTOR) return stop;
+      if (selector.startsWith('[role="status"]')) return status;
+      return fakeLocator();
+    },
+  });
+  const h = completionHarness(
+    {
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += CHATGPT_CONNECTION_INTERRUPTED_GRACE_MS;
+        return `document:${now}`;
+      },
+    },
+    { page },
+  );
+
+  try {
+    await expect(h.loop.run(h.input)).rejects.toMatchObject({
+      code: "chatgpt_stream_interrupted",
+      retryable: false,
+    });
+    expect(h.deltas).toEqual([]);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("an interrupted empty response waits for the stream grace and keeps its typed failure", async () => {
+  let now = 1_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const page = fakePage({
+    locator: (selector) =>
+      fakeLocator({
+        isVisible: async () => selector.startsWith('[role="status"]') || selector === CHATGPT_STOP_BUTTON_SELECTOR,
+      }),
+  });
+  const h = completionHarness(
+    {
+      responseDomSnapshot: async () => ({
+        ...responseSnapshot(),
+        visibleText: "",
+        fullHtml: "",
+        markdownSegments: [],
+        completionActionVisible: true,
+      }),
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += 6_000;
+        return `document:${now}`;
+      },
+    },
+    { page },
+  );
+  try {
+    await expect(h.loop.run(h.input)).rejects.toMatchObject({ code: "chatgpt_stream_interrupted" });
+    expect(now).toBe(1_000 + 30 * 6_000);
+    expect(h.deltas).toEqual([]);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("changing UI status during an interruption is not corroborated response progress", async () => {
+  let now = 1_000;
+  let reads = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const page = fakePage({
+    locator: (selector) =>
+      fakeLocator({
+        isVisible: async () => selector.startsWith('[role="status"]') || selector === CHATGPT_STOP_BUTTON_SELECTOR,
+      }),
+  });
+  const h = completionHarness(
+    {
+      responseDomSnapshot: async () => {
+        reads += 1;
+        return {
+          ...responseSnapshot(),
+          completionActionVisible: false,
+          traceBlocks: [{ kind: "status", text: `Waiting ${reads} seconds` }],
+        };
+      },
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += 5_000;
+        return `document:${now}`;
+      },
+    },
+    { page, deadline: 400_000 },
+  );
+  try {
+    await expect(h.loop.run(h.input)).rejects.toMatchObject({ code: "chatgpt_stream_interrupted" });
+    expect(now).toBe(1_000 + 36 * 5_000);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test("answer growth during an interrupted banner allows the existing turn to recover", async () => {
+  let now = 1_000;
+  let reads = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const status = fakeLocator({
+    filter: ({ hasText } = {}) =>
+      fakeLocator({
+        isVisible: async () => reads < 5 && hasText instanceof RegExp && hasText.test("Connection interrupted"),
+      }),
+  });
+  const page = fakePage({
+    locator: (selector) => {
+      if (selector === CHATGPT_STOP_BUTTON_SELECTOR) return fakeLocator({ isVisible: async () => reads < 5 });
+      if (selector.startsWith('[role="status"]')) return status;
+      return fakeLocator();
+    },
+  });
+  const h = completionHarness(
+    {
+      responseDomSnapshot: async () => {
+        reads += 1;
+        const text = `Done${".".repeat(Math.min(reads, 5))}`;
+        return {
+          ...responseSnapshot(),
+          visibleText: text,
+          fullHtml: `<p>${text}</p>`,
+          completionActionVisible: reads >= 5,
+          markdownSegments: [{ key: "p", text, html: `<p>${text}</p>`, streamable: true }],
+        };
+      },
+      waitForTurnDomRevisionOrExternalProgress: async () => {
+        now += 8_000;
+        return `document:${now}`;
+      },
+    },
+    { page, deadline: 100_000 },
+  );
+  try {
+    expect((await h.loop.run(h.input)).text).toBe("Done.....");
+    expect(h.deltas.join("")).toBe("Done.....");
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 test("stalled launcher observation switches to the recovered page and rebinds the same assistant", async () => {

@@ -51,6 +51,33 @@ export const CHATGPT_EXTERNAL_PROGRESS_STALL_CEILING_MS = 10 * 60_000;
 export const CHATGPT_EXTERNAL_PROGRESS_CLOCK_SKEW_MS = 5_000;
 
 /**
+ * Initial quiet grace allowed for ChatGPT's explicit interrupted-stream status before the turn
+ * fails closed. Only corroborated response progress or effective tool activity may restart the
+ * window; UI status labels never do.
+ */
+export const CHATGPT_CONNECTION_INTERRUPTED_GRACE_MS = 180_000;
+
+export class ChatGptConnectionInterruptionTracker {
+  private interruptedSince?: number;
+
+  update(
+    state: {
+      interrupted: boolean;
+      corroboratedProgress: boolean;
+    },
+    now = Date.now(),
+  ): string | undefined {
+    if (!state.interrupted || state.corroboratedProgress) {
+      this.interruptedSince = undefined;
+      return undefined;
+    }
+    this.interruptedSince ??= now;
+    if (now - this.interruptedSince < CHATGPT_CONNECTION_INTERRUPTED_GRACE_MS) return undefined;
+    return "ChatGPT response connection remained interrupted without corroborated progress";
+  }
+}
+
+/**
  * The only attributes whose changes count as conversation DOM progress.
  *
  * ChatGPT's React tree mutates constantly; a revision counter that watched every mutation would
@@ -257,6 +284,7 @@ export class ChatGptTurnDomHealthTracker {
     state: {
       responsePresent: boolean;
       running: boolean;
+      connectionInterrupted?: boolean;
       currentText: string;
       completionActionVisible: boolean;
       externalProgressLive?: boolean;
@@ -266,7 +294,8 @@ export class ChatGptTurnDomHealthTracker {
     now = Date.now(),
   ): string | undefined {
     if (state.responsePresent) this.sawResponse = true;
-    if (state.externalProgressLive || state.running || state.multiChannelLivenessActive) {
+    const uiRunning = state.running && !state.connectionInterrupted;
+    if (state.externalProgressLive || uiRunning || state.multiChannelLivenessActive) {
       // Every conclusion below asserts that ChatGPT stopped producing this turn. A tool call that
       // is still completing, active multi-channel liveness lease, or running state disproves all of them,
       // whatever the renderer is currently exposing, so no window may accrue while the model is provably working.
@@ -288,7 +317,11 @@ export class ChatGptTurnDomHealthTracker {
     }
 
     const emptyCompletion =
-      state.responsePresent && !state.running && state.currentText.length === 0 && state.completionActionVisible;
+      state.responsePresent &&
+      !uiRunning &&
+      !state.connectionInterrupted &&
+      state.currentText.length === 0 &&
+      state.completionActionVisible;
     if (!emptyCompletion) {
       this.emptyCompletionSince = undefined;
     } else {
@@ -298,8 +331,15 @@ export class ChatGptTurnDomHealthTracker {
       }
     }
 
+    // An interrupted stream is a diagnosable state of its own: while the banner is visible the
+    // completed-turn action is expected to be absent, so DOM health windows must not conclude
+    // that ChatGPT stopped generating — the interruption tracker owns that conclusion.
     const missingCompletionAction =
-      state.responsePresent && !state.running && state.currentText.length > 0 && !state.completionActionVisible;
+      state.responsePresent &&
+      !uiRunning &&
+      !state.connectionInterrupted &&
+      state.currentText.length > 0 &&
+      !state.completionActionVisible;
     if (!missingCompletionAction) {
       this.missingCompletionAction = undefined;
     } else if (this.missingCompletionAction?.text !== state.currentText) {

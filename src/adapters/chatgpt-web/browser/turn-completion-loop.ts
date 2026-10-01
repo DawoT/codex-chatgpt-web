@@ -5,7 +5,12 @@ import {
   CHATGPT_USER_TURN_SELECTOR,
   chatGptAssistantTurnSelector,
 } from "../../../chatgpt-session";
-import { ChatGptWebAdapterError, chatGptBrowserTabClosedError, chatGptStoppedThinkingError } from "../adapter-error";
+import {
+  ChatGptWebAdapterError,
+  chatGptBrowserTabClosedError,
+  chatGptStoppedThinkingError,
+  chatGptStreamInterruptedError,
+} from "../adapter-error";
 import type { BrowserTurn } from "../browser-worker";
 import { ChatGptMarkdownBuffer, ChatGptMarkdownConsistencyError, inspectCompactionResponseSurface } from "../markdown";
 import { ChatGptLunaCheckpointStream } from "../rolling-checkpoint";
@@ -16,6 +21,7 @@ import type { ChatGptBrowserDiagnostics } from "./diagnostics";
 import { waitForChatGptDomSettle } from "./dom-signal";
 import {
   type ChatGptCompletionTracker,
+  ChatGptConnectionInterruptionTracker,
   type ChatGptResponseDomCache,
   type ChatGptResponseDomSnapshot,
   ChatGptTurnDomHealthTracker,
@@ -24,6 +30,7 @@ import {
 } from "./dom-trackers";
 import {
   CHATGPT_TOOL_CONFIRMATION_TIMEOUT_MS,
+  chatGptConnectionInterruptedVisible,
   resolveChatGptToolConfirmation,
   throwIfChatGptSessionFailureAlert,
   throwIfChatGptTerminalErrorAlert,
@@ -38,7 +45,7 @@ import {
 import { ChatGptTurnCompletionFsm } from "./turn-completion-fsm";
 import type { ChatGptAssistantTurnBinding } from "./turn-diagnostics";
 import type { ChatGptTurnEventBus } from "./turn-events";
-import type { resolveTurnLivenessSignals } from "./turn-liveness";
+import { chatGptUiGenerationIsLive, type resolveTurnLivenessSignals } from "./turn-liveness";
 import { waitForChatGptTurnWake } from "./turn-wake";
 
 export interface TurnCompletionLoopDeps {
@@ -116,6 +123,7 @@ export class TurnCompletionLoop {
       });
     };
     const domHealthTracker = new ChatGptTurnDomHealthTracker();
+    const connectionInterruptionTracker = new ChatGptConnectionInterruptionTracker();
     const responseDomCache: ChatGptResponseDomCache = {};
     let consecutiveObservationRebinds = 0;
     let internalObservationFaults = 0;
@@ -125,6 +133,49 @@ export class TurnCompletionLoop {
     let domSignalKey: string | undefined;
     let lastRunning: boolean | undefined;
     let lastCompletionActionVisible: boolean | undefined;
+    let lastResponseEvidence: string | undefined;
+    const readUiGenerationState = async (): Promise<{
+      stopVisible: boolean;
+      connectionInterrupted: boolean;
+      running: boolean;
+    }> => {
+      const [stopVisible, connectionInterrupted] = await Promise.all([
+        page
+          .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+          .last()
+          .isVisible()
+          .catch(() => false),
+        chatGptConnectionInterruptedVisible(page, responseTurn.identity),
+      ]);
+      return {
+        stopVisible,
+        connectionInterrupted,
+        running: chatGptUiGenerationIsLive(stopVisible, connectionInterrupted),
+      };
+    };
+    const assertConnectionInterruptionWithinGrace = (
+      connectionInterrupted: boolean,
+      signals: {
+        externalProgressLive: boolean;
+        externalToolCallsInFlight: boolean;
+        multiChannelLivenessActive: boolean;
+      },
+      now = Date.now(),
+      responseAdvanced = false,
+    ): void => {
+      const interruptionError = connectionInterruptionTracker.update(
+        {
+          interrupted: connectionInterrupted,
+          corroboratedProgress:
+            signals.externalProgressLive ||
+            signals.externalToolCallsInFlight ||
+            signals.multiChannelLivenessActive ||
+            responseAdvanced,
+        },
+        now,
+      );
+      if (interruptionError) throw chatGptStreamInterruptedError();
+    };
     // The wake between completion iterations: the next DOM mutation or external progress
     // advance, with the horizon bounding how often ceilings are re-checked on a quiet page.
     const waitForTurnSignal = async (): Promise<void> => {
@@ -162,12 +213,13 @@ export class TurnCompletionLoop {
         externalToolCallsInFlight: currentCallsInFlight,
         multiChannelLivenessActive,
       } = this.deps.classifyLiveness(currentProgress, Date.now());
-      const isRunning = await page
-        .locator(CHATGPT_STOP_BUTTON_SELECTOR)
-        .last()
-        .isVisible()
-        .catch(() => false);
-      if (currentProgressLive || currentCallsInFlight || isRunning || multiChannelLivenessActive) {
+      const uiState = await readUiGenerationState();
+      assertConnectionInterruptionWithinGrace(uiState.connectionInterrupted, {
+        externalProgressLive: currentProgressLive,
+        externalToolCallsInFlight: currentCallsInFlight,
+        multiChannelLivenessActive,
+      });
+      if (currentProgressLive || currentCallsInFlight || uiState.running || multiChannelLivenessActive) {
         console.warn(
           `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or external progress is active; deferring without rebind or failure`,
         );
@@ -295,12 +347,13 @@ export class TurnCompletionLoop {
             externalToolCallsInFlight: currentCallsInFlight,
             multiChannelLivenessActive,
           } = this.deps.classifyLiveness(currentProgress, Date.now());
-          const isRunning = await page
-            .locator(CHATGPT_STOP_BUTTON_SELECTOR)
-            .last()
-            .isVisible()
-            .catch(() => false);
-          if (currentProgressLive || currentCallsInFlight || isRunning || multiChannelLivenessActive) {
+          const uiState = await readUiGenerationState();
+          assertConnectionInterruptionWithinGrace(uiState.connectionInterrupted, {
+            externalProgressLive: currentProgressLive,
+            externalToolCallsInFlight: currentCallsInFlight,
+            multiChannelLivenessActive,
+          });
+          if (currentProgressLive || currentCallsInFlight || uiState.running || multiChannelLivenessActive) {
             console.warn(
               `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe exceeded ${responseProbeTimeoutMs}ms but generation or external progress is active; suppressing false timeout and deferring observation`,
             );
@@ -332,12 +385,13 @@ export class TurnCompletionLoop {
               externalToolCallsInFlight: currentCallsInFlight,
               multiChannelLivenessActive,
             } = this.deps.classifyLiveness(currentProgress, Date.now());
-            const isRunning = await page
-              .locator(CHATGPT_STOP_BUTTON_SELECTOR)
-              .last()
-              .isVisible()
-              .catch(() => false);
-            if (currentCallsInFlight || currentProgressLive || isRunning || multiChannelLivenessActive) {
+            const uiState = await readUiGenerationState();
+            assertConnectionInterruptionWithinGrace(uiState.connectionInterrupted, {
+              externalProgressLive: currentProgressLive,
+              externalToolCallsInFlight: currentCallsInFlight,
+              multiChannelLivenessActive,
+            });
+            if (currentCallsInFlight || currentProgressLive || uiState.running || multiChannelLivenessActive) {
               console.warn(
                 `[chatgpt-web] browser turn ${turn.traceId} DOM observation probe timed out while generation or tools are active; continuing observation without rebind`,
               );
@@ -376,13 +430,33 @@ export class TurnCompletionLoop {
           await waitForTurnSignal();
           continue;
         }
-        const stop = page.locator(CHATGPT_STOP_BUTTON_SELECTOR).last();
-        const running = await stop.isVisible().catch(() => false);
-        if (running !== lastRunning) {
-          lastRunning = running;
-          turnEvents.publish({ type: "stop_button_visibility_changed", source: "dom", visible: running });
+        const uiState = await readUiGenerationState();
+        // Status labels can change with renderer timers even when the response stream is quiet.
+        // Only answer/commentary content changes corroborate progress from this DOM projection.
+        const responseEvidence = snapshot.responsePresent
+          ? JSON.stringify([
+              snapshot.visibleText,
+              snapshot.traceBlocks
+                .filter((block) => block.kind === "commentary" && !block.uiControl)
+                .map((block) => block.text),
+            ])
+          : undefined;
+        const responseAdvanced =
+          responseEvidence !== undefined &&
+          lastResponseEvidence !== undefined &&
+          responseEvidence !== lastResponseEvidence;
+        if (responseEvidence !== undefined) lastResponseEvidence = responseEvidence;
+        assertConnectionInterruptionWithinGrace(
+          uiState.connectionInterrupted,
+          { externalProgressLive, externalToolCallsInFlight, multiChannelLivenessActive },
+          Date.now(),
+          responseAdvanced,
+        );
+        if (uiState.stopVisible !== lastRunning) {
+          lastRunning = uiState.stopVisible;
+          turnEvents.publish({ type: "stop_button_visibility_changed", source: "dom", visible: uiState.stopVisible });
         }
-        if (running) sawRunning = true;
+        if (uiState.stopVisible) sawRunning = true;
         if (snapshot.responsePresent) {
           if (!capturedResponse) {
             capturedResponse = true;
@@ -402,11 +476,12 @@ export class TurnCompletionLoop {
           if (textDelta) emitMarkdownDelta(textDelta);
           const domError = domHealthTracker.update({
             responsePresent: snapshot.responsePresent,
-            running,
+            running: uiState.stopVisible,
+            connectionInterrupted: uiState.connectionInterrupted,
             currentText: snapshot.visibleText,
             completionActionVisible: snapshot.completionActionVisible,
             externalProgressLive,
-            multiChannelLivenessActive,
+            multiChannelLivenessActive: multiChannelLivenessActive || responseAdvanced,
             domChars: snapshot.fullHtml.length || snapshot.visibleText.length,
           });
           if (domError) {
@@ -420,7 +495,7 @@ export class TurnCompletionLoop {
           }
           const completionReady = completionTracker.update({
             responsePresent: snapshot.responsePresent,
-            running,
+            running: uiState.stopVisible || uiState.connectionInterrupted,
             currentText: snapshot.visibleText,
             currentHtml: snapshot.fullHtml,
             completionActionVisible: snapshot.completionActionVisible,
@@ -530,13 +605,14 @@ export class TurnCompletionLoop {
               }),
             );
             console.warn(
-              `[chatgpt-web] waiting for completed-turn evidence (running=${running}, sawRunning=${sawRunning}, textChars=${snapshot.visibleText.length}, completionActionVisible=${snapshot.completionActionVisible}, ui=${diagnostic})`,
+              `[chatgpt-web] waiting for completed-turn evidence (running=${uiState.running}, sawRunning=${sawRunning}, textChars=${snapshot.visibleText.length}, completionActionVisible=${snapshot.completionActionVisible}, ui=${diagnostic})`,
             );
           }
         } else {
           const domError = domHealthTracker.update({
             responsePresent: false,
-            running,
+            running: uiState.stopVisible,
+            connectionInterrupted: uiState.connectionInterrupted,
             currentText: "",
             completionActionVisible: false,
             externalProgressLive,

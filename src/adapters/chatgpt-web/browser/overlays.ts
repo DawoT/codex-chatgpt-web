@@ -1,4 +1,5 @@
 import type { Locator, Page, Request, Response } from "playwright-core";
+import { chatGptAssistantTurnSelector } from "../../../chatgpt-session";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { waitForChatGptDomRevision } from "./dom-signal";
 import { withChatGptBrowserObservationTimeout } from "./suspension-clock";
@@ -327,6 +328,29 @@ export const chatGptExpiredSessionAlert = (page: Page): Locator =>
       hasText: /Your session has expired|你的工作階段已過期|您的工作階段已過期|你的会话已过期|您的会话已过期/i,
     })
     .last();
+
+const chatGptConnectionInterruptedStatus = (page: Page, activeTurnIdentity?: string): Locator => {
+  const statusSelector =
+    '[role="status"]:not(.markdown, .markdown *, pre, pre *, code, code *, blockquote, blockquote *, [data-message-author-role="user"], [data-message-author-role="user"] *, [data-user-message-bubble], [data-user-message-bubble] *)';
+  const turnRoots =
+    '[data-turn-id], [data-turn-key], [data-testid^="conversation-turn-"], [data-chatgpt-selection-message-id], [data-chatgpt-search-unit-key]';
+  const selector = activeTurnIdentity
+    ? `${statusSelector}:not(:is(${turnRoots}) *), :is(${chatGptAssistantTurnSelector(activeTurnIdentity)}) ${statusSelector}`
+    : statusSelector;
+  return page
+    .locator(selector)
+    .filter({
+      hasText: /Connection interrupted|Conexión interrumpida/i,
+    })
+    .filter({ visible: true })
+    .last();
+};
+
+export async function chatGptConnectionInterruptedVisible(page: Page, activeTurnIdentity?: string): Promise<boolean> {
+  return chatGptConnectionInterruptedStatus(page, activeTurnIdentity)
+    .isVisible()
+    .catch(() => false);
+}
 
 export async function throwIfChatGptSessionFailureAlert(page: Page): Promise<void> {
   if (

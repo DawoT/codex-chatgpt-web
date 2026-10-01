@@ -8,7 +8,7 @@
  * - `externalToolCallsInFlight`: unresolved native tool calls that veto completion
  *   (`chatGptExternalToolCallsAreInFlight`),
  * - `multiChannelLivenessActive`: event-driven multi-channel liveness, fed the snapshot's
- *   lastProgressAt as the broker channel and claimed/tool activity as in-flight evidence
+ *   lastProgressAt as the broker channel and unresolved tool calls as in-flight evidence
  *   (`isMultiChannelLivenessActive`).
  *
  * `now` is an explicit parameter instead of an internal `Date.now()` read so the classification
@@ -25,6 +25,15 @@ export interface ChatGptTurnLivenessSignals {
   multiChannelLivenessActive: boolean;
 }
 
+/**
+ * The Stop control is only UI evidence of generation while ChatGPT is not explicitly reporting
+ * that its response stream is disconnected. During the interrupted-stream banner the control may
+ * remain mounted even though no new response bytes are arriving.
+ */
+export function chatGptUiGenerationIsLive(stopVisible: boolean, connectionInterrupted: boolean): boolean {
+  return stopVisible && !connectionInterrupted;
+}
+
 export function resolveTurnLivenessSignals(
   externalProgressSnapshot: ChatGptExternalTurnProgressSnapshot | undefined,
   now: number,
@@ -35,7 +44,7 @@ export function resolveTurnLivenessSignals(
     {
       lastBrokerEventAt: externalProgressSnapshot?.lastProgressAt,
       activeToolCalls: externalProgressSnapshot?.activeToolCalls,
-      inFlightCalls: externalToolCallsInFlight || externalProgressSnapshot?.claimed,
+      inFlightCalls: externalToolCallsInFlight,
     },
     now,
   );
