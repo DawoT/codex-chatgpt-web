@@ -42,7 +42,6 @@ import {
   type ChatGptSubmissionBaseline,
   type ChatGptSubmissionDomCache,
   type ChatGptSubmissionDomState,
-  type ChatGptSubmissionObserverHost,
   SubmissionObserver,
 } from "./browser/submission-observer";
 import { ChatGptTurnCompletionFsm } from "./browser/turn-completion-fsm";
@@ -386,6 +385,16 @@ export class ChatGptBrowserWorker {
     return this.modelControlsInstance;
   }
 
+  private submissionObserverInstance?: SubmissionObserver;
+  private get submissionObserver(): SubmissionObserver {
+    if (!this.submissionObserverInstance) {
+      this.submissionObserverInstance = new SubmissionObserver({
+        responseDomSnapshot: (locator, cache) => this.responseDomSnapshot(locator, cache),
+      });
+    }
+    return this.submissionObserverInstance;
+  }
+
   private getContextPressure(page: Page, conversationKey?: string): ChatGptBrowserContextPressure {
     // A page can be recycled for a different chat. Its old pressure must not follow
     // the new conversation, while response snapshots can still resolve by page.
@@ -611,11 +620,7 @@ export class ChatGptBrowserWorker {
   }
 
   private async waitForTurnDomMutation(page: Page, timeoutMs = 250): Promise<void> {
-    return SubmissionObserver.prototype.waitForTurnDomMutation.call(
-      this as unknown as ChatGptSubmissionObserverHost,
-      page,
-      timeoutMs,
-    );
+    return this.submissionObserver.waitForTurnDomMutation(page, timeoutMs);
   }
 
   private async waitForTurnDomOrExternalProgress(
@@ -624,8 +629,7 @@ export class ChatGptBrowserWorker {
     externalProgress?: ChatGptTurnProgressReader,
     signal?: AbortSignal,
   ): Promise<void> {
-    return SubmissionObserver.prototype.waitForTurnDomOrExternalProgress.call(
-      this as unknown as ChatGptSubmissionObserverHost,
+    return this.submissionObserver.waitForTurnDomOrExternalProgress(
       page,
       afterProgressRevision,
       externalProgress,
@@ -647,8 +651,7 @@ export class ChatGptBrowserWorker {
       payloadChars?: number;
     },
   ): Promise<string> {
-    return SubmissionObserver.prototype.waitForTurnDomRevisionOrExternalProgress.call(
-      this as unknown as ChatGptSubmissionObserverHost,
+    return this.submissionObserver.waitForTurnDomRevisionOrExternalProgress(
       page,
       afterDomKey,
       afterProgressRevision,
@@ -666,8 +669,7 @@ export class ChatGptBrowserWorker {
     initialToolBatchRevision = externalProgress?.snapshot().lastToolBatchRevision ?? 0,
     completionTracker?: ChatGptCompletionTracker,
   ): Promise<ChatGptSubmissionEvidence> {
-    return SubmissionObserver.prototype.waitForSubmissionAccepted.call(
-      this as unknown as ChatGptSubmissionObserverHost,
+    return this.submissionObserver.waitForSubmissionAccepted(
       page,
       baseline,
       signal,
@@ -682,12 +684,7 @@ export class ChatGptBrowserWorker {
     cache?: ChatGptSubmissionDomCache,
     signal?: AbortSignal,
   ): Promise<ChatGptSubmissionDomState> {
-    return SubmissionObserver.prototype.submissionDomState.call(
-      this as unknown as ChatGptSubmissionObserverHost,
-      page,
-      cache,
-      signal,
-    );
+    return this.submissionObserver.submissionDomState(page, cache, signal);
   }
 
   private async currentSubmissionEvidence(
@@ -695,12 +692,7 @@ export class ChatGptBrowserWorker {
     baseline: ChatGptSubmissionBaseline,
     signal?: AbortSignal,
   ): Promise<ChatGptSubmissionEvidence | undefined> {
-    return SubmissionObserver.prototype.currentSubmissionEvidence.call(
-      this as unknown as ChatGptSubmissionObserverHost,
-      page,
-      baseline,
-      signal,
-    );
+    return this.submissionObserver.currentSubmissionEvidence(page, baseline, signal);
   }
 
   private async currentSubmissionAnswerText(
@@ -708,20 +700,11 @@ export class ChatGptBrowserWorker {
     baseline: ChatGptSubmissionBaseline,
     signal?: AbortSignal,
   ): Promise<string> {
-    return SubmissionObserver.prototype.currentSubmissionAnswerText.call(
-      this as unknown as ChatGptSubmissionObserverHost,
-      page,
-      baseline,
-      signal,
-    );
+    return this.submissionObserver.currentSubmissionAnswerText(page, baseline, signal);
   }
 
   private async captureSubmissionBaseline(page: Page, submittedText?: string): Promise<ChatGptSubmissionBaseline> {
-    return SubmissionObserver.prototype.captureSubmissionBaseline.call(
-      this as unknown as ChatGptSubmissionObserverHost,
-      page,
-      submittedText,
-    );
+    return this.submissionObserver.captureSubmissionBaseline(page, submittedText);
   }
 
   private async waitForNewAssistantTurn(
@@ -1000,25 +983,14 @@ export class ChatGptBrowserWorker {
       const previousKey = domSignalKey;
       const progressRev = externalProgress?.snapshot().revision ?? 0;
       try {
-        if (typeof this.waitForTurnDomRevisionOrExternalProgress === "function") {
-          domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
-            page,
-            domSignalKey,
-            progressRev,
-            externalProgress,
-            abortSignal,
-            { payloadChars },
-          );
-        } else {
-          const verdict = await waitForChatGptDomRevision(page, {
-            afterKey: domSignalKey,
-            settleMs: 150,
-            horizonMs: 250,
-            signal: abortSignal,
-            payloadChars,
-          });
-          domSignalKey = verdict.key;
-        }
+        domSignalKey = await this.waitForTurnDomRevisionOrExternalProgress(
+          page,
+          domSignalKey,
+          progressRev,
+          externalProgress,
+          abortSignal,
+          { payloadChars },
+        );
       } catch (error) {
         if (
           error instanceof ChatGptBrowserObservationTimeoutError &&

@@ -14,6 +14,7 @@ import {
 import type { ChatGptResponseDomSnapshot } from "../src/adapters/chatgpt-web/browser/dom-trackers";
 import { ChatGptModelControls } from "../src/adapters/chatgpt-web/browser/model-controls";
 import { ResponseObserver } from "../src/adapters/chatgpt-web/browser/response-observer";
+import { SubmissionObserver } from "../src/adapters/chatgpt-web/browser/submission-observer";
 import { interactiveBrowserTurnMutex } from "../src/adapters/chatgpt-web/browser-mutex";
 import {
   assertChatGptWebInputWithinLimits,
@@ -744,7 +745,13 @@ test("compaction retry submission evidence cannot make prompt-stage settlement u
       ): Promise<T>;
     }
   ).runStage;
-  const prototype = ChatGptBrowserWorker.prototype as unknown as {
+  // A worker-shaped fixture: the compaction retry drives the composed SubmissionObserver through
+  // the worker's delegation, whose real DOM probe hangs on the fake page until the stage aborts.
+  const fixture = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
+    attachPrompt: async () => {
+      throw new ChatGptPromptAttachmentIntegrityError("force compaction attachment retry");
+    },
+  }) as unknown as {
     attachPromptWithCompactionRetry(
       page: unknown,
       prompt: string,
@@ -754,15 +761,6 @@ test("compaction retry submission evidence cannot make prompt-stage settlement u
       capture: undefined,
       signal: AbortSignal,
     ): Promise<void>;
-    currentSubmissionEvidence(page: unknown, baseline: unknown, signal?: AbortSignal): Promise<unknown>;
-    submissionDomState(page: unknown, cache?: unknown, signal?: AbortSignal): Promise<unknown>;
-  };
-  const fixture = {
-    attachPrompt: async () => {
-      throw new ChatGptPromptAttachmentIntegrityError("force compaction attachment retry");
-    },
-    currentSubmissionEvidence: prototype.currentSubmissionEvidence,
-    submissionDomState: prototype.submissionDomState,
   };
 
   const result = runStage.call(
@@ -770,8 +768,7 @@ test("compaction retry submission evidence cannot make prompt-stage settlement u
     "trace_compaction_retry_timeout",
     "prompt_attachment",
     10,
-    (signal) =>
-      prototype.attachPromptWithCompactionRetry.call(fixture, page, "prompt", false, true, baseline, undefined, signal),
+    (signal) => fixture.attachPromptWithCompactionRetry(page, "prompt", false, true, baseline, undefined, signal),
     { suspendedMs: () => 0 },
     true,
   );
@@ -902,18 +899,28 @@ test("an accepted Full-mode send survives one stalled DOM probe and a later MCP 
   worker.activeComposer = async () => composer;
 
   let domObservations = 0;
-  worker.submissionDomState = async () => {
-    domObservations += 1;
-    if (domObservations === 1) throw new ChatGptBrowserObservationTimeoutError(5_000);
-    return {
-      userTurnCount: 1,
-      assistantTurnCount: 1,
-      visibleStopButtonCount: 1,
-      turnIdentities: ["conversation-turn-user", "conversation-turn-assistant"],
-      userIdentities: ["conversation-turn-user"],
-      responseIdentities: ["conversation-turn-assistant"],
-    };
-  };
+  // The submission observer is composed with a late-bound responseDomSnapshot, so this test
+  // pins its internal DOM recursion by injecting the instance with the two-phase stub.
+  const submissionObserver = Object.assign(
+    new SubmissionObserver({
+      responseDomSnapshot: async () => ({ visibleText: "tool preface" }) as never,
+    }),
+    {
+      submissionDomState: async () => {
+        domObservations += 1;
+        if (domObservations === 1) throw new ChatGptBrowserObservationTimeoutError(5_000);
+        return {
+          userTurnCount: 1,
+          assistantTurnCount: 1,
+          visibleStopButtonCount: 1,
+          turnIdentities: ["conversation-turn-user", "conversation-turn-assistant"],
+          userIdentities: ["conversation-turn-user"],
+          responseIdentities: ["conversation-turn-assistant"],
+        };
+      },
+    },
+  );
+  (worker as unknown as Record<string, unknown>).submissionObserverInstance = submissionObserver;
   worker.responseDomSnapshot = async () => ({ visibleText: "tool preface" });
 
   const baseline: Baseline = {
@@ -1415,7 +1422,7 @@ test("missing-assistant expiry checks fresh DOM after a delayed wake while prese
           locator: unknown;
         }>;
         submissionDomState(): Promise<State>;
-        waitForTurnDomOrExternalProgress(): Promise<void>;
+        waitForTurnDomRevisionOrExternalProgress(): Promise<string>;
       };
       let observations = 0;
       let waits = 0;
@@ -1427,10 +1434,11 @@ test("missing-assistant expiry checks fresh DOM after a delayed wake while prese
           responseIdentities: waits > 0 && scenario !== "missing" ? ["conversation-turn-assistant"] : [],
         };
       };
-      worker.waitForTurnDomOrExternalProgress = async () => {
+      worker.waitForTurnDomRevisionOrExternalProgress = async () => {
         if (++waits > 1) throw new Error("missing response was allowed to wait past its grace");
         // Renderer or scheduler resumes after the response grace with a newly rendered turn.
         now += CHATGPT_RESPONSE_DOM_GRACE_MS + 1;
+        return "document:0";
       };
       const result = worker.waitForNewAssistantTurn(
         page,
@@ -4033,12 +4041,17 @@ test.each([
 test("submission acceptance reports a rate-limit dialog that appears after Enter", async () => {
   const fixture = dialogPage("Too many requests. You're making requests too quickly.");
   const waitForSubmissionAccepted = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    SubmissionObserver.prototype as unknown as {
       waitForSubmissionAccepted(page: Page, baseline: unknown): Promise<unknown>;
     }
   ).waitForSubmissionAccepted;
+  const observer = new SubmissionObserver({
+    responseDomSnapshot: async () => {
+      throw new Error("unused in this scenario");
+    },
+  });
 
-  await expect(waitForSubmissionAccepted.call({}, fixture.page, {})).rejects.toMatchObject({
+  await expect(waitForSubmissionAccepted.call(observer, fixture.page, {})).rejects.toMatchObject({
     name: "ChatGptWebAdapterError",
     status: 429,
     errorType: "rate_limit_error",
@@ -4247,8 +4260,16 @@ test("the current response error action identifies short and localized failures 
 test("a previous response error cannot reject a newly accepted user submission", async () => {
   const fixture = dialogPage("Something went wrong. Please see help.openai.com.", "Retry", true);
   const worker = Object.assign(Object.create(ChatGptBrowserWorker.prototype), {
-    currentSubmissionEvidence: async () => "user_turn",
-  }) as {
+    submissionObserverInstance: Object.assign(
+      new SubmissionObserver({
+        responseDomSnapshot: async () => {
+          throw new Error("unused in this scenario");
+        },
+      }),
+      { currentSubmissionEvidence: async () => "user_turn" },
+    ),
+  }) as unknown as {
+    submissionObserverInstance: SubmissionObserver;
     waitForSubmissionAccepted(page: Page, baseline: unknown): Promise<string>;
   };
   await expect(
@@ -4479,21 +4500,26 @@ test("terminal model errors are scoped to the new assistant turn instead of glob
 
 test("submission acceptance stops when its stage is aborted", async () => {
   const waitForSubmissionAccepted = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    SubmissionObserver.prototype as unknown as {
       waitForSubmissionAccepted(page: Page, baseline: unknown, signal: AbortSignal): Promise<unknown>;
     }
   ).waitForSubmissionAccepted;
+  const observer = new SubmissionObserver({
+    responseDomSnapshot: async () => {
+      throw new Error("unused in this scenario");
+    },
+  });
   const controller = new AbortController();
   controller.abort();
 
-  await expect(waitForSubmissionAccepted.call({}, {} as Page, {}, controller.signal)).rejects.toMatchObject({
+  await expect(waitForSubmissionAccepted.call(observer, {} as Page, {}, controller.signal)).rejects.toMatchObject({
     name: "AbortError",
   });
 });
 
 test("proven current-turn MCP activity is conclusive submission evidence", async () => {
   const waitForSubmissionAccepted = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    SubmissionObserver.prototype as unknown as {
       waitForSubmissionAccepted(
         page: Page,
         baseline: unknown,
@@ -4503,35 +4529,47 @@ test("proven current-turn MCP activity is conclusive submission evidence", async
       ): Promise<unknown>;
     }
   ).waitForSubmissionAccepted;
+  const observer = new SubmissionObserver({
+    responseDomSnapshot: async () => {
+      throw new Error("unused in this scenario");
+    },
+  });
   const progress = new ChatGptExternalTurnProgress();
   progress.recordToolBatch(1);
 
-  await expect(waitForSubmissionAccepted.call({}, {} as Page, {}, undefined, progress, 0)).resolves.toBe(
+  await expect(waitForSubmissionAccepted.call(observer, {} as Page, {}, undefined, progress, 0)).resolves.toBe(
     "mcp_tool_call",
   );
 });
 
 test("currentSubmissionAnswerText falls back to empty text when DOM probe times out", async () => {
   const currentSubmissionAnswerText = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    SubmissionObserver.prototype as unknown as {
       currentSubmissionAnswerText(page: Page, baseline: unknown, signal?: AbortSignal): Promise<string>;
     }
   ).currentSubmissionAnswerText;
 
-  const fakeWorker = {
-    submissionDomState: async () => {
-      throw new ChatGptBrowserObservationTimeoutError(5_000);
+  const observer = Object.assign(
+    new SubmissionObserver({
+      responseDomSnapshot: async () => {
+        throw new Error("unused in this scenario");
+      },
+    }),
+    {
+      submissionDomState: async () => {
+        throw new ChatGptBrowserObservationTimeoutError(5_000);
+      },
     },
-  };
+  );
 
   await expect(
-    currentSubmissionAnswerText.call(fakeWorker, {} as Page, { initialTurnIdentities: [], domCache: {} }),
+    currentSubmissionAnswerText.call(observer, {} as Page, { initialTurnIdentities: [], domCache: {} }),
   ).resolves.toBe("");
 });
 
 test("submission acceptance observes and acknowledges tool batch even if DOM probe times out", async () => {
   const waitForSubmissionAccepted = (
-    ChatGptBrowserWorker.prototype as unknown as {
+    SubmissionObserver.prototype as unknown as {
       waitForSubmissionAccepted(
         page: Page,
         baseline: unknown,
@@ -4553,12 +4591,19 @@ test("submission acceptance observes and acknowledges tool batch even if DOM pro
     return originalAcknowledge(revision);
   };
 
-  const fakeWorker = {
-    currentSubmissionAnswerText: async () => "",
-  };
+  const observer = Object.assign(
+    new SubmissionObserver({
+      responseDomSnapshot: async () => {
+        throw new Error("unused in this scenario");
+      },
+    }),
+    {
+      currentSubmissionAnswerText: async () => "",
+    },
+  );
 
   const result = await waitForSubmissionAccepted.call(
-    fakeWorker,
+    observer,
     {} as Page,
     {},
     undefined,

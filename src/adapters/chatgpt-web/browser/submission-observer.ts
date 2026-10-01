@@ -54,57 +54,20 @@ export interface ChatGptSubmissionDomCache {
 }
 
 /**
- * Dispatch surface the submission observation methods rely on through their `this`.
- * The bodies keep the original open recursion (`this.submissionDomState(...)`, ...),
- * so hosts that stub or override one member keep steering every internal call.
+ * Dependencies the submission observer borrows from the worker, injected as a late-bound
+ * function: the response DOM snapshot reader used to observe the boundary answer text. The
+ * worker supplies a lambda closing over `this`, so stubs installed on the worker instance or
+ * on `ChatGptBrowserWorker.prototype` keep steering it. Every other member is the observer's
+ * own method and recurses through `this` directly.
  */
-export interface ChatGptSubmissionObserverHost {
-  waitForTurnDomMutation(page: Page, timeoutMs?: number): Promise<void>;
-  waitForTurnDomOrExternalProgress(
-    page: Page,
-    afterProgressRevision: number,
-    externalProgress?: ChatGptTurnProgressReader,
-    signal?: AbortSignal,
-  ): Promise<void>;
-  waitForTurnDomRevisionOrExternalProgress(
-    page: Page,
-    afterDomKey: string | undefined,
-    afterProgressRevision: number,
-    externalProgress?: ChatGptTurnProgressReader,
-    signal?: AbortSignal,
-    options?: {
-      horizonMs?: number;
-      settleMs?: number;
-      observationTimeoutMs?: number;
-      domChars?: number;
-      payloadChars?: number;
-    },
-  ): Promise<string>;
-  waitForSubmissionAccepted(
-    page: Page,
-    baseline: ChatGptSubmissionBaseline,
-    signal?: AbortSignal,
-    externalProgress?: ChatGptTurnProgressReader,
-    initialToolBatchRevision?: number,
-    completionTracker?: ChatGptCompletionTracker,
-  ): Promise<ChatGptSubmissionEvidence>;
-  submissionDomState(
-    page: Page,
-    cache?: ChatGptSubmissionDomCache,
-    signal?: AbortSignal,
-  ): Promise<ChatGptSubmissionDomState>;
-  currentSubmissionEvidence(
-    page: Page,
-    baseline: ChatGptSubmissionBaseline,
-    signal?: AbortSignal,
-  ): Promise<ChatGptSubmissionEvidence | undefined>;
-  currentSubmissionAnswerText(page: Page, baseline: ChatGptSubmissionBaseline, signal?: AbortSignal): Promise<string>;
-  captureSubmissionBaseline(page: Page, submittedText?: string): Promise<ChatGptSubmissionBaseline>;
+export interface SubmissionObserverDeps {
   responseDomSnapshot(locator: Locator, cache?: ChatGptResponseDomCache): Promise<ChatGptResponseDomSnapshot>;
 }
 
 export class SubmissionObserver {
-  async waitForTurnDomMutation(this: ChatGptSubmissionObserverHost, page: Page, timeoutMs = 250): Promise<void> {
+  constructor(private readonly deps: SubmissionObserverDeps) {}
+
+  async waitForTurnDomMutation(page: Page, timeoutMs = 250): Promise<void> {
     // Generalized settle barrier over the shared in-page revision signal: resolve once the DOM
     // mutated and stayed quiet for the settle window, or return after the horizon. The signal's
     // singleton observer replaces the throwaway per-call observer this barrier used to install.
@@ -112,7 +75,6 @@ export class SubmissionObserver {
   }
 
   async waitForTurnDomOrExternalProgress(
-    this: ChatGptSubmissionObserverHost,
     page: Page,
     afterProgressRevision: number,
     externalProgress?: ChatGptTurnProgressReader,
@@ -146,7 +108,6 @@ export class SubmissionObserver {
    * settles itself within its horizon.
    */
   async waitForTurnDomRevisionOrExternalProgress(
-    this: ChatGptSubmissionObserverHost,
     page: Page,
     afterDomKey: string | undefined,
     afterProgressRevision: number,
@@ -160,13 +121,6 @@ export class SubmissionObserver {
       payloadChars?: number;
     },
   ): Promise<string> {
-    if (
-      typeof this.waitForTurnDomOrExternalProgress === "function" &&
-      this.waitForTurnDomOrExternalProgress !== SubmissionObserver.prototype.waitForTurnDomOrExternalProgress
-    ) {
-      await this.waitForTurnDomOrExternalProgress(page, afterProgressRevision, externalProgress, signal);
-      return afterDomKey ?? "legacy-stub";
-    }
     let domKey = afterDomKey;
     const domSignal = waitForChatGptDomRevision(page, {
       afterKey: afterDomKey,
@@ -197,7 +151,6 @@ export class SubmissionObserver {
   }
 
   async waitForSubmissionAccepted(
-    this: ChatGptSubmissionObserverHost,
     page: Page,
     baseline: ChatGptSubmissionBaseline,
     signal?: AbortSignal,
@@ -249,14 +202,11 @@ export class SubmissionObserver {
           if (observed.kind === "external") continue;
           if (observed.kind === "dom_timeout") {
             const latestProgress = externalProgress.snapshot();
-            const isRunning =
-              typeof page?.locator === "function"
-                ? await page
-                    .locator(CHATGPT_STOP_BUTTON_SELECTOR)
-                    .last()
-                    .isVisible()
-                    .catch(() => false)
-                : false;
+            const isRunning = await page
+              .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+              .last()
+              .isVisible()
+              .catch(() => false);
             const multiChannelLivenessActive = isMultiChannelLivenessActive({
               lastBrokerEventAt: latestProgress?.lastProgressAt,
               activeToolCalls: latestProgress?.activeToolCalls,
@@ -281,14 +231,11 @@ export class SubmissionObserver {
           evidence = await this.currentSubmissionEvidence(page, baseline, signal);
         } catch (error) {
           if (error instanceof ChatGptBrowserObservationTimeoutError) {
-            const isRunning =
-              typeof page?.locator === "function"
-                ? await page
-                    .locator(CHATGPT_STOP_BUTTON_SELECTOR)
-                    .last()
-                    .isVisible()
-                    .catch(() => false)
-                : false;
+            const isRunning = await page
+              .locator(CHATGPT_STOP_BUTTON_SELECTOR)
+              .last()
+              .isVisible()
+              .catch(() => false);
             if (isRunning) {
               evidence = undefined;
             } else {
@@ -311,7 +258,6 @@ export class SubmissionObserver {
   }
 
   async submissionDomState(
-    this: ChatGptSubmissionObserverHost,
     page: Page,
     cache?: ChatGptSubmissionDomCache,
     signal?: AbortSignal,
@@ -439,7 +385,6 @@ export class SubmissionObserver {
   }
 
   async currentSubmissionEvidence(
-    this: ChatGptSubmissionObserverHost,
     page: Page,
     baseline: ChatGptSubmissionBaseline,
     signal?: AbortSignal,
@@ -464,7 +409,6 @@ export class SubmissionObserver {
   }
 
   async currentSubmissionAnswerText(
-    this: ChatGptSubmissionObserverHost,
     page: Page,
     baseline: ChatGptSubmissionBaseline,
     signal?: AbortSignal,
@@ -474,17 +418,14 @@ export class SubmissionObserver {
       const identity = chatGptNewTurnIdentity(baseline.initialTurnIdentities, state.responseIdentities);
       if (!identity) return "";
       const locator = page.locator(chatGptAssistantTurnSelector(identity));
-      return (await withChatGptBrowserObservationTimeout(this.responseDomSnapshot(locator, {}), 3_000)).visibleText;
+      return (await withChatGptBrowserObservationTimeout(this.deps.responseDomSnapshot(locator, {}), 3_000))
+        .visibleText;
     } catch {
       return "";
     }
   }
 
-  async captureSubmissionBaseline(
-    this: ChatGptSubmissionObserverHost,
-    page: Page,
-    submittedText?: string,
-  ): Promise<ChatGptSubmissionBaseline> {
+  async captureSubmissionBaseline(page: Page, submittedText?: string): Promise<ChatGptSubmissionBaseline> {
     const userTurns = page.locator(CHATGPT_USER_TURN_SELECTOR);
     const responseTurns = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
     const domCache: ChatGptSubmissionDomCache = {};

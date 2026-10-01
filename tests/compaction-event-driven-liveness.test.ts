@@ -238,6 +238,8 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
                 fullHtml: "<p>test</p>",
               };
             },
+            // The wake between iterations: a quiet fake page keeps the same revision key.
+            waitForTurnDomRevisionOrExternalProgress: async () => "stub:0",
           },
           fakePage,
           fakeBinding,
@@ -290,6 +292,8 @@ describe("Compaction Event-Driven Liveness & DOM Health Architecture", () => {
                 fullHtml: "",
               };
             },
+            // The wake between iterations: a quiet fake page keeps the same revision key.
+            waitForTurnDomRevisionOrExternalProgress: async () => "stub:0",
           },
           fakePage,
           fakeBinding,

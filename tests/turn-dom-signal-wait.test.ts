@@ -4,7 +4,10 @@ import { chatGptActiveComposer } from "../src/adapters/chatgpt-web/browser/compo
 import { ChatGptCompletionTracker } from "../src/adapters/chatgpt-web/browser/dom-trackers";
 import { resolveChatGptToolConfirmation } from "../src/adapters/chatgpt-web/browser/overlays";
 import { setChatGptThinkMode } from "../src/adapters/chatgpt-web/browser/payloads";
-import { SubmissionObserver } from "../src/adapters/chatgpt-web/browser/submission-observer";
+import {
+  type ChatGptSubmissionBaseline,
+  SubmissionObserver,
+} from "../src/adapters/chatgpt-web/browser/submission-observer";
 import { ChatGptBrowserObservationTimeoutError } from "../src/adapters/chatgpt-web/browser/suspension-clock";
 import { ChatGptTurnEventBus } from "../src/adapters/chatgpt-web/browser/turn-events";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
@@ -115,16 +118,29 @@ test("waitForNewAssistantTurn publishes turn_inserted_detected to turnEvents whe
 
 test("waitForSubmissionAccepted waits on the DOM revision signal, not the fixed mutation beat", async () => {
   const counters = { signalWaits: 0, mutationWaits: 0 };
-  const worker = signalWorker(counters) as unknown as Record<string, unknown> & {
-    waitForSubmissionAccepted: (page: Page, baseline: unknown) => Promise<string>;
-  };
+  const observer = new SubmissionObserver({
+    responseDomSnapshot: async () => {
+      throw new Error("unused in this scenario");
+    },
+  });
+  const stubs = observer as unknown as Record<string, unknown>;
   let probes = 0;
-  worker.currentSubmissionEvidence = async () => {
+  stubs.currentSubmissionEvidence = async () => {
     probes += 1;
     return probes >= 2 ? "assistant_turn" : undefined;
   };
+  stubs.waitForTurnDomRevisionOrExternalProgress = async () => {
+    counters.signalWaits += 1;
+    return "document:0";
+  };
+  stubs.waitForTurnDomOrExternalProgress = async () => {
+    counters.mutationWaits += 1;
+  };
   const baseline = { initialTurnIdentities: [], domCache: {} };
-  const evidence = await worker.waitForSubmissionAccepted(quietPage, baseline);
+  const evidence = await observer.waitForSubmissionAccepted(
+    quietPage,
+    baseline as unknown as ChatGptSubmissionBaseline,
+  );
   expect(evidence).toBe("assistant_turn");
   expect(counters.signalWaits).toBeGreaterThanOrEqual(1);
   expect(counters.mutationWaits).toBe(0);
