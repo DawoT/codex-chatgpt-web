@@ -109,6 +109,13 @@ that the branch has merged to main. MCP scope approval remains pending with the 
 These are focused measurements. The complete acceptance suite and its coverage are separate
 checks; passing these files does not substitute for their result.
 
+Full coverage run before the cross-provider registry fix: 2,032 passed, 14 skipped and one
+failed across 2,047 tests / 192 files, 216.52s (`/tmp/browser-refactor-full-coverage.log`).
+The failing Chat-First schema assertion remains intact and MCP production scope approval is
+pending. This is an observed failing acceptance run, not full-green acceptance or a merge.
+The registry fix subsequently passed its own RED/GREEN regression and independent read-only
+review; this earlier complete-suite result is retained without claiming a later full-green run.
+
 ## Liveness and cleanup invariants
 
 - Proven external activity suppresses stale DOM health verdicts and contributes to multi-channel
@@ -132,7 +139,7 @@ helper characterization confirms abort and exactly one prepared-prompt release. 
 initialization connects its observer only after its state is assigned. These slices have no
 additional blocking findings from the read-only review.
 
-Two separately identified gaps require disposition before claiming complete acceptance:
+One external gap remains before complete acceptance:
 
 - Chat-First image registration: `mcp/chat-first-tools.ts` calls registerImageTools with scopeFor
   but omits contract. `mcp/image-tools.ts` defaults to native and advertises optional turn_token,
@@ -140,11 +147,15 @@ Two separately identified gaps require disposition before claiming complete acce
   escalation and the prepared `/tmp/chat-first-image-contract.patch`; B changes no MCP production.
   Tests additionally exercise both aliases without turn authority using a nonexistent local input
   image and controlled child credentials, stopping before any image HTTP request.
-- Provider registry race: closeChatGptBrowserWorkers snapshots current workers, awaits their
-  closure and clears the entire registry. A different provider created during that await is removed
-  without closing. Read-only reproduction in `/tmp/track-b-registry-review.log` observed
-  lateCloseCalls=0 and lateWorkerStillRegistered=false. The same-provider regression does not
-  characterize this interleaving; it needs parent disposition and its own regression.
+The cross-provider registry race is resolved in commit 5f9ea42. Shutdown captures key/worker
+entries, waits for their closes through allSettled, then removes only entries whose current worker
+still matches that snapshot. A different provider created during the await remains registered for
+its subsequent close; the same-provider behavior and aggregate failure reporting are preserved.
+The regression observed RED (seven pass / one fail) before the fix in
+`/tmp/browser-registry-cross-provider-red.log`. Independent review read both production/test diffs
+and reran the defect suite: eight pass / zero fail in 369ms
+(`/tmp/track-b-registry-review-green.log`). No blocking finding remains for this fix.
 
-The complete-suite result and resolution of these gaps remain prerequisites for merge. The
-focused coverage measurements above do not imply that those prerequisites are satisfied.
+Only the unapproved MCP gap remains unresolved. Its correct Chat-First schema assertions stay
+in the uncommitted test patch; MCP production was not changed by B. Final complete-suite
+acceptance and disposition of that gap remain prerequisites for merge. No merge is claimed.
