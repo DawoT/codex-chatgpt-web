@@ -24,6 +24,8 @@ export type SessionEventType =
   | "compaction_persisted"
   | "compaction_accepted"
   | "compaction_rejected"
+  | "conversation_binding_recorded"
+  | "phase_checkpoint_committed"
   | "generation_revoked";
 
 export interface SessionCommand {
@@ -42,6 +44,12 @@ export interface SessionCommand {
   resultRef?: string;
   checkpointRef?: string;
   continuationSourceJson?: string;
+  retainedConversationKey?: string;
+  compactedSummaryHash?: string;
+  remoteContextTokens?: number;
+  modelId?: string;
+  reasoning?: string;
+  modelFamily?: string;
   parentOperationId?: string;
   toolBatchRevision?: number;
 }

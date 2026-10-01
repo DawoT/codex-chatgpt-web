@@ -142,6 +142,8 @@ export class BrokerAdmission {
         "safe_complete",
         "activity_complete",
         "submit_compaction_handoff",
+        "submit_phase_checkpoint",
+        "read_phase_checkpoint",
       ].includes(request.method)
     ) {
       throw new TurnBrokerProtocolError("turn broker method is invalid");

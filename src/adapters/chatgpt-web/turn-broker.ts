@@ -145,6 +145,18 @@ export class TurnBroker implements TurnBrokerOwner {
     this.admission.registerAlias(oldToken, newToken);
   }
 
+  bindPhaseCheckpoint(
+    token: string,
+    submit: (summary: string) => Promise<void>,
+    read: (args: Record<string, unknown>) => Promise<unknown>,
+  ): void {
+    const channel = this.getChannel(token);
+    if (channel.environment.execution === "host-only" || channel.safe || channel.completionCommitted) {
+      throw new TurnBrokerProtocolError("Phase checkpoint control requires an active native capability");
+    }
+    channel.phaseCheckpoint = { submit, read };
+  }
+
   resolveActiveToken(token: string): { resolvedToken: string; channel: TurnChannel } | undefined {
     return this.admission.resolveActiveToken(token);
   }
@@ -813,6 +825,43 @@ export class TurnBroker implements TurnBrokerOwner {
 
   private async dispatch(request: BrokerRequest, socketSignal?: AbortSignal): Promise<unknown> {
     this.prune();
+    if (request.method === "submit_phase_checkpoint" || request.method === "read_phase_checkpoint") {
+      if (!request.token) throw new TurnBrokerRequestError("phase checkpoint token is required");
+      const channel = this.getChannel(request.token);
+      if (!channel.phaseCheckpoint || channel.completionCommitted || channel.compactionRequested) {
+        throw new TurnBrokerProtocolError("Phase checkpoint capability is unavailable");
+      }
+      const activityId = opaqueId("activity");
+      channel.activities.set(activityId, Date.now());
+      channel.activityRevision += 1;
+      const assertOwner = (): void => {
+        if (
+          this.channels.get(request.token!) !== channel ||
+          channel.completionCommitted ||
+          channel.compactionRequested
+        ) {
+          throw new TurnBrokerProtocolError("Phase checkpoint capability retired during control operation");
+        }
+      };
+      try {
+        if (request.method === "read_phase_checkpoint") {
+          const evidence = await channel.phaseCheckpoint.read(request.arguments ?? {});
+          assertOwner();
+          return evidence;
+        }
+        if (typeof request.summary !== "string" || !request.summary.trim()) {
+          throw new TurnBrokerProtocolError("phase checkpoint summary is required");
+        }
+        if (channel.invocations.size > 0)
+          throw new TurnBrokerProtocolError("Phase checkpoint cannot cover pending tools");
+        await channel.phaseCheckpoint.submit(request.summary);
+        assertOwner();
+        return { submitted: true };
+      } finally {
+        channel.activities.delete(activityId);
+        channel.activityRevision += 1;
+      }
+    }
     if (request.method === "safe_start") {
       if (!request.token) throw new TurnBrokerRequestError("Zero Risk request_id is required");
       return this.startSafeTurn(request.token);

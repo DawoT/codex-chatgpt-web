@@ -98,7 +98,11 @@ export class BrokerToolQueue {
       channel,
     );
     channel.completedToolsCount = (channel.completedToolsCount ?? 0) + 1;
-    const finalResult = injectGracefulYieldNoticeIfRecommended(result, channel.completedToolsCount);
+    const finalResult = injectGracefulYieldNoticeIfRecommended(
+      result,
+      channel.completedToolsCount,
+      channel.compactionRequested,
+    );
     console.info(
       `[chatgpt-web] broker trace=${channel.traceId} completed call=${callId.slice(0, 17)} count=${channel.completedToolsCount} pending=${channel.invocations.size}`,
     );

@@ -349,7 +349,10 @@ test("active compaction delivers the current result and converts every later MCP
       content: [{ type: "text", text: "current result" }],
     });
     await expect(current).resolves.toMatchObject({
-      content: [{ type: "text", text: "current result" }],
+      content: [
+        { type: "text", text: "current result" },
+        { type: "text", text: expect.stringContaining("Codex requested context compaction") },
+      ],
     });
     await expect(
       callTurnBroker(broker.socketPath, {

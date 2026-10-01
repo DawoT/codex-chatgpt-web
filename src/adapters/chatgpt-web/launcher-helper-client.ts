@@ -553,7 +553,8 @@ export class LauncherBrowserHelperClient {
           .catch((error) =>
             this.abortWithLocalFailure(message.id, error instanceof Error ? error : new Error(String(error)), pending),
           );
-      } else if (message.event === "submitted") pending.turn.onSubmitted?.();
+      } else if (message.event === "context_health") pending.turn.onContextHealth?.(message.health);
+      else if (message.event === "submitted") pending.turn.onSubmitted?.();
       else if (message.event === "multipart_stage_acknowledged") {
         const multipart = pending.prepared?.multipart;
         if (

@@ -52,6 +52,7 @@ import { TurnOrchestrator } from "./browser/turn-orchestrator";
 import { ChatGptTurnPageBinding } from "./browser/turn-page-binding";
 import { interactiveBrowserTurnMutex } from "./browser-mutex";
 import { MAX_CHATGPT_BROWSER_TABS, MAX_CHATGPT_LAUNCHER_PENDING_TURNS } from "./concurrency";
+import type { ChatGptContextHealth } from "./helper-protocol";
 import { createBrowserPayloadAcceptanceRecorder } from "./input-tokens";
 import { LauncherBrowserHelperClient } from "./launcher-helper-client";
 import { detectChatGptLimitsPlan, readChatGptUsageAccount, supportsChatGptUsageTracking } from "./limits";
@@ -159,6 +160,7 @@ export interface BrowserTurn {
   retainConversation?: boolean;
   requireRetainedConversation?: boolean;
   conversationKey?: string;
+  onContextHealth?: (health: ChatGptContextHealth) => void;
   onPreparedSelected?: (reused: boolean) => void | Promise<void>;
   abortSignal?: AbortSignal;
   onHeartbeat?: () => void;
@@ -200,6 +202,7 @@ export class ChatGptBrowserWorker {
   static releaseContextPressureForConversation(conversationKey: string): void {
     for (const worker of workers.values()) {
       worker.contextPressureByConversation.delete(conversationKey);
+      worker.healthByConversation.delete(conversationKey);
     }
   }
 
@@ -221,6 +224,7 @@ export class ChatGptBrowserWorker {
   private sessionInstance?: BrowserSession;
   private launcherHelper?: LauncherBrowserHelperClient;
   private readonly activeRuns = new Map<string, Promise<string>>();
+  private readonly healthByConversation = new Map<string, ChatGptContextHealth>();
   private readonly contextPressureByConversation = new Map<string, ChatGptBrowserContextPressure>();
   private readonly contextPressureByPage = new WeakMap<Page, ChatGptBrowserContextPressure>();
   private readonly pageDomObserver = new ChatGptPageDomObserver();
@@ -366,7 +370,12 @@ export class ChatGptBrowserWorker {
     return page ? this.contextPressureByPage.get(page) : undefined;
   }
 
+  conversationHealth(conversationKey: string): ChatGptContextHealth | undefined {
+    return this.healthByConversation.get(conversationKey);
+  }
+
   async releaseConversationContextPressure(conversationKey: string): Promise<void> {
+    this.healthByConversation.delete(conversationKey);
     this.contextPressureByConversation.delete(conversationKey);
     await this.launcherHelper?.releaseConversationContextPressure(conversationKey);
   }
@@ -397,7 +406,17 @@ export class ChatGptBrowserWorker {
     if (useHelper) {
       this.launcherHelper ??= new LauncherBrowserHelperClient(this.config);
     }
-    const run = Promise.resolve().then(() => (useHelper ? this.launcherHelper!.run(turn) : this.runExclusive(turn)));
+    if (turn.conversationKey) this.healthByConversation.delete(turn.conversationKey);
+    const observedTurn: BrowserTurn = {
+      ...turn,
+      onContextHealth: (health) => {
+        if (turn.conversationKey) this.healthByConversation.set(turn.conversationKey, health);
+        turn.onContextHealth?.(health);
+      },
+    };
+    const run = Promise.resolve().then(() =>
+      useHelper ? this.launcherHelper!.run(observedTurn) : this.runExclusive(observedTurn),
+    );
     this.activeRuns.set(turn.traceId, run);
     void run
       .finally(() => {
@@ -470,6 +489,7 @@ export class ChatGptBrowserWorker {
         state.managedBrowserReady = undefined;
       }
       this.contextPressureByConversation.clear();
+      this.healthByConversation.clear();
       // For connectOverCDP, Playwright implements Browser.close as a transport disconnect; it does
       // not close the launcher-owned Electron process. Always release that connection and its
       // artifact directory instead of leaking one per timeout/helper lifecycle.
@@ -1362,6 +1382,7 @@ export class ChatGptBrowserWorker {
       pageBinding.bind(page);
       detachDiagnosticPage = diagnostics.bindPage(page);
       const contextPressure = this.getContextPressure(page, turn.conversationKey);
+      contextPressure.beginResponse(estimatedInputTokens, reuseConversation);
       const rebindLauncherPage = async (attempt: number, cause: Error, callerSignal?: AbortSignal): Promise<void> => {
         if (!launcherSurfaceId || !this.config.browserHostDescriptorPath) throw cause;
         console.warn(
@@ -1479,7 +1500,6 @@ export class ChatGptBrowserWorker {
           });
         }
       }
-      contextPressure.recordTokens(estimatedInputTokens);
       if (!turn.compaction && turn.pendingMissionRequirements && contextPressure.snapshot().compactionRequired) {
         throw chatGptContextCompactionRequiredError("ChatGPT page observation remains slow after same-page recovery.");
       }
@@ -1886,7 +1906,7 @@ export class ChatGptBrowserWorker {
         atomicWriteFile(this.config.storageStatePath, `${JSON.stringify(state)}\n`);
       }
       await diagnostics.capture(page, "turn-completed");
-      if (turn.compaction) contextPressure.reset();
+      turn.onContextHealth?.(contextPressure.snapshot());
       console.info(
         `[chatgpt-web] browser turn ${turn.traceId} completed` +
           ` (markdownChars=${finalText.length}, domFullScans=${responseDomCache.fullScans ?? 0}, domCacheHits=${responseDomCache.cacheHits ?? 0})`,
@@ -1907,7 +1927,8 @@ export class ChatGptBrowserWorker {
         error.name === "AbortError" &&
         turn.abortSignal?.reason instanceof ChatGptCompactionHandoffAccepted
       ) {
-        if (turn.compaction) this.findExistingContextPressure(diagnosticPage, turn.conversationKey)?.reset();
+        const pressure = this.findExistingContextPressure(diagnosticPage, turn.conversationKey);
+        if (pressure) turn.onContextHealth?.(pressure.snapshot());
         console.info(`[chatgpt-web] browser turn ${turn.traceId} ended after accepted structured compaction handoff`);
         if (diagnosticPage && !diagnosticPage.isClosed()) {
           await diagnostics?.capture(diagnosticPage, "compaction-handoff-accepted");

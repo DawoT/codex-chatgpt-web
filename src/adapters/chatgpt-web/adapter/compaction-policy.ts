@@ -7,15 +7,17 @@ export function isHeavyCompactionTurn(
   messages: readonly CodexMessage[],
   threshold = HEAVY_TURN_TOOL_CALL_THRESHOLD,
 ): boolean {
-  let toolCount = 0;
+  const toolCalls = new Set<string>();
   for (const message of messages) {
     if (message.role === "toolResult") {
-      toolCount += 1;
+      toolCalls.add(message.toolCallId);
     } else if (message.role === "assistant" && Array.isArray(message.content)) {
-      toolCount += message.content.filter((part) => part.type === "toolCall").length;
+      for (const part of message.content) {
+        if (part.type === "toolCall") toolCalls.add(part.id);
+      }
     }
   }
-  return toolCount >= threshold;
+  return toolCalls.size >= threshold;
 }
 
 export function compactionControlPolicy(input: {
@@ -33,9 +35,8 @@ export function compactionControlPolicy(input: {
 export function initialCompactionRoute(input: {
   freshConversationPerTurn: boolean;
   heavyTurn: boolean;
-}): "configured_fresh_conversation" | "heavy_turn_fast_path" | "retained" {
+}): "configured_fresh_conversation" | "retained" {
   if (input.freshConversationPerTurn) return "configured_fresh_conversation";
-  if (input.heavyTurn) return "heavy_turn_fast_path";
   return "retained";
 }
 

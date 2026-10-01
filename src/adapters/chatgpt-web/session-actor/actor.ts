@@ -72,6 +72,12 @@ export class SessionActor {
       | "surfaceGeneration"
       | "checkpointRef"
       | "continuationSourceJson"
+      | "retainedConversationKey"
+      | "compactedSummaryHash"
+      | "remoteContextTokens"
+      | "modelId"
+      | "reasoning"
+      | "modelFamily"
     > = {},
     expectedGeneration?: number,
   ): Promise<SessionAcknowledgement> {

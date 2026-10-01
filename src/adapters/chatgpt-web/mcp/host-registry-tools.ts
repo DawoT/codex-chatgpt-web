@@ -4,6 +4,7 @@ import { generateImage } from "../../../image-generation";
 import type { CodexTool } from "../../../types";
 import { result } from "../fast-path-handlers";
 import { CODEX_COMPACTION_CONTROL_WIRE_NAME } from "../native-compaction-control";
+import { PHASE_CHECKPOINT_WIRE_NAME } from "../phase-checkpoints";
 import { callTurnBroker } from "../turn-broker";
 import {
   execGatewayProgram,
@@ -206,6 +207,24 @@ export function registerHostRegistryTools(server: McpServer, coordinator: TurnCo
     async (toolInput, extra) => {
       const { wire_name, arguments: args, input } = toolInput;
       const requestId = turnReference(contract, toolInput);
+      if (
+        contract === "native" &&
+        [PHASE_CHECKPOINT_WIRE_NAME, "codex.control.checkpoint_evidence"].includes(wire_name)
+      ) {
+        if (input !== undefined) throw new Error("Phase checkpoint control requires structured arguments");
+        const read = wire_name === "codex.control.checkpoint_evidence";
+        const response = await callTurnBroker<Record<string, unknown>>(
+          coordinator.brokerSocketPath,
+          {
+            method: read ? "read_phase_checkpoint" : "submit_phase_checkpoint",
+            token: requestId,
+            ...(read ? { arguments: args } : { summary: typeof args?.summary === "string" ? args.summary : undefined }),
+          },
+          5_000,
+          extra.signal,
+        );
+        return result(response);
+      }
       if (contract === "native" && wire_name === CODEX_COMPACTION_CONTROL_WIRE_NAME) {
         if (input !== undefined) {
           throw new Error("Compaction control handoff does not accept freeform input");

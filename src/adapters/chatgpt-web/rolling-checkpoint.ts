@@ -209,7 +209,7 @@ function assistantItemText(value: unknown): string | undefined {
   return text.trim() ? text : undefined;
 }
 
-function parentAssistantAnswer(
+export function parentAssistantAnswer(
   parsed: CodexParsedRequest,
   turnId: string,
 ): { answer: string; turnId: string } | undefined {
@@ -226,7 +226,7 @@ function parentAssistantAnswer(
   return undefined;
 }
 
-function currentTurnInput(parsed: CodexParsedRequest, turnId: string): unknown[] | undefined {
+export function currentTurnInput(parsed: CodexParsedRequest, turnId: string): unknown[] | undefined {
   const body = record(parsed._rawBody);
   const input = Array.isArray(body?.input) ? body.input : undefined;
   if (!input) return undefined;

@@ -13,6 +13,13 @@ import type { CompiledChatGptWebPrompt } from "./prompt";
 import { type ChatGptLunaCheckpoint, parseChatGptLunaCheckpoint } from "./rolling-checkpoint";
 import type { ChatGptExternalTurnProgressSnapshot } from "./turn-progress";
 
+export interface ChatGptContextHealth {
+  observedDomChars: number;
+  estimatedTokens: number;
+  compactionRequired: boolean;
+  recoveryRequired: boolean;
+}
+
 export interface RunMessage {
   type: "run";
   id: string;
@@ -89,6 +96,7 @@ export type InputMessage =
   | { type: "shutdown" };
 
 export type HelperMessage =
+  | { type: "event"; id: string; event: "context_health"; health: ChatGptContextHealth }
   | { type: "ready"; features?: string[]; protocolVersion?: number; identity?: RuntimeIdentity }
   | {
       type: "event";
@@ -193,6 +201,33 @@ export function parseHelperMessage(line: string): HelperMessage {
   }
   if (message.type === "event") {
     const event = message.event;
+    if (event === "context_health") {
+      const health = message.health as Record<string, unknown> | undefined;
+      if (
+        !health ||
+        typeof health !== "object" ||
+        Array.isArray(health) ||
+        !Number.isFinite(health.observedDomChars) ||
+        (health.observedDomChars as number) < 0 ||
+        !Number.isFinite(health.estimatedTokens) ||
+        (health.estimatedTokens as number) < 0 ||
+        typeof health.compactionRequired !== "boolean" ||
+        typeof health.recoveryRequired !== "boolean"
+      ) {
+        throw new Error("Launcher browser helper context health is invalid");
+      }
+      return {
+        type: "event",
+        id: message.id,
+        event,
+        health: {
+          observedDomChars: health.observedDomChars as number,
+          estimatedTokens: health.estimatedTokens as number,
+          compactionRequired: health.compactionRequired,
+          recoveryRequired: health.recoveryRequired,
+        },
+      };
+    }
     if (event === "multipart_stage_acknowledged") {
       if (!Number.isSafeInteger(message.stageIndex) || (message.stageIndex as number) <= 0) {
         throw new Error("Launcher browser helper multipart stage index is invalid");

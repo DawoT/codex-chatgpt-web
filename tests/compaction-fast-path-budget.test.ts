@@ -96,4 +96,33 @@ describe("Sprint 3: Fast-Path Fresh Compaction & Unified Timeout Budget", () => 
     ];
     expect(isHeavyCompactionTurn(messages)).toBe(true);
   });
+
+  test("counts a completed call once even when both its invocation and result are retained", () => {
+    const messages: CodexMessage[] = [];
+    for (let index = 0; index < 34; index += 1) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "toolCall", id: `paired-${index}`, name: "read_file", arguments: {} }],
+        timestamp: index * 2,
+      });
+      messages.push({
+        role: "toolResult",
+        toolCallId: `paired-${index}`,
+        toolName: "read_file",
+        content: "ok",
+        isError: false,
+        timestamp: index * 2 + 1,
+      });
+    }
+    expect(isHeavyCompactionTurn(messages)).toBe(false);
+    messages.push({
+      role: "toolResult",
+      toolCallId: "unpaired-35",
+      toolName: "read_file",
+      content: "ok",
+      isError: false,
+      timestamp: 100,
+    });
+    expect(isHeavyCompactionTurn(messages)).toBe(true);
+  });
 });

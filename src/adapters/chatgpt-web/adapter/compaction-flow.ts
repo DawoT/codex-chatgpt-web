@@ -44,6 +44,7 @@ import {
 } from "../environment";
 import { type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "../model";
 import { structuredCompactionRepairInstruction } from "../native-compaction-control";
+import { remoteChatRetentionDecision } from "../remote-chat-retention";
 import { chatGptWebTurnRetryPolicy } from "../retry-policy";
 import type { SessionActorManager } from "../session-actor";
 import type { TurnBroker, TurnBrokerOwner } from "../turn-broker";
@@ -347,7 +348,9 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
           armHandoffDeadline();
           const operationSignal = AbortSignal.any([operatorSignal, handoffDeadline.signal]);
           const browserRunner = new CompactionBrowserRunner(retainOwnershipUntil, operationSignal);
-          const sourceConversationKey = chatGptConversationKey(parsed, executionNamespace);
+          const sourceConversationKey =
+            sessionActorManager?.retainedConversationBinding(actorSessionId, parsed)?.conversationKey ??
+            chatGptConversationKey(parsed, executionNamespace);
           const checkpointPolicy = new CompactionCheckpointPolicy(parsed, compactionSessionId(parsed));
           const runFreshCompaction = async (reason: string): Promise<string> => {
             route = freshConversationPerTurn ? "fresh" : "fallback";
@@ -481,19 +484,6 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               retainOwnershipUntil(settlement);
               await withAbort(settlement, operationSignal);
               return await runFreshCompaction("configured_fresh_conversation");
-            }
-            if (initialRoute === "heavy_turn_fast_path") {
-              console.info(
-                "[chatgpt-web] compaction_heavy_turn_fast_path: Bypassing bloated retained session directly to clean fresh compaction",
-              );
-              const previous = chatGptTurnSessions.find(compactedSourceExecutionKey);
-              const settlement =
-                previous?.settledOutcome()?.type === "final"
-                  ? previous.physicalSettlement
-                  : chatGptTurnSessions.retireAndWait(compactedSourceExecutionKey).then(() => {});
-              retainOwnershipUntil(settlement);
-              await withAbort(settlement, operationSignal);
-              return await runFreshCompaction("heavy_turn_fast_path");
             }
             // The previous compaction may already have detached the retained head while
             // its browser/helper is still unwinding. Do not inspect that old epoch or
@@ -706,6 +696,33 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               );
             }
             if (operationSignal.aborted) throw operationSignal.reason;
+            const remoteBinding = sessionActorManager?.retainedConversationBinding(actorSessionId, parsed);
+            const canonicalTokens =
+              estimateChatGptWebUsage(
+                parsed,
+                { answer: summary, reasoning: [] },
+                turnCapabilities,
+                experimentalBiggerContext,
+                experimentalSkillAttachments,
+              ).totalTokens ?? Number.POSITIVE_INFINITY;
+            const retention = remoteChatRetentionDecision(
+              worker.conversationHealth(retainedKey),
+              canonicalTokens,
+              remoteBinding?.remoteContextTokens ?? 0,
+            );
+            if (route === "retained" && !manualRequest && sessionActorManager && actorTurnId && retention.retain) {
+              await sessionActorManager.bindRetainedConversation(
+                actorSessionId,
+                actorTurnId,
+                checkpointOperationId,
+                summary,
+                retainedKey,
+                retention.remoteContextTokens,
+                parsed,
+              );
+              record("persisted", "succeeded", { reasonCode: "healthy_remote_chat_retained" });
+              return summary;
+            }
             await withAbort(
               preserveFinalResponse
                 ? chatGptTurnSessions.retireConversationPreservingFinalResponse(

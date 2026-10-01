@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { PhaseCheckpointStore } from "../phase-checkpoints";
+import { RetainedConversationBindings } from "../retained-conversation-binding";
 import { chatGptNativeThreadOwnershipKey } from "../turn-execution/keys";
 import { SessionActor } from "./actor";
 import type { SessionActorJournal } from "./journal";
@@ -9,13 +11,27 @@ import { SESSION_ACTOR_PROTOCOL_VERSION } from "./types";
 /** Holds only actor mailboxes; the WAL journal owns session state. */
 export class SessionActorManager {
   private readonly actors = new Map<string, SessionActor>();
+  private readonly retainedBindings: RetainedConversationBindings;
+  readonly phaseCheckpoints?: PhaseCheckpointStore;
 
   constructor(
     readonly journal: SessionActorJournal,
     private readonly results?: SessionResultStore,
     private readonly surfaceIsGone?: (surfaceId: string) => boolean | Promise<boolean>,
     private readonly releaseSurface?: (surfaceId: string) => Promise<boolean> | boolean,
-  ) {}
+  ) {
+    this.retainedBindings = new RetainedConversationBindings(journal, (sessionId) => this.actor(sessionId));
+    if (results)
+      this.phaseCheckpoints = new PhaseCheckpointStore(journal, results, (sessionId) => this.actor(sessionId));
+  }
+
+  bindRetainedConversation(...args: Parameters<RetainedConversationBindings["bind"]>): Promise<void> {
+    return this.retainedBindings.bind(...args);
+  }
+
+  retainedConversationBinding(...args: Parameters<RetainedConversationBindings["resolve"]>) {
+    return this.retainedBindings.resolve(...args);
+  }
 
   actor(sessionId: string): SessionActor {
     let actor = this.actors.get(sessionId);

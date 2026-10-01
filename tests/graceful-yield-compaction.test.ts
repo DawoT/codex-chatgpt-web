@@ -24,17 +24,24 @@ describe("Sprint 3: Graceful Yielding Protocol & Compaction Handoff", () => {
 
       const notice50 = gracefulYieldNoticeText(50);
       expect(notice50).toContain("50 actions completed");
-      expect(notice50).toContain("context compaction");
+      expect(notice50).not.toContain("so context compaction can run");
       expect(isUrgentCompactionNotice(50)).toBe(false);
     });
 
-    test("escalates to urgent compaction notice at safety ceiling (N >= 70 tools)", () => {
-      expect(isUrgentCompactionNotice(70)).toBe(true);
-      expect(isUrgentCompactionNotice(75)).toBe(true);
+    test("large tool bursts advise a phase boundary without claiming context exhaustion", () => {
+      expect(isUrgentCompactionNotice(70)).toBe(false);
+      expect(isUrgentCompactionNotice(75)).toBe(false);
 
       const urgentNotice = gracefulYieldNoticeText(75);
-      expect(urgentNotice).toContain("Urgent");
+      expect(urgentNotice).not.toContain("prevent tab crash");
       expect(urgentNotice).toContain("75 actions");
+    });
+
+    test("an explicit compaction requirement reaches the model even after one completed tool", () => {
+      const result = injectGracefulYieldNoticeIfRecommended({ content: [] }, 1, true);
+      expect(result.content).toHaveLength(1);
+      expect((result.content[0] as { text: string }).text).toContain("compaction");
+      expect(isUrgentCompactionNotice(1, true)).toBe(true);
     });
 
     test("injects notice into BrokerToolResult content cleanly without mutating original payload", () => {

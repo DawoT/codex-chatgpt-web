@@ -55,6 +55,7 @@ import {
 import { enforceMissionHeadroom, missionRequirements } from "./mission-headroom";
 import { CHATGPT_WEB_LUNA_MODEL_ID, type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "./model";
 import { createChatGptStructuredOutputValidator } from "./output-validation";
+import { phaseCheckpointInstruction } from "./phase-checkpoint-instruction";
 import { enforcePreflightDeliveryBudget, preparePreflightInput } from "./preflight-budget";
 import { type CompileChatGptWebPromptOptions, compileChatGptWebPrompt } from "./prompt";
 import { chatGptWebTurnRetryPolicy } from "./retry-policy";
@@ -216,10 +217,31 @@ export function createChatGptWebAdapter(
       parsed.modelId === CHATGPT_WEB_LUNA_MODEL_ID &&
       !parsed._compactionRequest &&
       Boolean(identity.threadId && identity.turnId);
-    const checkpointInput = captureLunaCheckpoint ? lunaCheckpointStore.apply(parsed) : { parsed, applied: false };
+    const phaseStore = dependencies.sessionActorManager?.phaseCheckpoints;
+    const phaseSessionId = `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`;
+    const capturePhaseCheckpoint = Boolean(
+      phaseStore &&
+        structuredBroker &&
+        !manualRequest &&
+        !captureLunaCheckpoint &&
+        !parsed._compactionRequest &&
+        mode.localTools &&
+        environment?.execution !== "host-only" &&
+        identity.threadId &&
+        identity.turnId &&
+        !isChatGptSubagentTurn(parsed),
+    );
+    let phaseInput = parsed;
+    let phaseDraft: string | undefined;
+    const checkpointInput = captureLunaCheckpoint
+      ? lunaCheckpointStore.apply(parsed)
+      : capturePhaseCheckpoint
+        ? phaseStore!.apply(phaseSessionId, parsed)
+        : { parsed, applied: false };
     const pendingMissionRequirements =
       missionRequirements(checkpointInput.parsed.context.messages)?.some((item) => item.status !== "verified") ?? false;
     const isSubagent = isChatGptSubagentTurn(checkpointInput.parsed);
+    const remoteBinding = dependencies.sessionActorManager?.retainedConversationBinding(phaseSessionId, parsed);
     const conversationKey =
       !parsed._compactionRequest &&
       !freshConversationPerTurn &&
@@ -227,9 +249,11 @@ export function createChatGptWebAdapter(
       mode.localTools &&
       retainedLauncherDescriptor &&
       !isSubagent
-        ? chatGptConversationKey(checkpointInput.parsed, executionNamespace)
+        ? (remoteBinding?.conversationKey ?? chatGptConversationKey(checkpointInput.parsed, executionNamespace))
         : undefined;
-    const resumeInput = conversationKey ? retainedConversationResumeRequest(checkpointInput.parsed) : undefined;
+    const resumeInput = conversationKey
+      ? retainedConversationResumeRequest(checkpointInput.parsed, remoteBinding !== undefined)
+      : undefined;
     const retainConversation = conversationKey !== undefined;
     const releaseRetainedConversation =
       conversationKey && retainedLauncherDescriptor
@@ -255,6 +279,7 @@ export function createChatGptWebAdapter(
         : undefined;
       return {
         captureLunaCheckpoint,
+        ...(capturePhaseCheckpoint ? { phaseCheckpointInstruction: phaseCheckpointInstruction(phaseInput) } : {}),
         experimentalSkillAttachments,
         ...(experimentalMultipartParts !== undefined ? { experimentalMultipartParts } : {}),
         conversationalFreedom,
@@ -263,7 +288,7 @@ export function createChatGptWebAdapter(
     };
     if (captureLunaCheckpoint) {
       console.info(
-        `[chatgpt-web] Luna rolling checkpoint applied=${checkpointInput.applied}${checkpointInput.reason ? ` reason=${checkpointInput.reason}` : ""}`,
+        `[chatgpt-web] Luna rolling checkpoint applied=${checkpointInput.applied}${"reason" in checkpointInput && checkpointInput.reason ? ` reason=${checkpointInput.reason}` : ""}`,
       );
     }
     let capturedCheckpoint: CapturedChatGptLunaCheckpoint | undefined;
@@ -276,7 +301,10 @@ export function createChatGptWebAdapter(
       capturedCheckpoint = captured;
     };
     const finalizeCheckpoint = (browser: Promise<string>): Promise<string> =>
-      browser.then((answer) => {
+      browser.then(async (answer) => {
+        if (capturePhaseCheckpoint && phaseDraft && sessionActorOwner.generation) {
+          await phaseStore!.commit(phaseSessionId, sessionActorOwner.generation, phaseInput, phaseDraft, answer);
+        }
         if (!captureLunaCheckpoint) return answer;
         if (checkpointCaptureError) throw checkpointCaptureError;
         if (capturedCheckpoint) lunaCheckpointStore.commit(parsed, capturedCheckpoint, answer);
@@ -441,6 +469,48 @@ export function createChatGptWebAdapter(
         }
       }
       try {
+        if (capturePhaseCheckpoint) {
+          structuredBroker!.bindPhaseCheckpoint(
+            turnToken,
+            async (summary) => {
+              const owner = dependencies.sessionActorManager!.journal.snapshot(phaseSessionId);
+              if (!owner || owner.generation !== sessionActorOwner.generation || owner.turnId !== identity.turnId) {
+                throw new Error("Phase checkpoint capability ownership changed");
+              }
+              phaseStore!.validate(phaseInput, summary);
+              if (phaseDraft !== undefined && phaseDraft !== summary) {
+                throw new Error("Conflicting phase checkpoint submission");
+              }
+              phaseDraft = summary;
+            },
+            async (args) => {
+              const owner = dependencies.sessionActorManager!.journal.snapshot(phaseSessionId);
+              if (!owner || owner.generation !== sessionActorOwner.generation || owner.turnId !== identity.turnId) {
+                throw new Error("Phase checkpoint evidence ownership changed");
+              }
+              if (typeof args.checkpoint_ref !== "string" || typeof args.ref !== "string") {
+                throw new Error("Phase checkpoint evidence requires checkpoint_ref and ref");
+              }
+              if (args.checkpoint_ref === "current") {
+                return phaseStore!.readCurrent(
+                  phaseSessionId,
+                  owner.generation,
+                  phaseInput,
+                  args.ref,
+                  args.offset === undefined ? 0 : Number(args.offset),
+                  args.limit === undefined ? 6000 : Number(args.limit),
+                );
+              }
+              return phaseStore!.read(
+                phaseSessionId,
+                args.checkpoint_ref,
+                args.ref,
+                args.offset === undefined ? 0 : Number(args.offset),
+                args.limit === undefined ? 6000 : Number(args.limit),
+              );
+            },
+          );
+        }
         const { input: preflightInput } = preparePreflightInput(input, turnCapabilities, { experimentalBiggerContext });
         const compiled = compileChatGptWebPrompt(
           preflightInput,
@@ -525,6 +595,13 @@ export function createChatGptWebAdapter(
       mode: "tools",
       ...(dependencies.sessionActorManager ? { sessionActorOwner } : {}),
       token: token.promise,
+      ...(capturePhaseCheckpoint
+        ? {
+            updateCheckpointInput: (input: CodexParsedRequest) => {
+              phaseInput = input;
+            },
+          }
+        : {}),
       externalProgress,
       browser: browserTurn.browser,
       physicalSettlement: browserTurn.physicalSettlement,
@@ -716,6 +793,7 @@ export function createChatGptWebAdapter(
         };
         try {
           await session.runExclusive(async () => {
+            session.runtime.updateCheckpointInput?.(parsed);
             const replay = session.roundEvents(roundKey);
             replayEvents(replay, emit);
             if (session.roundCompleted(roundKey)) {

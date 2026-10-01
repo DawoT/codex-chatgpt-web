@@ -62,3 +62,38 @@ describe("ChatGPT browser context pressure", () => {
     expect(pressure.snapshot()).toMatchObject({ compactionRequired: false, recoveryRequired: false });
   });
 });
+
+test("a phase boundary clears only its tool burst and accumulates remote context", () => {
+  const pressure = new ChatGptBrowserContextPressure();
+  pressure.recordObservation({ domChars: 650_000, elapsedMs: 20 });
+  pressure.recordTokens(20_000);
+  for (let index = 0; index < 80; index += 1) pressure.recordToolCallCompleted();
+  pressure.beginResponse(2_000, true);
+  expect(pressure.snapshot()).toMatchObject({
+    observedDomChars: 650_000,
+    estimatedTokens: 22_000,
+    watchDomSize: true,
+    continuousToolCallsCount: 0,
+  });
+  pressure.beginResponse(3_000, true);
+  expect(pressure.snapshot().estimatedTokens).toBe(25_000);
+  pressure.recordObservation({ domChars: 650_000, elapsedMs: 5_000 });
+  pressure.recordObservation({ domChars: 650_000, elapsedMs: 5_000 });
+  pressure.beginResponse(1_000, true);
+  expect(pressure.snapshot().recoveryRequired).toBe(true);
+});
+
+test("a replacement browser conversation begins with fresh physical pressure", () => {
+  const pressure = new ChatGptBrowserContextPressure();
+  pressure.recordObservation({ domChars: 750_000, elapsedMs: 5_000 });
+  pressure.recordObservation({ domChars: 750_000, elapsedMs: 5_000 });
+  pressure.recordTokens(40_000);
+  pressure.beginResponse(3_000, false);
+  expect(pressure.snapshot()).toMatchObject({
+    observedDomChars: 0,
+    estimatedTokens: 3_000,
+    recoveryRequired: false,
+    compactionRequired: false,
+    consecutiveSlowObservations: 0,
+  });
+});

@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ChatGptCompactionHandoffAccepted } from "../src/adapters/chatgpt-web/adapter-error";
-import type { ChatGptBrowserContextPressure } from "../src/adapters/chatgpt-web/browser/context-pressure";
+import { ChatGptBrowserContextPressure } from "../src/adapters/chatgpt-web/browser/context-pressure";
 import {
   type BrowserTurn,
   ChatGptBrowserWorker,
@@ -230,13 +230,12 @@ test("launcher turn heartbeats while a slow onSurfaceLeased callback is still pe
   }
 });
 
-test("an accepted compaction handoff resets the conversation's existing context pressure without creating a fresh one", async () => {
-  const resetCalls: string[] = [];
-  const existingPressure = {
-    reset: () => {
-      resetCalls.push("existing");
-    },
-  } as unknown as ChatGptBrowserContextPressure;
+test("an accepted compaction handoff reports and preserves the conversation's physical pressure", async () => {
+  const existingPressure = new ChatGptBrowserContextPressure();
+  existingPressure.recordObservation({ domChars: 700_000, elapsedMs: 20 });
+  existingPressure.recordTokens(30_000);
+  const before = existingPressure.snapshot();
+  let reported: unknown;
   const worker = Object.assign(makeWorkerFixture(), {
     config: {
       browserHost: "managed-chrome",
@@ -249,6 +248,9 @@ test("an accepted compaction handoff resets the conversation's existing context 
   const turn = baseBrowserTurn("b4_handoff_probe", {
     conversationKey: "conv-key",
     compaction: true,
+    onContextHealth: (health) => {
+      reported = health;
+    },
     abortSignal: controller.signal,
     prepare: async () => {
       // A structured handoff accepted while the prompt was being prepared aborts the turn with
@@ -263,7 +265,8 @@ test("an accepted compaction handoff resets the conversation's existing context 
   ).runBrowserTurn.bind(worker);
   await expect(runBrowserTurn(turn)).rejects.toBeInstanceOf(ChatGptCompactionHandoffAccepted);
 
-  expect(resetCalls).toEqual(["existing"]);
+  expect(existingPressure.snapshot()).toEqual(before);
+  expect(reported).toMatchObject({ observedDomChars: 700_000, estimatedTokens: 30_000 });
 });
 
 test("a forProvider call racing an in-flight close keeps receiving the worker being closed", async () => {

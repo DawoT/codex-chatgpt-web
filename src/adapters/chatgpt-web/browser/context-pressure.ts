@@ -120,6 +120,14 @@ export class ChatGptBrowserContextPressure {
   private continuousToolCallsCount = 0;
   private estimatedTokens = 0;
 
+  beginResponse(inputTokens: number, retained: boolean): void {
+    if (!retained) this.reset();
+    this.continuousToolCallsCount = 0;
+    if (Number.isFinite(inputTokens) && inputTokens > 0) {
+      this.estimatedTokens = retained ? this.estimatedTokens + inputTokens : inputTokens;
+    }
+  }
+
   recordToolCallCompleted(): void {
     this.continuousToolCallsCount += 1;
   }

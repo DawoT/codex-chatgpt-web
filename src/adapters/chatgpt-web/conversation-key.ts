@@ -51,8 +51,29 @@ export function chatGptConversationKey(parsed: CodexParsedRequest, namespace: st
 }
 
 /** Full history remains canonical; a retained epoch receives only the suffix after its last assistant reply. */
-export function retainedConversationResumeRequest(parsed: CodexParsedRequest): CodexParsedRequest | undefined {
+export function retainedConversationResumeRequest(
+  parsed: CodexParsedRequest,
+  acceptedRemoteBinding = false,
+): CodexParsedRequest | undefined {
   const lastAssistant = parsed.context.messages.findLastIndex((message) => message.role === "assistant");
+  if (lastAssistant < 0 && acceptedRemoteBinding) {
+    const checkpoint = parsed.context.messages.findLastIndex(
+      (message) => message.role === "user" && message.origin === "compaction_summary",
+    );
+    if (checkpoint < 0 || checkpoint === parsed.context.messages.length - 1) return undefined;
+    const authority = parsed.context.messages
+      .slice(0, checkpoint)
+      .filter(
+        (message) => message.role === "developer" || (message.role === "user" && message.origin === "codex_skill"),
+      );
+    return {
+      ...parsed,
+      context: {
+        ...parsed.context,
+        messages: [...authority, ...parsed.context.messages.slice(checkpoint + 1)],
+      },
+    };
+  }
   if (lastAssistant < 0 || lastAssistant === parsed.context.messages.length - 1) return undefined;
   return {
     ...parsed,

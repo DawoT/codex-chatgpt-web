@@ -386,6 +386,42 @@ export class SessionActorJournal {
       .get(sessionId);
   }
 
+  latestPhaseCheckpoint(sessionId: string, generation: number): SessionCommand | null {
+    const row = this.database
+      .query<{ commandJson: string }, [string, number]>(`
+        SELECT command_json AS commandJson FROM session_event
+        WHERE session_id = ? AND generation = ?
+          AND json_extract(command_json, '$.type') = 'phase_checkpoint_committed'
+        ORDER BY sequence DESC LIMIT 1
+      `)
+      .get(sessionId, generation);
+    return row ? (JSON.parse(row.commandJson) as SessionCommand) : null;
+  }
+
+  latestConversationBinding(sessionId: string, generation: number): SessionCommand | null {
+    const row = this.database
+      .query<{ commandJson: string }, [string, number]>(`
+      SELECT command_json AS commandJson FROM session_event
+      WHERE session_id = ? AND generation = ?
+        AND json_extract(command_json, '$.type') = 'conversation_binding_recorded'
+      ORDER BY sequence DESC LIMIT 1
+    `)
+      .get(sessionId, generation);
+    return row ? (JSON.parse(row.commandJson) as SessionCommand) : null;
+  }
+
+  completedBrowserResult(sessionId: string, generation: number, turnId: string): string | null {
+    const row = this.database
+      .query<{ resultRef: string }, [string, number, string]>(`
+        SELECT result_ref AS resultRef FROM session_operation
+        WHERE session_id = ? AND generation = ? AND turn_id = ?
+          AND kind = 'browser_send' AND state = 'completed' AND result_ref IS NOT NULL
+        ORDER BY rowid DESC LIMIT 1
+      `)
+      .get(sessionId, generation, turnId);
+    return row?.resultRef ?? null;
+  }
+
   /** Accepted rows alone are authority; open, rejected and revoked epochs never qualify. */
   acceptedCompactions(
     sessionId: string,
@@ -845,6 +881,29 @@ export class SessionActorJournal {
       if (!command.continuationSourceJson) throw new Error("Session actor checkpoint source is required");
       const checkpoint = this.compaction(command.sessionId, command.generation, command.operationId);
       if (checkpoint) throw new Error("Session actor checkpoint source must precede preparation");
+      return;
+    }
+    if (command.type === "conversation_binding_recorded") {
+      const checkpoint = this.compaction(command.sessionId, command.generation, command.operationId);
+      if (
+        checkpoint?.state !== "persisted" ||
+        checkpoint.turnId !== command.turnId ||
+        !command.retainedConversationKey ||
+        !/^[a-f0-9]{64}$/.test(command.retainedConversationKey) ||
+        !command.compactedSummaryHash ||
+        !/^[a-f0-9]{64}$/.test(command.compactedSummaryHash) ||
+        !Number.isFinite(command.remoteContextTokens) ||
+        command.remoteContextTokens! <= 0 ||
+        !command.modelId
+      ) {
+        throw new Error("Session actor retained binding requires a persisted checkpoint and valid identity");
+      }
+      return;
+    }
+    if (command.type === "phase_checkpoint_committed") {
+      if (!command.checkpointRef || !/^[a-f0-9]{64}$/.test(command.checkpointRef)) {
+        throw new Error("Session actor phase checkpoint reference is invalid");
+      }
       return;
     }
     if (command.type.startsWith("compaction_")) {

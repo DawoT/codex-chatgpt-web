@@ -33,6 +33,7 @@ export interface ChatGptTurnRuntimeBase {
   trace: ChatGptTraceFeed;
   text: ChatGptTextFeed;
   usageInput?: CodexParsedRequest;
+  updateCheckpointInput?: (input: CodexParsedRequest) => void;
   conversationKey?: string;
   releaseRetainedConversation?: () => Promise<void>;
   /** Idempotently retire the turn-bound MCP capability after browser and observer settlement. */

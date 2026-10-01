@@ -70,6 +70,10 @@ export interface TurnChannel {
   compactionResult?: BrokerToolResult;
   compactionDeliveryCount: number;
   completedToolsCount?: number;
+  phaseCheckpoint?: {
+    submit: (summary: string) => Promise<void>;
+    read: (args: Record<string, unknown>) => Promise<unknown>;
+  };
   safe?: SafeTurnControl;
   /** Every MCP request owns a lease from token claim until its handler has settled (claimedAt). */
   activities: Map<string, number>;
@@ -113,7 +117,9 @@ export interface BrokerRequest {
     | "safe_start"
     | "safe_complete"
     | "activity_complete"
-    | "submit_compaction_handoff";
+    | "submit_compaction_handoff"
+    | "submit_phase_checkpoint"
+    | "read_phase_checkpoint";
   token?: string;
   previousToken?: string;
   newToken?: string;

@@ -26,11 +26,11 @@ test("structured compaction requires retained control except for classic models"
   );
 });
 
-test("configured fresh compaction takes precedence over the heavy-turn shortcut", () => {
+test("tool count alone does not replace a retained conversation", () => {
   expect(initialCompactionRoute({ freshConversationPerTurn: true, heavyTurn: true })).toBe(
     "configured_fresh_conversation",
   );
-  expect(initialCompactionRoute({ freshConversationPerTurn: false, heavyTurn: true })).toBe("heavy_turn_fast_path");
+  expect(initialCompactionRoute({ freshConversationPerTurn: false, heavyTurn: true })).toBe("retained");
   expect(initialCompactionRoute({ freshConversationPerTurn: false, heavyTurn: false })).toBe("retained");
 });
 

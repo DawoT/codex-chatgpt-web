@@ -264,3 +264,24 @@ test.each([
 ])("input decoder rejects malformed control framing %j", (frame) => {
   expect(() => parseHelperInputMessage(JSON.stringify(frame))).toThrow();
 });
+
+test("context health crosses the helper boundary without resetting physical pressure", () => {
+  const frame = {
+    type: "event" as const,
+    id: "health_turn",
+    event: "context_health" as const,
+    health: {
+      observedDomChars: 320_000,
+      estimatedTokens: 12_000,
+      compactionRequired: false,
+      recoveryRequired: false,
+    },
+  };
+  expect(parseHelperMessage(JSON.stringify(frame))).toEqual(frame);
+  expect(() =>
+    parseHelperMessage(JSON.stringify({ ...frame, health: { ...frame.health, estimatedTokens: -1 } })),
+  ).toThrow();
+  expect(() =>
+    parseHelperMessage(JSON.stringify({ ...frame, health: { ...frame.health, recoveryRequired: "false" } })),
+  ).toThrow();
+});

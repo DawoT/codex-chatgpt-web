@@ -370,6 +370,11 @@ async function run(message: RunMessage): Promise<void> {
           onResultReady: (text: string) => confirmResultPersistence(message.id, text),
         }
       : {}),
+    onContextHealth: (health) => {
+      if (!writeProtocol({ type: "event", id: message.id, event: "context_health", health })) {
+        throw new Error("Browser helper could not report context health");
+      }
+    },
     onPreparedSelected: (reused) => {
       if (!writeProtocol({ type: "event", id: message.id, event: "prepared_selected", reused })) {
         throw new Error("Browser helper could not request prompt selection");

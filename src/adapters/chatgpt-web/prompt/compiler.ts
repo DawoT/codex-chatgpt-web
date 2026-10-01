@@ -302,6 +302,10 @@ function compileChatGptWebPromptInternal(
     ];
   }
 
+  if (options?.phaseCheckpointInstruction) {
+    staticContracts = [...staticContracts, options.phaseCheckpointInstruction];
+  }
+
   const build = (sourceMessages: readonly CodexMessage[]): CompiledChatGptWebPrompt => {
     const images: ChatGptWebPromptImage[] = [];
     const budget: ImageBudget = {
