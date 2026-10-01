@@ -12,6 +12,8 @@ import {
   runCodingReplay,
 } from "../tests/fixtures/continuity-replay";
 
+import { buildDevelopmentRuntime } from "./build-development-runtime";
+
 const root = resolve(import.meta.dir, "..");
 const suites = [
   "tests/browser-worker-contract.test.ts",
@@ -65,33 +67,26 @@ export async function sourceRevision() {
   return { head, dirty: Boolean(diff || untracked), sourceDigest: digest.digest("hex") };
 }
 
-async function buildValidation() {
-  const bundles = [];
-  for (const [name, entrypoint, target, format] of [
-    ["cli", "src/cli.ts", "bun", "esm"],
-    ["browser-helper", "src/adapters/chatgpt-web/browser-helper-main.ts", "node", "cjs"],
-  ] as const) {
-    const started = performance.now();
-    const result = await Bun.build({
-      entrypoints: [join(root, entrypoint)],
-      target,
-      format,
-      packages: "external",
-      minify: false,
-    });
-    if (!result.success) {
-      throw new Error(`${name} build failed: ${result.logs.map((log) => log.message).join("; ")}`);
-    }
-    const digest = createHash("sha256");
-    let bytes = 0;
-    for (const output of result.outputs) {
-      const content = new Uint8Array(await output.arrayBuffer());
-      bytes += content.byteLength;
-      digest.update(content);
-    }
-    bundles.push({ name, bytes, sha256: digest.digest("hex"), elapsedMs: performance.now() - started });
-  }
-  return { kind: "in-memory-validation", packages: "external", minify: false, bundles };
+export async function buildValidation(sourceRoot = root) {
+  const started = performance.now();
+  const snapshot = await buildDevelopmentRuntime(sourceRoot);
+  const manifest = JSON.parse(readFileSync(join(snapshot.runtimeRoot, "manifest.json"), "utf8"));
+  const bundles = [
+    ["cli", snapshot.entrypoint],
+    ["browser-helper", snapshot.helperPath],
+  ].map(([name, path]) => {
+    const bytes = readFileSync(path!);
+    return { name: name!, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+  });
+  return {
+    kind: "immutable-development-snapshot",
+    minify: false,
+    ...snapshot,
+    buildCommit: manifest.buildCommit as string | null,
+    dependencies: manifest.dependencies as string,
+    elapsedMs: performance.now() - started,
+    bundles,
+  };
 }
 
 async function runSuite(suite: string, browserPath: string) {

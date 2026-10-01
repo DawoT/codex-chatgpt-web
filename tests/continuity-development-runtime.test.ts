@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { buildValidation } from "../scripts/check-harness-continuity";
 
 const roots: string[] = [];
 const builder = resolve(import.meta.dir, "../scripts/build-development-runtime.ts");
@@ -31,6 +32,21 @@ function fixture(): string {
 function build(root: string) {
   return spawnSync(process.execPath, [builder, root], { encoding: "utf8", timeout: 30_000 });
 }
+
+test("continuity gates measure the runnable launcher snapshot rather than an unrelated build recipe", async () => {
+  const root = fixture();
+  const measured = await buildValidation(root);
+  expect(measured.kind).toBe("immutable-development-snapshot");
+  const snapshot = JSON.parse(build(root).stdout);
+  expect(measured.runtimeRoot).toBe(snapshot.runtimeRoot);
+  expect(measured.artifactSetSha256).toBe(snapshot.artifactSetSha256);
+  for (const bundle of measured.bundles) {
+    const filename = bundle.name === "cli" ? "cli.js" : "browser-helper.cjs";
+    const bytes = readFileSync(join(snapshot.runtimeRoot, "app", filename));
+    expect(bundle.bytes).toBe(bytes.length);
+    expect(bundle.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+  }
+});
 
 test("startup builder emits a runnable pair with a manifest of actual artifact hashes", () => {
   const root = fixture();
