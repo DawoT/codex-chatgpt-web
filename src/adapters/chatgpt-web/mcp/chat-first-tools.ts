@@ -325,6 +325,7 @@ export function registerChatFirstTools(server: McpServer, chatFirstConfig: Retur
     });
 
     registerImageTools(server, {
+      contract: "chat-first",
       scopeFor,
     });
   }

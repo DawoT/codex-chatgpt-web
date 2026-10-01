@@ -85,13 +85,16 @@ function workspaceHome(name: string, chatFirst: Record<string, unknown>): { home
   return { home, ws };
 }
 
-function connectChatFirst(home: string): { transport: StdioClientTransport; client: Client } {
+function connectChatFirst(
+  home: string,
+  envOverrides: Record<string, string> = {},
+): { transport: StdioClientTransport; client: Client } {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["src/cli.ts", "mcp", "--contract", "chat-first"],
     cwd: process.cwd(),
     stderr: "pipe",
-    env: childEnv(home),
+    env: { ...childEnv(home), ...envOverrides },
   });
   const client = new Client({ name: "codex-chat-first-contract-test", version: "1.0.0" });
   return { transport, client };
@@ -207,14 +210,16 @@ describe("Chat-First MCP lifecycle", () => {
     }
   });
 
-  test("dangerFullAccess serves six token-free tools, mutates the workspace, and audits mutations", async () => {
+  test("dangerFullAccess serves token-free tools, mutates the workspace, and audits mutations", async () => {
     const { home, ws } = workspaceHome("danger-full", {
       enabled: true,
       sandboxMode: "dangerFullAccess",
       workspaces: [],
     });
     writeFileSync(join(ws, "note.txt"), "alpha\nbeta", "utf8");
-    const { transport, client } = connectChatFirst(home);
+    const { transport, client } = connectChatFirst(home, {
+      CODEX_AUTH_TOKEN: "controlled-image-handler-token",
+    });
     try {
       await client.connect(transport);
       expect(client.getInstructions()).toContain("without any turn token");
@@ -232,13 +237,40 @@ describe("Chat-First MCP lifecycle", () => {
         "codex_tool_inventory",
         "codex_wait_tasks",
         "codex_write_file",
+        "image_gen",
       ]);
+      for (const name of ["codex_image_generate", "image_gen"]) {
+        expect(listed.tools.find((tool) => tool.name === name)?.inputSchema).toMatchObject({
+          required: ["prompt"],
+          properties: {
+            prompt: { type: "string", minLength: 1, maxLength: 4_000 },
+            out_path: { type: "string" },
+            input_image_path: { type: "string" },
+          },
+        });
+      }
       for (const tool of listed.tools) {
         const schema = tool.inputSchema as { required?: string[]; properties?: Record<string, unknown> };
         expect(schema.required ?? []).not.toContain("turn_token");
         expect(schema.required ?? []).not.toContain("request_id");
         expect(JSON.stringify(schema.properties ?? {})).not.toContain("turn_token");
         expect(JSON.stringify(schema.properties ?? {})).not.toContain("request_id");
+      }
+
+      const missingImage = join(ws, "missing-edit-input.png");
+      expect(existsSync(missingImage)).toBeFalse();
+      for (const name of ["codex_image_generate", "image_gen"]) {
+        const dispatched = await client.callTool({
+          name,
+          arguments: { prompt: "Edit a fixture image", input_image_path: missingImage, workspace: ws },
+        });
+        // The real handler reaches local image resolution before any fetch. Neither a turn
+        // token nor request id was supplied; an MCP argument-validation error cannot satisfy this.
+        expect(dispatched.isError).toBeTrue();
+        expect(dispatched.structuredContent).toMatchObject({
+          tool: name,
+          error: `Input image not found: ${missingImage}`,
+        });
       }
 
       const inventory = await client.callTool({ name: "codex_tool_inventory", arguments: {} });
