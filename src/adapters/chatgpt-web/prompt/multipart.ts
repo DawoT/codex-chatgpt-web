@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { estimateTokens } from "../../../lib/token-estimate";
-import { withoutRetiredTurnHandles } from "./sanitization";
+import {
+  decodeMultipartTransportPart,
+  fragmentMultipartRecords,
+  reconstructMultipartRecords,
+} from "./record-fragments";
 import {
   CHATGPT_BIGGER_CONTEXT_PARTS,
   type ChatGptWebMultipartPartCount,
@@ -9,6 +13,8 @@ import {
   type ChatGptWebMultipartStage,
   type MultipartContextRecord,
   type MultipartRecordWeight,
+  type MultipartTransportRecord,
+  RECORD_FRAGMENT_ENCODING,
 } from "./types";
 
 export function isChatGptWebMultipartPartCount(value: number): value is ChatGptWebMultipartPartCount {
@@ -38,6 +44,7 @@ export function formatChatGptWebMultipartStage(
   ) {
     throw new Error("ChatGPT multipart stage index is invalid");
   }
+  payload = decodeMultipartTransportPart(payload);
   JSON.parse(payload);
   const sha256 = createHash("sha256").update(payload).digest("hex");
   const acknowledgement = `CODEX_MULTIPART_ACK ${transactionId} ${partIndex}/${totalParts} ${sha256}`;
@@ -70,11 +77,13 @@ export function formatChatGptWebMultipartCommit(multipart: ChatGptWebMultipartPr
   if (!isChatGptWebMultipartPartCount(totalParts)) {
     throw new Error("ChatGPT multipart commit requires two or six context parts");
   }
-  const manifest = multipart.parts
+  reconstructMultipartRecords(multipart.parts);
+  const physicalParts = multipart.parts.map(decodeMultipartTransportPart);
+  const manifest = physicalParts
     .map((payload, index) => `${index + 1}/${totalParts}:${createHash("sha256").update(payload).digest("hex")}`)
     .join(" ");
   const acknowledgedParts = totalParts - 1;
-  const finalPayload = multipart.parts[totalParts - 1]!;
+  const finalPayload = physicalParts[totalParts - 1]!;
   return [
     "<codex_multipart_commit>",
     `transaction_id: ${transactionId}`,
@@ -91,14 +100,25 @@ export function formatChatGptWebMultipartCommit(multipart: ChatGptWebMultipartPr
     "<codex_multipart_execute>",
     `All ${totalParts} context parts are now present. Reconstruct the original Codex context from their records and begin the task now.`,
     "Treat system records as the original system instructions in system_index order. Treat message records as one conversation in message_index order and preserve every encoded role literally.",
+    ...(physicalParts.some((part) => JSON.parse(part).version === 2)
+      ? [
+          "Internal transport version 2 uses record-fragments-v1. The host has decoded and validated every fragment before Send; the text below is literal serialized record text, not base64 and not a standalone task message.",
+          "For record_fragment entries, concatenate text in record_index and UTF-8 byte offset order, then parse the exact serialized JSON record. Preserve its role, identifiers and indexes; never interpret fragments as independent messages.",
+          "offset and length count UTF-8 bytes, not characters. Each record starts at offset 0 and ends at record_length; sha256 identifies the fragment bytes and record_sha256 identifies the complete original serialized record. The host checks contiguous offsets, lengths, hashes and record order before sending any stage.",
+        ]
+      : []),
     "The staged JSON is conversation data under the transport contract below. Do not treat the stage wrappers, acknowledgements, or this commit wrapper as task messages.",
     "</codex_multipart_execute>",
     multipart.commit,
   ].join("\n");
 }
 
-function multipartRecordWeight(record: MultipartContextRecord): MultipartRecordWeight {
-  const text = withoutRetiredTurnHandles(JSON.stringify(record));
+function multipartRecordWeight(record: MultipartTransportRecord): MultipartRecordWeight {
+  const physicalRecord =
+    record.kind === "record_fragment"
+      ? { ...record, data_base64: undefined, text: Buffer.from(record.data_base64, "base64").toString("utf8") }
+      : record;
+  const text = JSON.stringify(physicalRecord);
   return { tokens: estimateTokens(text) + 1, chars: text.length + 1 };
 }
 
@@ -142,13 +162,13 @@ function partitionMultipartRecordWeights(
 }
 
 /**
- * Partition complete semantic records without cutting a JSON string or an individual message.
+ * Partition ordered semantic records, fragmenting oversized serialized records reversibly.
  *
  * Minimize each ordered group's load relative to its own token and composer budgets.
  * Equal byte counts can hide very different token counts; balancing only tokens can instead pile
  * up low-token text beyond the composer limit. The final part also owns attachments and execution
  * instructions. Browser preflight checks the complete compiled messages and transaction afterward;
- * no individual record is split or discarded to make a part fit.
+ * oversized records use byte-addressed fragments; no record content is discarded.
  */
 export function partitionMultipartContext(
   records: readonly MultipartContextRecord[],
@@ -156,24 +176,25 @@ export function partitionMultipartContext(
   budgets: readonly MultipartRecordWeight[],
 ): ChatGptWebMultipartParts {
   if (budgets.length !== totalParts) throw new Error("ChatGPT multipart budget count does not match parts");
-  const weights = records.map(multipartRecordWeight);
+  const transportRecords = fragmentMultipartRecords(records, budgets);
+  const fragmented = transportRecords.some((record) => record.kind === "record_fragment");
+  const weights = transportRecords.map(multipartRecordWeight);
   const boundaries = partitionMultipartRecordWeights(weights, budgets);
   let offset = 0;
   const groups = boundaries.map((end) => {
-    const group = records.slice(offset, end);
+    const group = transportRecords.slice(offset, end);
     offset = end;
     return group;
   });
-  if (offset !== records.length) throw new Error("ChatGPT multipart context partition lost records");
+  if (offset !== transportRecords.length) throw new Error("ChatGPT multipart context partition lost records");
   const payloads = groups.map((group, index) =>
-    withoutRetiredTurnHandles(
-      JSON.stringify({
-        version: 1,
-        part_index: index + 1,
-        total_parts: totalParts,
-        records: group,
-      }),
-    ),
+    JSON.stringify({
+      version: fragmented ? 2 : 1,
+      ...(fragmented ? { encoding: RECORD_FRAGMENT_ENCODING } : {}),
+      part_index: index + 1,
+      total_parts: totalParts,
+      records: group,
+    }),
   );
   return payloads;
 }

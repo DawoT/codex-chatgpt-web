@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ChatGptWebAdapterError } from "../adapter-error";
 import {
   type CompiledBrowserPayloadMetrics,
   estimateChatGptWebImageTokens,
@@ -6,12 +7,15 @@ import {
   measureCompiledChatGptWebInput,
 } from "../input-tokens";
 import type { ChatGptWebCapabilities, ChatGptWebModelMode } from "../model";
+import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT, PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "../preflight-budget";
 import {
   type ChatGptWebMultipartStage,
   type CompiledChatGptWebPrompt,
   formatChatGptWebMultipartCommit,
   formatChatGptWebMultipartStage,
 } from "../prompt";
+import { multipartTransportManifest } from "../prompt/record-fragments";
+import type { ChatGptWebMultipartPartCount } from "../prompt/types";
 import {
   assertChatGptWebInputWithinLimits,
   assertChatGptWebMultipartInputWithinLimits,
@@ -53,9 +57,24 @@ export function buildMultipartPlan(
     capabilities: ChatGptWebCapabilities;
     requestedMode: ChatGptWebModelMode;
     compaction: boolean;
+    /** Negotiated host/helper wire capabilities; never infer these from model/account support. */
+    helperCapabilities?: readonly string[];
   },
 ): ChatGptMultipartPlan {
   const { modelId, capabilities, requestedMode, compaction } = params;
+  if (prepared.multipart) {
+    const transport = multipartTransportManifest(prepared.multipart.parts);
+    if (transport) {
+      for (const required of transport.requiredHelperCapabilities) {
+        if (!params.helperCapabilities?.includes(required)) {
+          throw new Error(`Multipart transport requires helper capability ${required} before Send`);
+        }
+      }
+      if (JSON.stringify(prepared.multipart.transport) !== JSON.stringify(transport)) {
+        throw new Error("Multipart fragment transport manifest is missing or incompatible");
+      }
+    }
+  }
   const multipartTransactionId = prepared.multipart ? `ctx_${randomUUID().replaceAll("-", "")}` : undefined;
   const multipartStages =
     prepared.multipart && multipartTransactionId
@@ -136,4 +155,60 @@ export function buildMultipartPlan(
     maxStageChars,
     stagingMode,
   };
+}
+
+/** Select from fully compiled physical payloads. Capability enables transport; it never forces six. */
+export function selectCompiledChatGptWebTransport(
+  compile: (parts?: ChatGptWebMultipartPartCount) => CompiledChatGptWebPrompt,
+  params: {
+    modelId: string;
+    capabilities: ChatGptWebCapabilities;
+    requestedMode: ChatGptWebModelMode;
+    compaction: boolean;
+    /** Existing model ceiling for automatic transport without an expanded context capability. */
+    totalContextTokenLimit?: number;
+  },
+  forceMultipart = false,
+): CompiledChatGptWebPrompt {
+  let lastError: unknown;
+  const candidates: (ChatGptWebMultipartPartCount | undefined)[] = forceMultipart ? [2, 6] : [undefined, 2, 6];
+  for (const parts of candidates) {
+    try {
+      const compiled = compile(parts);
+      // Planning on the compiler host validates encoding support here; the real helper must
+      // negotiate independently and provide its own capabilities to buildMultipartPlan before Send.
+      const plan = buildMultipartPlan(compiled, {
+        ...params,
+        helperCapabilities: compiled.multipart?.transport?.requiredHelperCapabilities,
+      });
+      if (params.totalContextTokenLimit !== undefined && plan.estimatedInputTokens >= params.totalContextTokenLimit) {
+        throw new ChatGptWebAdapterError(
+          "The complete history exceeds the existing model context ceiling; no history was discarded.",
+          {
+            status: 400,
+            errorType: "invalid_request_error",
+            code: "context_length_exceeded",
+            retryable: false,
+          },
+        );
+      }
+      const safeChars = compiled.multipart ? PREFLIGHT_MAX_STAGE_CHAR_LIMIT : PREFLIGHT_SAFE_INLINE_CHAR_LIMIT;
+      if (plan.maxMessageChars > safeChars) {
+        throw new ChatGptWebAdapterError(
+          `Compiled transport exceeds the ${safeChars.toLocaleString("en-US")}-character safe browser boundary; no history was discarded.`,
+          {
+            status: 400,
+            errorType: "invalid_request_error",
+            code: "context_length_exceeded",
+            retryable: false,
+          },
+        );
+      }
+      return compiled;
+    } catch (error) {
+      if (!(error instanceof ChatGptWebAdapterError) && !(error instanceof RangeError)) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
 }

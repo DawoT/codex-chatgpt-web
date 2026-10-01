@@ -1,21 +1,10 @@
-import {
-  CHATGPT_WEB_BACKEND_MODEL,
-  CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER,
-  isChatGptWebZeroRiskBackendModel,
-  resolveChatGptWebContextLimits,
-  resolveChatGptWebMessageTokenBudget,
-  resolveChatGptWebTransportLimits,
-} from "../../chatgpt-web-models";
+import { isChatGptWebZeroRiskBackendModel } from "../../chatgpt-web-models";
 import { estimateTokens } from "../../lib/token-estimate";
 import type { CodexParsedRequest, CodexUsage } from "../../types";
+import { selectCompiledChatGptWebTransport } from "./browser/multipart-plan";
 import { extractChatGptTurnIdentity } from "./environment";
-import {
-  compiledChatGptWebMessages,
-  estimateChatGptWebImageTokens,
-  estimateCompiledChatGptWebInputTokens,
-} from "./input-tokens";
+import { estimateCompiledChatGptWebInputTokens } from "./input-tokens";
 import { CHATGPT_WEB_LUNA_MODEL_ID, type ChatGptWebCapabilities, resolveChatGptWebModelMode } from "./model";
-import { PREFLIGHT_MAX_STAGE_CHAR_LIMIT, PREFLIGHT_SAFE_INLINE_CHAR_LIMIT } from "./preflight-budget";
 import {
   CHATGPT_BIGGER_CONTEXT_PARTS,
   type ChatGptWebMultipartPartCount,
@@ -23,7 +12,6 @@ import {
   type CompiledChatGptWebPrompt,
   compileChatGptWebPrompt,
 } from "./prompt";
-import { skillFileTokens } from "./skill-attachments";
 import type { BrokerToolRequest } from "./turn-broker";
 
 // The real capability has the same length. Keeping it out of usage accounting would make
@@ -61,11 +49,7 @@ export function estimateChatGptWebInputTokens(
   return estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId);
 }
 
-/**
- * The compaction threshold chooses the initial part count. Whole records and composer limits
- * can require more parts even when the total token estimate is small. Plan before submission;
- * compaction always receives all six parts without passing through the legacy inline budget.
- */
+/** Select inline, two or six using the complete compiled messages, attachments and existing limits. */
 export function resolveBiggerContextMultipartParts(
   parsed: CodexParsedRequest,
   capabilities: ChatGptWebCapabilities,
@@ -80,66 +64,27 @@ export function resolveBiggerContextMultipartParts(
       "Bigger Context is unavailable for Luna because its accumulated browser transcript still shares one 28,000-token transport budget",
     );
   }
-  const mode = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities);
-  if (parsed._compactionRequest) return CHATGPT_BIGGER_CONTEXT_PARTS;
-  const { contextWindow, autoCompactTokenLimit } = resolveChatGptWebContextLimits(
-    CHATGPT_WEB_BACKEND_MODEL,
-    mode.effort,
-    { ...capabilities, experimentalBiggerContext: false },
+  const mode = resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities, {
+    messages: parsed.context.messages,
+    compactionRequest: Boolean(parsed._compactionRequest),
+  });
+  const compiled = selectCompiledChatGptWebTransport(
+    (parts): CompiledChatGptWebPrompt =>
+      compileChatGptWebPrompt(parsed, capabilities, mode.localTools ? ESTIMATE_TURN_TOKEN : undefined, {
+        experimentalMultipartParts: parts,
+        experimentalSkillAttachments,
+      }),
+    { modelId: parsed.modelId, capabilities, requestedMode: mode, compaction: Boolean(parsed._compactionRequest) },
+    forceMultipart,
   );
-  const compile = (parts?: ChatGptWebMultipartPartCount): CompiledChatGptWebPrompt =>
-    compileChatGptWebPrompt(parsed, capabilities, mode.localTools ? ESTIMATE_TURN_TOKEN : undefined, {
-      experimentalMultipartParts: parts,
-      experimentalSkillAttachments,
-    });
-  const inline = compile();
-  const inputTokens = estimateCompiledChatGptWebInputTokens(inline, parsed.modelId);
-  const initialParts = biggerContextPartCount(inputTokens, autoCompactTokenLimit, false);
-  if (initialParts === CHATGPT_BIGGER_CONTEXT_PARTS) return initialParts;
-
-  const fits = (compiled: CompiledChatGptWebPrompt): boolean => {
-    const messages = compiledChatGptWebMessages(compiled);
-    if (messages.length > 1 && messages.some((message) => message.length > PREFLIGHT_MAX_STAGE_CHAR_LIMIT)) {
-      return false;
-    }
-    if (messages.length === 1 && compiled.text.length > PREFLIGHT_SAFE_INLINE_CHAR_LIMIT) {
-      return false;
-    }
-    // Inert stages may use any explicitly available staging effort; execution keeps the chosen
-    // effort. These are the widest stage modes used by the browser's existing selector.
-    const stagingEffort = capabilities.proAvailable ? "max" : "medium";
-    for (const [index, text] of messages.entries()) {
-      const final = index === messages.length - 1;
-      const effort = final ? mode.effort : stagingEffort;
-      const { browserComposerCharLimit } = resolveChatGptWebTransportLimits(
-        CHATGPT_WEB_BACKEND_MODEL,
-        effort,
-        capabilities,
-      );
-      if (browserComposerCharLimit !== undefined && text.length > browserComposerCharLimit) return false;
-      const budget = resolveChatGptWebMessageTokenBudget(
-        CHATGPT_WEB_BACKEND_MODEL,
-        effort,
-        capabilities,
-        final ? estimateChatGptWebImageTokens(compiled) + skillFileTokens(compiled.skillFiles, parsed.modelId) : 0,
-      );
-      if (estimateTokens(text, parsed.modelId) > budget) return false;
-    }
-    return (
-      estimateCompiledChatGptWebInputTokens(compiled, parsed.modelId) <
-      contextWindow * Math.min(messages.length, CHATGPT_WEB_BIGGER_CONTEXT_MULTIPLIER)
-    );
-  };
-  if (!forceMultipart && initialParts === undefined && fits(inline)) return undefined;
-  return fits(compile(2)) ? 2 : CHATGPT_BIGGER_CONTEXT_PARTS;
+  return compiled.multipart?.parts.length as ChatGptWebMultipartPartCount | undefined;
 }
 
 export function biggerContextPartCount(
   inputTokens: number,
   onePartLimit: number,
-  compaction: boolean,
+  _compaction: boolean,
 ): ChatGptWebMultipartPartCount | undefined {
-  if (compaction) return CHATGPT_BIGGER_CONTEXT_PARTS;
   if (inputTokens < onePartLimit) return undefined;
   if (inputTokens < onePartLimit * 2) return 2;
   return CHATGPT_BIGGER_CONTEXT_PARTS;

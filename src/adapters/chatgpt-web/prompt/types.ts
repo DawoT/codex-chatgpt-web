@@ -10,6 +10,7 @@ export interface ChatGptWebPromptImage {
 
 export interface PromptCompilationResult {
   version: 1;
+  transport?: MultipartTransportManifest;
   sourceSha256: string;
   payloadSha256: string;
   measurement: CompiledBrowserPayloadMetrics;
@@ -58,7 +59,14 @@ export const CHATGPT_BIGGER_CONTEXT_PARTS = 6 as const;
 export type ChatGptWebMultipartPartCount = 2 | typeof CHATGPT_BIGGER_CONTEXT_PARTS;
 export type ChatGptWebMultipartParts = readonly string[];
 
+export interface MultipartTransportManifest {
+  encodingVersion: 2;
+  encoding: typeof RECORD_FRAGMENT_ENCODING;
+  requiredHelperCapabilities: readonly string[];
+}
+
 export interface ChatGptWebMultipartPrompt {
+  transport?: MultipartTransportManifest;
   parts: ChatGptWebMultipartParts;
   commit: string;
 }
@@ -97,6 +105,23 @@ export interface ImageBudget {
 export type MultipartContextRecord =
   | { kind: "system"; system_index: number; content: string }
   | { kind: "message"; message_index: number; message: Record<string, unknown> };
+
+/** Internal host/helper wire encoding; unrelated to the public MCP/checkpoint version. */
+export const RECORD_FRAGMENT_CAPABILITY = "continuity-record-fragments-v1";
+export const RECORD_FRAGMENT_ENCODING = "record-fragments-v1";
+
+export interface MultipartRecordFragment {
+  kind: "record_fragment";
+  record_index: number;
+  record_sha256: string;
+  record_length: number;
+  offset: number;
+  length: number;
+  sha256: string;
+  data_base64: string;
+}
+
+export type MultipartTransportRecord = MultipartContextRecord | MultipartRecordFragment;
 
 export interface MultipartRecordWeight {
   tokens: number;

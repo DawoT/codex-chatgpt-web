@@ -10,8 +10,9 @@ import {
 import { estimateTokens } from "../../../lib/token-estimate";
 import type { CodexMessage, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
+import { selectCompiledChatGptWebTransport } from "../browser/multipart-plan";
 import { isChatGptSubagentTurn } from "../environment";
-import { measureCompiledBrowserPayload, measureCompiledChatGptWebInput } from "../input-tokens";
+import { measureCompiledBrowserPayload } from "../input-tokens";
 import {
   CHATGPT_WEB_LUNA_MODEL_ID,
   CHATGPT_WEB_MODEL_ID,
@@ -29,6 +30,7 @@ import {
   isChatGptWebMultipartPartCount,
   partitionMultipartContext,
 } from "./multipart";
+import { multipartTransportManifest } from "./record-fragments";
 import { withoutRetiredTurnHandles, withoutSupersededModelSwitchContracts } from "./sanitization";
 import {
   CHATGPT_COMPACTION_PROMPT_JSON_BYTE_BUDGET,
@@ -359,6 +361,7 @@ function compileChatGptWebPromptInternal(
         return { tokens, chars };
       });
       multipart.parts = partitionMultipartContext(records, multipartParts!, budgets);
+      multipart.transport = multipartTransportManifest(multipart.parts);
       return { text: multipart.commit, images, ...attachments, multipart };
     }
     const envelopeJson = withoutRetiredTurnHandles(JSON.stringify({ version: 3, system, messages }));
@@ -380,34 +383,33 @@ function compileChatGptWebPromptInternal(
   const compiled = build(sourceMessages);
   if (!parsed._compactionRequest) return compiled;
 
-  // The 110k edge budget was measured for the old single-message compaction envelope. Bigger
-  // Context stages are governed by the same model-specific per-message token and composer limits
-  // as ordinary multipart turns in browser-worker. Applying the legacy byte cap here silently
-  // discarded context that the staged transport can carry; preserve it and let browser preflight
-  // fail explicitly if any atomic record is genuinely too large for one stage.
   if (compiled.multipart) return compiled;
-
-  const exceedsCompactionBudget = (): boolean =>
-    chatGptPromptJsonBytes(compiled.text) > CHATGPT_COMPACTION_PROMPT_JSON_BYTE_BUDGET;
-
+  if (!manualControl) {
+    return selectCompiledChatGptWebTransport(
+      (parts) =>
+        parts === undefined
+          ? compiled
+          : compileChatGptWebPromptInternal(parsed, capabilities, turnToken, {
+              ...options,
+              experimentalMultipartParts: parts,
+            }),
+      {
+        modelId: parsed.modelId,
+        capabilities,
+        requestedMode: resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, capabilities, {
+          messages: parsed.context.messages,
+          compactionRequest: true,
+        }),
+        compaction: true,
+        totalContextTokenLimit: resolveChatGptWebContextLimits(parsed.modelId as ChatGptWebBackendModel, mode.effort, {
+          ...capabilities,
+          experimentalBiggerContext: false,
+        }).contextWindow,
+      },
+    );
+  }
   const encodedBytes = chatGptPromptJsonBytes(compiled.text);
-  if (exceedsCompactionBudget()) {
-    if (!manualControl) {
-      const staged = compileChatGptWebPromptInternal(parsed, capabilities, turnToken, {
-        ...options,
-        experimentalMultipartParts: 6,
-      });
-      const { contextWindow } = resolveChatGptWebContextLimits(parsed.modelId as ChatGptWebBackendModel, mode.effort, {
-        ...capabilities,
-        experimentalBiggerContext: false,
-      });
-      // Automatic staging changes transport, never the advertised model capacity.
-      if (measureCompiledChatGptWebInput(staged, parsed.modelId).inputTokens < contextWindow) return staged;
-      throw new ChatGptWebAdapterError(
-        "The complete compaction history exceeds the base model context window even with multipart transport. Compact earlier or select a larger model; no history was discarded.",
-        { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
-      );
-    }
+  if (encodedBytes > CHATGPT_COMPACTION_PROMPT_JSON_BYTE_BUDGET) {
     throw new ChatGptWebAdapterError(
       `Compaction requires ${encodedBytes.toLocaleString("en-US")} JSON bytes to preserve the complete history, exceeding the inline transport budget. Use the Bigger Context multipart compaction path or compact earlier; no history was discarded.`,
       { status: 400, errorType: "invalid_request_error", code: "context_length_exceeded", retryable: false },
@@ -432,6 +434,7 @@ export function compileChatGptWebPrompt(
       .split("<codex_transport_resume>")[0]!;
     result.compilation = {
       version: 1,
+      ...(result.multipart?.transport ? { transport: result.multipart.transport } : {}),
       sourceSha256: hash(JSON.stringify(parsed.context)),
       payloadSha256: hash(
         result.multipart || result.images.length || result.skillFiles?.length

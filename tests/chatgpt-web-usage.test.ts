@@ -9,6 +9,7 @@ import {
   estimateCompiledChatGptWebInputTokens,
 } from "../src/adapters/chatgpt-web/input-tokens";
 import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
+import { reconstructMultipartRecords } from "../src/adapters/chatgpt-web/prompt/record-fragments";
 import { estimateChatGptWebInputTokens, resolveBiggerContextMultipartParts } from "../src/adapters/chatgpt-web/usage";
 import { estimateTokens } from "../src/lib/token-estimate";
 import type { CodexParsedRequest } from "../src/types";
@@ -44,22 +45,29 @@ test("multipart selection accounts for whole-record and composer fit before subm
   ] as const) {
     const parsed = request("");
     parsed.context.messages = contents.map((content, index) => ({ role: "user", content, timestamp: index + 1 }));
-    const parts = resolveBiggerContextMultipartParts(parsed, plus);
-    expect(parts).toBe(expected);
-    const compiled = compileChatGptWebPrompt(parsed, plus, undefined, { experimentalMultipartParts: parts });
-    if (parts) {
+    if (expected === undefined) {
+      expect(resolveBiggerContextMultipartParts(parsed, plus)).toBeUndefined();
+    } else {
+      // These complete histories exceed even six physical composer messages. Fail explicitly,
+      // while compilation remains lossless for callers that inspect the rejected payload.
+      expect(() => resolveBiggerContextMultipartParts(parsed, plus)).toThrow();
+      const compiled = compileChatGptWebPrompt(parsed, plus, undefined, { experimentalMultipartParts: 6 });
       expect(
-        compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records).map((record) => record.message.content),
+        reconstructMultipartRecords(compiled.multipart!.parts).map((record) =>
+          record.kind === "message" ? record.message.content : undefined,
+        ),
       ).toEqual([...contents]);
     }
   }
   // Low-token text can still exceed the reasoning model's server character ceiling.
   // Use the smallest staged transport that fits the complete record.
-  const sparsePro = request("x".repeat(600_000));
-  expect(resolveBiggerContextMultipartParts(sparsePro, capabilities)).toBe(6);
+  const sparsePro = request(" ".repeat(600_000));
+  expect(() => resolveBiggerContextMultipartParts(sparsePro, capabilities)).toThrow();
   const stagedPro = compileChatGptWebPrompt(sparsePro, capabilities, undefined, { experimentalMultipartParts: 6 });
   expect(
-    stagedPro.multipart!.parts.flatMap((part) => JSON.parse(part).records).map((record) => record.message.content),
+    reconstructMultipartRecords(stagedPro.multipart!.parts).map((record) =>
+      record.kind === "message" ? record.message.content : undefined,
+    ),
   ).toEqual([sparsePro.context.messages[0]!.content]);
   const proMessages = compiledChatGptWebMessages(stagedPro);
   expect(proMessages.some((message) => message.length > 45_000)).toBe(true);
@@ -83,7 +91,7 @@ test("multipart selection accounts for whole-record and composer fit before subm
   ).toThrow("45,000");
 }, 60_000);
 
-test("Bigger Context compaction selects six parts before the legacy inline byte budget", () => {
+test("Bigger Context compaction selects the smallest valid transport without losing records", () => {
   const parsed = request("x".repeat(160_000));
   parsed._compactionRequest = true;
   const parts = resolveBiggerContextMultipartParts(parsed, capabilities);
@@ -91,7 +99,9 @@ test("Bigger Context compaction selects six parts before the legacy inline byte 
   const compiled = compileChatGptWebPrompt(parsed, capabilities, undefined, { experimentalMultipartParts: parts });
   expect(compiled.trimmedCompactionMessages).toBeUndefined();
   expect(
-    compiled.multipart!.parts.flatMap((part) => JSON.parse(part).records).map((record) => record.message.content),
+    reconstructMultipartRecords(compiled.multipart!.parts).map((record) =>
+      record.kind === "message" ? record.message.content : undefined,
+    ),
   ).toEqual([parsed.context.messages[0]!.content]);
 });
 

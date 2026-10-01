@@ -7,6 +7,7 @@ import {
   formatChatGptWebMultipartCommit,
   formatChatGptWebMultipartStage,
 } from "../src/adapters/chatgpt-web/prompt";
+import { reconstructMultipartRecords } from "../src/adapters/chatgpt-web/prompt/record-fragments";
 import { estimateTokens } from "../src/lib/token-estimate";
 
 test("Bigger Context rejects mixed-density records that exceed the safe browser boundary", () => {
@@ -42,7 +43,7 @@ test("Bigger Context rejects mixed-density records that exceed the safe browser 
       { experimentalMultipartParts: 6 },
     );
     const multipart = compiled.multipart!;
-    const records = multipart.parts.flatMap((part) => JSON.parse(part).records);
+    const records = reconstructMultipartRecords(multipart.parts);
     expect(records).toEqual(
       contents.map((content, message_index) => ({
         kind: "message",
