@@ -13,7 +13,7 @@ import { LauncherBrowserHelperClient } from "../src/adapters/chatgpt-web/launche
 import { selectedSkillFile } from "../src/adapters/chatgpt-web/skill-attachments";
 import { ChatGptExternalTurnProgress } from "../src/adapters/chatgpt-web/turn-progress";
 import { LAUNCHER_BROWSER_HOST_KIND, LAUNCHER_BROWSER_IDLE_URL } from "../src/launcher-browser-host";
-import { makeLauncherTurn } from "./fixtures/worker-harness";
+import { makeLauncherTurn, makeWorkerFixture } from "./fixtures/worker-harness";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -377,7 +377,7 @@ test("daemon streams browser lifecycle through the real helper process", async (
   }
 });
 
-test("accepted compaction retires through the helper as completed without hiding cancellations or errors", async () => {
+test("real helper retires accepted compaction and aborts pending browser work on close", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-helper-compaction-end-"));
   roots.push(root);
   const helper = join(root, "helper.ts");
@@ -520,6 +520,53 @@ test("accepted compaction retires through the helper as completed without hiding
       expect(ended.get(traceId)?.retain).toBeUndefined();
       expect(released).toBeTrue();
     }
+    // The same real daemon/helper transport now holds an acquired prompt while browser
+    // observation waits for an abort. Shutdown must reject the run and release its prompt;
+    // waiting for a successful browser result here would leave the operation blocked.
+    const worker = makeWorkerFixture({ config: { browserHost: "launcher" }, launcherHelper: client });
+    let markBrowserWait!: () => void;
+    const browserWaiting = new Promise<void>((resolve) => {
+      markBrowserWait = resolve;
+    });
+    let releaseCount = 0;
+    let settled = false;
+    const preparePending = async () => ({
+      text: "pending browser read",
+      images: [],
+      release: () => {
+        releaseCount += 1;
+      },
+    });
+    const pending = worker.run(
+      makeLauncherTurn("close_pending_read", {
+        nativeConnector: true,
+        conversationKey: "a".repeat(64),
+        requireRetainedConversation: true,
+        prepare: preparePending,
+        prepareResume: preparePending,
+        onSubmitted: markBrowserWait,
+      }),
+    );
+    const outcome = pending.then(
+      (value) => {
+        settled = true;
+        return value;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      },
+    );
+    await browserWaiting;
+    expect(settled).toBeFalse();
+    expect(releaseCount).toBe(0);
+    const closing = worker.close();
+    expect(await outcome).toMatchObject({ name: "AbortError", message: "Launcher browser helper is closing" });
+    expect(releaseCount).toBe(1);
+    await closing;
+    expect(ended.get("close_pending_read")?.status).toBe("aborted");
+    expect(client.getHelperProtocolStatus()).toBe("disconnected");
+    expect(releaseCount).toBe(1);
     await client.close();
     expect(
       logs.some((line) => line.includes("compaction_accepted ended after accepted structured compaction handoff")),
