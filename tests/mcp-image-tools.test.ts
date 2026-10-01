@@ -16,12 +16,37 @@ describe("MCP Image Tools", () => {
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   const samplePngBuffer = Buffer.from(samplePngBase64, "base64");
 
+  test("missing runtime contract rejects before either image alias is registered", async () => {
+    const server = new McpServer({ name: "test-server", version: "1.0.0" });
+    server.registerTool("existing-tool", { inputSchema: {} }, async () => ({ content: [] }));
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    let registrationError: unknown;
+    try {
+      try {
+        Reflect.apply(registerImageTools, undefined, [server, {}]);
+      } catch (error) {
+        registrationError = error;
+      }
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toEqual(["existing-tool"]);
+      expect(registrationError).toBeInstanceOf(Error);
+      expect((registrationError as Error).message).toMatch(/contract/i);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   test("registers codex_image_generate and image_gen in MCP server and BRIDGE_TOOL_NAMES", async () => {
     expect(BRIDGE_TOOL_NAMES.has("codex_image_generate")).toBe(true);
     expect(BRIDGE_TOOL_NAMES.has("image_gen")).toBe(true);
 
     const server = new McpServer({ name: "test-server", version: "1.0.0" });
     registerImageTools(server, {
+      contract: "native",
       token: "test-token",
     });
 
@@ -67,6 +92,7 @@ describe("MCP Image Tools", () => {
 
     const server = new McpServer({ name: "test-server", version: "1.0.0" });
     registerImageTools(server, {
+      contract: "native",
       token: "test-token",
       fetchImpl: mockFetch as any,
     });
@@ -115,6 +141,7 @@ describe("MCP Image Tools", () => {
 
     const server = new McpServer({ name: "test-server", version: "1.0.0" });
     registerImageTools(server, {
+      contract: "native",
       token: "test-token",
       fetchImpl: mockFetch as any,
     });

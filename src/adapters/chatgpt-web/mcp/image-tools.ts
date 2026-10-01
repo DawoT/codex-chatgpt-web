@@ -12,12 +12,15 @@ export interface ImageToolOptions {
   baseUrl?: string;
   codexHome?: string;
   fetchImpl?: typeof fetch;
-  contract?: ChatGptMcpContract;
+  contract: ChatGptMcpContract;
   scopeFor?: (requested?: string) => { cwd: string; roots: string[]; writableRoots?: string[] };
 }
 
-export function registerImageTools(server: McpServer, options: ImageToolOptions = {}): void {
-  const contract = options.contract ?? "native";
+export function registerImageTools(server: McpServer, options: ImageToolOptions): void {
+  const contract = options?.contract;
+  if (contract !== "native" && contract !== "safe" && contract !== "chat-first") {
+    throw new Error("Image tools require an explicit MCP contract");
+  }
   const tokenSchema: Record<string, z.ZodTypeAny> =
     contract === "safe"
       ? { request_id: turnTokenSchema.optional() }
