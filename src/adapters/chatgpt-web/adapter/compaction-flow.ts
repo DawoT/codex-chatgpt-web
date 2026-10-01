@@ -58,6 +58,7 @@ import { estimateChatGptWebUsage } from "../usage";
 import { persistTurnCompaction } from "../workspace-persistence";
 import { withAbort } from "./cancellation";
 import { CompactionBrowserRunner } from "./compaction-browser-runner";
+import { CompactionCheckpointTransaction } from "./compaction-checkpoint";
 import {
   compactionControlPolicy,
   initialCompactionRoute,
@@ -303,31 +304,12 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     const actorSessionId = `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`;
     const actorTurnId = compactionNativeIdentity.turnId;
     const checkpointOperationId = `checkpoint:${compactionTraceId}`;
-    const checkpointTransition = async (
-      phase: Parameters<SessionActorManager["compactionTransition"]>[3],
-      summary?: string,
-    ): Promise<void> => {
-      if (!sessionActorManager) return;
-      if (!actorTurnId) throw new Error("Structured checkpoint requires native turn ownership");
-      const acknowledgement = await sessionActorManager.compactionTransition(
-        actorSessionId,
-        actorTurnId,
-        checkpointOperationId,
-        phase,
-        summary,
-      );
-      if (acknowledgement.status !== "accepted") {
-        throw new Error(`Checkpoint actor requires recovery: ${acknowledgement.status}`);
-      }
-    };
-    const rejectCheckpointIfOpen = async (): Promise<void> => {
-      const current =
-        sessionActorManager && actorTurnId
-          ? sessionActorManager.checkpointRecovery(actorSessionId, actorTurnId, checkpointOperationId)
-          : null;
-      if (current?.state === "persisted" || current?.state === "accepted") return;
-      await checkpointTransition("compaction_rejected");
-    };
+    const checkpoint = new CompactionCheckpointTransaction(
+      sessionActorManager,
+      actorSessionId,
+      actorTurnId,
+      checkpointOperationId,
+    );
     const startedAt = Date.now();
     let route: CompactionRoute = "unknown";
     const record = (
@@ -365,10 +347,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       acceptedCompactionEpoch(parsed, compactionNativeIdentity) ?? "initial",
     ]);
     const runningSummary = existingStructuredCompactionRun(compactionExecutionKey);
-    const recoveredCheckpoint =
-      sessionActorManager && actorTurnId
-        ? sessionActorManager.checkpointRecovery(actorSessionId, actorTurnId, checkpointOperationId)
-        : null;
+    const recoveredCheckpoint = checkpoint.recovery();
     if (!runningSummary && recoveredCheckpoint && recoveredCheckpoint.state !== "accepted") {
       emit({
         type: "error",
@@ -386,7 +365,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       });
       return true;
     }
-    await checkpointTransition("compaction_prepared");
+    await checkpoint.transition("compaction_prepared");
     let sharedSummary =
       runningSummary ??
       (recoveredCheckpoint?.state === "accepted" ? Promise.resolve(recoveredCheckpoint.summary) : undefined);
@@ -789,11 +768,11 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
               );
             }
             if (operationSignal.aborted) throw operationSignal.reason;
-            await checkpointTransition("compaction_received", summary);
-            await checkpointTransition("compaction_validated");
+            await checkpoint.receiveAndValidate(summary);
             try {
-              const persisted = persistTurnCompaction(environment, parsed.context.messages, summary);
-              await checkpointTransition("compaction_persisted");
+              const persisted = await checkpoint.persist(() =>
+                persistTurnCompaction(environment, parsed.context.messages, summary),
+              );
               record("persisted", persisted ? "succeeded" : "skipped", { localPersisted: persisted });
               if (persisted && environment?.cwd && sharedSummary) {
                 persistedStructuredRunRoots.set(sharedSummary, environment.cwd);
@@ -884,7 +863,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       }
       const handoffError = error instanceof Error ? error : new Error(String(error));
       const upstreamError = handoffError instanceof ChatGptWebAdapterError ? handoffError : undefined;
-      await rejectCheckpointIfOpen();
+      await checkpoint.rejectIfOpen();
       const isObservationTimeout =
         handoffError instanceof ChatGptBrowserObservationTimeoutError ||
         (handoffError as { code?: string }).code === "browser_dom_observation_timeout";
@@ -917,7 +896,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       clearInterval(compactionHeartbeatTimer);
     }
     const rejectCheckpoint = async (reason: string): Promise<boolean> => {
-      await rejectCheckpointIfOpen();
+      await checkpoint.rejectIfOpen();
       record("failed", "rejected", { reasonCode: "context_checkpoint_validation_failed" });
       emit({
         type: "milestone",
@@ -947,20 +926,20 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
     }
     recordValidation(summary, quality, false);
     if (!quality.valid) {
-      await checkpointTransition("compaction_received", summary);
+      await checkpoint.transition("compaction_received", summary);
       return await rejectCheckpoint(quality.missingInvariants.join("; "));
     }
-    await checkpointTransition("compaction_received", summary);
-    await checkpointTransition("compaction_validated");
+    await checkpoint.receiveAndValidate(summary);
     let localPersisted: boolean;
     try {
-      localPersisted =
-        persistedStructuredRunRoots.has(sharedSummary) &&
-        persistedStructuredRunRoots.get(sharedSummary) === environment?.cwd
-          ? true
-          : persistTurnCompaction(environment, parsed.context.messages, summary);
-      record("persisted", localPersisted ? "succeeded" : "skipped", { localPersisted });
-      await checkpointTransition("compaction_persisted");
+      localPersisted = await checkpoint.persist(
+        () =>
+          persistedStructuredRunRoots.has(sharedSummary) &&
+          persistedStructuredRunRoots.get(sharedSummary) === environment?.cwd
+            ? true
+            : persistTurnCompaction(environment, parsed.context.messages, summary),
+        (persisted) => record("persisted", persisted ? "succeeded" : "skipped", { localPersisted: persisted }),
+      );
     } catch {
       record("failed", "failed", { reasonCode: "context_checkpoint_persistence_failed" });
       emit({
@@ -973,17 +952,17 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       });
       return true;
     }
-    await checkpointTransition("compaction_accepted");
+    await checkpoint.transition("compaction_accepted");
     record("accepted", "succeeded", { localPersisted });
-    const checkpoint = extractStructuredCompactionHandoff(summary).state!;
-    for (const achievement of checkpoint.verifiedAchievements ?? []) {
+    const checkpointState = extractStructuredCompactionHandoff(summary).state!;
+    for (const achievement of checkpointState.verifiedAchievements ?? []) {
       if (typeof achievement !== "string") {
         emit({
           type: "milestone",
           kind: "verified_achievement",
           result: achievement.result,
           evidence: achievement.evidence,
-          nextStep: checkpoint.nextActions[0]!,
+          nextStep: checkpointState.nextActions[0]!,
         });
         continue;
       }
@@ -999,7 +978,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
         kind: "verified_achievement",
         result,
         evidence,
-        nextStep: checkpoint.nextActions[0]!,
+        nextStep: checkpointState.nextActions[0]!,
       });
     }
     emit({
@@ -1007,7 +986,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
       kind: "checkpoint_completed",
       result: "Checkpoint validated",
       evidence: "structured_state_and_source_invariants",
-      nextStep: checkpoint.nextActions[0]!,
+      nextStep: checkpointState.nextActions[0]!,
     });
     emit({ type: "text_delta", text: summary, phase: "final_answer" });
     emitBrowserCompletion(
