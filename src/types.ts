@@ -18,6 +18,8 @@ export interface CodexParsedRequest {
    * metadata. Both run without local tools; their output contracts differ.
    */
   _compactionRequest?: boolean;
+  /** Host-derived provenance for the bounded repair; never parsed from incoming JSON. */
+  _compactionOriginalRequestRef?: string;
   /** Native compact.rs expects assistant text; remote v2 (the default) expects a compaction item. */
   _compactionResponseFormat?: "message";
   /**

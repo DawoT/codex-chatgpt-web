@@ -87,7 +87,7 @@ function missionCheckpoint(narrative: string): string {
   return `${narrative}
 <compaction_state>
 version: 2
-original_request_ref: user request "Inspect the Zero Risk transport."
+original_request_ref: sha256:e1fd8cc2db323f8a78a9f17ce5a04990cda5617d6a17c8972fd2a185ce765f2e
 modified_files:
 active_hypothesis: Continue the Zero Risk task.
 requirements:

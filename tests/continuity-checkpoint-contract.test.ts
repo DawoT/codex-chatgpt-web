@@ -9,6 +9,7 @@ import {
   structuredCompactionRepairInstruction,
   zeroRiskActiveCompactionToolResultInstruction,
 } from "../src/adapters/chatgpt-web/native-compaction-control";
+import { compileChatGptWebPrompt } from "../src/adapters/chatgpt-web/prompt";
 import { COMPACT_PROMPT, formatCompactionStateBlock, ORIGINAL_USER_REQUEST_MARKER } from "../src/responses/compaction";
 import type { CodexParsedRequest } from "../src/types";
 
@@ -63,6 +64,18 @@ test("all model-facing checkpoint requests explicitly describe the strict v2 wir
     expect(instruction).toContain("exactly one next action");
     expect(instruction).toContain("Never invent");
   }
+});
+
+test("compiled fresh compact supplies the host-computed original reference outside task history", () => {
+  const parsed = request();
+  const compiled = compileChatGptWebPrompt(parsed, {
+    localToolsEnabled: false,
+    solAvailable: true,
+    extraHighAvailable: false,
+    proAvailable: false,
+  });
+  expect(compiled.text).toContain(`original_request_ref: ${compactionOriginalRequestRef(parsed)}`);
+  expect(compiled.text).toContain("exactly one next action");
 });
 
 test("trusted continuation preserves the original digest and refuses corrupt provenance", () => {
@@ -133,4 +146,15 @@ test("fallback repair supplies the authoritative original request digest and pre
   expect(instruction).toContain("<compaction_state>");
   for (const section of sections) expect(instruction).toContain(section);
   expect(instruction).not.toContain("bridge will normalize its internal format");
+});
+
+test("a cached static contract never borrows another task's original digest", () => {
+  const capabilities = { localToolsEnabled: false, solAvailable: true, extraHighAvailable: false, proAvailable: false };
+  const first = request();
+  const second = request();
+  second.context.messages[0] = { role: "user", content: "Repair a different task", timestamp: 1 };
+  compileChatGptWebPrompt(first, capabilities);
+  const selected = compileChatGptWebPrompt(second, capabilities);
+  expect(selected.text).toContain(`original_request_ref: ${compactionOriginalRequestRef(second)}`);
+  expect(selected.text).not.toContain(`original_request_ref: ${compactionOriginalRequestRef(first)}`);
 });

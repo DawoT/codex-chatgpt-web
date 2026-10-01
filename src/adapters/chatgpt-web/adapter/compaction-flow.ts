@@ -410,6 +410,7 @@ export async function executeCompactionFlow(ctx: CompactionFlowContext): Promise
                 });
                 const repairParsed: CodexParsedRequest = {
                   ...parsed,
+                  _compactionOriginalRequestRef: compactionOriginalRequestRef(parsed),
                   context: {
                     messages: [{ role: "user", content: repairPrompt ?? "", timestamp: Date.now() }],
                   },

@@ -109,7 +109,7 @@ test("retained handoff failures fall back to fresh compaction instead of failing
           "Summary narrative describing the work done in earlier turns.",
           "<compaction_state>",
           "version: 2",
-          "original_request_ref: sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "original_request_ref: sha256:d792bd11588d8618d85198c79bf468e96a590aa20c26cbba7d0e02450e14237e",
           "modified_files:",
           "- None",
           "active_hypothesis: Testing resilient fallback",

@@ -1258,7 +1258,7 @@ describe("ChatGPT outer-native harness v4", () => {
       await reconnect;
       expect(browserStarts).toBe(1);
       expect(actorJournal.operation(actorSessionId, 1, actorOperationId)?.state).toBe("completed");
-      expect(actorJournal.snapshot(actorSessionId)?.sequence).toBe(4);
+      expect(actorJournal.snapshot(actorSessionId)?.sequence).toBe(5);
       expect(
         events
           .filter(
@@ -2802,7 +2802,7 @@ describe("ChatGPT outer-native harness v4", () => {
             summary: `The project was inspected and the pending command completed.
 <compaction_state>
 version: 2
-original_request_ref: original repository task
+original_request_ref: sha256:8b19daab150375ef661509b3e0cad8056bd1811944924987aff4bb75d2b2204a
 modified_files:
 active_hypothesis: Continue the repository task.
 requirements:

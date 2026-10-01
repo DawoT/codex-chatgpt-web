@@ -87,7 +87,7 @@ test("HTTP /responses runs a real fresh checkpoint repair without manually appen
             : `Recovered checkpoint
 <compaction_state>
 version: 2
-original_request_ref: user turn turn_source_http_repair
+original_request_ref: sha256:3d4d626125bc3c9ef564910581b73443fb57079dc0eec34ae156c9c9b6bff233
 modified_files:
 active_hypothesis: Continue the original task.
 requirements:

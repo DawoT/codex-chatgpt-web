@@ -234,7 +234,7 @@ for (const scenario of [
         async () => `Recorded checkpoint preserving every invariant and the next concrete task action.
 <compaction_state>
 version: 2
-original_request_ref: user request "Compact"
+original_request_ref: sha256:99452646e34b69704c9134a093d5ce5af823cc6d4ed3566fe8ad3ba1555057ae
 modified_files:
 active_hypothesis: Preserve workspace authority.
 requirements:

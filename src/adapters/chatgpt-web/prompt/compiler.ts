@@ -8,9 +8,11 @@ import {
   resolveChatGptWebTransportLimits,
 } from "../../../chatgpt-web-models";
 import { estimateTokens } from "../../../lib/token-estimate";
+import { compactionCheckpointInstruction } from "../../../responses/compaction-contract";
 import type { CodexMessage, CodexParsedRequest } from "../../../types";
 import { ChatGptWebAdapterError } from "../adapter-error";
 import { selectCompiledChatGptWebTransport } from "../browser/multipart-plan";
+import { compactionOriginalRequestRef } from "../compaction-source";
 import { isChatGptSubagentTurn } from "../environment";
 import { measureCompiledBrowserPayload } from "../input-tokens";
 import {
@@ -290,6 +292,14 @@ function compileChatGptWebPromptInternal(
   if (!staticContracts) {
     staticContracts = buildStaticContracts();
     defaultPromptContractCache.set(fingerprint, staticContracts);
+  }
+
+  // Only generated static contracts enter the LRU. Task provenance remains request-scoped.
+  if (parsed._compactionRequest) {
+    staticContracts = [
+      ...staticContracts,
+      compactionCheckpointInstruction(parsed._compactionOriginalRequestRef ?? compactionOriginalRequestRef(parsed)),
+    ];
   }
 
   const build = (sourceMessages: readonly CodexMessage[]): CompiledChatGptWebPrompt => {
