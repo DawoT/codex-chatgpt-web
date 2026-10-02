@@ -33,6 +33,7 @@ export const CHATGPT_BROWSER_SLOW_OBSERVATION_MS = 5_000;
 export const CHATGPT_BROWSER_SLOW_OBSERVATION_STREAK = 2;
 
 export const CHATGPT_OPTIMAL_TOOL_BURST_LIMIT = 50;
+export const CHATGPT_PROACTIVE_YIELD_TOOL_LIMIT = 40;
 export const CHATGPT_YIELD_TOOL_BURST_LIMIT = 65;
 export const CHATGPT_CEILING_TOOL_BURST_LIMIT = 70;
 export const CHATGPT_TOKEN_SATURATION_CEILING = 55_000;
@@ -58,8 +59,9 @@ export interface PredictiveRiskInput {
 /**
  * Calculates predictive context saturation risk R(t) in [0.0, 1.0].
  * Calibrated against empirical production telemetry:
- * - Optimal zone (N <= 50 tools, DOM < 450k): R < 0.60
- * - Completion window (50 < N <= 65 tools): 0.60 <= R < 0.85, yieldRecommended = true
+ * - Optimal zone (N <= 30 tools, DOM < 450k): R < 0.60
+ * - Proactive yield window (30 < N <= 40 tools): 0.50 <= R <= 0.70 (yield recommended at 40 tools)
+ * - Completion window (40 < N <= 65 tools): 0.70 <= R < 0.85, yieldRecommended = true
  * - Saturation ceiling (N >= 70 tools or DOM >= 800k): R >= 0.85, compactionUrgent = true
  */
 export function calculatePredictiveContextRisk(input: PredictiveRiskInput): RiskAssessment {
@@ -69,18 +71,22 @@ export function calculatePredictiveContextRisk(input: PredictiveRiskInput): Risk
 
   // Tool burst ratio calibrated against empirical golden boundary
   let toolBurstRatio = 0;
-  if (tools <= CHATGPT_OPTIMAL_TOOL_BURST_LIMIT) {
-    toolBurstRatio = (tools / CHATGPT_OPTIMAL_TOOL_BURST_LIMIT) * 0.6;
+  if (tools <= 30) {
+    toolBurstRatio = (tools / 30) * 0.5;
+  } else if (tools <= CHATGPT_PROACTIVE_YIELD_TOOL_LIMIT) {
+    const progress = (tools - 30) / (CHATGPT_PROACTIVE_YIELD_TOOL_LIMIT - 30);
+    toolBurstRatio = 0.5 + progress * 0.2;
   } else if (tools <= CHATGPT_YIELD_TOOL_BURST_LIMIT) {
     const progress =
-      (tools - CHATGPT_OPTIMAL_TOOL_BURST_LIMIT) / (CHATGPT_YIELD_TOOL_BURST_LIMIT - CHATGPT_OPTIMAL_TOOL_BURST_LIMIT);
-    toolBurstRatio = 0.6 + progress * 0.2;
+      (tools - CHATGPT_PROACTIVE_YIELD_TOOL_LIMIT) /
+      (CHATGPT_YIELD_TOOL_BURST_LIMIT - CHATGPT_PROACTIVE_YIELD_TOOL_LIMIT);
+    toolBurstRatio = 0.7 + progress * 0.14;
   } else {
     const progress = Math.min(
       1.0,
       (tools - CHATGPT_YIELD_TOOL_BURST_LIMIT) / (CHATGPT_CEILING_TOOL_BURST_LIMIT - CHATGPT_YIELD_TOOL_BURST_LIMIT),
     );
-    toolBurstRatio = 0.8 + progress * 0.2;
+    toolBurstRatio = 0.84 + progress * 0.16;
   }
 
   const domPressureRatio = Math.min(1.0, dom / CHATGPT_BROWSER_DOM_CEILING_CHAR_LIMIT);

@@ -164,4 +164,25 @@ describe("Sprint 2: Predictive Risk Formula R(t) & Context Pressure", () => {
       expect(pressure.snapshot().compactionRequired).toBe(false);
     });
   });
+
+  describe("Sprint 5: Proactive Context Compaction Yield (40-tool / 30-min barrier)", () => {
+    test("emits proactive yield signal when tool count approaches 40 calls before the 50-tool saturation barrier", () => {
+      const risk40 = calculatePredictiveContextRisk({
+        continuousToolCallsCount: 40,
+      });
+
+      expect(risk40.yieldRecommended).toBe(true);
+      expect(risk40.riskScore).toBeGreaterThanOrEqual(0.7);
+    });
+
+    test("emits proactive yield signal when context risk R(t) >= 0.75", () => {
+      const highRisk = calculatePredictiveContextRisk({
+        continuousToolCallsCount: 38,
+        domChars: 650_000,
+      });
+
+      expect(highRisk.riskScore).toBeGreaterThanOrEqual(0.75);
+      expect(highRisk.yieldRecommended).toBe(true);
+    });
+  });
 });

@@ -186,6 +186,13 @@ export function createChatGptWebAdapter(
       const sessionId = `${executionNamespace}:${chatGptThreadOwnershipKey(parsed)}`;
       const originalSubmitted = turn.onSubmitted;
       const originalSendActivated = turn.onSendActivated;
+      const shouldReconcileUncertain = Boolean(
+        parsed._compactionRequest || turn.compaction || turn.prepareResume !== undefined || turn.retainConversation,
+      );
+      const evidenceRef =
+        parsed._compactionRequest || turn.compaction
+          ? `compaction:${identity.turnId}:prior_turn_abandoned`
+          : `continuation:${identity.turnId}:prior_turn_abandoned`;
       return manager.runBrowserTurn(
         sessionId,
         identity.turnId,
@@ -211,6 +218,12 @@ export function createChatGptWebAdapter(
         (generation) => {
           sessionActorOwner.generation = generation;
         },
+        shouldReconcileUncertain
+          ? {
+              reconcileUncertain: true,
+              evidenceRef,
+            }
+          : undefined,
       );
     };
     const captureLunaCheckpoint =

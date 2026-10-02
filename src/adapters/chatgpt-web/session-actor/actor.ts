@@ -113,7 +113,7 @@ export class SessionActor {
   reconcile(
     operationId: string,
     generation: number,
-    outcome: "not_sent" | "completed",
+    outcome: "not_sent" | "completed" | "abandoned",
     evidenceRef: string,
   ): Promise<number> {
     return this.enqueuePersistence(() =>

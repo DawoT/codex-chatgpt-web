@@ -139,6 +139,61 @@ export class SessionActorManager {
     }
   }
 
+  private reconcileUncertainOperationsForContinuation(sessionId: string, evidenceRef?: string): void {
+    if (!this.results) return;
+    for (const operation of this.journal.uncertainOperationsForSession(sessionId)) {
+      const ref = this.results.referenceFor(operation);
+      try {
+        const result = this.results.get(ref);
+        if (
+          result.sessionId === operation.sessionId &&
+          result.generation === operation.generation &&
+          result.turnId === operation.turnId &&
+          result.operationId === operation.operationId &&
+          operation.kind === "browser_send"
+        ) {
+          this.journal.reconcileOperation(
+            operation.sessionId,
+            operation.generation,
+            operation.operationId,
+            "completed",
+            ref,
+          );
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          const evidence = evidenceRef ?? `reconciled:${operation.turnId}:abandoned_uncertain_op`;
+          this.journal.reconcileOperation(
+            operation.sessionId,
+            operation.generation,
+            operation.operationId,
+            "abandoned",
+            evidence,
+          );
+        } else {
+          console.error(
+            `[session-actor] uncertain op ${operation.operationId} continuation reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+  }
+
+  reconcileUncertainOperation(
+    sessionId: string,
+    operationId: string,
+    outcome: "completed" | "abandoned",
+    evidenceRef: string,
+  ): Promise<number> {
+    const operation = this.journal
+      .uncertainOperationsForSession(sessionId)
+      .find((op) => op.operationId === operationId);
+    if (!operation) {
+      throw new Error(`Session actor operation ${operationId} is not pending reconciliation`);
+    }
+    return this.actor(sessionId).reconcile(operationId, operation.generation, outcome, evidenceRef);
+  }
+
   private surfaceReconciliationId(surfaceId: string, generation: number): string {
     const digest = createHash("sha256").update(surfaceId).digest("hex");
     return `surface-reconciled:${generation}:${digest}`;
@@ -583,6 +638,10 @@ export class SessionActorManager {
       onSendActivated: () => Promise<void>,
     ) => Promise<string>,
     onAdmitted?: (generation: number) => void,
+    options?: {
+      reconcileUncertain?: boolean;
+      evidenceRef?: string;
+    },
   ): Promise<string> {
     if (!this.results) throw new Error("Session actor browser result store is unavailable");
     const current = this.journal.snapshot(sessionId);
@@ -622,6 +681,9 @@ export class SessionActorManager {
       }
     }
     this.recoverUncertainOperationsForSession(sessionId, nativeTurnId, operationId);
+    if (options?.reconcileUncertain) {
+      this.reconcileUncertainOperationsForContinuation(sessionId, options.evidenceRef);
+    }
     const unresolved = this.journal.uncertainOperationsForSession(sessionId).some((operation) => {
       const retryNotSent =
         operation.kind === "browser_send" &&

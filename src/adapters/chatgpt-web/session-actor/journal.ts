@@ -516,7 +516,7 @@ export class SessionActorJournal {
     sessionId: string,
     generation: number,
     operationId: string,
-    outcome: "not_sent" | "completed",
+    outcome: "not_sent" | "completed" | "abandoned",
     evidenceRef: string,
   ): number {
     if (!evidenceRef || evidenceRef.length > 256) {
@@ -535,7 +535,7 @@ export class SessionActorJournal {
       ) {
         throw new Error("Session actor send witness requires reconciliation with completion evidence");
       }
-      const state = outcome === "not_sent" ? "abandoned" : "completed";
+      const state = outcome === "completed" ? "completed" : "abandoned";
       this.database
         .query(`
         UPDATE session_operation SET state = ?, result_ref = ?

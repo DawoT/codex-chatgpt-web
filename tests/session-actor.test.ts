@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { chatGptStreamInterruptedError } from "../src/adapters/chatgpt-web/adapter-error";
 import {
   SESSION_ACTOR_PROTOCOL_VERSION,
   SessionActor,
@@ -1998,6 +1999,74 @@ test("tool call recording with same callId across different turns does not confl
       },
     );
     await launch2.settled;
+  } finally {
+    home.close();
+  }
+});
+
+test("accepted browser turn interrupted by stream drop allows subsequent compaction or continuation turn to reconcile abandoned uncertain send", async () => {
+  const home = fixture();
+  try {
+    const results = new SessionResultStore(join(dirname(home.path), "results"));
+    const manager = new SessionActorManager(home.journal, results);
+    const sessionId = "namespace/thread-interrupted-reconciliation";
+
+    // 1. Turn 1 is accepted (prompt sent to ChatGPT), but SSE stream drops with chatgpt_stream_interrupted
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-1", "browser:trace-1", async (onAccepted) => {
+        await onAccepted();
+        throw chatGptStreamInterruptedError();
+      }),
+    ).rejects.toMatchObject({ code: "chatgpt_stream_interrupted", status: 502 });
+
+    expect(home.journal.operation(sessionId, 1, "browser:trace-1")?.state).toBe("uncertain");
+    expect(home.journal.wasOperationAccepted(sessionId, 1, "browser:trace-1")).toBe(true);
+
+    // 2. An uncoordinated turn without reconciliation is blocked (fail-closed barrier intact)
+    await expect(
+      manager.runBrowserTurn(sessionId, "turn-2", "browser:trace-2", async () => {
+        return "uncoordinated replacement";
+      }),
+    ).rejects.toMatchObject({ code: "session_reconciliation_required", status: 409 });
+
+    // 3. A subsequent compaction / continuation turn requests reconciliation:
+    // It verifies that no unrecorded response exists, marks the old operation abandoned,
+    // and admits the new turn.
+    const compactionResult = await manager.runBrowserTurn(
+      sessionId,
+      "turn-compact",
+      "browser:trace-compact",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        await onAccepted();
+        await onResultReady("Compacted continuation summary");
+        return "Compacted continuation summary";
+      },
+      undefined,
+      { reconcileUncertain: true, evidenceRef: "compaction:stream_interrupted_abandoned" },
+    );
+
+    expect(compactionResult).toBe("Compacted continuation summary");
+    // Prior uncertain turn is now durably marked abandoned with the evidence reference
+    const priorOp = home.journal.operation(sessionId, 1, "browser:trace-1");
+    expect(priorOp?.state).toBe("abandoned");
+    expect(priorOp?.resultRef).toBe("compaction:stream_interrupted_abandoned");
+
+    // The new turn completed successfully
+    expect(home.journal.operation(sessionId, 1, "browser:trace-compact")?.state).toBe("completed");
+
+    // 4. A normal subsequent turn now succeeds without requiring options
+    const nextResult = await manager.runBrowserTurn(
+      sessionId,
+      "turn-3",
+      "browser:trace-3",
+      async (onAccepted, _onToolBatch, _onLeased, _onReleased, onResultReady) => {
+        await onAccepted();
+        await onResultReady("Normal turn 3 succeeded");
+        return "Normal turn 3 succeeded";
+      },
+    );
+    expect(nextResult).toBe("Normal turn 3 succeeded");
+    expect(home.journal.operation(sessionId, 1, "browser:trace-3")?.state).toBe("completed");
   } finally {
     home.close();
   }
