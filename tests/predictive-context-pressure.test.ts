@@ -93,7 +93,7 @@ describe("Sprint 2: Predictive Risk Formula R(t) & Context Pressure", () => {
       expect(snapshot.riskAssessment.yieldRecommended).toBe(true);
     });
 
-    test("propagates urgent predictive risk into compactionRequired", () => {
+    test("keeps urgent predictive risk as a recommendation, not an obligation", () => {
       const pressure = new ChatGptBrowserContextPressure();
       for (let i = 0; i < 70; i++) {
         pressure.recordToolCallCompleted();
@@ -101,7 +101,46 @@ describe("Sprint 2: Predictive Risk Formula R(t) & Context Pressure", () => {
 
       const snapshot = pressure.snapshot();
       expect(snapshot.riskAssessment.compactionUrgent).toBe(true);
+      expect(snapshot.compactionRequired).toBe(false);
+    });
+
+    test("a healthy chat retains its conversation regardless of the tool counter", () => {
+      const pressure = new ChatGptBrowserContextPressure();
+      pressure.recordObservation({ domChars: 400_000, elapsedMs: 50 });
+      pressure.recordTokens(50_000);
+      for (const tools of [67, 70, 90]) {
+        while (pressure.calculateRisk().continuousToolCallsCount < tools) pressure.recordToolCallCompleted();
+
+        const snapshot = pressure.snapshot();
+        expect(snapshot.riskAssessment.compactionUrgent).toBe(true);
+        expect(snapshot.riskAssessment.yieldRecommended).toBe(true);
+        expect(snapshot.compactionRequired).toBe(false);
+        expect(snapshot.watchDomSize).toBe(false);
+      }
+    });
+
+    test("accredited health evidence still obliges compaction", () => {
+      const pressure = new ChatGptBrowserContextPressure();
+      pressure.recordObservation({ domChars: 100_000, elapsedMs: 6_000 });
+      pressure.recordObservation({ domChars: 100_000, elapsedMs: 6_000 });
+      expect(pressure.snapshot().recoveryRequired).toBe(true);
+      expect(pressure.snapshot().compactionRequired).toBe(false);
+
+      pressure.recordRecovery();
+      pressure.recordObservation({ domChars: 100_000, elapsedMs: 6_000 });
+      const snapshot = pressure.snapshot();
+      expect(snapshot.reason).toBe("slow_observations");
       expect(snapshot.compactionRequired).toBe(true);
+      expect(snapshot.recoveryRequired).toBe(false);
+    });
+
+    test("local compaction on a retained conversation does not reset the remote pressure estimate", () => {
+      const pressure = new ChatGptBrowserContextPressure();
+      pressure.beginResponse(20_000, true);
+      pressure.recordTokens(30_000);
+      pressure.beginResponse(10_000, true);
+      expect(pressure.snapshot().estimatedTokens).toBe(40_000);
+      expect(pressure.snapshot().continuousToolCallsCount).toBe(0);
     });
 
     test("reset clears continuous tool call counter and risk score", () => {
