@@ -178,11 +178,12 @@ export class ChatGptBrowserContextPressure {
 
   snapshot(): ChatGptBrowserContextPressureSnapshot {
     const riskAssessment = this.calculateRisk();
-    // DOM size and token estimates are conservative remote-retention heuristics, not
-    // evidence that an otherwise viable native prompt must be compacted before Send.
-    const predictiveCompactionRequired = riskAssessment.compactionUrgent && riskAssessment.toolBurstRatio >= 0.85;
+    // The tool counter and the predictive risk formula are phase recommendations only
+    // (yieldRecommended, compactionUrgent): the counter alone never obliges a compaction, so a
+    // healthy chat retains its conversation no matter how many tools ran. The obligation comes
+    // from accredited health evidence - sustained slow observations after recovery was tried.
     return {
-      compactionRequired: this.reason !== undefined || predictiveCompactionRequired,
+      compactionRequired: this.reason !== undefined,
       recoveryRequired: this.recoveryRequired,
       watchDomSize: this.observedDomChars > CHATGPT_BROWSER_DOM_COMPACTION_CHAR_LIMIT,
       ...(this.reason ? { reason: this.reason } : {}),
