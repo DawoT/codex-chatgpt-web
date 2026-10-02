@@ -176,3 +176,80 @@ siendo la ruta del plan.
 ack del hook ≤2 s, confirmación física asíncrona ≤10 s y resultado `interrupted`
 distinto de `completed`/`not_sent`. Ningún trabajo de activación: el launcher
 sigue en uso.
+
+## 8. Corrección de los cuatro hallazgos auditados (2026-10-01, sobre `1552907`)
+
+Corrección directa por ciclos RED→GREEN, un hallazgo por ciclo, sin agentes delegados.
+
+### F1 (P1) — Revocación segura ante expulsión de registros
+
+- RED `abdbf67`: tras 64+ revocaciones que expulsan el registro del handle, un alias
+  preexistente readmitía el turno con revocación terminal, un predecesor explícito sin
+  evidencia acreditada aún establecía un alias de lineage y un handle compatible seguía
+  enrutando con su registro ya expulsado.
+- GREEN `e85f957`: los tres mapas de retirada se unifican en un catálogo acotado cuyo
+  registro declara retirada compatible o terminal. La resolución por alias, trace o
+  thread exige evidencia positiva compatible; handle desconocido o expulsado no resuelve
+  nada (expulsar reduce permisos, nunca los restaura). `register()` solo crea el alias
+  de lineage desde un predecesor vivo o con registro compatible; `registerAlias` rechaza
+  fuentes con revocación terminal; la revocación terminal elimina alias entrantes y
+  salientes; los claims contra handles terminales no esperan sucesor de hilo.
+
+### F2 (P1) — Cancelación MCP terminal e idempotente
+
+- RED (commit incluido con las pruebas `mcp-turn-coordinator-release`): el `release`
+  del coordinador MCP revocaba de forma compatible, así que la capacidad abandonada
+  enrutaba al sucesor del mismo hilo y una cancelación tardía no podía convertir una
+  retirada compatible una vez desaparecido el canal.
+- GREEN `b21eb63`: el release por abandono, cancelación o timeout MCP lleva evidencia
+  terminal (`owner_revoke`/`release` con `terminal: true`); una revocación posterior al
+  cierre del canal convierte un registro compatible conocido en terminal y elimina sus
+  alias; repetir release o revocación conserva el resultado terminal. Las retiradas sin
+  evidencia terminal siguen siendo compatibles para continuaciones válidas.
+- Pin actualizado `aeab431`: el claim tardío de una petición MCP abortada reporta
+  «interrupted before finishing» (veraz) en lugar de «already finished».
+
+### F3 (P2) — Espera acotada ante herramientas pendientes sin progreso
+
+- RED `0af10af`: una llamada en vuelo sin progreso acreditado nuevo sostenía el bucle de
+  observación indefinidamente (la reproducción solo terminaba en el deadline de 62
+  minutos), incluida la ruta sin respuesta DOM.
+- GREEN `b40e5e3`: el tracker de evidencia de herramientas pendientes queda cableado en
+  el bucle real en todas las rutas (lectura sana, respuesta ausente y timeouts de
+  observación diferidos). El presupuesto existente de 30 minutos en vuelo falla cerrado
+  con `chatgpt_tool_progress_stalled` (504, no reintentable). Sólo lo renueva actividad
+  nativa acreditada nueva (claim, batch o resultado); un heartbeat (claim repetido), un
+  contador estático o un cambio visual no. La gracia de 180 s del stream interrumpido y
+  la prohibición de entregar respuesta parcial como final quedan intactas; los turnos
+  con herramientas que progresan siguen completando.
+
+### F4 (P2) — Separar recomendación de fase y obligación de compactar
+
+- RED `3fd514d`: 67, 70 y 90 llamadas con DOM, tokens y latencia saludables deben
+  permitir retención; el riesgo urgente predictivo queda como recomendación.
+- GREEN `0314dbd`: `compactionRequired` ya no hereda la fórmula predictiva del contador.
+  La obligación procede de evidencia de salud acreditada (observaciones lentas
+  sostenidas tras intento de recuperación) y el presupuesto remoto sigue acumulándose
+  entre respuestas de una conversación retenida sin reiniciarse por compactación local.
+
+### Validación de cierre (árbol `0314dbd`, ejecuciones en serie)
+
+| Verificación | Resultado |
+| --- | --- |
+| Suite completa | 2391 pass aprox. sobre 2405 tests, 14 skip, 0 fail; 269,28 s |
+| Contratos de navegador (Chrome real) | 37 pass, 0 fail; 258,40 s |
+| Launcher | typecheck 0; 368 pass, 1 skip de plataforma, 0 fail |
+| `bun run typecheck` / `bun run lint` | exit 0 / exit 0 (88 warnings de baseline) |
+| `bun run check:refactor-gates --strict` | PASS |
+| `git diff --check` | Limpio en los commits propios |
+
+Riesgos residuales: el default de `revoke`/`release` sigue siendo compatible para
+preservar continuaciones legítimas; la terminalidad depende de los call sites marcados.
+El presupuesto de 30 minutos es el techo existente de llamada en vuelo; su calibración
+fina queda para S5. Ningún cambio de schema del journal ni del protocolo MCP público.
+
+Nota de higiene del árbol: durante esta corrección apareció, sin commitear y ajena a
+esta sesión, una regresión nueva en `tests/session-actor.test.ts` (reconciliación
+`reconcileUncertain` tras envío incierto, territorio S2/S3). No se ha commiteado ni
+modificado; falla porque la API que presume aún no existe. Se deja intacta para su
+sesión propietaria.
