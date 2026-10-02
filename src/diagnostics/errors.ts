@@ -39,6 +39,7 @@ export const DIAGNOSTIC_MESSAGES = {
   chatgpt_effort_locked: "Requested effort requires an upgrade",
   chatgpt_turn_timeout: "ChatGPT turn deadline exceeded",
   chatgpt_stream_interrupted: "ChatGPT response stream remained interrupted",
+  chatgpt_tool_progress_stalled: "ChatGPT tool progress stalled without new accredited activity",
   session_reconciliation_required: "Session requires reconciliation before another external effect",
   chatgpt_browser_transport_closed: "ChatGPT browser transport closed",
   compaction_handoff_timeout: "Compaction handoff deadline exceeded",

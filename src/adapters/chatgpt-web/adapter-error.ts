@@ -114,6 +114,19 @@ export function chatGptStreamInterruptedError(): ChatGptWebAdapterError {
   );
 }
 
+export function chatGptToolProgressStalledError(detail: string): ChatGptWebAdapterError {
+  return new ChatGptWebAdapterError(
+    "A pending Codex tool call stayed in flight without new accredited progress and the bounded " +
+      `stall budget expired. ${detail}`,
+    {
+      status: 504,
+      errorType: "server_error",
+      code: "chatgpt_tool_progress_stalled",
+      retryable: false,
+    },
+  );
+}
+
 export function sessionReconciliationRequiredError(): ChatGptWebAdapterError {
   return new ChatGptWebAdapterError(
     "Session actor requires reconciliation before another external effect. " +

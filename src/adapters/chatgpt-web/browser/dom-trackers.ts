@@ -378,12 +378,18 @@ export class ChatGptPendingToolEvidenceTracker {
       toolCallsInFlight?: boolean;
       activeToolCalls?: number;
       lastProgressAt?: number;
+      newToolActivity?: boolean;
     },
     now = Date.now(),
   ): string | undefined {
     if (state.streamDelta) {
       this.lastStreamDeltaAt = now;
       this.pendingSince = undefined;
+    }
+    // New accredited native tool activity - a fresh claim, batch or result - renews the in-flight
+    // budget. Heartbeats, static counters and visual changes never reach this flag.
+    if (state.newToolActivity) {
+      this.inFlightSince = now;
     }
     if (state.toolCallsInFlight) {
       this.inFlightSince ??= now;

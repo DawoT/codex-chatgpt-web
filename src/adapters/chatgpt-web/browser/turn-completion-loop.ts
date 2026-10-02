@@ -10,11 +10,12 @@ import {
   chatGptBrowserTabClosedError,
   chatGptStoppedThinkingError,
   chatGptStreamInterruptedError,
+  chatGptToolProgressStalledError,
 } from "../adapter-error";
 import type { BrowserTurn } from "../browser-worker";
 import { ChatGptMarkdownBuffer, ChatGptMarkdownConsistencyError, inspectCompactionResponseSurface } from "../markdown";
 import { ChatGptLunaCheckpointStream } from "../rolling-checkpoint";
-import type { ChatGptTurnProgressReader } from "../turn-progress";
+import type { ChatGptExternalTurnProgressSnapshot, ChatGptTurnProgressReader } from "../turn-progress";
 import type { ResolvedBrowserConfig } from "./config";
 import type { ChatGptBrowserContextPressure } from "./context-pressure";
 import type { ChatGptBrowserDiagnostics } from "./diagnostics";
@@ -22,6 +23,7 @@ import { waitForChatGptDomSettle } from "./dom-signal";
 import {
   type ChatGptCompletionTracker,
   ChatGptConnectionInterruptionTracker,
+  ChatGptPendingToolEvidenceTracker,
   type ChatGptResponseDomCache,
   type ChatGptResponseDomSnapshot,
   ChatGptTurnDomHealthTracker,
@@ -176,6 +178,34 @@ export class TurnCompletionLoop {
       );
       if (interruptionError) throw chatGptStreamInterruptedError();
     };
+    const pendingToolTracker = new ChatGptPendingToolEvidenceTracker();
+    let lastSeenToolProgressAt: number | undefined;
+    // A tool call in flight must not hold the turn open forever: the bounded in-flight budget
+    // fails the turn closed when no new accredited tool activity arrives, on every observation
+    // path - healthy reads, absent response DOM, and deferred observation timeouts alike.
+    const assertPendingToolStallBounded = (
+      externalToolCallsInFlight: boolean,
+      progressSnapshot: ChatGptExternalTurnProgressSnapshot | undefined,
+      now = Date.now(),
+    ): void => {
+      const lastProgressAt = progressSnapshot?.lastProgressAt;
+      const newToolActivity = lastProgressAt !== undefined && lastProgressAt !== lastSeenToolProgressAt;
+      if (lastProgressAt !== undefined) lastSeenToolProgressAt = lastProgressAt;
+      const stall = pendingToolTracker.update(
+        {
+          pendingToolEvidence: false,
+          running: false,
+          streamDelta: false,
+          externalProgressLive: false,
+          toolCallsInFlight: externalToolCallsInFlight,
+          activeToolCalls: progressSnapshot?.activeToolCalls,
+          lastProgressAt,
+          newToolActivity,
+        },
+        now,
+      );
+      if (stall) throw chatGptToolProgressStalledError(stall);
+    };
     // The wake between completion iterations: the next DOM mutation or external progress
     // advance, with the horizon bounding how often ceilings are re-checked on a quiet page.
     const waitForTurnSignal = async (): Promise<void> => {
@@ -213,6 +243,7 @@ export class TurnCompletionLoop {
         externalToolCallsInFlight: currentCallsInFlight,
         multiChannelLivenessActive,
       } = this.deps.classifyLiveness(currentProgress, Date.now());
+      assertPendingToolStallBounded(currentCallsInFlight, currentProgress);
       const uiState = await readUiGenerationState();
       assertConnectionInterruptionWithinGrace(uiState.connectionInterrupted, {
         externalProgressLive: currentProgressLive,
@@ -347,6 +378,7 @@ export class TurnCompletionLoop {
             externalToolCallsInFlight: currentCallsInFlight,
             multiChannelLivenessActive,
           } = this.deps.classifyLiveness(currentProgress, Date.now());
+          assertPendingToolStallBounded(currentCallsInFlight, currentProgress);
           const uiState = await readUiGenerationState();
           assertConnectionInterruptionWithinGrace(uiState.connectionInterrupted, {
             externalProgressLive: currentProgressLive,
@@ -385,6 +417,7 @@ export class TurnCompletionLoop {
               externalToolCallsInFlight: currentCallsInFlight,
               multiChannelLivenessActive,
             } = this.deps.classifyLiveness(currentProgress, Date.now());
+            assertPendingToolStallBounded(currentCallsInFlight, currentProgress);
             const uiState = await readUiGenerationState();
             assertConnectionInterruptionWithinGrace(uiState.connectionInterrupted, {
               externalProgressLive: currentProgressLive,
@@ -422,6 +455,7 @@ export class TurnCompletionLoop {
         }
         const { externalProgressLive, externalToolCallsInFlight, multiChannelLivenessActive } =
           this.deps.classifyLiveness(externalProgressSnapshot, Date.now());
+        assertPendingToolStallBounded(externalToolCallsInFlight, externalProgressSnapshot);
         if (!snapshot.responsePresent && (externalProgressLive || multiChannelLivenessActive)) {
           // Current-turn MCP activity proves that ChatGPT is still executing even if its renderer
           // temporarily cannot expose the response subtree. DOM remains authoritative for text and
