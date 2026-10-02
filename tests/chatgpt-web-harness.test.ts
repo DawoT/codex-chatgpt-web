@@ -4073,7 +4073,9 @@ next_actions:
         }
         await Bun.sleep(10);
       } while (Date.now() < deadline);
-      expect(String(abandonedError)).toContain("already finished");
+      // The abort released the binding as a terminal revocation: the claim reports the turn
+      // was interrupted before finishing, not that it already finished.
+      expect(String(abandonedError)).toContain("interrupted before finishing");
 
       const inventory = await client.callTool({
         name: "codex_tool_inventory",
